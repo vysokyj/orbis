@@ -60,9 +60,12 @@
     oSettings.setBoolValue("ground", oOptions.ground);
 
     // ── Dump ──────────────────────────────────────────────────────────────
+    // One progress dialog for both steps: a step per node, one for orbis.
+    startProgress(sTitle + ": reading the scene...", Scene.getNumNodes() + 1, true, true);
     var sDump = App.getTempPath() + "/orbis-scene-dump.json";
     var sError = writeDump(sDump);
     if (sError) {
+        finishProgress();
         if (sError != "cancelled") {
             MessageBox.critical("Could not dump the scene:\n" + sError, sTitle, "&OK");
         }
@@ -75,11 +78,13 @@
     if (oOptions.preview) aArgs.push("--preview");
     if (!oOptions.ground) aArgs.push("--no-ground");
 
-    startProgress(sTitle + ": exporting to Octane...", 0, false, true);
-    var oResult = run(aArgs, function (sLine) {
-        setProgressInfo(sTitle + ": " + sLine);
-    });
+    setProgressInfo(sTitle + ": writing the Octane package...");
+    var oResult = run(aArgs, true);
+    stepProgress(1);
     finishProgress();
+    if (oResult.cancelled) {
+        return;
+    }
 
     if (oResult.ok) {
         MessageBox.information(oResult.out, sTitle, "&OK");
@@ -214,7 +219,6 @@
         // its host's cached geometry, so the host has to stay at LOD 0 while
         // the shell is read. Our export refines the base meshes as DAZ does.
         var aLods = baseResolution();
-        startProgress(sTitle + ": reading the scene...", nNodes, true, true);
         for (var n = 0; n < nNodes; n++) {
             stepProgress(1);
             if (progressIsCancelled()) {
@@ -228,7 +232,6 @@
                 bFirst = false;
             }
         }
-        finishProgress();
         for (var r = 0; r < aLods.length; r++) {
             aLods[r].control.setValue(aLods[r].value);
         }
@@ -332,36 +335,45 @@
     }
 
     // Run aArgs[0] with the rest as arguments, wait for it and collect its
-    // stdout (each line also passed to fnLine) and stderr.
-    function run(aArgs, fnLine) {
+    // stdout and stderr; with bCancellable the progress dialog's Cancel
+    // kills it.
+    function run(aArgs, bCancellable) {
         var oProcess = new DzProcess(aArgs);
         oProcess.communication = DzProcess.Stdout | DzProcess.Stderr;
         var aOut = [];
-        var sErr = "";
         if (!oProcess.start()) {
-            return { ok: false, out: "", err: "Could not start " + aArgs[0] };
+            return { ok: false, cancelled: false, out: "", err: "Could not start " + aArgs[0] };
         }
         var drain = function () {
             while (oProcess.canReadLineStdout()) {
-                var sLine = oProcess.readLineStdout();
-                aOut.push(sLine);
-                if (fnLine) fnLine(sLine);
+                aOut.push(oProcess.readLineStdout());
             }
         };
         // `running` per the API reference; `isRunning()` in older builds.
         var isRunning = function () {
             return typeof oProcess.isRunning == "function" ? oProcess.isRunning() : oProcess.running;
         };
+        var bCancelled = false;
         while (isRunning()) {
             drain();
             processEvents();
+            if (bCancellable && progressIsCancelled()) {
+                oProcess.kill();
+                bCancelled = true;
+                break;
+            }
             sleep(100);
         }
         drain();
-        sErr = String(oProcess.readStderr());
+        var sErr = String(oProcess.readStderr());
         print(sTitle + ": " + aOut.join("\n"));
         if (sErr) print(sTitle + " (stderr): " + sErr);
-        return { ok: oProcess.normalExit && oProcess.exitStatus == 0, out: aOut.join("\n"), err: sErr };
+        return {
+            ok: !bCancelled && oProcess.normalExit && oProcess.exitStatus == 0,
+            cancelled: bCancelled,
+            out: aOut.join("\n"),
+            err: sErr
+        };
     }
 
 })();

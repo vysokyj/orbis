@@ -132,6 +132,17 @@ fn shell_surface_visibility_and_hidden_nodes() {
 }
 
 #[test]
+fn shell_refines_with_its_host() {
+    // DAZ reports the shell at level 0; it renders at the host's SubD.
+    let mut d = dump();
+    d.nodes[0].lod = 1;
+    let mut lib = Library::new(vec![], scene());
+    let (meshes, _) = build_meshes(&mut lib, &d).unwrap();
+    assert_eq!(meshes[0].face_counts.len(), 8, "host: 2 quads refined");
+    assert_eq!(meshes[1].face_counts.len(), 8, "shell refined like its host");
+}
+
+#[test]
 fn host_dumped_with_its_grafts_appended() {
     // DAZ hands out the host's cache with the graft's 4 vertices after its 6.
     let mut d = dump();

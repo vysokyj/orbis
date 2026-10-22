@@ -386,7 +386,10 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
         // DAZ works in centimeters; write meters. Octane's USD import ignores
         // `metersPerUnit` and takes points as meters.
         mesh.points = points.iter().map(|p| [p[0] * CM, p[1] * CM, p[2] * CM]).collect();
-        let refined = shape_node.subdivision.unwrap_or(parts[0].topo.subdivision) && fig.lod > 0;
+        // A shell has no resolution level of its own (0 in the dump); it
+        // renders at its host's.
+        let lod = if is_shell { dump.node(&shape_node.label, &shape_node.name).map_or(fig.lod, |h| h.lod) } else { fig.lod };
+        let refined = shape_node.subdivision.unwrap_or(parts[0].topo.subdivision) && lod > 0;
         if refined {
             mesh = subdivide_once(&mesh);
         }
