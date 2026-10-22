@@ -88,12 +88,45 @@
     }
 
     if (oResult.ok) {
-        MessageBox.information(oResult.out, sTitle, "&OK");
+        MessageBox.information(summary(oResult.out), sTitle, "&OK");
     } else {
         MessageBox.critical("The export failed.\n\n" + oResult.out + "\n" + oResult.err, sTitle, "&OK");
     }
 
     // ── Functions ─────────────────────────────────────────────────────────
+
+    // orbis's report without its per-node and per-texture lines, which can
+    // run long — just their counts; the full report is in the DAZ log.
+    function summary(sOut) {
+        var aLines = sOut.split("\n");
+        var aKeep = [];
+        var nSkipped = 0;
+        var nMissing = 0;
+        for (var i = 0; i < aLines.length; i++) {
+            var sLine = aLines[i];
+            if (sLine.indexOf("skipped: ") == 0) {
+                nSkipped++;
+            } else if (sLine.indexOf("missing texture: ") == 0) {
+                nMissing++;
+            } else if (sLine.indexOf("exporting ") != 0 && sLine.indexOf("done: ") != 0 && sLine) {
+                aKeep.push(sLine);
+            }
+        }
+        if (nSkipped || nMissing) {
+            aKeep.push(nSkipped + " node(s) left out, " + nMissing + " texture(s) missing - see the DAZ log (Help > Troubleshooting > View Log File).");
+        }
+        aKeep.push("");
+        aKeep.push("Saved: " + orbxPath(aLines));
+        return aKeep.join("\n");
+    }
+
+    // The .orbx path from orbis's "done: <path>" line.
+    function orbxPath(aLines) {
+        for (var i = aLines.length - 1; i >= 0; i--) {
+            if (aLines[i].indexOf("done: ") == 0) return aLines[i].substring(6);
+        }
+        return "";
+    }
 
     // The options dialog; fills oOpt and returns true on Export. Plain
     // widgets with label headings: group boxes in DAZ Studio 6 squeeze
