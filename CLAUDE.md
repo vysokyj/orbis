@@ -14,7 +14,7 @@ cargo build --release                          # target/release/orbis
 cargo run --release -- export <scene.duf> -o <out.orbx|out.usdz> [--preview] [--no-ground]   # needs a cached dump
 scripts/install.sh                             # build + `orbis install` into "My Library"
 scripts/package.sh                             # plugin zip → dist/ (git-ignored)
-scripts/dev/render-icons.sh                    # assets/icon/orbis.svg → committed thumbnails
+scripts/dev/render-icons.sh                    # assets/icon/*.svg → committed thumbnails
 python3 scripts/dev/fetch-octane-docs.py docs/octane/manual <cache dir>   # Octane manual mirror (git-ignored)
 ```
 CI (`.github/workflows/ci.yml`) tests and packages on every push; a `v*` tag
@@ -35,7 +35,7 @@ attaches the zip to a GitHub release.
 | `src/daz.rs` | DAZ Studio on this machine: content dirs, app bundle |
 | `assets/octane/*.ocs` | `project.ocs` template + kernels, embedded with `include_str!` |
 | `daz/Scripts/ORBIS/` | DAZ Studio script (options dialog, scene dump, menu action) + thumbnails; a template — `orbis install` fills in `@…@` |
-| `assets/icon/orbis.svg` | Icon source for the thumbnails |
+| `assets/icon/` | Thumbnail sources: `globe.svg` (folder), `orbx.svg` (script) |
 | `scripts/package.sh` | Builds the release zip: the (universal) binary + docs |
 | `scripts/dev/` | Calibration tools: Octane Lua probes, render comparison, manual mirror |
 
