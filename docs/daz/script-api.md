@@ -48,7 +48,8 @@ nodes without geometry).
   space, cm, Y up, every morph and the pose applied. At resolution level 0 it
   is the base mesh, vertex-for-vertex the `.dsf` geometry; set the level with
   `setValue(0)`, then `forceCacheUpdate(node, false)` before reading, and
-  restore the level afterwards.
+  restore the level afterwards. A geometry shell (`DzGeometryShellNode`)
+  copies its host's cache — switch the host too, before the shell's update.
 - `getNumVertices()`, `getVertex(i)` → `DzVec3` (`x`, `y`, `z`);
   `getNumMaterialGroups()`, `getMaterialGroup(i).name`; `getNumFacets()`.
 - Strand hair (dForce, no facets): `getNumPolylines()`,
@@ -71,8 +72,13 @@ nodes without geometry).
 - `DzBasicDialog`: `caption`, `addWidget(w)`, `setAcceptButtonText(text)`,
   `exec()` → true on accept. `getWidget().objectName = "<unique>"` makes DAZ
   remember the dialog's size and position.
-- Widgets take their parent in the constructor: `DzVGroupBox` /
-  `DzVButtonGroup` (`title`; radio buttons inside are exclusive),
+- Widgets take their parent in the constructor. `DzVGroupBox` /
+  `DzVButtonGroup` (`title`) squeeze their contents into scroll areas in DAZ
+  Studio 6 — use a `DzLabel` heading (`text` takes rich text, `<b>…</b>`)
+  and a `DzWidget` + `DzVBoxLayout` instead; radio buttons sharing a parent
+  are exclusive. Size a `DzBasicDialog` to its contents with
+  `setFixedSize(getWidget().minimumSizeHint.width, ….height)` before
+  `exec()`. Also
   `DzRadioButton`, `DzCheckBox` (`text`, `checked`), `DzLineEdit` (`text`),
   `DzPushButton`, `DzWidget` + `DzHBoxLayout(widget)` (`addWidget(w,
   stretch)`, `margin`) for a row. `enabled` on any widget.

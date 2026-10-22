@@ -44,8 +44,11 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
 ```
 
 - One entry per node with an object and a non-empty cached geometry (bones
-  skipped). `vertices`: the **base mesh** (resolution level switched to 0
-  while reading, then restored) from `getCachedGeom()` — world space, cm,
+  skipped). `vertices`: the **base mesh** from `getCachedGeom()` — every
+  node's resolution level is switched to 0 and every cache rebuilt **before**
+  any is read, then restored: a geometry shell copies its host's cached
+  geometry, so a host restored early hands the shell its SubD mesh (72809
+  instead of 18396 vertices for a G8F shell) — world space, cm,
   Y up, morphs and pose applied; flat `x y z`. The export refines it itself
   (SubD above), so the dump stays small and topology matches the `.dsf`.
 - `lod`: the resolution level DAZ renders at (> 0 = refined).

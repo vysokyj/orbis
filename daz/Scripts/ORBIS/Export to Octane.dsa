@@ -89,29 +89,37 @@
 
     // ── Functions ─────────────────────────────────────────────────────────
 
-    // The options dialog; fills oOpt and returns true on Export.
+    // The options dialog; fills oOpt and returns true on Export. Plain
+    // widgets with label headings: group boxes in DAZ Studio 6 squeeze
+    // their contents into scroll areas.
     function optionsDialog(oOpt) {
         var wDlg = new DzBasicDialog();
         wDlg.caption = sTitle + " - Export to Octane";
-        wDlg.getWidget().objectName = "OrbisExportDlg"; // remembers its size and position
         wDlg.setAcceptButtonText("Export");
 
-        var wOutput = new DzVButtonGroup(wDlg);
-        wOutput.title = "Save the .orbx";
+        wDlg.addWidget(heading(wDlg, "Save the .orbx"));
+        // Radio buttons sharing a parent are exclusive.
+        var wOutput = new DzWidget(wDlg);
+        var lOutput = new DzVBoxLayout(wOutput);
+        lOutput.margin = 0;
         var wBeside = new DzRadioButton(wOutput);
         wBeside.text = "Beside the scene";
+        lOutput.addWidget(wBeside);
         var wInFolder = new DzRadioButton(wOutput);
         wInFolder.text = "In this folder:";
+        lOutput.addWidget(wInFolder);
         var wRow = new DzWidget(wOutput);
         var lRow = new DzHBoxLayout(wRow);
         lRow.margin = 0;
         var wPath = new DzLineEdit(wRow);
         wPath.text = oOpt.outputDir;
-        wPath.minWidth = 320;
+        wPath.minWidth = 360;
         lRow.addWidget(wPath, 1);
         var wChoose = new DzPushButton(wRow);
         wChoose.text = "Choose...";
         lRow.addWidget(wChoose);
+        lOutput.addWidget(wRow);
+        wDlg.addWidget(wOutput);
         wBeside.checked = oOpt.besideScene;
         wInFolder.checked = !oOpt.besideScene;
         var syncRow = function () {
@@ -123,17 +131,21 @@
             var sDir = FileDialog.doDirectoryDialog("Save the .orbx in", "", wPath.text, wDlg);
             if (sDir) wPath.text = sDir;
         });
-        wDlg.addWidget(wOutput);
 
-        var wRender = new DzVGroupBox(wDlg);
-        wRender.title = "Octane";
-        var wPreview = new DzCheckBox(wRender);
+        wDlg.addSpacing(8);
+        wDlg.addWidget(heading(wDlg, "Octane"));
+        var wPreview = new DzCheckBox(wDlg);
         wPreview.text = "Fast preview (direct lighting, no subsurface)";
         wPreview.checked = oOpt.preview;
-        var wGround = new DzCheckBox(wRender);
+        wDlg.addWidget(wPreview);
+        var wGround = new DzCheckBox(wDlg);
         wGround.text = "Shadow-catching ground (when Iray draws one)";
         wGround.checked = oOpt.ground;
-        wDlg.addWidget(wRender);
+        wDlg.addWidget(wGround);
+
+        // As large as its contents need, not a remembered (squeezed) size.
+        var oHint = wDlg.getWidget().minimumSizeHint;
+        wDlg.setFixedSize(oHint.width, oHint.height);
 
         if (!wDlg.exec()) {
             return false;
@@ -143,6 +155,12 @@
         oOpt.preview = wPreview.checked;
         oOpt.ground = wGround.checked;
         return true;
+    }
+
+    function heading(wParent, sText) {
+        var wLabel = new DzLabel(wParent);
+        wLabel.text = "<b>" + sText + "</b>";
+        return wLabel;
     }
 
     // Add File → Export to Octane... (after File → Export...) unless there
@@ -196,6 +214,10 @@
         var nNodes = Scene.getNumNodes();
         var bFirst = true;
         var bCancelled = false;
+        // Every mesh at its base resolution at once: a geometry shell copies
+        // its host's cached geometry, so the host has to stay at LOD 0 while
+        // the shell is read. Our export refines the base meshes as DAZ does.
+        var aLods = baseResolution();
         startProgress(sTitle + ": reading the scene...", nNodes, true, true);
         for (var n = 0; n < nNodes; n++) {
             stepProgress(1);
@@ -203,73 +225,94 @@
                 bCancelled = true;
                 break;
             }
-            var sNode = dumpNode(Scene.getNode(n));
+            var oNode = Scene.getNode(n);
+            var sNode = dumpNode(oNode, lodOf(aLods, oNode));
             if (sNode) {
                 oFile.write((bFirst ? "" : ",") + sNode);
                 bFirst = false;
             }
         }
         finishProgress();
+        for (var r = 0; r < aLods.length; r++) {
+            aLods[r].control.setValue(aLods[r].value);
+        }
         oFile.write("]}");
         oFile.close();
         return bCancelled ? "cancelled" : "";
     }
 
-    // One node as JSON, or "" when it has no geometry: the base mesh (LOD 0)
-    // with morphs and pose applied, world space; strand hair as polylines.
-    function dumpNode(oNode) {
+    // Switch every mesh with a resolution level above 0 to its base mesh
+    // and rebuild the caches (hosts first, as the scene lists them); returns
+    // what to restore: [{ node, control, value }].
+    function baseResolution() {
+        var aLods = [];
+        var aObjects = [];
+        for (var n = 0; n < Scene.getNumNodes(); n++) {
+            var oNode = Scene.getNode(n);
+            if (oNode.inherits("DzBone")) continue;
+            var oObject = oNode.getObject();
+            var oShape = oObject ? oObject.getCurrentShape() : null;
+            if (!oShape) continue;
+            aObjects.push({ node: oNode, object: oObject });
+            var oLod = oShape.getLODControl ? oShape.getLODControl() : null;
+            if (oLod && oLod.getValue() != 0) {
+                aLods.push({ node: oNode, control: oLod, value: oLod.getValue() });
+                oLod.setValue(0);
+            }
+        }
+        for (var i = 0; i < aObjects.length; i++) {
+            aObjects[i].node.finalize();
+            aObjects[i].object.forceCacheUpdate(aObjects[i].node, false);
+        }
+        return aLods;
+    }
+
+    // The resolution level oNode renders at (before baseResolution()).
+    function lodOf(aLods, oNode) {
+        for (var i = 0; i < aLods.length; i++) {
+            if (aLods[i].node == oNode) return aLods[i].value;
+        }
+        return 0;
+    }
+
+    // One node as JSON, or "" when it has no geometry: the base mesh with
+    // morphs and pose applied, world space; strand hair as polylines.
+    function dumpNode(oNode, nLod) {
         if (oNode.inherits("DzBone")) return "";
         var oObject = oNode.getObject();
-        if (!oObject) return "";
-        var oShape = oObject.getCurrentShape();
-        if (!oShape) return "";
-        oNode.finalize();
-
-        // The base resolution: our own export refines it as DAZ does.
-        var oLod = oShape.getLODControl ? oShape.getLODControl() : null;
-        var nLod = oLod ? oLod.getValue() : 0;
-        if (oLod && nLod != 0) {
-            oLod.setValue(0);
-            oObject.forceCacheUpdate(oNode, false);
-        }
+        if (!oObject || !oObject.getCurrentShape()) return "";
         var oGeom = oObject.getCachedGeom();
-        var sJson = "";
-        if (oGeom && oGeom.getNumVertices() > 0) {
-            var aParts = [
-                "{\"name\":" + jsonString(oNode.name),
-                "\"label\":" + jsonString(oNode.getLabel()),
-                "\"class\":" + jsonString(oNode.className()),
-                "\"lod\":" + nLod
-            ];
-            var aGroups = [];
-            for (var g = 0; g < oGeom.getNumMaterialGroups(); g++) {
-                aGroups.push(jsonString(oGeom.getMaterialGroup(g).name));
-            }
-            aParts.push("\"material_groups\":[" + aGroups.join(",") + "]");
-            var nVerts = oGeom.getNumVertices();
-            var aVerts = new Array(nVerts);
-            for (var v = 0; v < nVerts; v++) {
-                var p = oGeom.getVertex(v);
-                aVerts[v] = p.x + "," + p.y + "," + p.z;
-            }
-            aParts.push("\"vertices\":[" + aVerts.join(",") + "]");
-            if (oGeom.getNumFacets() == 0 && oGeom.getNumPolylines) {
-                var nLines = oGeom.getNumPolylines();
-                var aLines = new Array(nLines);
-                var aLineMats = new Array(nLines);
-                for (var l = 0; l < nLines; l++) {
-                    aLines[l] = "[" + oGeom.getPolylineVertexIndices(l).join(",") + "]";
-                    aLineMats[l] = oGeom.getPolylineMaterialGroupIndex(l);
-                }
-                aParts.push("\"polylines\":[" + aLines.join(",") + "]");
-                aParts.push("\"polyline_materials\":[" + aLineMats.join(",") + "]");
-            }
-            sJson = aParts.join(",") + "}";
+        if (!oGeom || oGeom.getNumVertices() == 0) return "";
+        var aParts = [
+            "{\"name\":" + jsonString(oNode.name),
+            "\"label\":" + jsonString(oNode.getLabel()),
+            "\"class\":" + jsonString(oNode.className()),
+            "\"lod\":" + nLod
+        ];
+        var aGroups = [];
+        for (var g = 0; g < oGeom.getNumMaterialGroups(); g++) {
+            aGroups.push(jsonString(oGeom.getMaterialGroup(g).name));
         }
-        if (oLod && nLod != 0) {
-            oLod.setValue(nLod);
+        aParts.push("\"material_groups\":[" + aGroups.join(",") + "]");
+        var nVerts = oGeom.getNumVertices();
+        var aVerts = new Array(nVerts);
+        for (var v = 0; v < nVerts; v++) {
+            var p = oGeom.getVertex(v);
+            aVerts[v] = p.x + "," + p.y + "," + p.z;
         }
-        return sJson;
+        aParts.push("\"vertices\":[" + aVerts.join(",") + "]");
+        if (oGeom.getNumFacets() == 0 && oGeom.getNumPolylines) {
+            var nLines = oGeom.getNumPolylines();
+            var aLines = new Array(nLines);
+            var aLineMats = new Array(nLines);
+            for (var l = 0; l < nLines; l++) {
+                aLines[l] = "[" + oGeom.getPolylineVertexIndices(l).join(",") + "]";
+                aLineMats[l] = oGeom.getPolylineMaterialGroupIndex(l);
+            }
+            aParts.push("\"polylines\":[" + aLines.join(",") + "]");
+            aParts.push("\"polyline_materials\":[" + aLineMats.join(",") + "]");
+        }
+        return aParts.join(",") + "}";
     }
 
     // A JSON string literal, ASCII only (anything else as \uXXXX).
