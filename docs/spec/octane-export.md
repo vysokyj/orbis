@@ -19,19 +19,66 @@ linear-light unless marked sRGB.
 
 - The `.duf` (nodes, materials, cameras, lights, render settings).
 - Library `.dsf` assets for topology and UVs, resolved against the DAZ content
-  dirs and the `.dbz` `rootpaths.content`, then DAZ Studio's built-in
-  resources (`rootpaths.builtin_mdl`, the installed app).
-- The scene's `.dbz` for final posed world-space vertices (matched by label,
-  then unique name) and strand hair. Interim: to be replaced by a direct
-  dump from DAZ Studio.
+  dirs (`--content-dir`, else the dump's `content_dirs`, else DAZ Studio's
+  preferences), then DAZ Studio's built-in resources (the dump's
+  `builtin_mdl_dirs`, the installed app).
+- The **scene dump** the DAZ Studio script writes (below) for final posed
+  world-space vertices (matched by label, then unique name) and strand hair.
 
 No Blender in the path.
+
+### Scene dump
+
+`daz/Scripts/ORBIS/Export to Octane.dsa` writes what DAZ Studio evaluated
+as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
+`orbis export <scene.duf> --dump <file> --out-dir <dir>`:
+
+```json
+{ "format": "orbis-scene-dump", "format_version": 1,
+  "daz_version": "6.x.y.z", "scene": "/…/scene.duf",
+  "content_dirs": ["…"], "builtin_mdl_dirs": ["…"],
+  "nodes": [ { "name": "Genesis9", "label": "Noemi", "class": "DzFigure",
+               "lod": 1, "material_groups": ["Torso", …],
+               "vertices": [x, y, z, x, y, z, …],
+               "polylines": [[0, 1, 2], …], "polyline_materials": [0, …] } ] }
+```
+
+- One entry per node with an object and a non-empty cached geometry (bones
+  skipped). `vertices`: the **base mesh** (resolution level switched to 0
+  while reading, then restored) from `getCachedGeom()` — world space, cm,
+  Y up, morphs and pose applied; flat `x y z`. The export refines it itself
+  (SubD above), so the dump stays small and topology matches the `.dsf`.
+- `lod`: the resolution level DAZ renders at (> 0 = refined).
+- `polylines` / `polyline_materials`: only for geometry without facets
+  (strand hair) — the rendered strands as vertex indices, and each strand's
+  index into `material_groups`.
+- `format_version` changes with any incompatible change; `orbis` refuses
+  other versions (the script and binary are installed together).
+- `orbis` keeps the dump as `<cache>/orbis/dumps/<scene stem>-<FNV-1a of the
+  scene path>.json`; `orbis export <scene.duf>` without `--dump` re-runs on
+  it without DAZ Studio (calibration loop). The scene must still be saved:
+  materials, cameras, lights and render settings come from the `.duf`.
+
+## Plugin
+
+- `orbis install [--library DIR]` writes `Scripts/ORBIS/` (script,
+  `Export to Octane.png` thumbnail, `bin/orbis` = itself) and the folder
+  thumbnail `Scripts/ORBIS.png` into the content directory named
+  "My Library" (else the first one in DAZ Studio's preferences), sets the
+  executable bit and clears the quarantine flag. Script and thumbnails are
+  compiled into the binary; the release zip is staged the same way.
+- On its first run the script adds a custom action *File → Export to
+  Octane...* (after *File → Export...*), with the thumbnail as its icon; an
+  existing one is repointed when the script moved.
+- Options dialog, remembered in `DzAppSettings("ORBIS")`: where the `.orbx`
+  goes (beside the scene, or a folder — default `~/Documents/ORBIS`), fast
+  preview, shadow-catching ground, open Octane X.
 
 ## Geometry
 
 - Stage `upAxis = "Y"`, `metersPerUnit = 1`, `defaultPrim = "Scene"`; points
   converted cm → **meters** (Octane ignores `metersPerUnit`).
-- One `Mesh` per visible node (points from the `.dbz`, topology from the
+- One `Mesh` per visible node (points from the dump, topology from the
   `.dsf`); `Visible` = false nodes are left out.
 - `GeomSubset` per material group; `primvars:st` indexed `faceVarying`.
 - **Geometry shells** are rebuilt as DAZ does (host + grafts), rendering only
@@ -52,7 +99,7 @@ No Blender in the path.
   Why: the cap sat up to 0.8 mm under the refined skin (dark dots along the
   hairline); after the lift it is 0.28 mm above, dots gone (probe 48).
   Clothing refines with the figure and isn't touched.
-- **Strand hair** from the `.dbz` `polylines` as one `BasisCurves` per
+- **Strand hair** from the dump's `polylines` as one `BasisCurves` per
   material group, per-vertex `widths` tapering `Line Start Width` →
   `Line End Width`, at **0.4 mm per unit** (`LINE_WIDTH_SCALE` = 0.004 m).
   Why: read as mm the strands were sparse and see-through; a 1/2/4/10× sweep

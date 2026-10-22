@@ -7,6 +7,7 @@
 pub mod daz;
 pub mod daz_material;
 pub mod dson;
+pub mod install;
 pub mod layered_image;
 pub mod material;
 pub mod orbx;

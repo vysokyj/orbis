@@ -1,7 +1,7 @@
-//! Where DAZ Studio keeps things on this machine: content directories, the
-//! application bundle, and the scene's `.dbz` beside it.
+//! Where DAZ Studio keeps things on this machine: content directories and
+//! the application bundle.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// DAZ Studio's configured content directories, read from its macOS
 /// preferences (`ContentDir0..N`), newest Studio version first; falls back to
@@ -47,7 +47,3 @@ pub fn studio_app() -> Option<PathBuf> {
         .find(|p| p.exists())
 }
 
-/// The `.dbz` posed-scene export beside a scene: `<scene>.dbz`.
-pub fn dbz_path(scene_path: &Path) -> PathBuf {
-    scene_path.with_extension("dbz")
-}

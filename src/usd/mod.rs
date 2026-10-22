@@ -2,9 +2,9 @@
 //!
 //! A saved scene is rebuilt from three sources, without Blender: the `.duf`
 //! (nodes, geometry/UV/material references), the library `.dsf` assets
-//! (topology, UV sets, grafts) and the `.dbz` posed-scene export next to the
-//! scene (final world-space vertices per node, morphs and pose applied). See
-//! `docs/spec/octane-export.md` for the formats.
+//! (topology, UV sets, grafts) and the scene dump DAZ Studio writes through
+//! the ORBIS script (final world-space vertices per node, morphs and pose
+//! applied). See `docs/spec/octane-export.md` for the formats.
 //!
 //! Phase 1: geometry — one `Mesh` per node with material-group `GeomSubset`s
 //! and indexed `faceVarying` UVs, packed into a `.usdz` — and, for Octane X,
@@ -25,7 +25,7 @@ use crate::dson::{decompress_scene, percent_decode};
 use crate::orbx::write_orbx;
 
 mod camera;
-mod dbz;
+mod dump;
 mod environment;
 mod library;
 mod lights;
@@ -38,7 +38,8 @@ mod usdz;
 mod tests;
 
 pub use camera::*;
-use dbz::*;
+use dump::*;
+pub use dump::{dump_cache_path, store_dump, DUMP_FORMAT_VERSION};
 pub use environment::*;
 use library::*;
 pub use lights::*;
@@ -51,8 +52,8 @@ pub use usdz::*;
 /// Where to look for library assets.
 #[derive(Debug, Clone, Default)]
 pub struct ExportOptions {
-    /// DAZ content directories (`daz::content_dirs`); the `.dbz`'s own
-    /// `rootpaths.content` are searched after these.
+    /// DAZ content directories; the dump's own `content_dirs` are searched
+    /// after these. With neither, DAZ Studio's preferences (`daz::content_dirs`).
     pub content_dirs: Vec<PathBuf>,
     /// Octane render setup: fast preview or the photoreal path tracer.
     pub octane_mode: OctaneMode,
@@ -101,9 +102,10 @@ pub struct ExportReport {
     pub render_targets: usize,
 }
 
-/// Convert `scene` (`.duf` with its `.dbz` beside it) into a `.usdz` at `out`.
-pub fn export_scene_usdz(scene: &Path, out: &Path, opts: &ExportOptions) -> Result<ExportReport> {
-    let (meshes, report, mut lib) = build_scene(scene, opts)?;
+/// Convert `scene` (the saved `.duf`) with its `dump` (written by DAZ Studio)
+/// into a `.usdz` at `out`.
+pub fn export_scene_usdz(scene: &Path, dump: &Path, out: &Path, opts: &ExportOptions) -> Result<ExportReport> {
+    let (meshes, report, mut lib) = build_scene(scene, dump, opts)?;
     let (layer, _) = write_usda(&meshes, &scene_lights(&mut lib));
     write_atomically(out, |f| write_usdz(f, &[("scene.usda", layer.as_bytes())]))?;
     Ok(report)
@@ -113,8 +115,8 @@ pub fn export_scene_usdz(scene: &Path, out: &Path, opts: &ExportOptions) -> Resu
 /// embedded `.usdz`, imported by a USD graph in `project.ocs`, with a render
 /// target wired to it and the scene's DAZ camera. Octane X opens it from its
 /// own Open panel or gallery (it refuses files handed over from outside).
-pub fn export_scene_orbx(scene: &Path, out: &Path, opts: &ExportOptions) -> Result<ExportReport> {
-    let (meshes, mut report, mut lib) = build_scene(scene, opts)?;
+pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOptions) -> Result<ExportReport> {
+    let (meshes, mut report, mut lib) = build_scene(scene, dump, opts)?;
     let lights = scene_lights(&mut lib);
     let (layer, materials) = write_usda(&meshes, &lights);
     let mut usdz = Vec::new();
@@ -179,28 +181,29 @@ const USDZ_ASSET: &str = "scene.usdz";
 /// Octane version the `project.ocs` template was saved with (Octane X 2026.6).
 const OCTANE_VERSION: &str = "15050000";
 
-/// Read the scene, its `.dbz` and library assets into meshes.
-fn build_scene(scene: &Path, opts: &ExportOptions) -> Result<(Vec<Mesh>, ExportReport, Library)> {
+/// Read the scene, its dump and library assets into meshes.
+fn build_scene(scene: &Path, dump: &Path, opts: &ExportOptions) -> Result<(Vec<Mesh>, ExportReport, Library)> {
     let duf: Value = serde_json::from_str(&decompress_scene(
         &std::fs::read(scene).with_context(|| format!("reading {}", scene.display()))?,
     )?)?;
-    let dbz_path = crate::daz::dbz_path(scene);
-    let dbz = Dbz::load(&dbz_path)
-        .with_context(|| format!("reading {} (export it from DAZ Studio)", dbz_path.display()))?;
+    let dump = SceneDump::load(dump).with_context(|| format!("reading the scene dump {}", dump.display()))?;
 
     let mut dirs = opts.content_dirs.clone();
+    if dirs.is_empty() && dump.content_dirs.is_empty() {
+        dirs = crate::daz::content_dirs();
+    }
     // The installed DAZ Studio's Iray shader folder serves `/resources/…`
-    // (default HDRI, brushed-metal maps) even when the `.dbz` names an older
+    // (default HDRI, brushed-metal maps) even when the dump names an older
     // install.
     let installed_iray = crate::daz::studio_app().map(|a| a.join("Contents/shaders/iray"));
-    let extra = dbz.rootpaths.content.iter().chain(&dbz.rootpaths.builtin_mdl).map(PathBuf::from).chain(installed_iray);
+    let extra = dump.content_dirs.iter().chain(&dump.builtin_mdl_dirs).map(PathBuf::from).chain(installed_iray);
     for d in extra {
         if !dirs.contains(&d) {
             dirs.push(d);
         }
     }
     let mut lib = Library::new(dirs, duf);
-    let (meshes, report) = build_meshes(&mut lib, &dbz)?;
+    let (meshes, report) = build_meshes(&mut lib, &dump)?;
     Ok((meshes, report, lib))
 }
 

@@ -165,7 +165,7 @@ pub(super) const LINE_WIDTH_SCALE: f32 = 0.004;
 
 /// One `Mesh` (curves) per material group of a strand-hair figure, its
 /// strands' widths tapering from root to tip as DAZ's hair shader sets them.
-pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DbzFigure, names: &mut HashSet<String>) -> Vec<Mesh> {
+pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DumpNode, names: &mut HashSet<String>) -> Vec<Mesh> {
     let materials = scene_materials(lib, &n.instance_id);
     let mut by_group: Vec<Vec<&Vec<u32>>> = vec![Vec::new(); fig.material_groups.len().max(1)];
     for (k, strand) in fig.polylines.iter().enumerate() {
@@ -206,7 +206,7 @@ pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DbzFigure, names
     out
 }
 
-pub(super) fn build_meshes(lib: &mut Library, dbz: &Dbz) -> Result<(Vec<Mesh>, ExportReport)> {
+pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<Mesh>, ExportReport)> {
     let nodes = geo_nodes(&lib.duf);
     let mut report = ExportReport::default();
 
@@ -241,12 +241,12 @@ pub(super) fn build_meshes(lib: &mut Library, dbz: &Dbz) -> Result<(Vec<Mesh>, E
     // apart and leave a crack).
     let mergeable = |g: &GeoNode| {
         g.visible
-            && dbz.figure(&g.label, &g.name).is_some_and(|f| topo_of.get(&g.id).is_some_and(|t| t.vcount == f.vertices.len()))
+            && dump.node(&g.label, &g.name).is_some_and(|f| topo_of.get(&g.id).is_some_and(|t| t.vcount == f.vertices.len()))
     };
     let mut merged: HashSet<&str> = HashSet::new();
     for (host, gs) in &grafts {
         let Some(h) = by_id.get(host.as_str()) else { continue };
-        if !h.visible || dbz.figure(&h.label, &h.name).is_none() || !topo_of.contains_key(host) {
+        if !h.visible || dump.node(&h.label, &h.name).is_none() || !topo_of.contains_key(host) {
             continue;
         }
         merged.extend(gs.iter().filter(|g| mergeable(g)).map(|g| g.id.as_str()));
@@ -264,12 +264,12 @@ pub(super) fn build_meshes(lib: &mut Library, dbz: &Dbz) -> Result<(Vec<Mesh>, E
         if merged.contains(n.id.as_str()) {
             continue; // part of its host's mesh
         }
-        let Some(fig) = dbz.figure(&n.label, &n.name) else {
-            report.skipped.push(format!("{}: not in the .dbz", n.label));
+        let Some(fig) = dump.node(&n.label, &n.name) else {
+            report.skipped.push(format!("{}: not in the scene dump", n.label));
             continue;
         };
         if !fig.polylines.is_empty() {
-            // Strand hair: the .dbz holds the rendered strands; the library
+            // Strand hair: the dump holds the rendered strands; the library
             // mesh is only their guide.
             for mesh in hair_curves(lib, n, fig, &mut names) {
                 report.meshes += 1;
@@ -359,7 +359,7 @@ pub(super) fn build_meshes(lib: &mut Library, dbz: &Dbz) -> Result<(Vec<Mesh>, E
         if own != fig.vertices.len() {
             let breakdown: Vec<String> = parts.iter().map(|p| p.topo.vcount.to_string()).collect();
             report.skipped.push(format!(
-                "{}: .dbz has {} vertices, geometry {}{}",
+                "{}: the dump has {} vertices, geometry {}{}",
                 n.label,
                 fig.vertices.len(),
                 own,
@@ -370,7 +370,7 @@ pub(super) fn build_meshes(lib: &mut Library, dbz: &Dbz) -> Result<(Vec<Mesh>, E
         let mut points: Vec<[f32; 3]> = fig.vertices.clone();
         if !is_shell {
             for g in grafts.get(&n.id).into_iter().flatten().filter(|g| merged.contains(g.id.as_str())) {
-                points.extend_from_slice(&dbz.figure(&g.label, &g.name).map(|f| f.vertices.clone()).unwrap_or_default());
+                points.extend_from_slice(&dump.node(&g.label, &g.name).map(|f| f.vertices.clone()).unwrap_or_default());
             }
         }
         // A shell renders only the surfaces it switches on.

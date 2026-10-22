@@ -11,8 +11,10 @@ sensualium pictus* (1658).
 ```sh
 cargo test                                     # unit tests (no DAZ content needed)
 cargo build --release                          # target/release/orbis
-cargo run --release -- export <scene.duf> -o <out.orbx|out.usdz> [--preview] [--no-ground]
+cargo run --release -- export <scene.duf> -o <out.orbx|out.usdz> [--preview] [--no-ground]   # needs a cached dump
+scripts/install.sh                             # build + `orbis install` into "My Library"
 scripts/package.sh                             # plugin zip → dist/ (git-ignored)
+scripts/dev/render-icons.sh                    # assets/icon/orbis.svg → committed thumbnails
 python3 scripts/dev/fetch-octane-docs.py docs/octane/manual <cache dir>   # Octane manual mirror (git-ignored)
 ```
 CI (`.github/workflows/ci.yml`) tests and packages on every push; a `v*` tag
@@ -21,17 +23,19 @@ attaches the zip to a GitHub release.
 ## Layout
 | Path | Purpose |
 |------|---------|
-| `src/main.rs` | `orbis` CLI (`export`); stdout = progress/report read by the DAZ script, logs on stderr |
-| `src/usd/` | Scene → meshes (`.duf` + library `.dsf` + `.dbz`), SubD, hair, cameras, lights, environment, USDA/USDZ, `project.ocs`; `export_scene_orbx` / `export_scene_usdz` |
+| `src/main.rs` | `orbis` CLI (`export`, `install`); stdout = progress/report read by the DAZ script, logs on stderr |
+| `src/install.rs` | `orbis install`: script + thumbnails (compiled in) + the binary → `<library>/Scripts/ORBIS/` |
+| `src/usd/` | Scene → meshes (`.duf` + library `.dsf` + the scene dump, `dump.rs`), SubD, hair, cameras, lights, environment, USDA/USDZ, `project.ocs`; `export_scene_orbx` / `export_scene_usdz` |
 | `src/material.rs` | Iray Uber → Octane material/light/scene nodes in `project.ocs` |
 | `src/daz_material.rs` | DSON materials: merged Iray channels |
 | `src/layered_image.rs` | DAZ Layered Image Editor stacks → flattened images |
 | `src/texture_budget.rs` | Texture memory budget, downscaling |
 | `src/orbx.rs` | ORBX container writer/reader (reverse-engineered) |
 | `src/dson.rs` | gzip DSON, percent-decoding |
-| `src/daz.rs` | DAZ Studio on this machine: content dirs, app bundle, `.dbz` path |
+| `src/daz.rs` | DAZ Studio on this machine: content dirs, app bundle |
 | `assets/octane/*.ocs` | `project.ocs` template + kernels, embedded with `include_str!` |
-| `daz/Scripts/ORBIS/` | DAZ Studio script(s), shipped as `Content/Scripts/ORBIS/` with `bin/orbis` |
+| `daz/Scripts/ORBIS/` | DAZ Studio script (options dialog, scene dump, menu action) + thumbnails, installed as `Scripts/ORBIS/` with `bin/orbis` |
+| `assets/icon/orbis.svg` | Icon source for the thumbnails |
 | `scripts/package.sh` | Builds the plugin zip (universal binary when both Apple targets are installed) |
 | `scripts/dev/` | Calibration tools: Octane Lua probes, render comparison, manual mirror |
 
@@ -54,9 +58,11 @@ attaches the zip to a GitHub release.
   Octane sample files (the ORBX round-trip test reads `cornell.orbx` from the
   installed app and skips without it), no DAZ store content in fixtures —
   tests use synthetic scenes.
-- The posed geometry still comes from a `.dbz` beside the scene; our own
-  dump from DAZ Studio replaces it (#2). No third-party exporter is part of
-  the project.
+- The posed geometry comes from our own scene dump written by the DAZ
+  script (format in the spec). Script and `orbis` share `format_version` —
+  bump both on an incompatible change. No third-party exporter (Diffeomorphic
+  `.dbz`) is part of the project; streaming instead of a file is #2.
+- DAZ Script API: `docs/daz/script-api.md`.
 - The DAZ script is ECMAScript 3-ish QtScript: `var`, no arrow functions or
   `let`/`const`. It is untested in DAZ Studio until #1 is closed.
 - Octane X is sandboxed and refuses files opened from outside — never try to

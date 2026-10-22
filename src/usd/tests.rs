@@ -61,23 +61,23 @@ fn scene() -> Value {
     })
 }
 
-fn dbz() -> Dbz {
+fn dump() -> SceneDump {
     let verts = |n: usize, y: f32| (0..n).map(|i| [i as f32, y, 0.0]).collect::<Vec<_>>();
-    Dbz {
-        rootpaths: RootPaths::default(),
-        figures: vec![
+    SceneDump {
+        nodes: vec![
             // lod 0: not refined, so the assembly stays checkable.
-            DbzFigure { name: "Host".into(), label: Some("Body".into()), lod: 0, vertices: verts(6, 0.0), ..Default::default() },
-            DbzFigure { name: "Graft".into(), label: Some("Bits".into()), lod: 0, vertices: verts(4, 1.0), ..Default::default() },
-            DbzFigure { name: "Shell".into(), label: Some("Body Shell".into()), lod: 0, vertices: verts(10, 2.0), ..Default::default() },
+            DumpNode { name: "Host".into(), label: "Body".into(), lod: 0, vertices: verts(6, 0.0), ..Default::default() },
+            DumpNode { name: "Graft".into(), label: "Bits".into(), lod: 0, vertices: verts(4, 1.0), ..Default::default() },
+            DumpNode { name: "Shell".into(), label: "Body Shell".into(), lod: 0, vertices: verts(10, 2.0), ..Default::default() },
         ],
+        ..Default::default()
     }
 }
 
 #[test]
 fn builds_host_graft_and_shell_meshes() {
     let mut lib = Library::new(vec![], scene());
-    let (meshes, report) = build_meshes(&mut lib, &dbz()).unwrap();
+    let (meshes, report) = build_meshes(&mut lib, &dump()).unwrap();
     assert!(report.skipped.is_empty(), "{:?}", report.skipped);
     // The graft is merged into its host's mesh: Body + Body Shell.
     assert_eq!(meshes.len(), 2);
@@ -121,7 +121,7 @@ fn shell_surface_visibility_and_hidden_nodes() {
     ]}]);
     duf["scene"]["nodes"][1]["extra"] = json!([{"type": "studio_node_channels", "channels": [vis("Visible", false)]}]);
     let mut lib = Library::new(vec![], duf);
-    let (meshes, report) = build_meshes(&mut lib, &dbz()).unwrap();
+    let (meshes, report) = build_meshes(&mut lib, &dump()).unwrap();
     assert_eq!(report.skipped, vec!["Bits: hidden in the scene".to_string()]);
     let names: Vec<&str> = meshes.iter().map(|m| m.name.as_str()).collect();
     assert_eq!(names, ["Body", "Body_Shell"]);
@@ -133,18 +133,18 @@ fn shell_surface_visibility_and_hidden_nodes() {
 
 #[test]
 fn vertex_count_mismatch_is_skipped() {
-    let mut d = dbz();
-    d.figures[1].vertices.pop();
+    let mut d = dump();
+    d.nodes[1].vertices.pop();
     let mut lib = Library::new(vec![], scene());
     let (meshes, report) = build_meshes(&mut lib, &d).unwrap();
     assert_eq!(meshes.len(), 2);
-    assert_eq!(report.skipped, vec!["Bits: .dbz has 3 vertices, geometry 4".to_string()]);
+    assert_eq!(report.skipped, vec!["Bits: the dump has 3 vertices, geometry 4".to_string()]);
 }
 
 #[test]
 fn usda_has_stage_metadata_subsets_and_indexed_uvs() {
     let mut lib = Library::new(vec![], scene());
-    let (meshes, _) = build_meshes(&mut lib, &dbz()).unwrap();
+    let (meshes, _) = build_meshes(&mut lib, &dump()).unwrap();
     let (usda, _) = write_usda(&meshes, &[]);
     assert!(usda.starts_with("#usda 1.0\n"));
     assert!(usda.contains("metersPerUnit = 1\n") && usda.contains("upAxis = \"Y\""));
@@ -519,16 +519,17 @@ fn exports_an_orbx_with_the_scene_and_project() {
     duf["scene"]["nodes"].as_array_mut().unwrap().push(json!({"id": "Camera-1", "url": "#Camera"}));
     let scene_path = dir.path().join("My Scene.duf");
     std::fs::write(&scene_path, duf.to_string()).unwrap();
-    let d = dbz();
-    let figures: Vec<Value> = d
-        .figures
+    let d = dump();
+    let nodes: Vec<Value> = d
+        .nodes
         .iter()
-        .map(|f| json!({"name": f.name, "label": f.label, "lod": f.lod, "vertices": f.vertices}))
+        .map(|f| json!({"name": f.name, "label": f.label, "lod": f.lod, "vertices": f.vertices.concat()}))
         .collect();
-    std::fs::write(dir.path().join("My Scene.dbz"), json!({"figures": figures}).to_string()).unwrap();
+    let dump_path = dir.path().join("dump.json");
+    std::fs::write(&dump_path, json!({"format": "orbis-scene-dump", "format_version": 1, "nodes": nodes}).to_string()).unwrap();
 
     let out = dir.path().join("My Scene.orbx");
-    let report = export_scene_orbx(&scene_path, &out, &ExportOptions::default()).unwrap();
+    let report = export_scene_orbx(&scene_path, &dump_path, &out, &ExportOptions::default()).unwrap();
     assert_eq!(report.meshes, 2, "host with its merged graft, and the shell");
     let (version, files) = crate::orbx::read_orbx(&std::fs::read(&out).unwrap()).unwrap();
     assert_eq!(version, OCTANE_VERSION);
@@ -541,15 +542,34 @@ fn exports_an_orbx_with_the_scene_and_project() {
 }
 
 #[test]
-fn dbz_matches_by_label_then_unique_name() {
-    let d = Dbz::parse(
-        r#"{"figures": [{"name": "Cuff", "label": "Cuff (2)", "vertices": [[0,0,0]]},
-                        {"name": "Prop", "vertices": [[1,1,1]]},
-                        {"name": "dummy", "num verts": 0}]}"#,
+fn dump_matches_by_label_then_unique_name() {
+    let d = SceneDump::parse(
+        r#"{"format": "orbis-scene-dump", "format_version": 1,
+            "nodes": [{"name": "Cuff", "label": "Cuff (2)", "vertices": [0,0,0, 2,2,2]},
+                      {"name": "Prop", "label": "Prop (3)", "vertices": [1,1,1]},
+                      {"name": "Empty", "label": "Empty", "vertices": []}]}"#,
     )
     .unwrap();
-    assert_eq!(d.figure("Cuff (2)", "Cuff").unwrap().vertices[0], [0.0, 0.0, 0.0]);
-    assert_eq!(d.figure("Prop", "Prop").unwrap().vertices[0], [1.0, 1.0, 1.0]);
-    assert!(d.figure("Other", "Cuff").is_some(), "falls back to a unique name");
-    assert!(d.figure("Other", "Nope").is_none());
+    assert_eq!(d.node("Cuff (2)", "Cuff").unwrap().vertices, [[0.0, 0.0, 0.0], [2.0, 2.0, 2.0]]);
+    assert_eq!(d.node("Prop", "Prop").unwrap().vertices[0], [1.0, 1.0, 1.0]);
+    assert!(d.node("Other", "Cuff").is_some(), "falls back to a unique name");
+    assert!(d.node("Other", "Nope").is_none());
+    assert!(d.node("Empty", "Empty").is_none(), "no vertices, no entry");
+}
+
+#[test]
+fn dump_format_is_checked() {
+    let err = |json: &str| SceneDump::parse(json).unwrap_err().to_string();
+    assert!(err(r#"{"figures": []}"#).contains("not an ORBIS scene dump"));
+    assert!(err(r#"{"format": "orbis-scene-dump", "format_version": 99}"#).contains("format 99"));
+    assert!(SceneDump::parse(r#"{"format": "orbis-scene-dump", "format_version": 1, "nodes": [{"vertices": [1, 2]}]}"#).is_err());
+}
+
+#[test]
+fn dump_cache_path_is_per_scene() {
+    let a = dump_cache_path(Path::new("/a/My Scene.duf"));
+    let b = dump_cache_path(Path::new("/b/My Scene.duf"));
+    assert_ne!(a, b);
+    assert!(a.file_name().unwrap().to_str().unwrap().starts_with("My Scene-"));
+    assert_eq!(a, dump_cache_path(Path::new("/a/My Scene.duf")));
 }

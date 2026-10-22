@@ -1,16 +1,26 @@
 // DAZ Studio Script — ORBIS: export the current scene to Octane X.
 //
-// Runs the `orbis` binary shipped beside this script (bin/orbis) on the
-// saved scene, with DAZ Studio's content directories, and shows its report.
-// Octane X then opens with the .orbx revealed in Finder and its path on the
-// clipboard (File → Open, ⇧⌘G, paste).
+// Asks for the options (remembered between runs), dumps what DAZ Studio
+// evaluated — posed vertices of every mesh and the rendered strands of strand
+// hair — and runs the `orbis` binary shipped beside this script (bin/orbis)
+// on the saved scene and the dump. Octane X then opens with the .orbx
+// revealed in Finder and its path on the clipboard (File → Open, ⇧⌘G,
+// paste). On its first run the script adds File → Export to Octane....
 //
-// Interim: the export still reads a .dbz beside the scene for the posed
-// geometry; a direct dump from DAZ Studio replaces it (#2).
+// Installed by `orbis install`. QtScript, ECMAScript 3 style: `var`, no
+// arrow functions, no `let`/`const`.
 
 (function () {
 
     var sTitle = "ORBIS";
+    var sActionText = "Export to Octane...";
+    // Must match orbis's DUMP_FORMAT_VERSION (src/usd/dump.rs).
+    var nDumpFormatVersion = 1;
+
+    var sScriptPath = getScriptFileName();
+    var sPluginDir = new DzFileInfo(sScriptPath).path();
+
+    addMenuAction();
 
     // ── The scene ─────────────────────────────────────────────────────────
     var sScene = Scene.getFilename();
@@ -23,28 +33,8 @@
         return;
     }
 
-    // ── Options ───────────────────────────────────────────────────────────
-    var wDlg = new DzBasicDialog();
-    wDlg.caption = sTitle + " — Export to Octane";
-    var wPreview = new DzCheckBox(wDlg);
-    wPreview.text = "Fast preview (direct lighting, no subsurface)";
-    wPreview.checked = false;
-    wDlg.addWidget(wPreview);
-    var wGround = new DzCheckBox(wDlg);
-    wGround.text = "Shadow-catching ground (when Iray draws one)";
-    wGround.checked = true;
-    wDlg.addWidget(wGround);
-    var wOpen = new DzCheckBox(wDlg);
-    wOpen.text = "Open Octane X when done";
-    wOpen.checked = true;
-    wDlg.addWidget(wOpen);
-    if (!wDlg.exec()) {
-        return;
-    }
-
     // ── The binary ────────────────────────────────────────────────────────
-    var sDir = new DzFileInfo(getScriptFileName()).path();
-    var sBin = sDir + "/bin/orbis";
+    var sBin = sPluginDir + "/bin/orbis";
     if (!new DzFileInfo(sBin).exists()) {
         MessageBox.critical("The orbis binary is missing:\n" + sBin + "\n\nReinstall ORBIS.", sTitle, "&OK");
         return;
@@ -52,17 +42,41 @@
     // Zip extraction (DIM, copying between libraries) can drop the executable bit.
     run(["/bin/chmod", "+x", sBin]);
 
-    var aArgs = [sBin, "export", sScene];
-    if (wPreview.checked) aArgs.push("--preview");
-    if (!wGround.checked) aArgs.push("--no-ground");
-    if (wOpen.checked) aArgs.push("--open");
-    var oContent = App.getContentMgr();
-    for (var i = 0; i < oContent.getNumContentDirectories(); i++) {
-        aArgs.push("--content-dir");
-        aArgs.push(oContent.getContentDirectoryPath(i));
+    // ── Options ───────────────────────────────────────────────────────────
+    var oSettings = new DzAppSettings("ORBIS");
+    var oOptions = {
+        besideScene: oSettings.getBoolValue("besideScene", false),
+        outputDir: oSettings.getStringValue("outputDir", DzDir.homePath() + "/Documents/ORBIS"),
+        preview: oSettings.getBoolValue("preview", false),
+        ground: oSettings.getBoolValue("ground", true),
+        openOctane: oSettings.getBoolValue("openOctane", true)
+    };
+    if (!optionsDialog(oOptions)) {
+        return;
+    }
+    oSettings.setBoolValue("besideScene", oOptions.besideScene);
+    oSettings.setStringValue("outputDir", oOptions.outputDir);
+    oSettings.setBoolValue("preview", oOptions.preview);
+    oSettings.setBoolValue("ground", oOptions.ground);
+    oSettings.setBoolValue("openOctane", oOptions.openOctane);
+
+    // ── Dump ──────────────────────────────────────────────────────────────
+    var sDump = App.getTempPath() + "/orbis-scene-dump.json";
+    var sError = writeDump(sDump);
+    if (sError) {
+        if (sError != "cancelled") {
+            MessageBox.critical("Could not dump the scene:\n" + sError, sTitle, "&OK");
+        }
+        return;
     }
 
-    // ── Run ───────────────────────────────────────────────────────────────
+    // ── Export ────────────────────────────────────────────────────────────
+    var sOutDir = oOptions.besideScene ? new DzFileInfo(sScene).path() : oOptions.outputDir;
+    var aArgs = [sBin, "export", sScene, "--dump", sDump, "--out-dir", sOutDir];
+    if (oOptions.preview) aArgs.push("--preview");
+    if (!oOptions.ground) aArgs.push("--no-ground");
+    if (oOptions.openOctane) aArgs.push("--open");
+
     startProgress(sTitle + ": exporting to Octane…", 0, false, true);
     var oResult = run(aArgs, function (sLine) {
         setProgressInfo(sTitle + ": " + sLine);
@@ -73,6 +87,215 @@
         MessageBox.information(oResult.out, sTitle, "&OK");
     } else {
         MessageBox.critical("The export failed.\n\n" + oResult.out + "\n" + oResult.err, sTitle, "&OK");
+    }
+
+    // ── Functions ─────────────────────────────────────────────────────────
+
+    // The options dialog; fills oOpt and returns true on Export.
+    function optionsDialog(oOpt) {
+        var wDlg = new DzBasicDialog();
+        wDlg.caption = sTitle + " — Export to Octane";
+        wDlg.getWidget().objectName = "OrbisExportDlg"; // remembers its size and position
+        wDlg.setAcceptButtonText("Export");
+
+        var wOutput = new DzVButtonGroup(wDlg);
+        wOutput.title = "Save the .orbx";
+        var wBeside = new DzRadioButton(wOutput);
+        wBeside.text = "Beside the scene";
+        var wInFolder = new DzRadioButton(wOutput);
+        wInFolder.text = "In this folder:";
+        var wRow = new DzWidget(wOutput);
+        var lRow = new DzHBoxLayout(wRow);
+        lRow.margin = 0;
+        var wPath = new DzLineEdit(wRow);
+        wPath.text = oOpt.outputDir;
+        wPath.minWidth = 320;
+        lRow.addWidget(wPath, 1);
+        var wChoose = new DzPushButton(wRow);
+        wChoose.text = "Choose…";
+        lRow.addWidget(wChoose);
+        wBeside.checked = oOpt.besideScene;
+        wInFolder.checked = !oOpt.besideScene;
+        var syncRow = function () {
+            wRow.enabled = wInFolder.checked;
+        };
+        syncRow();
+        connect(wInFolder, "toggled(bool)", syncRow);
+        connect(wChoose, "clicked()", function () {
+            var sDir = FileDialog.doDirectoryDialog("Save the .orbx in", "", wPath.text, wDlg);
+            if (sDir) wPath.text = sDir;
+        });
+        wDlg.addWidget(wOutput);
+
+        var wRender = new DzVGroupBox(wDlg);
+        wRender.title = "Octane";
+        var wPreview = new DzCheckBox(wRender);
+        wPreview.text = "Fast preview (direct lighting, no subsurface)";
+        wPreview.checked = oOpt.preview;
+        var wGround = new DzCheckBox(wRender);
+        wGround.text = "Shadow-catching ground (when Iray draws one)";
+        wGround.checked = oOpt.ground;
+        var wOpen = new DzCheckBox(wRender);
+        wOpen.text = "Open Octane X when done";
+        wOpen.checked = oOpt.openOctane;
+        wDlg.addWidget(wRender);
+
+        if (!wDlg.exec()) {
+            return false;
+        }
+        oOpt.besideScene = wBeside.checked;
+        oOpt.outputDir = wPath.text;
+        oOpt.preview = wPreview.checked;
+        oOpt.ground = wGround.checked;
+        oOpt.openOctane = wOpen.checked;
+        return true;
+    }
+
+    // Add File → Export to Octane... (after File → Export...) unless there
+    // is such an action already; a reinstall elsewhere repoints it.
+    function addMenuAction() {
+        var oMgr = MainWindow.getActionMgr();
+        if (!oMgr) return; // headless
+        var sIcon = sPluginDir + "/Export to Octane.png";
+        for (var i = 0; i < oMgr.getNumCustomActions(); i++) {
+            if (oMgr.getCustomActionText(i) == sActionText) {
+                if (oMgr.getCustomActionFile(i) != sScriptPath) {
+                    oMgr.setCustomActionScript(i, sScriptPath, true);
+                    oMgr.setCustomActionIcon(i, sIcon);
+                }
+                return;
+            }
+        }
+        var sGuid = oMgr.addCustomAction(sActionText, "Export the scene to Octane X (ORBIS)", sScriptPath, true, "", sIcon);
+        var oFile = oMgr.getMenu().findSubMenu("&File");
+        if (!oFile) return;
+        var nAt = -1;
+        for (var j = 0; j < oFile.getNumItems(); j++) {
+            if (oFile.getItem(j).label == "&Export...") nAt = j + 1;
+        }
+        oFile.insertCustomAction(sGuid, nAt);
+    }
+
+    // Write the scene dump (format: docs/spec/octane-export.md); returns ""
+    // or what went wrong ("cancelled" when the user stopped it).
+    function writeDump(sPath) {
+        var oFile = new DzFile(sPath);
+        if (!oFile.open(DzFile.WriteOnly | DzFile.Truncate)) {
+            return "cannot write " + sPath;
+        }
+        var oContent = App.getContentMgr();
+        var aContent = [];
+        for (var i = 0; i < oContent.getNumContentDirectories(); i++) {
+            aContent.push(jsonString(oContent.getContentDirectoryPath(i)));
+        }
+        var aMdl = [];
+        for (var k = 0; k < oContent.getNumBuiltInMDLDirectories(); k++) {
+            aMdl.push(jsonString(oContent.getBuiltInMDLDirectoryPath(k)));
+        }
+        oFile.write("{\"format\":\"orbis-scene-dump\",\"format_version\":" + nDumpFormatVersion +
+            ",\"daz_version\":" + jsonString(App.longVersionString) +
+            ",\"scene\":" + jsonString(sScene) +
+            ",\"content_dirs\":[" + aContent.join(",") + "]" +
+            ",\"builtin_mdl_dirs\":[" + aMdl.join(",") + "]" +
+            ",\"nodes\":[");
+
+        var nNodes = Scene.getNumNodes();
+        var bFirst = true;
+        var bCancelled = false;
+        startProgress(sTitle + ": reading the scene…", nNodes, true, true);
+        for (var n = 0; n < nNodes; n++) {
+            stepProgress(1);
+            if (progressIsCancelled()) {
+                bCancelled = true;
+                break;
+            }
+            var sNode = dumpNode(Scene.getNode(n));
+            if (sNode) {
+                oFile.write((bFirst ? "" : ",") + sNode);
+                bFirst = false;
+            }
+        }
+        finishProgress();
+        oFile.write("]}");
+        oFile.close();
+        return bCancelled ? "cancelled" : "";
+    }
+
+    // One node as JSON, or "" when it has no geometry: the base mesh (LOD 0)
+    // with morphs and pose applied, world space; strand hair as polylines.
+    function dumpNode(oNode) {
+        if (oNode.inherits("DzBone")) return "";
+        var oObject = oNode.getObject();
+        if (!oObject) return "";
+        var oShape = oObject.getCurrentShape();
+        if (!oShape) return "";
+        oNode.finalize();
+
+        // The base resolution: our own export refines it as DAZ does.
+        var oLod = oShape.getLODControl ? oShape.getLODControl() : null;
+        var nLod = oLod ? oLod.getValue() : 0;
+        if (oLod && nLod != 0) {
+            oLod.setValue(0);
+            oObject.forceCacheUpdate(oNode, false);
+        }
+        var oGeom = oObject.getCachedGeom();
+        var sJson = "";
+        if (oGeom && oGeom.getNumVertices() > 0) {
+            var aParts = [
+                "{\"name\":" + jsonString(oNode.name),
+                "\"label\":" + jsonString(oNode.getLabel()),
+                "\"class\":" + jsonString(oNode.className()),
+                "\"lod\":" + nLod
+            ];
+            var aGroups = [];
+            for (var g = 0; g < oGeom.getNumMaterialGroups(); g++) {
+                aGroups.push(jsonString(oGeom.getMaterialGroup(g).name));
+            }
+            aParts.push("\"material_groups\":[" + aGroups.join(",") + "]");
+            var nVerts = oGeom.getNumVertices();
+            var aVerts = new Array(nVerts);
+            for (var v = 0; v < nVerts; v++) {
+                var p = oGeom.getVertex(v);
+                aVerts[v] = p.x + "," + p.y + "," + p.z;
+            }
+            aParts.push("\"vertices\":[" + aVerts.join(",") + "]");
+            if (oGeom.getNumFacets() == 0 && oGeom.getNumPolylines) {
+                var nLines = oGeom.getNumPolylines();
+                var aLines = new Array(nLines);
+                var aLineMats = new Array(nLines);
+                for (var l = 0; l < nLines; l++) {
+                    aLines[l] = "[" + oGeom.getPolylineVertexIndices(l).join(",") + "]";
+                    aLineMats[l] = oGeom.getPolylineMaterialGroupIndex(l);
+                }
+                aParts.push("\"polylines\":[" + aLines.join(",") + "]");
+                aParts.push("\"polyline_materials\":[" + aLineMats.join(",") + "]");
+            }
+            sJson = aParts.join(",") + "}";
+        }
+        if (oLod && nLod != 0) {
+            oLod.setValue(nLod);
+        }
+        return sJson;
+    }
+
+    // A JSON string literal, ASCII only (anything else as \uXXXX).
+    function jsonString(s) {
+        s = String(s);
+        var aOut = ["\""];
+        for (var i = 0; i < s.length; i++) {
+            var c = s.charCodeAt(i);
+            var ch = s.charAt(i);
+            if (ch == "\"" || ch == "\\") {
+                aOut.push("\\" + ch);
+            } else if (c < 0x20 || c > 0x7e) {
+                var h = c.toString(16);
+                aOut.push("\\u" + "0000".substring(h.length) + h);
+            } else {
+                aOut.push(ch);
+            }
+        }
+        aOut.push("\"");
+        return aOut.join("");
     }
 
     // Run aArgs[0] with the rest as arguments, wait for it and collect its
@@ -92,7 +315,7 @@
                 if (fnLine) fnLine(sLine);
             }
         };
-        while (oProcess.isRunning()) {
+        while (oProcess.running) {
             drain();
             processEvents();
             sleep(100);

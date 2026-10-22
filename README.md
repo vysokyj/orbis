@@ -13,43 +13,50 @@ materials translated to Octane's, lights, the HDRI environment, every DAZ
 camera as its own render target and DAZ's tone mapping — and opens Octane X
 with it.
 
-> **Status: experimental.** The export currently needs a `.dbz` with the posed
-> geometry beside the `.duf`; a direct dump from DAZ Studio replaces it
-> ([#2](https://github.com/vysokyj/orbis/issues/2)).
+> **Status: experimental.** Not yet verified end to end in DAZ Studio
+> ([#1](https://github.com/vysokyj/orbis/issues/1)).
 
 ## Install
 
 1. Download `orbis-<version>-macos.zip` from the
    [releases](https://github.com/vysokyj/orbis/releases) and unzip it.
-2. Copy the contents of its `Content/` folder into one of your DAZ libraries
-   (e.g. `~/Documents/DAZ 3D/Studio/My Library`), so that you get
-   `Scripts/ORBIS/Export to Octane.dsa` and `Scripts/ORBIS/bin/orbis`.
-3. Until the binary is notarized ([#3](https://github.com/vysokyj/orbis/issues/3)),
-   macOS blocks a downloaded one. Clear the quarantine flag once:
+2. Until the binary is notarized ([#3](https://github.com/vysokyj/orbis/issues/3)),
+   macOS blocks a downloaded one; clear the quarantine flag and install it
+   into your DAZ library ("My Library" from DAZ Studio's content
+   directories, or `--library DIR`):
 
    ```sh
-   xattr -dr com.apple.quarantine ~/Documents/DAZ\ 3D/Studio/My\ Library/Scripts/ORBIS
+   cd orbis-<version>-macos
+   xattr -dr com.apple.quarantine Content
+   Content/Scripts/ORBIS/bin/orbis install
    ```
+
+   Or copy the contents of `Content/` into a DAZ library by hand.
+
+From a checkout: `scripts/install.sh` builds and installs.
 
 ## Use
 
 1. In DAZ Studio, save the scene.
-2. Run *Content Library → Scripts → ORBIS → Export to Octane*. Pick the
-   options (final path tracing or fast preview, shadow-catching ground).
+2. Run *Content Library → Scripts → ORBIS → Export to Octane* (after the
+   first run also *File → Export to Octane...*). Pick where the `.orbx` goes
+   (beside the scene or a folder, `~/Documents/ORBIS` by default) and the
+   options (final path tracing or fast preview, shadow-catching ground);
+   they are remembered.
 3. Octane X starts with the `.orbx` revealed in Finder and its path on the
    clipboard. Octane X only opens files from its own panel: *File → Open*,
    ⇧⌘G, paste, then select the render target named after the scene.
 
-Exports go to `~/Documents/ORBIS/<scene>.orbx`.
-
 ## Command line
 
 ```sh
-orbis export <scene.duf> [-o out.orbx|out.usdz] [--preview] [--no-ground] [--content-dir DIR]… [--open]
+orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz | --out-dir DIR] [--preview] [--no-ground] [--content-dir DIR]… [--open]
+orbis install [--library DIR]
 ```
 
-Without `--content-dir` the content directories are read from DAZ Studio's
-preferences.
+`export` needs the scene dump the DAZ Studio script writes; without `--dump`
+it uses the last one it kept for the scene, so a scene exported once from
+DAZ Studio re-exports from the command line.
 
 ## Build
 
@@ -57,6 +64,7 @@ preferences.
 cargo test
 cargo build --release          # target/release/orbis
 scripts/package.sh             # dist/orbis-<version>-macos.zip
+scripts/install.sh             # build + install into your DAZ library
 ```
 
 ## Documentation

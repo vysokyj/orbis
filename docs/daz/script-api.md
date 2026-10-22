@@ -1,0 +1,95 @@
+# DAZ Script API — what ORBIS uses
+
+DAZ Studio scripts (`.dsa`) are QtScript (ECMAScript 3 style: `var`, no
+arrow functions, `let`/`const`). Official reference:
+<https://docs.daz3d.com/public/software/dazstudio/4/referenceguide/scripting/api_reference/object_index/start>.
+Machine-readable signatures: the npm package
+[`dazscript-types`](https://www.npmjs.com/package/dazscript-types)
+(`npm pack dazscript-types`, `src/types/daz/dz_<class>.d.ts`, MPL-2.0) —
+generated from the docs, so undocumented members may be missing.
+
+## Globals
+
+- `getScriptFileName()` — the running script's path (also when run as a
+  custom action).
+- `startProgress(info, totalSteps, cancellable, showTime)`,
+  `stepProgress(n)`, `progressIsCancelled()`, `setProgressInfo(text)`,
+  `finishProgress()`; `processEvents()`, `sleep(ms)`, `print(text)`.
+- `connect(sender, "signal(args)", function)` — e.g.
+  `connect(button, "clicked()", fn)`, `connect(radio, "toggled(bool)", fn)`.
+- `MessageBox.information|critical(text, title, button)`.
+- `FileDialog.doDirectoryDialog(title, desc, startWith, parent)` → path or
+  `""` when cancelled; `doFileDialog(open, title, startWith, filter)`.
+
+## App, scene, content
+
+- `App.longVersionString` (`major.minor.revision.build`), `App.getTempPath()`,
+  `App.getContentMgr()`.
+- `DzDir.homePath()` (static, 4.9.3.35+) — the user's home.
+- `DzContentMgr`: `getNumContentDirectories()` /
+  `getContentDirectoryPath(i)`, `getNumBuiltInMDLDirectories()` /
+  `getBuiltInMDLDirectoryPath(i)` (the app's `shaders/iray`, root of
+  `/resources/…` paths).
+- `Scene.getFilename()` (`""` when never saved), `Scene.needsSave()`,
+  `Scene.getNumNodes()` / `getNode(i)`.
+
+## Evaluated geometry
+
+Per node (`DzNode`; skip `inherits("DzBone")`): `name`, `getLabel()` (unique
+per scene), `className()`, `finalize()`, `getObject()` (`DzObject`, null for
+nodes without geometry).
+
+- `DzObject.getCurrentShape()` → `DzShape` (a `DzFacetShape` for meshes);
+  `getLODControl()` → the *Resolution Level* enum property (0 = base, 1 =
+  high resolution / SubD).
+- `DzObject.getCachedGeom()` → the evaluated mesh (`DzFacetMesh`): world
+  space, cm, Y up, every morph and the pose applied. At resolution level 0 it
+  is the base mesh, vertex-for-vertex the `.dsf` geometry; set the level with
+  `setValue(0)`, then `forceCacheUpdate(node, false)` before reading, and
+  restore the level afterwards.
+- `getNumVertices()`, `getVertex(i)` → `DzVec3` (`x`, `y`, `z`);
+  `getNumMaterialGroups()`, `getMaterialGroup(i).name`; `getNumFacets()`.
+- Strand hair (dForce, no facets): `getNumPolylines()`,
+  `getPolylineVertexIndices(i)` → Array, `getPolylineMaterialGroupIndex(i)`.
+  These are the rendered strands; the library mesh is only their guide.
+
+## Files and processes
+
+- `DzFile(path)`: `open(DzFile.WriteOnly | DzFile.Truncate)`, `write(str)`,
+  `close()`. Keep the text ASCII (escape the rest) to stay out of encoding
+  questions.
+- `DzFileInfo(path)`: `path()` (directory), `exists()`.
+- `DzProcess(args)`: `communication = DzProcess.Stdout | DzProcess.Stderr`,
+  `start()`, `running` (property), `canReadLineStdout()` /
+  `readLineStdout()`, `readStderr()`, `normalExit`, `exitStatus`;
+  `writeToStdin(str)` / `closeStdin()` (#2).
+
+## Dialogs and settings
+
+- `DzBasicDialog`: `caption`, `addWidget(w)`, `setAcceptButtonText(text)`,
+  `exec()` → true on accept. `getWidget().objectName = "<unique>"` makes DAZ
+  remember the dialog's size and position.
+- Widgets take their parent in the constructor: `DzVGroupBox` /
+  `DzVButtonGroup` (`title`; radio buttons inside are exclusive),
+  `DzRadioButton`, `DzCheckBox` (`text`, `checked`), `DzLineEdit` (`text`),
+  `DzPushButton`, `DzWidget` + `DzHBoxLayout(widget)` (`addWidget(w,
+  stretch)`, `margin`) for a row. `enabled` on any widget.
+- `DzAppSettings(path)`: `getBoolValue(key, def)`, `getStringValue(key,
+  def)`, `setBoolValue`, `setStringValue` — persisted in DAZ Studio's
+  preferences (plist on macOS).
+
+## Menu actions
+
+- `MainWindow.getActionMgr()` (null headless): `getNumCustomActions()`,
+  `getCustomActionText(i)`, `getCustomActionFile(i)`,
+  `addCustomAction(text, desc, scriptPath, isFile, shortcut, iconPath)` →
+  GUID, `setCustomActionScript(i, path, isFile)`, `setCustomActionIcon(i,
+  path)`. Custom actions persist in `customactions.dsx`.
+- `getMenu().findSubMenu("&File")` → `DzActionMenu`: `getNumItems()`,
+  `getItem(i).label` (e.g. `"&Export..."`), `insertCustomAction(guid, index)`.
+
+## Content Library thumbnails
+
+A `<name>.png` beside a file or folder is its thumbnail in the Content
+Library (91×91 is what DAZ's own scripts ship); `Scripts/ORBIS.png` for the
+folder, `Scripts/ORBIS/Export to Octane.png` for the script.
