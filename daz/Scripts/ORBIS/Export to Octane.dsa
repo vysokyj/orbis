@@ -61,8 +61,10 @@
     }
 
     // ── Dump ──────────────────────────────────────────────────────────────
-    // One progress dialog for both steps: a step per node, one for orbis.
-    startProgress(sTitle + ": reading the scene...", Scene.getNumNodes() + 1, true, true);
+    // One progress bar for both steps: 0-200 reading the scene (by node),
+    // 200-300 orbis (by the percentages it reports).
+    var nProgress = 0;
+    startProgress(sTitle + ": reading the scene...", 300, true, true);
     var sDump = App.getTempPath() + "/orbis-scene-dump.json";
     var sError = writeDump(sDump);
     if (sError) {
@@ -79,53 +81,69 @@
     if (oOptions.preview) aArgs.push("--preview");
     if (!oOptions.ground) aArgs.push("--no-ground");
 
+    aArgs.push("--progress");
+
     setProgressInfo(sTitle + ": writing the Octane package...");
     var oResult = run(aArgs, true);
-    stepProgress(1);
     finishProgress();
     if (oResult.cancelled) {
         return;
     }
 
     if (oResult.ok) {
-        MessageBox.information(summary(oResult.out), sTitle, "&OK");
+        showReport(oResult.out);
     } else {
         MessageBox.critical("The export failed.\n\n" + oResult.out + "\n" + oResult.err, sTitle, "&OK");
     }
 
     // ── Functions ─────────────────────────────────────────────────────────
 
-    // orbis's report without its per-node and per-texture lines, which can
-    // run long — just their counts; the full report is in the DAZ log.
-    function summary(sOut) {
-        var aLines = sOut.split("\n");
-        var aKeep = [];
-        var nSkipped = 0;
-        var nMissing = 0;
-        for (var i = 0; i < aLines.length; i++) {
-            var sLine = aLines[i];
-            if (sLine.indexOf("skipped: ") == 0) {
-                nSkipped++;
-            } else if (sLine.indexOf("missing texture: ") == 0) {
-                nMissing++;
-            } else if (sLine.indexOf("exporting ") != 0 && sLine.indexOf("done: ") != 0 && sLine) {
-                aKeep.push(sLine);
-            }
+    // Advance the progress bar to nTo (of 300).
+    function progressTo(nTo) {
+        if (nTo > nProgress) {
+            stepProgress(nTo - nProgress);
+            nProgress = nTo;
         }
-        if (nSkipped || nMissing) {
-            aKeep.push(nSkipped + " node(s) left out, " + nMissing + " texture(s) missing - see the DAZ log (Help > Troubleshooting > View Log File).");
-        }
-        aKeep.push("");
-        aKeep.push("Saved: " + orbxPath(aLines));
-        return aKeep.join("\n");
     }
 
-    // The .orbx path from orbis's "done: <path>" line.
-    function orbxPath(aLines) {
-        for (var i = aLines.length - 1; i >= 0; i--) {
-            if (aLines[i].indexOf("done: ") == 0) return aLines[i].substring(6);
+    // orbis's report: the summary on top; what was left out or not found
+    // (a list that can run long) in a scrolling box below.
+    function showReport(sOut) {
+        var aLines = sOut.split("\n");
+        var aSummary = [];
+        var aDetails = [];
+        var sOrbx = "";
+        for (var i = 0; i < aLines.length; i++) {
+            var sLine = aLines[i];
+            if (sLine.indexOf("skipped: ") == 0 || sLine.indexOf("missing texture: ") == 0) {
+                aDetails.push(sLine);
+            } else if (sLine.indexOf("done: ") == 0) {
+                sOrbx = sLine.substring(6);
+            } else if (sLine && sLine.indexOf("exporting ") != 0) {
+                aSummary.push(sLine);
+            }
         }
-        return "";
+        aSummary.push("");
+        aSummary.push("Saved: " + sOrbx);
+        if (aDetails.length == 0) {
+            MessageBox.information(aSummary.join("\n"), sTitle, "&OK");
+            return;
+        }
+        var wDlg = new DzBasicDialog();
+        wDlg.caption = sTitle + " - Exported";
+        wDlg.showCancelButton(false);
+        wDlg.setAcceptButtonText("OK");
+        var wSummary = new DzLabel(wDlg);
+        wSummary.text = aSummary.join("\n");
+        wDlg.addWidget(wSummary);
+        wDlg.addWidget(heading(wDlg, "Details (" + aDetails.length + ")"));
+        var wDetails = new DzTextEdit(wDlg);
+        wDetails.readOnly = true;
+        wDetails.plainText = aDetails.join("\n");
+        wDetails.minWidth = 560;
+        wDetails.minHeight = 180;
+        wDlg.addWidget(wDetails, 1);
+        wDlg.exec();
     }
 
     // The options dialog; fills oOpt and returns true on Export. Plain
@@ -254,7 +272,7 @@
         // the shell is read. Our export refines the base meshes as DAZ does.
         var aLods = baseResolution();
         for (var n = 0; n < nNodes; n++) {
-            stepProgress(1);
+            progressTo(Math.round(200 * (n + 1) / nNodes));
             if (progressIsCancelled()) {
                 bCancelled = true;
                 break;
@@ -378,9 +396,17 @@
         if (!oProcess.start()) {
             return { ok: false, cancelled: false, out: "", err: "Could not start " + aArgs[0] };
         }
+        // `progress: <percent> <what>` lines drive the progress bar.
         var drain = function () {
             while (oProcess.canReadLineStdout()) {
-                aOut.push(oProcess.readLineStdout());
+                var sLine = String(oProcess.readLineStdout());
+                var aMatch = /^progress: (\d+) (.*)/.exec(sLine);
+                if (aMatch) {
+                    progressTo(200 + Number(aMatch[1]));
+                    setProgressInfo(sTitle + ": " + aMatch[2] + "...");
+                } else {
+                    aOut.push(sLine);
+                }
             }
         };
         // `running` per the API reference; `isRunning()` in older builds.

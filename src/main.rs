@@ -49,6 +49,10 @@ enum Command {
         /// the dump's, else read from DAZ Studio's preferences.
         #[arg(long = "content-dir")]
         content_dirs: Vec<PathBuf>,
+        /// Report progress on stdout as `progress: <percent> <what>` lines
+        /// (read by the DAZ Studio script).
+        #[arg(long)]
+        progress: bool,
     },
     /// Install the DAZ Studio plugin: this binary into Application Support,
     /// the script and its icons into a content library.
@@ -76,7 +80,7 @@ fn main() -> Result<()> {
             );
             Ok(())
         }
-        Command::Export { scene, dump, out, out_dir, preview, no_ground, content_dirs } => {
+        Command::Export { scene, dump, out, out_dir, preview, no_ground, content_dirs, progress } => {
             if !scene.is_file() {
                 bail!("scene not found: {}", scene.display());
             }
@@ -101,6 +105,11 @@ fn main() -> Result<()> {
                 content_dirs,
                 octane_mode: if preview { OctaneMode::Preview } else { OctaneMode::Final },
                 no_ground,
+                progress: if progress {
+                    usd::Progress::new(|percent, what| println!("progress: {percent} {what}"))
+                } else {
+                    usd::Progress::default()
+                },
             };
             println!("exporting {} → {}", scene.display(), out.display());
             let t = Instant::now();

@@ -50,7 +50,7 @@ From a checkout: `scripts/install.sh` builds and installs.
 ## Command line
 
 ```sh
-orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz | --out-dir DIR] [--preview] [--no-ground] [--content-dir DIR]…
+orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz | --out-dir DIR] [--preview] [--no-ground] [--content-dir DIR]… [--progress]
 orbis install [--library DIR]
 ```
 

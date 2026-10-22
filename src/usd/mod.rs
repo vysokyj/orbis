@@ -60,6 +60,31 @@ pub struct ExportOptions {
     /// Leave out the shadow-catching ground even when Iray draws one — it
     /// shows through holes or dips in a floor or terrain at its height.
     pub no_ground: bool,
+    /// Told how far the export got.
+    pub progress: Progress,
+}
+
+/// Export progress: a callback taking the percentage done (0–100) and what
+/// the export is doing; does nothing by default.
+#[derive(Clone, Default)]
+pub struct Progress(Option<std::sync::Arc<dyn Fn(u32, &str) + Send + Sync>>);
+
+impl Progress {
+    pub fn new(f: impl Fn(u32, &str) + Send + Sync + 'static) -> Progress {
+        Progress(Some(std::sync::Arc::new(f)))
+    }
+
+    pub fn report(&self, percent: u32, what: &str) {
+        if let Some(f) = &self.0 {
+            f(percent.min(100), what);
+        }
+    }
+}
+
+impl std::fmt::Debug for Progress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() { "Progress(..)" } else { "Progress(none)" })
+    }
 }
 
 /// How the Octane project renders.
@@ -116,7 +141,9 @@ pub fn export_scene_usdz(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
 /// target wired to it and the scene's DAZ camera. Octane X opens it from its
 /// own Open panel or gallery (it refuses files handed over from outside).
 pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOptions) -> Result<ExportReport> {
+    let progress = &opts.progress;
     let (meshes, mut report, mut lib) = build_scene(scene, dump, opts)?;
+    progress.report(35, "writing the USD scene");
     let lights = scene_lights(&mut lib);
     let (layer, materials) = write_usda(&meshes, &lights);
     let mut usdz = Vec::new();
@@ -128,6 +155,7 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
         cameras.push(("Camera".to_string(), framing_camera(&meshes)));
     }
     let name = scene.file_stem().and_then(|s| s.to_str()).unwrap_or("scene");
+    progress.report(60, "translating the materials");
     let layered = crate::daz_material::layered_images(&lib.duf);
     let (inputs, mut textures) = crate::material::material_inputs(&materials, &lib.dirs, layered, 200_000, opts.octane_mode.skin_sss());
     let environment = scene_environment(&mut lib);
@@ -155,7 +183,9 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
         tracing::info!(texture = %t, "Octane export: texture not found");
     }
     let mut images = Vec::with_capacity(textures.files.len() + textures.generated.len());
-    for (asset, file) in &textures.files {
+    let n_files = textures.files.len().max(1);
+    for (k, (asset, file)) in textures.files.iter().enumerate() {
+        progress.report(65 + (25 * k / n_files) as u32, &format!("reading textures ({}/{})", k + 1, textures.files.len()));
         images.push((asset.clone(), std::fs::read(file).with_context(|| format!("reading {}", file.display()))?));
     }
     images.append(&mut textures.generated);
@@ -164,6 +194,7 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     let dims: Vec<_> = images.iter().filter_map(|(_, d)| crate::texture_budget::dimensions(d)).collect();
     report.texture_limit = crate::texture_budget::choose_limit(&dims, crate::texture_budget::BUDGET_BYTES);
     if let Some(limit) = report.texture_limit {
+        progress.report(90, "scaling textures down");
         report.textures_scaled = crate::texture_budget::downscale_all(&mut images, limit);
         tracing::info!(limit, scaled = report.textures_scaled, "Octane export: textures scaled down to fit the memory budget");
     }
@@ -171,7 +202,9 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     let mut files: Vec<(&str, &[u8])> = vec![(&asset, &usdz)];
     files.extend(images.iter().map(|(a, d)| (a.as_str(), d.as_slice())));
     files.push(("project.ocs", ocs.as_bytes()));
+    progress.report(95, "writing the .orbx");
     write_atomically(out, |f| write_orbx(f, OCTANE_VERSION, &files))?;
+    progress.report(100, "done");
     Ok(report)
 }
 
@@ -186,6 +219,7 @@ fn build_scene(scene: &Path, dump: &Path, opts: &ExportOptions) -> Result<(Vec<M
     let duf: Value = serde_json::from_str(&decompress_scene(
         &std::fs::read(scene).with_context(|| format!("reading {}", scene.display()))?,
     )?)?;
+    opts.progress.report(0, "reading the scene");
     let dump = SceneDump::load(dump).with_context(|| format!("reading the scene dump {}", dump.display()))?;
 
     let mut dirs = opts.content_dirs.clone();
@@ -203,6 +237,7 @@ fn build_scene(scene: &Path, dump: &Path, opts: &ExportOptions) -> Result<(Vec<M
         }
     }
     let mut lib = Library::new(dirs, duf);
+    opts.progress.report(5, "building the meshes");
     let (meshes, report) = build_meshes(&mut lib, &dump)?;
     Ok((meshes, report, lib))
 }

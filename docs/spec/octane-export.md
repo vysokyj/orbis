@@ -87,6 +87,12 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
 - On its first run the script adds a custom action *File → Export to
   Octane...* (after *File → Export...*), with the thumbnail as its icon; an
   existing one is repointed when the script moved.
+- One progress bar for the whole export: reading the scene (by node) takes
+  the first two thirds, `orbis` the rest — with `--progress` it prints
+  `progress: <percent> <what>` lines (scene, meshes, USD, materials, each
+  texture, `.orbx`), which the script turns into steps. Cancel works in both.
+- The closing report gives the summary and the `.orbx` path; skipped nodes
+  and missing textures go in a scrolling box below (left out when none).
 - Options dialog, remembered in `DzAppSettings("ORBIS")`: where the `.orbx`
   goes (beside the scene, or a folder — default `~/Documents/ORBIS`), fast
   preview, shadow-catching ground.

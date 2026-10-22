@@ -553,7 +553,13 @@ fn exports_an_orbx_with_the_scene_and_project() {
     std::fs::write(&dump_path, json!({"format": "orbis-scene-dump", "format_version": 1, "nodes": nodes}).to_string()).unwrap();
 
     let out = dir.path().join("My Scene.orbx");
-    let report = export_scene_orbx(&scene_path, &dump_path, &out, &ExportOptions::default()).unwrap();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = seen.clone();
+    let opts = ExportOptions { progress: Progress::new(move |p, _| sink.lock().unwrap().push(p)), ..Default::default() };
+    let report = export_scene_orbx(&scene_path, &dump_path, &out, &opts).unwrap();
+    let seen = seen.lock().unwrap();
+    assert!(seen.windows(2).all(|w| w[0] <= w[1]), "progress only grows: {seen:?}");
+    assert_eq!((seen[0], *seen.last().unwrap()), (0, 100));
     assert_eq!(report.meshes, 2, "host with its merged graft, and the shell");
     let (version, files) = crate::orbx::read_orbx(&std::fs::read(&out).unwrap()).unwrap();
     assert_eq!(version, OCTANE_VERSION);
