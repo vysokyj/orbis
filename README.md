@@ -37,13 +37,13 @@ From a checkout: `scripts/install.sh` builds and installs.
 
 ## Use
 
-1. In DAZ Studio, save the scene.
-2. Run *Content Library → Scripts → ORBIS → Export to Octane* (after the
+1. In DAZ Studio, run *Content Library → Scripts → ORBIS → Export to Octane* (after the
    first run also *File → Export to Octane...*). Pick where the `.orbx` goes
    (beside the scene or a folder, `~/Documents/ORBIS` by default) and the
    options (final path tracing or fast preview, shadow-catching ground);
-   they are remembered.
-3. Open the `.orbx` in Octane X with *File → Open* (Octane X only opens
+   they are remembered. The script saves the scene first (asking for a
+   file if it has none) — the export reads the saved `.duf`.
+2. Open the `.orbx` in Octane X with *File → Open* (Octane X only opens
    files from its own panel) and select the render target named after the
    scene.
 

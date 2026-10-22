@@ -1,10 +1,10 @@
 // DAZ Studio Script — ORBIS: export the current scene to Octane X.
 //
-// Asks for the options (remembered between runs), dumps what DAZ Studio
-// evaluated — posed vertices of every mesh and the rendered strands of strand
-// hair — and runs the `orbis` binary shipped beside this script (bin/orbis)
-// on the saved scene and the dump; Octane X opens the .orbx from its own
-// File → Open. On its first run the script adds File → Export to Octane....
+// Asks for the options (remembered between runs), saves the scene, dumps
+// what DAZ Studio evaluated — posed vertices of every mesh and the rendered
+// strands of strand hair — and runs the `orbis` binary on the saved scene
+// and the dump; Octane X opens the .orbx from its own File → Open. On its
+// first run the script adds File → Export to Octane....
 //
 // Installed by `orbis install`, which fills in the @…@ paths below (the
 // binary lives outside the content library, so the Content Library shows
@@ -25,17 +25,6 @@
     var sPluginDir = new DzFileInfo(sScriptPath).path();
 
     addMenuAction();
-
-    // ── The scene ─────────────────────────────────────────────────────────
-    var sScene = Scene.getFilename();
-    if (!sScene) {
-        MessageBox.information("Save the scene first - the export reads the saved .duf.", sTitle, "&OK");
-        return;
-    }
-    if (Scene.needsSave()) {
-        MessageBox.information("The scene has unsaved changes. Save it first - the export reads the saved .duf.", sTitle, "&OK");
-        return;
-    }
 
     // ── The binary ────────────────────────────────────────────────────────
     if (!new DzFileInfo(sBin).exists()) {
@@ -58,6 +47,18 @@
     oSettings.setStringValue("outputDir", oOptions.outputDir);
     oSettings.setBoolValue("preview", oOptions.preview);
     oSettings.setBoolValue("ground", oOptions.ground);
+
+    // ── The scene ─────────────────────────────────────────────────────────
+    // The export reads the saved .duf (materials, cameras, lights), so save
+    // first — to the last file, or asking for one if the scene has none.
+    if (!Scene.getFilename() || Scene.needsSave()) {
+        Scene.saveScene();
+    }
+    var sScene = Scene.getFilename();
+    if (!sScene || Scene.needsSave()) {
+        MessageBox.information("The scene is not saved - the export reads the saved .duf.", sTitle, "&OK");
+        return;
+    }
 
     // ── Dump ──────────────────────────────────────────────────────────────
     // One progress dialog for both steps: a step per node, one for orbis.
