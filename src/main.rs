@@ -1,7 +1,7 @@
 //! `orbis` — export a saved DAZ Studio scene to Octane X.
 //!
 //! `orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz | --out-dir DIR] [--preview]
-//! [--no-ground] [--content-dir DIR]… [--open]`
+//! [--no-ground] [--content-dir DIR]…`
 //! `orbis install [--library DIR]`
 //!
 //! The DAZ Studio script dumps the evaluated scene, runs `export` with the
@@ -49,10 +49,6 @@ enum Command {
         /// the dump's, else read from DAZ Studio's preferences.
         #[arg(long = "content-dir")]
         content_dirs: Vec<PathBuf>,
-        /// Launch Octane X and reveal the file (Octane only opens files from
-        /// its own Open panel; the path is put on the clipboard).
-        #[arg(long)]
-        open: bool,
     },
     /// Install the DAZ Studio plugin: this binary into Application Support,
     /// the script and its icons into a content library.
@@ -80,7 +76,7 @@ fn main() -> Result<()> {
             );
             Ok(())
         }
-        Command::Export { scene, dump, out, out_dir, preview, no_ground, content_dirs, open } => {
+        Command::Export { scene, dump, out, out_dir, preview, no_ground, content_dirs } => {
             if !scene.is_file() {
                 bail!("scene not found: {}", scene.display());
             }
@@ -132,9 +128,6 @@ fn main() -> Result<()> {
             }
             for t in &r.missing_textures {
                 println!("missing texture: {t}");
-            }
-            if open && orbx {
-                usd::open_in_octane(&out)?;
             }
             println!("done: {}", out.display());
             Ok(())

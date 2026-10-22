@@ -63,8 +63,9 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
 
 - `orbis install [--library DIR]` copies itself to `~/Library/Application
   Support/ORBIS/bin/orbis` (executable, quarantine flag cleared) and writes
-  `Scripts/ORBIS/Export to Octane.dsa` + `.png` thumbnail and the folder
-  thumbnail `Scripts/ORBIS.png` into the content directory named
+  `Scripts/ORBIS/Export to Octane.dsa` + `.png` thumbnail (an `.orbx`
+  document — what the script makes) and the folder thumbnail
+  `Scripts/ORBIS.png` (the globe) into the content directory named
   "My Library" (else the first one in DAZ Studio's preferences). Script and
   thumbnails are compiled into the binary; the release zip holds just the
   binary.
@@ -79,7 +80,7 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   existing one is repointed when the script moved.
 - Options dialog, remembered in `DzAppSettings("ORBIS")`: where the `.orbx`
   goes (beside the scene, or a folder — default `~/Documents/ORBIS`), fast
-  preview, shadow-catching ground, open Octane X.
+  preview, shadow-catching ground.
 
 ## Geometry
 
@@ -280,9 +281,10 @@ holes in a floor.
 
 ## Opening
 
-Octane X rejects external opens: `orbis export --open` launches it, reveals the `.orbx` and
-copies its path; the user opens it via File → Open (⇧⌘G) and selects the
-render target named after the scene.
+Octane X is sandboxed and declares no document types: macOS refuses to hand
+it any file (`.usdz`, even its own `.orbx`), so ORBIS doesn't launch it. The
+report ends with the `.orbx` path; the user opens it via File → Open and
+selects the render target named after the scene.
 
 ## Calibration workflow
 

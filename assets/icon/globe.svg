@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- ORBIS folder thumbnail: the world as a lit orb (Comenius's Orbis pictus). -->
+  <defs>
+    <radialGradient id="orb" cx="36%" cy="30%" r="78%">
+      <stop offset="0" stop-color="#ffe2a8"/>
+      <stop offset="0.22" stop-color="#f4a340"/>
+      <stop offset="0.62" stop-color="#b8461c"/>
+      <stop offset="1" stop-color="#3a1208"/>
+    </radialGradient>
+    <clipPath id="ball"><circle cx="128" cy="128" r="122"/></clipPath>
+  </defs>
+  <circle cx="128" cy="128" r="122" fill="url(#orb)"/>
+  <g clip-path="url(#ball)" fill="none" stroke="#fff3dc" stroke-opacity="0.6" stroke-width="7">
+    <ellipse cx="128" cy="128" rx="44" ry="122"/>
+    <ellipse cx="128" cy="128" rx="90" ry="122"/>
+    <line x1="128" y1="6" x2="128" y2="250"/>
+    <path d="M7 116 A121 32 0 0 0 249 116"/>
+    <path d="M32 54 A96 22 0 0 0 224 54"/>
+    <path d="M23 188 A105 26 0 0 0 233 188"/>
+  </g>
+  <ellipse cx="88" cy="70" rx="38" ry="22" fill="#fff" fill-opacity="0.45" transform="rotate(-30 88 70)"/>
+</svg>

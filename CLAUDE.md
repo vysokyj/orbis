@@ -67,6 +67,6 @@ attaches the zip to a GitHub release.
   (`~/Library/Application Support/DAZ 3D/Studio6/log.txt`) shows script errors.
 - The DAZ script is ECMAScript 3-ish QtScript: `var`, no arrow functions or
   `let`/`const`. It is untested in DAZ Studio until #1 is closed.
-- Octane X is sandboxed and refuses files opened from outside — never try to
-  hand it a file; reveal it and copy the path (`open_in_octane`).
+- Octane X is sandboxed and refuses files opened from outside — don't try to
+  launch it with a file; the user opens the `.orbx` from its File → Open.
 - The binary is ad-hoc signed until #3; a downloaded copy is quarantined.

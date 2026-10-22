@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- "Export to Octane" thumbnail: the file it makes, an .orbx. -->
+  <defs>
+    <radialGradient id="orb" cx="36%" cy="30%" r="78%">
+      <stop offset="0" stop-color="#ffe2a8"/>
+      <stop offset="0.22" stop-color="#f4a340"/>
+      <stop offset="0.62" stop-color="#b8461c"/>
+      <stop offset="1" stop-color="#3a1208"/>
+    </radialGradient>
+    <linearGradient id="page" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e4e6ea"/>
+    </linearGradient>
+    <clipPath id="ball"><circle cx="128" cy="100" r="58"/></clipPath>
+  </defs>
+  <path d="M40 8 H170 L218 56 V240 A8 8 0 0 1 210 248 H46 A8 8 0 0 1 38 240 V16 A8 8 0 0 1 46 8 Z" fill="url(#page)" stroke="#8a8f99" stroke-width="4"/>
+  <path d="M170 8 V48 A8 8 0 0 0 178 56 H218" fill="#d3d6dc" stroke="#8a8f99" stroke-width="4" stroke-linejoin="round"/>
+  <circle cx="128" cy="100" r="58" fill="url(#orb)"/>
+  <g clip-path="url(#ball)" fill="none" stroke="#fff3dc" stroke-opacity="0.6" stroke-width="4">
+    <ellipse cx="128" cy="100" rx="21" ry="58"/>
+    <ellipse cx="128" cy="100" rx="43" ry="58"/>
+    <line x1="128" y1="42" x2="128" y2="158"/>
+    <path d="M70 94 A58 15 0 0 0 186 94"/>
+  </g>
+  <rect x="22" y="176" width="212" height="58" rx="10" fill="#c4521f"/>
+  <text x="128" y="221" text-anchor="middle" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="700" font-size="50" fill="#ffffff" letter-spacing="2">.ORBX</text>
+</svg>

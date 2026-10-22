@@ -225,19 +225,6 @@ fn write_atomically(out: &Path, write: impl FnOnce(&mut std::io::BufWriter<std::
     }
 }
 
-/// The installed Octane X app bundle, if any.
-pub fn octane_app() -> Option<PathBuf> {
-    #[cfg(target_os = "macos")]
-    {
-        let p = PathBuf::from("/Applications/Octane X.app");
-        p.exists().then_some(p)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        None
-    }
-}
-
 /// Where exported files go unless the caller names one: `~/Documents/ORBIS`.
 pub fn default_output_dir() -> PathBuf {
     dirs::document_dir().unwrap_or_else(|| PathBuf::from(".")).join("ORBIS")
@@ -252,28 +239,6 @@ pub fn usdz_output_path(usd_root: &Path, scene_path: &Path) -> PathBuf {
 /// `<usd_root>/<scene stem>.orbx`.
 pub fn orbx_output_path(usd_root: &Path, scene_path: &Path) -> PathBuf {
     usdz_output_path(usd_root, scene_path).with_extension("orbx")
-}
-
-/// Get an exported file into Octane X. The app is sandboxed and declares no
-/// document types, so macOS refuses to hand it any file — `.usdz` and even
-/// its own `.orbx`; it has to come through Octane's own Open panel. So:
-/// launch Octane X, reveal the file in Finder and put its path on the
-/// clipboard (⇧⌘G in the panel).
-pub fn open_in_octane(file: &Path) -> Result<()> {
-    let app = octane_app().ok_or_else(|| anyhow!("Octane X not found in /Applications"))?;
-    let run = |cmd: &mut std::process::Command| -> Result<()> {
-        let status = cmd.status()?;
-        if !status.success() {
-            bail!("{cmd:?} failed ({status})");
-        }
-        Ok(())
-    };
-    run(std::process::Command::new("open").arg("-a").arg(&app))?;
-    run(std::process::Command::new("open").arg("-R").arg(file))?;
-    let mut pb = std::process::Command::new("pbcopy").stdin(std::process::Stdio::piped()).spawn()?;
-    pb.stdin.take().ok_or_else(|| anyhow!("pbcopy stdin"))?.write_all(file.to_string_lossy().as_bytes())?;
-    pb.wait()?;
-    Ok(())
 }
 
 /// DAZ centimeters → meters.

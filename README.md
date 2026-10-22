@@ -43,14 +43,14 @@ From a checkout: `scripts/install.sh` builds and installs.
    (beside the scene or a folder, `~/Documents/ORBIS` by default) and the
    options (final path tracing or fast preview, shadow-catching ground);
    they are remembered.
-3. Octane X starts with the `.orbx` revealed in Finder and its path on the
-   clipboard. Octane X only opens files from its own panel: *File → Open*,
-   ⇧⌘G, paste, then select the render target named after the scene.
+3. Open the `.orbx` in Octane X with *File → Open* (Octane X only opens
+   files from its own panel) and select the render target named after the
+   scene.
 
 ## Command line
 
 ```sh
-orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz | --out-dir DIR] [--preview] [--no-ground] [--content-dir DIR]… [--open]
+orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz | --out-dir DIR] [--preview] [--no-ground] [--content-dir DIR]…
 orbis install [--library DIR]
 ```
 

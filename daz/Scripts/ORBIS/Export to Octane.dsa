@@ -3,9 +3,8 @@
 // Asks for the options (remembered between runs), dumps what DAZ Studio
 // evaluated — posed vertices of every mesh and the rendered strands of strand
 // hair — and runs the `orbis` binary shipped beside this script (bin/orbis)
-// on the saved scene and the dump. Octane X then opens with the .orbx
-// revealed in Finder and its path on the clipboard (File → Open, ⇧⌘G,
-// paste). On its first run the script adds File → Export to Octane....
+// on the saved scene and the dump; Octane X opens the .orbx from its own
+// File → Open. On its first run the script adds File → Export to Octane....
 //
 // Installed by `orbis install`, which fills in the @…@ paths below (the
 // binary lives outside the content library, so the Content Library shows
@@ -50,8 +49,7 @@
         besideScene: oSettings.getBoolValue("besideScene", false),
         outputDir: oSettings.getStringValue("outputDir", sDefaultOutputDir),
         preview: oSettings.getBoolValue("preview", false),
-        ground: oSettings.getBoolValue("ground", true),
-        openOctane: oSettings.getBoolValue("openOctane", true)
+        ground: oSettings.getBoolValue("ground", true)
     };
     if (!optionsDialog(oOptions)) {
         return;
@@ -60,7 +58,6 @@
     oSettings.setStringValue("outputDir", oOptions.outputDir);
     oSettings.setBoolValue("preview", oOptions.preview);
     oSettings.setBoolValue("ground", oOptions.ground);
-    oSettings.setBoolValue("openOctane", oOptions.openOctane);
 
     // ── Dump ──────────────────────────────────────────────────────────────
     var sDump = App.getTempPath() + "/orbis-scene-dump.json";
@@ -77,7 +74,6 @@
     var aArgs = [sBin, "export", sScene, "--dump", sDump, "--out-dir", sOutDir];
     if (oOptions.preview) aArgs.push("--preview");
     if (!oOptions.ground) aArgs.push("--no-ground");
-    if (oOptions.openOctane) aArgs.push("--open");
 
     startProgress(sTitle + ": exporting to Octane...", 0, false, true);
     var oResult = run(aArgs, function (sLine) {
@@ -137,9 +133,6 @@
         var wGround = new DzCheckBox(wRender);
         wGround.text = "Shadow-catching ground (when Iray draws one)";
         wGround.checked = oOpt.ground;
-        var wOpen = new DzCheckBox(wRender);
-        wOpen.text = "Open Octane X when done";
-        wOpen.checked = oOpt.openOctane;
         wDlg.addWidget(wRender);
 
         if (!wDlg.exec()) {
@@ -149,7 +142,6 @@
         oOpt.outputDir = wPath.text;
         oOpt.preview = wPreview.checked;
         oOpt.ground = wGround.checked;
-        oOpt.openOctane = wOpen.checked;
         return true;
     }
 
