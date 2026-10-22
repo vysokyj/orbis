@@ -143,6 +143,7 @@
         wDetails.minWidth = 560;
         wDetails.minHeight = 180;
         wDlg.addWidget(wDetails, 1);
+        centerOnMainWindow(wDlg);
         wDlg.exec();
     }
 
@@ -200,6 +201,7 @@
         wGround.checked = oOpt.ground;
         wDlg.addWidget(wGround);
 
+        centerOnMainWindow(wDlg);
         if (!wDlg.exec()) {
             return false;
         }
@@ -208,6 +210,20 @@
         oOpt.preview = wPreview.checked;
         oOpt.ground = wGround.checked;
         return true;
+    }
+
+    // Put a dialog in the middle of DAZ Studio's window (a DzBasicDialog
+    // opens wherever the window system puts it). Cosmetic: never fails.
+    function centerOnMainWindow(wDlg) {
+        try {
+            var oDlg = wDlg.getWidget();
+            var oHint = oDlg.sizeHint;
+            var oMain = MainWindow.geometry;
+            oDlg.pos = new Point(oMain.x + Math.round((oMain.width - oHint.width) / 2),
+                oMain.y + Math.round((oMain.height - oHint.height) / 2));
+        } catch (e) {
+            print(sTitle + ": cannot center the dialog: " + e);
+        }
     }
 
     function heading(wParent, sText) {
