@@ -61,12 +61,19 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
 
 ## Plugin
 
-- `orbis install [--library DIR]` writes `Scripts/ORBIS/` (script,
-  `Export to Octane.png` thumbnail, `bin/orbis` = itself) and the folder
+- `orbis install [--library DIR]` copies itself to `~/Library/Application
+  Support/ORBIS/bin/orbis` (executable, quarantine flag cleared) and writes
+  `Scripts/ORBIS/Export to Octane.dsa` + `.png` thumbnail and the folder
   thumbnail `Scripts/ORBIS.png` into the content directory named
-  "My Library" (else the first one in DAZ Studio's preferences), sets the
-  executable bit and clears the quarantine flag. Script and thumbnails are
-  compiled into the binary; the release zip is staged the same way.
+  "My Library" (else the first one in DAZ Studio's preferences). Script and
+  thumbnails are compiled into the binary; the release zip holds just the
+  binary.
+- The binary stays out of the content library: the Content Library lists
+  every folder, a `bin/` included. The install writes the binary's path and
+  the default output folder into the script (`"@ORBIS_BIN@"`,
+  `"@DEFAULT_OUTPUT_DIR@"`, as ASCII-escaped string literals) — the script
+  has no reliable way to find the user's home (`DzDir.homePath()` fails in
+  DAZ Studio 6). An install over an older one removes its `Scripts/ORBIS/bin/`.
 - On its first run the script adds a custom action *File → Export to
   Octane...* (after *File → Export...*), with the thumbnail as its icon; an
   existing one is repointed when the script moved.

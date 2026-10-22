@@ -54,8 +54,8 @@ enum Command {
         #[arg(long)]
         open: bool,
     },
-    /// Install the DAZ Studio plugin (script, icons, this binary) into a
-    /// content library.
+    /// Install the DAZ Studio plugin: this binary into Application Support,
+    /// the script and its icons into a content library.
     Install {
         /// The library. Default: "My Library" from DAZ Studio's content directories.
         #[arg(long)]
@@ -70,12 +70,14 @@ fn main() -> Result<()> {
         .init();
     match Cli::parse().command {
         Command::Install { library } => {
-            let Some(library) = library.or_else(orbis::install::default_library) else {
-                bail!("no DAZ content library found; name one with --library");
-            };
-            let plugin = orbis::install::install(&library, &std::env::current_exe()?)?;
+            let paths = orbis::install::InstallPaths::default_for(library)?;
+            let plugin = orbis::install::install(&paths, &std::env::current_exe()?)?;
+            println!("installed: {}", paths.binary.display());
             println!("installed: {}", plugin.display());
-            println!("in DAZ Studio: Content Library → {} → Scripts → ORBIS → Export to Octane", library.file_name().map(|n| n.to_string_lossy()).unwrap_or_default());
+            println!(
+                "in DAZ Studio: Content Library → {} → Scripts → ORBIS → Export to Octane",
+                paths.library.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()
+            );
             Ok(())
         }
         Command::Export { scene, dump, out, out_dir, preview, no_ground, content_dirs, open } => {

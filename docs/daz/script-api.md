@@ -25,7 +25,9 @@ generated from the docs, so undocumented members may be missing.
 
 - `App.longVersionString` (`major.minor.revision.build`), `App.getTempPath()`,
   `App.getContentMgr()`.
-- `DzDir.homePath()` (static, 4.9.3.35+) — the user's home.
+- `DzDir.homePath()` is documented (static, 4.9.3.35+) but fails in DAZ
+  Studio 6 ("Property 'homePath' … is not a function") — don't count on
+  `DzDir` statics.
 - `DzContentMgr`: `getNumContentDirectories()` /
   `getContentDirectoryPath(i)`, `getNumBuiltInMDLDirectories()` /
   `getBuiltInMDLDirectoryPath(i)` (the app's `shaders/iray`, root of
@@ -60,7 +62,7 @@ nodes without geometry).
   questions.
 - `DzFileInfo(path)`: `path()` (directory), `exists()`.
 - `DzProcess(args)`: `communication = DzProcess.Stdout | DzProcess.Stderr`,
-  `start()`, `running` (property), `canReadLineStdout()` /
+  `start()`, `running` (property; older builds `isRunning()`), `canReadLineStdout()` /
   `readLineStdout()`, `readStderr()`, `normalExit`, `exitStatus`;
   `writeToStdin(str)` / `closeStdin()` (#2).
 

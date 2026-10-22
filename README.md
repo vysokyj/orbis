@@ -21,17 +21,17 @@ with it.
 1. Download `orbis-<version>-macos.zip` from the
    [releases](https://github.com/vysokyj/orbis/releases) and unzip it.
 2. Until the binary is notarized ([#3](https://github.com/vysokyj/orbis/issues/3)),
-   macOS blocks a downloaded one; clear the quarantine flag and install it
-   into your DAZ library ("My Library" from DAZ Studio's content
-   directories, or `--library DIR`):
+   macOS blocks a downloaded one; clear the quarantine flag and install:
 
    ```sh
    cd orbis-<version>-macos
-   xattr -dr com.apple.quarantine Content
-   Content/Scripts/ORBIS/bin/orbis install
+   xattr -d com.apple.quarantine orbis
+   ./orbis install
    ```
 
-   Or copy the contents of `Content/` into a DAZ library by hand.
+   This puts the binary into `~/Library/Application Support/ORBIS/bin/` and
+   the script into your DAZ library ("My Library" from DAZ Studio's content
+   directories, or `--library DIR`) as `Scripts/ORBIS/Export to Octane`.
 
 From a checkout: `scripts/install.sh` builds and installs.
 

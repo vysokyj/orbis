@@ -24,7 +24,7 @@ attaches the zip to a GitHub release.
 | Path | Purpose |
 |------|---------|
 | `src/main.rs` | `orbis` CLI (`export`, `install`); stdout = progress/report read by the DAZ script, logs on stderr |
-| `src/install.rs` | `orbis install`: script + thumbnails (compiled in) + the binary → `<library>/Scripts/ORBIS/` |
+| `src/install.rs` | `orbis install`: binary → `~/Library/Application Support/ORBIS/bin/`, script (paths filled in) + thumbnails → `<library>/Scripts/ORBIS/` |
 | `src/usd/` | Scene → meshes (`.duf` + library `.dsf` + the scene dump, `dump.rs`), SubD, hair, cameras, lights, environment, USDA/USDZ, `project.ocs`; `export_scene_orbx` / `export_scene_usdz` |
 | `src/material.rs` | Iray Uber → Octane material/light/scene nodes in `project.ocs` |
 | `src/daz_material.rs` | DSON materials: merged Iray channels |
@@ -34,9 +34,9 @@ attaches the zip to a GitHub release.
 | `src/dson.rs` | gzip DSON, percent-decoding |
 | `src/daz.rs` | DAZ Studio on this machine: content dirs, app bundle |
 | `assets/octane/*.ocs` | `project.ocs` template + kernels, embedded with `include_str!` |
-| `daz/Scripts/ORBIS/` | DAZ Studio script (options dialog, scene dump, menu action) + thumbnails, installed as `Scripts/ORBIS/` with `bin/orbis` |
+| `daz/Scripts/ORBIS/` | DAZ Studio script (options dialog, scene dump, menu action) + thumbnails; a template — `orbis install` fills in `@…@` |
 | `assets/icon/orbis.svg` | Icon source for the thumbnails |
-| `scripts/package.sh` | Builds the plugin zip (universal binary when both Apple targets are installed) |
+| `scripts/package.sh` | Builds the release zip: the (universal) binary + docs |
 | `scripts/dev/` | Calibration tools: Octane Lua probes, render comparison, manual mirror |
 
 ## Documentation
@@ -62,7 +62,9 @@ attaches the zip to a GitHub release.
   script (format in the spec). Script and `orbis` share `format_version` —
   bump both on an incompatible change. No third-party exporter (Diffeomorphic
   `.dbz`) is part of the project; streaming instead of a file is #2.
-- DAZ Script API: `docs/daz/script-api.md`.
+- DAZ Script API: `docs/daz/script-api.md`. Statics like `DzDir.homePath()`
+  fail in DAZ Studio 6; keep string literals in the script ASCII. DAZ's log
+  (`~/Library/Application Support/DAZ 3D/Studio6/log.txt`) shows script errors.
 - The DAZ script is ECMAScript 3-ish QtScript: `var`, no arrow functions or
   `let`/`const`. It is untested in DAZ Studio until #1 is closed.
 - Octane X is sandboxed and refuses files opened from outside — never try to
