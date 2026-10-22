@@ -1,0 +1,40 @@
+     <pin name='kernel'>
+      <node id='100060' type='25'>
+       <attr name='compatibilityVersion' type='2'>15050000</attr>
+       <pin name='maxsamples'>
+        <node id='100061' type='9'>
+         <attr name='value' type='5'>500 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='maxDiffuseDepth'>
+        <node id='100062' type='9'>
+         <attr name='value' type='5'>8 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='maxGlossyDepth'>
+        <node id='100063' type='9'>
+         <attr name='value' type='5'>24 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='maxScatterDepth'>
+        <node id='100064' type='9'>
+         <attr name='value' type='5'>128 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='giClamp'>
+        <node id='100065' type='6'>
+         <attr name='value' type='9'>20 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='alphashadows'>
+        <node id='100066' type='11'>
+         <attr name='value' type='1'>1</attr>
+        </node>
+       </pin>
+       <pin name='nestedDielectrics'>
+        <node id='100067' type='11'>
+         <attr name='value' type='1'>1</attr>
+        </node>
+       </pin>
+      </node>
+     </pin>

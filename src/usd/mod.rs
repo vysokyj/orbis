@@ -1,0 +1,277 @@
+//! Native DAZ scene → USDZ export for Octane X.
+//!
+//! A saved scene is rebuilt from three sources, without Blender: the `.duf`
+//! (nodes, geometry/UV/material references), the library `.dsf` assets
+//! (topology, UV sets, grafts) and the `.dbz` posed-scene export next to the
+//! scene (final world-space vertices per node, morphs and pose applied). See
+//! `docs/spec/octane-export.md` for the formats.
+//!
+//! Phase 1: geometry — one `Mesh` per node with material-group `GeomSubset`s
+//! and indexed `faceVarying` UVs, packed into a `.usdz` — and, for Octane X,
+//! into an `.orbx` (Octane's package, see `crate::orbx`) whose `project.ocs`
+//! imports it with the scene's camera.
+
+use std::collections::{HashMap, HashSet};
+use std::fmt::Write as _;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+
+use anyhow::{anyhow, bail, Context, Result};
+use serde::Deserialize;
+use serde_json::Value;
+
+use crate::dson::{decompress_scene, percent_decode};
+use crate::orbx::write_orbx;
+
+mod camera;
+mod dbz;
+mod environment;
+mod library;
+mod lights;
+mod mesh;
+mod project;
+mod subdivide;
+mod usda;
+mod usdz;
+#[cfg(test)]
+mod tests;
+
+pub use camera::*;
+use dbz::*;
+pub use environment::*;
+use library::*;
+pub use lights::*;
+use mesh::*;
+use project::*;
+use subdivide::*;
+pub use usda::*;
+pub use usdz::*;
+
+/// Where to look for library assets.
+#[derive(Debug, Clone, Default)]
+pub struct ExportOptions {
+    /// DAZ content directories (`daz::content_dirs`); the `.dbz`'s own
+    /// `rootpaths.content` are searched after these.
+    pub content_dirs: Vec<PathBuf>,
+    /// Octane render setup: fast preview or the photoreal path tracer.
+    pub octane_mode: OctaneMode,
+    /// Leave out the shadow-catching ground even when Iray draws one — it
+    /// shows through holes or dips in a floor or terrain at its height.
+    pub no_ground: bool,
+}
+
+/// How the Octane project renders.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum OctaneMode {
+    /// Direct lighting (Octane's fast, biased preview kernel), Universal
+    /// skin — what the lights were first calibrated on.
+    #[default]
+    Preview,
+    /// Path tracing, skin with random-walk subsurface scattering (direct
+    /// lighting renders that grey) and the denoiser on. Both modes take the
+    /// imager from DAZ's tone mapping ([`ToneMapping`]).
+    Final,
+}
+
+impl OctaneMode {
+    pub fn skin_sss(self) -> bool {
+        self == OctaneMode::Final
+    }
+}
+
+/// What [`export_scene_usdz`] wrote.
+#[derive(Debug, Clone, Default)]
+pub struct ExportReport {
+    pub meshes: usize,
+    pub points: usize,
+    pub faces: usize,
+    /// Nodes left out, with the reason (`label: why`).
+    pub skipped: Vec<String>,
+    /// Textures packed into an `.orbx`.
+    pub textures: usize,
+    /// Material textures not found in the content directories.
+    pub missing_textures: Vec<String>,
+    /// Longest texture edge when the decoded textures exceeded
+    /// `texture_budget::BUDGET_BYTES` (`None`: full size) and how many were
+    /// scaled down.
+    pub texture_limit: Option<u32>,
+    pub textures_scaled: usize,
+    /// Octane render targets written, one per DAZ camera.
+    pub render_targets: usize,
+}
+
+/// Convert `scene` (`.duf` with its `.dbz` beside it) into a `.usdz` at `out`.
+pub fn export_scene_usdz(scene: &Path, out: &Path, opts: &ExportOptions) -> Result<ExportReport> {
+    let (meshes, report, mut lib) = build_scene(scene, opts)?;
+    let (layer, _) = write_usda(&meshes, &scene_lights(&mut lib));
+    write_atomically(out, |f| write_usdz(f, &[("scene.usda", layer.as_bytes())]))?;
+    Ok(report)
+}
+
+/// Convert `scene` into an Octane package (`.orbx`) at `out`: the scene as an
+/// embedded `.usdz`, imported by a USD graph in `project.ocs`, with a render
+/// target wired to it and the scene's DAZ camera. Octane X opens it from its
+/// own Open panel or gallery (it refuses files handed over from outside).
+pub fn export_scene_orbx(scene: &Path, out: &Path, opts: &ExportOptions) -> Result<ExportReport> {
+    let (meshes, mut report, mut lib) = build_scene(scene, opts)?;
+    let lights = scene_lights(&mut lib);
+    let (layer, materials) = write_usda(&meshes, &lights);
+    let mut usdz = Vec::new();
+    write_usdz(&mut usdz, &[("scene.usda", layer.as_bytes())])?;
+    drop(layer);
+    let mut cameras = scene_cameras(&mut lib);
+    if cameras.is_empty() {
+        tracing::info!("USD export: no camera in the scene, framing all meshes");
+        cameras.push(("Camera".to_string(), framing_camera(&meshes)));
+    }
+    let name = scene.file_stem().and_then(|s| s.to_str()).unwrap_or("scene");
+    let layered = crate::daz_material::layered_images(&lib.duf);
+    let (inputs, mut textures) = crate::material::material_inputs(&materials, &lib.dirs, layered, 200_000, opts.octane_mode.skin_sss());
+    let environment = scene_environment(&mut lib);
+    let env_texture = crate::material::environment_texture(environment.as_ref(), &lib.dirs, &mut textures, 190_000);
+    let env_power = environment.as_ref().map(|e| if e.scene_only { 0.0 } else { e.intensity }).unwrap_or(1.0);
+    let emitters = light_emitters(&lights);
+    let light_inputs = crate::material::light_inputs(&emitters, 180_000);
+    // The shadow-catching ground stands in for Iray's ground under an HDRI
+    // backdrop; without a map there is nothing for its shadow to sit on.
+    let ground = environment
+        .as_ref()
+        .filter(|e| e.map.is_some() && !opts.no_ground)
+        .and_then(|e| Some((e.ground_shadow?, ground_height(e, &meshes))));
+    let (scene_nodes, mesh_connect) = crate::material::scene_lights(&octane_spots(&lights), ground, 170_000, 1439);
+    let tone = scene_tone_mapping(&mut lib);
+    let ocs = project_ocs(name, USDZ_ASSET, &cameras, render_size(&lib.duf), &env_texture, opts.octane_mode, &tone)
+        .replace("@MATERIAL_INPUTS@", &(inputs + &light_inputs))
+        .replace("@SCENE_NODES@", &scene_nodes)
+        .replace("@MESH_CONNECT@", &mesh_connect.to_string())
+        .replace("@ENV_POWER@", &format!("{env_power}"));
+    report.render_targets = cameras.len();
+    report.textures = textures.files.len() + textures.generated.len();
+    report.missing_textures = textures.missing.clone();
+    for t in &textures.missing {
+        tracing::info!(texture = %t, "Octane export: texture not found");
+    }
+    let mut images = Vec::with_capacity(textures.files.len() + textures.generated.len());
+    for (asset, file) in &textures.files {
+        images.push((asset.clone(), std::fs::read(file).with_context(|| format!("reading {}", file.display()))?));
+    }
+    images.append(&mut textures.generated);
+    // Octane holds textures decoded; scale them down when they'd crowd out
+    // the GPU's (unified) memory.
+    let dims: Vec<_> = images.iter().filter_map(|(_, d)| crate::texture_budget::dimensions(d)).collect();
+    report.texture_limit = crate::texture_budget::choose_limit(&dims, crate::texture_budget::BUDGET_BYTES);
+    if let Some(limit) = report.texture_limit {
+        report.textures_scaled = crate::texture_budget::downscale_all(&mut images, limit);
+        tracing::info!(limit, scaled = report.textures_scaled, "Octane export: textures scaled down to fit the memory budget");
+    }
+    let asset = format!("assets/{USDZ_ASSET}");
+    let mut files: Vec<(&str, &[u8])> = vec![(&asset, &usdz)];
+    files.extend(images.iter().map(|(a, d)| (a.as_str(), d.as_slice())));
+    files.push(("project.ocs", ocs.as_bytes()));
+    write_atomically(out, |f| write_orbx(f, OCTANE_VERSION, &files))?;
+    Ok(report)
+}
+
+/// The embedded scene's file name inside an `.orbx`.
+const USDZ_ASSET: &str = "scene.usdz";
+
+/// Octane version the `project.ocs` template was saved with (Octane X 2026.6).
+const OCTANE_VERSION: &str = "15050000";
+
+/// Read the scene, its `.dbz` and library assets into meshes.
+fn build_scene(scene: &Path, opts: &ExportOptions) -> Result<(Vec<Mesh>, ExportReport, Library)> {
+    let duf: Value = serde_json::from_str(&decompress_scene(
+        &std::fs::read(scene).with_context(|| format!("reading {}", scene.display()))?,
+    )?)?;
+    let dbz_path = crate::daz::dbz_path(scene);
+    let dbz = Dbz::load(&dbz_path)
+        .with_context(|| format!("reading {} (export it from DAZ Studio)", dbz_path.display()))?;
+
+    let mut dirs = opts.content_dirs.clone();
+    // The installed DAZ Studio's Iray shader folder serves `/resources/…`
+    // (default HDRI, brushed-metal maps) even when the `.dbz` names an older
+    // install.
+    let installed_iray = crate::daz::studio_app().map(|a| a.join("Contents/shaders/iray"));
+    let extra = dbz.rootpaths.content.iter().chain(&dbz.rootpaths.builtin_mdl).map(PathBuf::from).chain(installed_iray);
+    for d in extra {
+        if !dirs.contains(&d) {
+            dirs.push(d);
+        }
+    }
+    let mut lib = Library::new(dirs, duf);
+    let (meshes, report) = build_meshes(&mut lib, &dbz)?;
+    Ok((meshes, report, lib))
+}
+
+/// Write through `<out>.tmp` and rename, so a failed export leaves no
+/// half-written file behind.
+fn write_atomically(out: &Path, write: impl FnOnce(&mut std::io::BufWriter<std::fs::File>) -> Result<()>) -> Result<()> {
+    let mut tmp = out.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    let mut f = std::io::BufWriter::new(std::fs::File::create(&tmp)?);
+    let res = write(&mut f).and_then(|_| f.flush().map_err(Into::into));
+    drop(f);
+    match res {
+        Ok(()) => Ok(std::fs::rename(&tmp, out)?),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(e)
+        }
+    }
+}
+
+/// The installed Octane X app bundle, if any.
+pub fn octane_app() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let p = PathBuf::from("/Applications/Octane X.app");
+        p.exists().then_some(p)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+/// Where exported files go unless the caller names one: `~/Documents/ORBIS`.
+pub fn default_output_dir() -> PathBuf {
+    dirs::document_dir().unwrap_or_else(|| PathBuf::from(".")).join("ORBIS")
+}
+
+/// `<usd_root>/<scene stem>.usdz`.
+pub fn usdz_output_path(usd_root: &Path, scene_path: &Path) -> PathBuf {
+    let stem = scene_path.file_stem().and_then(|s| s.to_str()).unwrap_or("scene");
+    usd_root.join(format!("{stem}.usdz"))
+}
+
+/// `<usd_root>/<scene stem>.orbx`.
+pub fn orbx_output_path(usd_root: &Path, scene_path: &Path) -> PathBuf {
+    usdz_output_path(usd_root, scene_path).with_extension("orbx")
+}
+
+/// Get an exported file into Octane X. The app is sandboxed and declares no
+/// document types, so macOS refuses to hand it any file — `.usdz` and even
+/// its own `.orbx`; it has to come through Octane's own Open panel. So:
+/// launch Octane X, reveal the file in Finder and put its path on the
+/// clipboard (⇧⌘G in the panel).
+pub fn open_in_octane(file: &Path) -> Result<()> {
+    let app = octane_app().ok_or_else(|| anyhow!("Octane X not found in /Applications"))?;
+    let run = |cmd: &mut std::process::Command| -> Result<()> {
+        let status = cmd.status()?;
+        if !status.success() {
+            bail!("{cmd:?} failed ({status})");
+        }
+        Ok(())
+    };
+    run(std::process::Command::new("open").arg("-a").arg(&app))?;
+    run(std::process::Command::new("open").arg("-R").arg(file))?;
+    let mut pb = std::process::Command::new("pbcopy").stdin(std::process::Stdio::piped()).spawn()?;
+    pb.stdin.take().ok_or_else(|| anyhow!("pbcopy stdin"))?.write_all(file.to_string_lossy().as_bytes())?;
+    pb.wait()?;
+    Ok(())
+}
+
+/// DAZ centimeters → meters.
+const CM: f32 = 0.01;

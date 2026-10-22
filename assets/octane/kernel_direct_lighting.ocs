@@ -1,0 +1,215 @@
+     <pin name='kernel'>
+      <node id='100060' type='24'>
+       <attr name='compatibilityVersion' type='2'>15050000</attr>
+       <pin name='maxsamples'>
+        <node id='100061' type='9'>
+         <attr name='value' type='5'>500 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='GI_mode'>
+        <node id='100062' type='57'>
+         <attr name='value' type='2'>3</attr>
+        </node>
+       </pin>
+       <pin name='speculardepth'>
+        <node id='100063' type='9'>
+         <attr name='value' type='5'>5 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='glossydepth'>
+        <node id='100064' type='9'>
+         <attr name='value' type='5'>2 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='diffusedepth'>
+        <node id='100065' type='9'>
+         <attr name='value' type='5'>2 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='maxOverlappingVolumes'>
+        <node id='100066' type='9'>
+         <attr name='value' type='5'>4 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='rayepsilon'>
+        <node id='100067' type='6'>
+         <attr name='value' type='9'>9.9999997e-05 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='filtersize'>
+        <node id='100068' type='6'>
+         <attr name='value' type='9'>1.2 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='aodist'>
+        <node id='100069' type='6'>
+         <attr name='value' type='9'>3 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='alphashadows'>
+        <node id='100070' type='11'>
+         <attr name='value' type='1'>1</attr>
+        </node>
+       </pin>
+       <pin name='nestedDielectrics'>
+        <node id='100071' type='11'>
+         <attr name='value' type='1'>1</attr>
+        </node>
+       </pin>
+       <pin name='irradiance'>
+        <node id='100072' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='MaxsubdLevel'>
+        <node id='100073' type='9'>
+         <attr name='value' type='5'>10 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='lodBias'>
+        <node id='100074' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='alphachannel'>
+        <node id='100075' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='keep_environment'>
+        <node id='100076' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='lightSampler'>
+        <node id='100077' type='57'>
+         <attr name='value' type='2'>0</attr>
+        </node>
+       </pin>
+       <pin name='aiLightUpdate'>
+        <node id='100078' type='11'>
+         <attr name='value' type='1'>1</attr>
+        </node>
+       </pin>
+       <pin name='globalLightIdMaskAction'>
+        <node id='100079' type='57'>
+         <attr name='value' type='2'>1</attr>
+        </node>
+       </pin>
+       <pin name='globalLightIdMask'>
+        <node id='100080' type='132'>
+         <attr name='value' type='2'>0</attr>
+        </node>
+       </pin>
+       <pin name='lightPassMask'>
+        <node id='100081' type='132'>
+         <attr name='value' type='2'>0</attr>
+        </node>
+       </pin>
+       <pin name='pathTermPower'>
+        <node id='100082' type='6'>
+         <attr name='value' type='9'>0.30000001 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='directLightRayCount'>
+        <node id='100083' type='9'>
+         <attr name='value' type='5'>1 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='coherentRatio'>
+        <node id='100084' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='staticNoise'>
+        <node id='100085' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='parallelSamples'>
+        <node id='100086' type='9'>
+         <attr name='value' type='5'>32 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='maxTileSamples'>
+        <node id='100087' type='9'>
+         <attr name='value' type='5'>32 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='minimizeNetTraffic'>
+        <node id='100088' type='11'>
+         <attr name='value' type='1'>1</attr>
+        </node>
+       </pin>
+       <pin name='neuralRadianceCache'>
+        <node id='100089' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='neuralRadianceCacheOnlineTraining'>
+        <node id='100090' type='11'>
+         <attr name='value' type='1'>1</attr>
+        </node>
+       </pin>
+       <pin name='neuralRadianceCacheSpp'>
+        <node id='100091' type='9'>
+         <attr name='value' type='5'>24 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='adaptiveSampling'>
+        <node id='100092' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='noiseThreshold'>
+        <node id='100093' type='6'>
+         <attr name='value' type='9'>0.02 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='minAdaptiveSamples'>
+        <node id='100094' type='9'>
+         <attr name='value' type='5'>512 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='adaptiveSamplingPixelGroup'>
+        <node id='100095' type='57'>
+         <attr name='value' type='2'>2</attr>
+        </node>
+       </pin>
+       <pin name='adaptiveSamplingExposure'>
+        <node id='100096' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='whiteLightSpectrum'>
+        <node id='100097' type='57'>
+         <attr name='value' type='2'>1</attr>
+        </node>
+       </pin>
+       <pin name='deepEnable'>
+        <node id='100098' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='deepEnablePasses'>
+        <node id='100099' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='maxDepthSamples'>
+        <node id='100100' type='9'>
+         <attr name='value' type='5'>8 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='depthTolerance'>
+        <node id='100101' type='6'>
+         <attr name='value' type='9'>0.050000001 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='toonShadowAmbient'>
+        <node id='100102' type='6'>
+         <attr name='value' type='9'>0.5 0.5 0.5 0</attr>
+        </node>
+       </pin>
+      </node>
+     </pin>

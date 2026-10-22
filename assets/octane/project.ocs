@@ -1,0 +1,1592 @@
+<?xml version='1.0' encoding='utf-8'?>
+<OCS2 version='15050000'>
+ <graph id='1' type='4' name='Project settings'>
+  <node id='2' type='70' name='Project settings' position='0 0'>
+   <attr name='renderPriority' type='2'>2</attr>
+   <attr name='clayMode' type='2'>0</attr>
+   <attr name='subsampling' type='2'>1</attr>
+   <attr name='drawDecalWireframe' type='1'>0</attr>
+   <attr name='fitResolution' type='1'>0</attr>
+   <attr name='backgroundImagePath' type='11'></attr>
+   <attr name='useBackgroundImage' type='1'>0</attr>
+   <attr name='renderRendertargetNodes' type='1'>1</attr>
+   <attr name='renderMeshNodes' type='1'>0</attr>
+   <attr name='renderMaterialNodes' type='1'>0</attr>
+   <attr name='renderTextureNodes' type='1'>0</attr>
+   <attr name='gridSnap' type='1'>0</attr>
+   <attr name='gridDisplay' type='1'>0</attr>
+   <attr name='outputDirectoryOverride' type='11'></attr>
+   <attr name='toolMode' type='2'>0</attr>
+   <attr name='time' type='6'>0</attr>
+   <attr name='framesPerSecond' type='6'>24</attr>
+   <attr name='minTimeSpan' type='7'>0 0</attr>
+   <attr name='referencePackageMergeScatterInstances' type='1'>0</attr>
+   <attr name='referencePackageIncludePercentage' type='6'>100</attr>
+   <attr name='referencePackageIgnoreSmallObjectPercentage' type='6'>1</attr>
+   <attr name='referencePackageExportAabbAnimation' type='1'>1</attr>
+   <attr name='referencePackageAnimationFramerate' type='6'>10</attr>
+   <attr name='referencePackageEnableCustomAnimationTimespan' type='1'>0</attr>
+   <attr name='referencePackageCustomAnimationTimespanStart' type='6'>0</attr>
+   <attr name='referencePackageCustomAnimationTimespanEnd' type='6'>0</attr>
+   <attr name='referencePackageExportNestedReferences' type='1'>0</attr>
+  </node>
+  <node id='3' type='439' name='Metadata' position='0 0'>
+   <attr name='pluginType' type='10'>PLORTEST-SUB-T1</attr>
+   <attr name='gpuNames' type='10' arrayId='1'>"Apple M4 (10 GPU cores)"</attr>
+   <attr name='gpuRam' type='14' arrayId='2'>25769803776</attr>
+   <attr name='systemCpu' type='10'>Apple M4</attr>
+   <attr name='systemRam' type='14'>25769803776</attr>
+  </node>
+  <node id='4' type='56' name='Preview Render Target' position='0 0'>
+   <pin name='camera'>
+    <node id='5' type='13'>
+     <pin name='orthographic'>
+      <node id='6' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='sensorWidth'>
+      <node id='7' type='6'>
+       <attr name='value' type='9'>36 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='focalLength'>
+      <node id='8' type='6'>
+       <attr name='value' type='9'>65 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='fstop'>
+      <node id='9' type='6'>
+       <attr name='value' type='9'>12 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='fov'>
+      <node id='10' type='6'>
+       <attr name='value' type='9'>39.597752 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='scale'>
+      <node id='11' type='6'>
+       <attr name='value' type='9'>0.80498445 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='distortion'>
+      <node id='12' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='lensShift'>
+      <node id='13' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='perspectiveCorrection'>
+      <node id='14' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='pixelAspectRatio'>
+      <node id='15' type='6'>
+       <attr name='value' type='9'>1 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='nearClipDepth'>
+      <node id='16' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='farClipDepth'>
+      <node id='17' type='6'>
+       <attr name='value' type='9'>1e+10 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='autofocus'>
+      <node id='18' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='focalDepth'>
+      <node id='19' type='6'>
+       <attr name='value' type='9'>3.40686 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='aperture'>
+      <node id='20' type='6'>
+       <attr name='value' type='9'>0.27083 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='apertureAspectRatio'>
+      <node id='21' type='6'>
+       <attr name='value' type='9'>1 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='aperture_edge'>
+      <node id='22' type='6'>
+       <attr name='value' type='9'>1 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='bokehSidecount'>
+      <node id='23' type='9'>
+       <attr name='value' type='5'>6 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='bokehRotation'>
+      <node id='24' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='bokehRoundedness'>
+      <node id='25' type='6'>
+       <attr name='value' type='9'>1 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='pos'>
+      <node id='26' type='6'>
+       <attr name='value' type='9'>-0.00727 0.60278 -3.39103 0</attr>
+      </node>
+     </pin>
+     <pin name='target'>
+      <node id='27' type='6'>
+       <attr name='value' type='9'>0.50549 0.87380 -0.03390 0</attr>
+      </node>
+     </pin>
+     <pin name='up'>
+      <node id='28' type='6'>
+       <attr name='value' type='9'>-0.01198 0.99683 -0.07864 0</attr>
+      </node>
+     </pin>
+     <pin name='stereoOutput'>
+      <node id='29' type='57'>
+       <attr name='value' type='2'>0</attr>
+      </node>
+     </pin>
+     <pin name='stereoMode'>
+      <node id='30' type='57'>
+       <attr name='value' type='2'>1</attr>
+      </node>
+     </pin>
+     <pin name='stereodist'>
+      <node id='31' type='6'>
+       <attr name='value' type='9'>0.064999998 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='stereoSwitchEyes'>
+      <node id='32' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='leftFilter'>
+      <node id='33' type='33'>
+       <attr name='value' type='8'>1 0 0.81199998</attr>
+      </node>
+     </pin>
+     <pin name='rightFilter'>
+      <node id='34' type='33'>
+       <attr name='value' type='8'>0 1 0.18799999</attr>
+      </node>
+     </pin>
+    </node>
+   </pin>
+   <pin name='environment'>
+    <node id='35' type='37'>
+     <pin name='texture'>
+      <node id='36' type='33'>
+       <attr name='value' type='8'>1 1 1</attr>
+      </node>
+     </pin>
+     <pin name='power'>
+      <node id='37' type='6'>
+       <attr name='value' type='9'>0.64999998 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='importance_sampling'>
+      <node id='38' type='11'>
+       <attr name='value' type='1'>1</attr>
+      </node>
+     </pin>
+     <pin name='castPhotons'>
+      <node id='39' type='11'>
+       <attr name='value' type='1'>1</attr>
+      </node>
+     </pin>
+     <pin name='mediumRadius'>
+      <node id='40' type='6'>
+       <attr name='value' type='9'>1 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='lightPassMask'>
+      <node id='41' type='132'>
+       <attr name='value' type='2'>4194303</attr>
+      </node>
+     </pin>
+     <pin name='traceSets'>
+      <node id='42' type='84'>
+       <attr name='value' type='10'></attr>
+      </node>
+     </pin>
+     <pin name='shadowsExclude'>
+      <node id='43' type='84'>
+       <attr name='value' type='10'></attr>
+      </node>
+     </pin>
+     <pin name='shadowsReinclude'>
+      <node id='44' type='84'>
+       <attr name='value' type='10'></attr>
+      </node>
+     </pin>
+     <pin name='visibleEnvironmentBackplate'>
+      <node id='45' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='visibleEnvironmentReflections'>
+      <node id='46' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='visibleEnvironmentRefractions'>
+      <node id='47' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+    </node>
+   </pin>
+   <pin name='filmSettings'>
+    <node id='48' type='100'>
+     <pin name='resolution'>
+      <node id='49' type='12'>
+       <attr name='value' type='4'>1024 512 0</attr>
+       <attr name='preset' type='2'>403</attr>
+       <attr name='aspectRatio' type='6'>0</attr>
+      </node>
+     </pin>
+     <pin name='regionOffset'>
+      <node id='50' type='9'>
+       <attr name='value' type='5'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='regionSize'>
+      <node id='51' type='9'>
+       <attr name='value' type='5'>65536 65536 0 0</attr>
+      </node>
+     </pin>
+     <pin name='regionOffsetRelative'>
+      <node id='52' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='regionSizeRelative'>
+      <node id='53' type='6'>
+       <attr name='value' type='9'>1 1 0 0</attr>
+      </node>
+     </pin>
+     <pin name='lockRelativeRegion'>
+      <node id='54' type='11'>
+       <attr name='value' type='1'>1</attr>
+      </node>
+     </pin>
+    </node>
+   </pin>
+   <pin name='animation'>
+    <node id='55' type='99'>
+     <pin name='shutterAlignment'>
+      <node id='56' type='57'>
+       <attr name='value' type='2'>3</attr>
+      </node>
+     </pin>
+     <pin name='shutterTime'>
+      <node id='57' type='6'>
+       <attr name='value' type='9'>0.5 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='subFrameStart'>
+      <node id='58' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='subFrameEnd'>
+      <node id='59' type='6'>
+       <attr name='value' type='9'>1 0 0 0</attr>
+      </node>
+     </pin>
+    </node>
+   </pin>
+   <pin name='kernel'>
+    <node id='60' type='24'>
+     <attr name='compatibilityVersion' type='2'>15050000</attr>
+     <pin name='maxsamples'>
+      <node id='61' type='9'>
+       <attr name='value' type='5'>500 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='GI_mode'>
+      <node id='62' type='57'>
+       <attr name='value' type='2'>3</attr>
+      </node>
+     </pin>
+     <pin name='speculardepth'>
+      <node id='63' type='9'>
+       <attr name='value' type='5'>5 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='glossydepth'>
+      <node id='64' type='9'>
+       <attr name='value' type='5'>2 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='diffusedepth'>
+      <node id='65' type='9'>
+       <attr name='value' type='5'>2 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='maxOverlappingVolumes'>
+      <node id='66' type='9'>
+       <attr name='value' type='5'>4 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='rayepsilon'>
+      <node id='67' type='6'>
+       <attr name='value' type='9'>9.9999997e-05 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='filtersize'>
+      <node id='68' type='6'>
+       <attr name='value' type='9'>1.2 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='aodist'>
+      <node id='69' type='6'>
+       <attr name='value' type='9'>3 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='alphashadows'>
+      <node id='70' type='11'>
+       <attr name='value' type='1'>1</attr>
+      </node>
+     </pin>
+     <pin name='nestedDielectrics'>
+      <node id='71' type='11'>
+       <attr name='value' type='1'>1</attr>
+      </node>
+     </pin>
+     <pin name='irradiance'>
+      <node id='72' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='MaxsubdLevel'>
+      <node id='73' type='9'>
+       <attr name='value' type='5'>10 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='lodBias'>
+      <node id='74' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='alphachannel'>
+      <node id='75' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='keep_environment'>
+      <node id='76' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='lightSampler'>
+      <node id='77' type='57'>
+       <attr name='value' type='2'>0</attr>
+      </node>
+     </pin>
+     <pin name='aiLightUpdate'>
+      <node id='78' type='11'>
+       <attr name='value' type='1'>1</attr>
+      </node>
+     </pin>
+     <pin name='globalLightIdMaskAction'>
+      <node id='79' type='57'>
+       <attr name='value' type='2'>1</attr>
+      </node>
+     </pin>
+     <pin name='globalLightIdMask'>
+      <node id='80' type='132'>
+       <attr name='value' type='2'>0</attr>
+      </node>
+     </pin>
+     <pin name='lightPassMask'>
+      <node id='81' type='132'>
+       <attr name='value' type='2'>0</attr>
+      </node>
+     </pin>
+     <pin name='pathTermPower'>
+      <node id='82' type='6'>
+       <attr name='value' type='9'>0.30000001 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='directLightRayCount'>
+      <node id='83' type='9'>
+       <attr name='value' type='5'>1 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='coherentRatio'>
+      <node id='84' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='staticNoise'>
+      <node id='85' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='parallelSamples'>
+      <node id='86' type='9'>
+       <attr name='value' type='5'>32 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='maxTileSamples'>
+      <node id='87' type='9'>
+       <attr name='value' type='5'>32 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='minimizeNetTraffic'>
+      <node id='88' type='11'>
+       <attr name='value' type='1'>1</attr>
+      </node>
+     </pin>
+     <pin name='neuralRadianceCache'>
+      <node id='89' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='neuralRadianceCacheOnlineTraining'>
+      <node id='90' type='11'>
+       <attr name='value' type='1'>1</attr>
+      </node>
+     </pin>
+     <pin name='neuralRadianceCacheSpp'>
+      <node id='91' type='9'>
+       <attr name='value' type='5'>24 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='adaptiveSampling'>
+      <node id='92' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='noiseThreshold'>
+      <node id='93' type='6'>
+       <attr name='value' type='9'>0.02 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='minAdaptiveSamples'>
+      <node id='94' type='9'>
+       <attr name='value' type='5'>512 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='adaptiveSamplingPixelGroup'>
+      <node id='95' type='57'>
+       <attr name='value' type='2'>2</attr>
+      </node>
+     </pin>
+     <pin name='adaptiveSamplingExposure'>
+      <node id='96' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='whiteLightSpectrum'>
+      <node id='97' type='57'>
+       <attr name='value' type='2'>1</attr>
+      </node>
+     </pin>
+     <pin name='deepEnable'>
+      <node id='98' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='deepEnablePasses'>
+      <node id='99' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='maxDepthSamples'>
+      <node id='100' type='9'>
+       <attr name='value' type='5'>8 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='depthTolerance'>
+      <node id='101' type='6'>
+       <attr name='value' type='9'>0.050000001 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='toonShadowAmbient'>
+      <node id='102' type='6'>
+       <attr name='value' type='9'>0.5 0.5 0.5 0</attr>
+      </node>
+     </pin>
+    </node>
+   </pin>
+   <pin name='renderLayer'>
+    <node id='103' type='90'>
+     <pin name='enabled'>
+      <node id='104' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='layerId'>
+      <node id='105' type='9'>
+       <attr name='value' type='5'>1 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='invert'>
+      <node id='106' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='mode'>
+      <node id='107' type='57'>
+       <attr name='value' type='2'>0</attr>
+      </node>
+     </pin>
+    </node>
+   </pin>
+   <pin name='renderPasses'>
+    <node id='108' type='179'>
+     <attr name='aovCount' type='2'>0</attr>
+     <pin name='enabled'>
+      <node id='109' type='11'>
+       <attr name='value' type='1'>1</attr>
+      </node>
+     </pin>
+     <pin name='renderPassesRaw'>
+      <node id='110' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='renderPassCryptomatteCount'>
+      <node id='111' type='9'>
+       <attr name='value' type='5'>6 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='renderPassInfoMaxSamples'>
+      <node id='112' type='9'>
+       <attr name='value' type='5'>128 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='samplingMode'>
+      <node id='113' type='57'>
+       <attr name='value' type='2'>0</attr>
+      </node>
+     </pin>
+     <pin name='opacityThreshold'>
+      <node id='114' type='6'>
+       <attr name='value' type='9'>1 0 0 0</attr>
+      </node>
+     </pin>
+    </node>
+   </pin>
+   <pin name='compositeAovs'>
+    <node id='115' type='167'>
+     <attr name='aovCount' type='2'>0</attr>
+     <pin name='lockRenderAovs'>
+      <node id='116' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+    </node>
+   </pin>
+   <pin name='imager'>
+    <node id='117' type='15'>
+     <pin name='exposure'>
+      <node id='118' type='6'>
+       <attr name='value' type='9'>1 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='hotpixel_removal'>
+      <node id='119' type='6'>
+       <attr name='value' type='9'>1 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='vignetting'>
+      <node id='120' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='white_balance'>
+      <node id='121' type='33'>
+       <attr name='value' type='8'>1 1 1</attr>
+      </node>
+     </pin>
+     <pin name='saturation'>
+      <node id='122' type='6'>
+       <attr name='value' type='9'>1 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='disablePartialAlpha'>
+      <node id='123' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='dithering'>
+      <node id='124' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='min_display_samples'>
+      <node id='125' type='9'>
+       <attr name='value' type='5'>1 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='maxTonemapInterval'>
+      <node id='126' type='9'>
+       <attr name='value' type='5'>10 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='ocioView'>
+      <node id='127' type='160'>
+       <attr name='ocioDisplayName' type='10'></attr>
+       <attr name='ocioViewName' type='10'></attr>
+      </node>
+     </pin>
+     <pin name='ocioLook'>
+      <node id='128' type='161'>
+       <attr name='ocioUseViewLook' type='1'>1</attr>
+       <attr name='ocioLookName' type='10'></attr>
+      </node>
+     </pin>
+     <pin name='ocioForceToneMapping'>
+      <node id='129' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='acesToneMapping'>
+      <node id='130' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='highlightCompression'>
+      <node id='131' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='saturate_to_white'>
+      <node id='132' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='order'>
+      <node id='133' type='57'>
+       <attr name='value' type='2'>0</attr>
+      </node>
+     </pin>
+     <pin name='response'>
+      <node id='134' type='57'>
+       <attr name='value' type='2'>401</attr>
+      </node>
+     </pin>
+     <pin name='neutralResponse'>
+      <node id='135' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='gamma'>
+      <node id='136' type='6'>
+       <attr name='value' type='9'>1 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='denoiser'>
+      <node id='137' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='denoiserType'>
+      <node id='138' type='57'>
+       <attr name='value' type='2'>1</attr>
+      </node>
+     </pin>
+     <pin name='denoiseVolume'>
+      <node id='139' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='denoisePrefilter'>
+      <node id='140' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='denoiserQuality'>
+      <node id='141' type='57'>
+       <attr name='value' type='2'>2</attr>
+      </node>
+     </pin>
+     <pin name='denoiserOnce'>
+      <node id='142' type='11'>
+       <attr name='value' type='1'>1</attr>
+      </node>
+     </pin>
+     <pin name='minDenoiserSamples'>
+      <node id='143' type='9'>
+       <attr name='value' type='5'>10 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='maxDenoiserInterval'>
+      <node id='144' type='9'>
+       <attr name='value' type='5'>20 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='denoiserOriginalBlend'>
+      <node id='145' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='upsamplerType'>
+      <node id='146' type='57'>
+       <attr name='value' type='2'>0</attr>
+      </node>
+     </pin>
+     <pin name='upsampleSourcePercentage'>
+      <node id='147' type='57'>
+       <attr name='value' type='2'>0</attr>
+      </node>
+     </pin>
+     <pin name='upsamplingOnCompletion'>
+      <node id='148' type='11'>
+       <attr name='value' type='1'>1</attr>
+      </node>
+     </pin>
+     <pin name='minUpsamplingSamples'>
+      <node id='149' type='9'>
+       <attr name='value' type='5'>10 0 0 0</attr>
+      </node>
+     </pin>
+    </node>
+   </pin>
+   <pin name='postproc'>
+    <node id='150' type='61'>
+     <attr name='compatibilityVersion' type='2'>15050000</attr>
+     <pin name='on_off'>
+      <node id='151' type='11'>
+       <attr name='value' type='1'>0</attr>
+      </node>
+     </pin>
+     <pin name='cutoff'>
+      <node id='152' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='bloom_power'>
+      <node id='153' type='6'>
+       <attr name='value' type='9'>1 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='glare_power'>
+      <node id='154' type='6'>
+       <attr name='value' type='9'>1 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='glare_ray_amount'>
+      <node id='155' type='9'>
+       <attr name='value' type='5'>3 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='glare_angle'>
+      <node id='156' type='6'>
+       <attr name='value' type='9'>15 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='glare_blur'>
+      <node id='157' type='6'>
+       <attr name='value' type='9'>0.001 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='scaleWithFilm'>
+      <node id='158' type='11'>
+       <attr name='value' type='1'>1</attr>
+      </node>
+     </pin>
+     <pin name='spreadStart'>
+      <node id='159' type='6'>
+       <attr name='value' type='9'>9.9999997e-05 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='spreadEnd'>
+      <node id='160' type='6'>
+       <attr name='value' type='9'>1 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='spectral_intensity'>
+      <node id='161' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='spectral_shift'>
+      <node id='162' type='6'>
+       <attr name='value' type='9'>2 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='chromaticAberrationIntensity'>
+      <node id='163' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='lensFlare'>
+      <node id='164' type='6'>
+       <attr name='value' type='9'>0 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='lensFlareExtent'>
+      <node id='165' type='6'>
+       <attr name='value' type='9'>2 0 0 0</attr>
+      </node>
+     </pin>
+     <pin name='postVolume'>
+      <node id='166' type='404'>
+       <attr name='compatibilityVersion' type='2'>15050000</attr>
+       <pin name='postFxLightBeamsEnabled'>
+        <node id='167' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='postFxLightBeamsMediumDensity'>
+        <node id='168' type='6'>
+         <attr name='value' type='9'>1 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='postFxFogMediaEnabled'>
+        <node id='169' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='postFxFogExtinctionDistance'>
+        <node id='170' type='6'>
+         <attr name='value' type='9'>1000 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='postFxFogBaseLevel'>
+        <node id='171' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='postFxFogHalfDensityHeight'>
+        <node id='172' type='6'>
+         <attr name='value' type='9'>1 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='postFxFogEnvContribution'>
+        <node id='173' type='6'>
+         <attr name='value' type='9'>1 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='baseColor'>
+        <node id='174' type='33'>
+         <attr name='value' type='8'>1 1 1</attr>
+        </node>
+       </pin>
+       <pin name='mediumRadius'>
+        <node id='175' type='6'>
+         <attr name='value' type='9'>100 0 0 0</attr>
+        </node>
+       </pin>
+      </node>
+     </pin>
+    </node>
+   </pin>
+  </node>
+  <graph id='176' type='6' name='Storage' position='0 0'>
+  </graph>
+ </graph>
+ <graph id='177' type='1' name='Scene'>
+  <graph id='178' type='2' name='@SCENE_NAME@' inspectable='0' position='63 -2303'>
+   <attr name='filename' type='11'>assets/@USD_FILE@</attr>
+   <attr name='assetFileNames' type='11' arrayId='3'></attr>
+   <attr name='assetMap' type='10' arrayId='3'></attr>
+   <attr name='compatibilityVersion' type='2'>15050000</attr>
+   <attr name='objectLayerImport' type='2'>1</attr>
+   <attr name='scaleUnitType' type='2'>4</attr>
+   <attr name='useSuppliedVertexNormals' type='1'>1</attr>
+   <attr name='maxSmoothAngle' type='6'>45</attr>
+   <attr name='useOldNormalCalculations' type='1'>0</attr>
+   <attr name='joinUnweldedVertices' type='1'>0</attr>
+   <attr name='defaultHairThickness' type='6'>9.9999997e-05</attr>
+   <attr name='defaultHairInterpolation' type='2'>0</attr>
+   <attr name='sphereDefaultRadius' type='6'>1</attr>
+   <attr name='subdLevel' type='2'>0</attr>
+   <attr name='subdSharpness' type='6'>0</attr>
+   <attr name='subdFileSharpnessScale' type='6'>10</attr>
+   <attr name='subdBoundInterp' type='2'>3</attr>
+   <attr name='subdFaceVaryingBoundInterp' type='2'>3</attr>
+   <attr name='subdFaceVaryingPropagateCorners' type='1'>0</attr>
+   <attr name='subdScheme' type='2'>1</attr>
+   <attr name='abcWindingOrder' type='2'>2</attr>
+   <attr name='mergeMaterials' type='1'>1</attr>
+   <attr name='loadObjects' type='1'>0</attr>
+   <attr name='mergeObjects' type='1'>1</attr>
+   <attr name='importCameras' type='1'>1</attr>
+   <attr name='extraCameraInputs' type='1'>0</attr>
+   <attr name='importGeometry' type='1'>1</attr>
+   <attr name='detectInstances' type='1'>0</attr>
+   <attr name='subdivideAllMeshes' type='1'>0</attr>
+   <attr name='abcImpRestAttributesMode' type='2'>1</attr>
+   <attr name='abcImpRestAttributesTime' type='6'>0</attr>
+   <attr name='fbxWindingOrder' type='2'>3</attr>
+   <attr name='fbxImpMergeMaterials' type='1'>1</attr>
+   <attr name='fbxImpLoadObjects' type='1'>0</attr>
+   <attr name='fbxImpMergeObjects' type='1'>1</attr>
+   <attr name='fbxImpAnimationStacks' type='10' arrayId='3'></attr>
+   <attr name='fbxImpSelectedAnimationStacks' type='2'>0</attr>
+   <attr name='fbxOverrideSubdivLevel' type='1'>0</attr>
+   <attr name='fbxSubdivideAllMeshes' type='1'>0</attr>
+   <attr name='fbxImpRestAttributesMode' type='2'>1</attr>
+   <attr name='usdImpLoadMaterial' type='1'>1</attr>
+   <attr name='usdImpOverrideSubdivLevel' type='1'>0</attr>
+   <attr name='usdImpSubdivAllMeshes' type='1'>0</attr>
+   <attr name='usdImpDisplayPurpose' type='2'>1</attr>
+   <attr name='usdImpOverridePointInstancerGeometries' type='1'>0</attr>
+   <attr name='usdImpLoadOnlyRenderPurpose' type='1'>1</attr>
+@MATERIAL_INPUTS@   <node id='1439' type='30012' name='geometry' position='0 150'>
+    <attr name='group' type='10'></attr>
+    <attr name='description' type='10'></attr>
+    <pin name='input' connect='1440'/>
+   </node>
+  </graph>
+@SCENE_NODES@    <node id='100004' type='56' name='@RT_NAME@' position='0 -300'>
+     <pin name='mesh' connect='@MESH_CONNECT@'/>
+     <pin name='camera'>
+      <node id='100005' type='13'>
+       <pin name='orthographic'>
+        <node id='100006' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='sensorWidth'>
+        <node id='100007' type='6'>
+         <attr name='value' type='9'>36 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='focalLength'>
+        <node id='100008' type='6'>
+         <attr name='value' type='9'>65 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='fstop'>
+        <node id='100009' type='6'>
+         <attr name='value' type='9'>12 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='fov'>
+        <node id='100010' type='6'>
+         <attr name='value' type='9'>@CAM_FOV@</attr>
+        </node>
+       </pin>
+       <pin name='scale'>
+        <node id='100011' type='6'>
+         <attr name='value' type='9'>0.80498445 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='distortion'>
+        <node id='100012' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='lensShift'>
+        <node id='100013' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='perspectiveCorrection'>
+        <node id='100014' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='pixelAspectRatio'>
+        <node id='100015' type='6'>
+         <attr name='value' type='9'>1 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='nearClipDepth'>
+        <node id='100016' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='farClipDepth'>
+        <node id='100017' type='6'>
+         <attr name='value' type='9'>1e+10 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='autofocus'>
+        <node id='100018' type='11'>
+         <attr name='value' type='1'>@CAM_AUTOFOCUS@</attr>
+        </node>
+       </pin>
+       <pin name='focalDepth'>
+        <node id='100019' type='6'>
+         <attr name='value' type='9'>@CAM_FOCAL_DEPTH@</attr>
+        </node>
+       </pin>
+       <pin name='aperture'>
+        <node id='100020' type='6'>
+         <attr name='value' type='9'>@CAM_APERTURE@</attr>
+        </node>
+       </pin>
+       <pin name='apertureAspectRatio'>
+        <node id='100021' type='6'>
+         <attr name='value' type='9'>1 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='aperture_edge'>
+        <node id='100022' type='6'>
+         <attr name='value' type='9'>1 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='bokehSidecount'>
+        <node id='100023' type='9'>
+         <attr name='value' type='5'>6 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='bokehRotation'>
+        <node id='100024' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='bokehRoundedness'>
+        <node id='100025' type='6'>
+         <attr name='value' type='9'>1 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='pos'>
+        <node id='100026' type='6'>
+         <attr name='value' type='9'>@CAM_POS@</attr>
+        </node>
+       </pin>
+       <pin name='target'>
+        <node id='100027' type='6'>
+         <attr name='value' type='9'>@CAM_TARGET@</attr>
+        </node>
+       </pin>
+       <pin name='up'>
+        <node id='100028' type='6'>
+         <attr name='value' type='9'>@CAM_UP@</attr>
+        </node>
+       </pin>
+       <pin name='stereoOutput'>
+        <node id='100029' type='57'>
+         <attr name='value' type='2'>0</attr>
+        </node>
+       </pin>
+       <pin name='stereoMode'>
+        <node id='100030' type='57'>
+         <attr name='value' type='2'>1</attr>
+        </node>
+       </pin>
+       <pin name='stereodist'>
+        <node id='100031' type='6'>
+         <attr name='value' type='9'>0.064999998 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='stereoSwitchEyes'>
+        <node id='100032' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='leftFilter'>
+        <node id='100033' type='33'>
+         <attr name='value' type='8'>1 0 0.81199998</attr>
+        </node>
+       </pin>
+       <pin name='rightFilter'>
+        <node id='100034' type='33'>
+         <attr name='value' type='8'>0 1 0.18799999</attr>
+        </node>
+       </pin>
+      </node>
+     </pin>
+     <pin name='environment'>
+      <node id='100035' type='37'>
+       <pin name='texture'>
+@ENV_TEXTURE@       </pin>
+       <pin name='power'>
+        <node id='100037' type='6'>
+         <attr name='value' type='9'>@ENV_POWER@ 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='importance_sampling'>
+        <node id='100038' type='11'>
+         <attr name='value' type='1'>1</attr>
+        </node>
+       </pin>
+       <pin name='castPhotons'>
+        <node id='100039' type='11'>
+         <attr name='value' type='1'>1</attr>
+        </node>
+       </pin>
+       <pin name='mediumRadius'>
+        <node id='100040' type='6'>
+         <attr name='value' type='9'>1 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='lightPassMask'>
+        <node id='100041' type='132'>
+         <attr name='value' type='2'>4194303</attr>
+        </node>
+       </pin>
+       <pin name='traceSets'>
+        <node id='100042' type='84'>
+         <attr name='value' type='10'></attr>
+        </node>
+       </pin>
+       <pin name='shadowsExclude'>
+        <node id='100043' type='84'>
+         <attr name='value' type='10'></attr>
+        </node>
+       </pin>
+       <pin name='shadowsReinclude'>
+        <node id='100044' type='84'>
+         <attr name='value' type='10'></attr>
+        </node>
+       </pin>
+       <pin name='visibleEnvironmentBackplate'>
+        <node id='100045' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='visibleEnvironmentReflections'>
+        <node id='100046' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='visibleEnvironmentRefractions'>
+        <node id='100047' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+      </node>
+     </pin>
+     <pin name='filmSettings'>
+      <node id='100048' type='100'>
+       <pin name='resolution'>
+        <node id='100049' type='12'>
+         <attr name='value' type='4'>@RESOLUTION@ 0</attr>
+         <attr name='preset' type='2'>0</attr>
+         <attr name='aspectRatio' type='6'>0</attr>
+        </node>
+       </pin>
+       <pin name='regionOffset'>
+        <node id='100050' type='9'>
+         <attr name='value' type='5'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='regionSize'>
+        <node id='100051' type='9'>
+         <attr name='value' type='5'>65536 65536 0 0</attr>
+        </node>
+       </pin>
+       <pin name='regionOffsetRelative'>
+        <node id='100052' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='regionSizeRelative'>
+        <node id='100053' type='6'>
+         <attr name='value' type='9'>1 1 0 0</attr>
+        </node>
+       </pin>
+       <pin name='lockRelativeRegion'>
+        <node id='100054' type='11'>
+         <attr name='value' type='1'>1</attr>
+        </node>
+       </pin>
+      </node>
+     </pin>
+     <pin name='animation'>
+      <node id='100055' type='99'>
+       <pin name='shutterAlignment'>
+        <node id='100056' type='57'>
+         <attr name='value' type='2'>3</attr>
+        </node>
+       </pin>
+       <pin name='shutterTime'>
+        <node id='100057' type='6'>
+         <attr name='value' type='9'>0.5 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='subFrameStart'>
+        <node id='100058' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='subFrameEnd'>
+        <node id='100059' type='6'>
+         <attr name='value' type='9'>1 0 0 0</attr>
+        </node>
+       </pin>
+      </node>
+     </pin>
+@KERNEL@
+     <pin name='renderLayer'>
+      <node id='100103' type='90'>
+       <pin name='enabled'>
+        <node id='100104' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='layerId'>
+        <node id='100105' type='9'>
+         <attr name='value' type='5'>1 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='invert'>
+        <node id='100106' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='mode'>
+        <node id='100107' type='57'>
+         <attr name='value' type='2'>0</attr>
+        </node>
+       </pin>
+      </node>
+     </pin>
+     <pin name='renderPasses'>
+      <node id='100108' type='179'>
+       <attr name='aovCount' type='2'>0</attr>
+       <pin name='enabled'>
+        <node id='100109' type='11'>
+         <attr name='value' type='1'>1</attr>
+        </node>
+       </pin>
+       <pin name='renderPassesRaw'>
+        <node id='100110' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='renderPassCryptomatteCount'>
+        <node id='100111' type='9'>
+         <attr name='value' type='5'>6 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='renderPassInfoMaxSamples'>
+        <node id='100112' type='9'>
+         <attr name='value' type='5'>128 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='samplingMode'>
+        <node id='100113' type='57'>
+         <attr name='value' type='2'>0</attr>
+        </node>
+       </pin>
+       <pin name='opacityThreshold'>
+        <node id='100114' type='6'>
+         <attr name='value' type='9'>1 0 0 0</attr>
+        </node>
+       </pin>
+      </node>
+     </pin>
+     <pin name='compositeAovs'>
+      <node id='100115' type='167'>
+       <attr name='aovCount' type='2'>0</attr>
+       <pin name='lockRenderAovs'>
+        <node id='100116' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+      </node>
+     </pin>
+     <pin name='imager'>
+      <node id='100117' type='15'>
+       <pin name='exposure'>
+        <node id='100118' type='6'>
+         <attr name='value' type='9'>@EXPOSURE@</attr>
+        </node>
+       </pin>
+       <pin name='hotpixel_removal'>
+        <node id='100119' type='6'>
+         <attr name='value' type='9'>1 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='vignetting'>
+        <node id='100120' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='white_balance'>
+        <node id='100121' type='33'>
+         <attr name='value' type='8'>@WHITE_BALANCE@</attr>
+        </node>
+       </pin>
+       <pin name='saturation'>
+        <node id='100122' type='6'>
+         <attr name='value' type='9'>@SATURATION@</attr>
+        </node>
+       </pin>
+       <pin name='disablePartialAlpha'>
+        <node id='100123' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='dithering'>
+        <node id='100124' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='min_display_samples'>
+        <node id='100125' type='9'>
+         <attr name='value' type='5'>1 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='maxTonemapInterval'>
+        <node id='100126' type='9'>
+         <attr name='value' type='5'>10 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='ocioView'>
+        <node id='100127' type='160'>
+         <attr name='ocioDisplayName' type='10'></attr>
+         <attr name='ocioViewName' type='10'></attr>
+        </node>
+       </pin>
+       <pin name='ocioLook'>
+        <node id='100128' type='161'>
+         <attr name='ocioUseViewLook' type='1'>1</attr>
+         <attr name='ocioLookName' type='10'></attr>
+        </node>
+       </pin>
+       <pin name='ocioForceToneMapping'>
+        <node id='100129' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='acesToneMapping'>
+        <node id='100130' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='highlightCompression'>
+        <node id='100131' type='6'>
+         <attr name='value' type='9'>@HIGHLIGHT_COMPRESSION@</attr>
+        </node>
+       </pin>
+       <pin name='saturate_to_white'>
+        <node id='100132' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='order'>
+        <node id='100133' type='57'>
+         <attr name='value' type='2'>0</attr>
+        </node>
+       </pin>
+       <pin name='response'>
+        <node id='100134' type='57'>
+         <attr name='value' type='2'>401</attr>
+        </node>
+       </pin>
+       <pin name='neutralResponse'>
+        <node id='100135' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='gamma'>
+        <node id='100136' type='6'>
+         <attr name='value' type='9'>1 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='denoiser'>
+        <node id='100137' type='11'>
+         <attr name='value' type='1'>@DENOISER@</attr>
+        </node>
+       </pin>
+       <pin name='denoiserType'>
+        <node id='100138' type='57'>
+         <attr name='value' type='2'>1</attr>
+        </node>
+       </pin>
+       <pin name='denoiseVolume'>
+        <node id='100139' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='denoisePrefilter'>
+        <node id='100140' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='denoiserQuality'>
+        <node id='100141' type='57'>
+         <attr name='value' type='2'>2</attr>
+        </node>
+       </pin>
+       <pin name='denoiserOnce'>
+        <node id='100142' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='minDenoiserSamples'>
+        <node id='100143' type='9'>
+         <attr name='value' type='5'>10 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='maxDenoiserInterval'>
+        <node id='100144' type='9'>
+         <attr name='value' type='5'>20 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='denoiserOriginalBlend'>
+        <node id='100145' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='upsamplerType'>
+        <node id='100146' type='57'>
+         <attr name='value' type='2'>0</attr>
+        </node>
+       </pin>
+       <pin name='upsampleSourcePercentage'>
+        <node id='100147' type='57'>
+         <attr name='value' type='2'>0</attr>
+        </node>
+       </pin>
+       <pin name='upsamplingOnCompletion'>
+        <node id='100148' type='11'>
+         <attr name='value' type='1'>1</attr>
+        </node>
+       </pin>
+       <pin name='minUpsamplingSamples'>
+        <node id='100149' type='9'>
+         <attr name='value' type='5'>10 0 0 0</attr>
+        </node>
+       </pin>
+      </node>
+     </pin>
+     <pin name='postproc'>
+      <node id='100150' type='61'>
+       <attr name='compatibilityVersion' type='2'>15050000</attr>
+       <pin name='on_off'>
+        <node id='100151' type='11'>
+         <attr name='value' type='1'>0</attr>
+        </node>
+       </pin>
+       <pin name='cutoff'>
+        <node id='100152' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='bloom_power'>
+        <node id='100153' type='6'>
+         <attr name='value' type='9'>1 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='glare_power'>
+        <node id='100154' type='6'>
+         <attr name='value' type='9'>1 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='glare_ray_amount'>
+        <node id='100155' type='9'>
+         <attr name='value' type='5'>3 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='glare_angle'>
+        <node id='100156' type='6'>
+         <attr name='value' type='9'>15 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='glare_blur'>
+        <node id='100157' type='6'>
+         <attr name='value' type='9'>0.001 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='scaleWithFilm'>
+        <node id='100158' type='11'>
+         <attr name='value' type='1'>1</attr>
+        </node>
+       </pin>
+       <pin name='spreadStart'>
+        <node id='100159' type='6'>
+         <attr name='value' type='9'>9.9999997e-05 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='spreadEnd'>
+        <node id='100160' type='6'>
+         <attr name='value' type='9'>1 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='spectral_intensity'>
+        <node id='100161' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='spectral_shift'>
+        <node id='100162' type='6'>
+         <attr name='value' type='9'>2 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='chromaticAberrationIntensity'>
+        <node id='100163' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='lensFlare'>
+        <node id='100164' type='6'>
+         <attr name='value' type='9'>0 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='lensFlareExtent'>
+        <node id='100165' type='6'>
+         <attr name='value' type='9'>2 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='postVolume'>
+        <node id='100166' type='404'>
+         <attr name='compatibilityVersion' type='2'>15050000</attr>
+         <pin name='postFxLightBeamsEnabled'>
+          <node id='100167' type='11'>
+           <attr name='value' type='1'>0</attr>
+          </node>
+         </pin>
+         <pin name='postFxLightBeamsMediumDensity'>
+          <node id='100168' type='6'>
+           <attr name='value' type='9'>1 0 0 0</attr>
+          </node>
+         </pin>
+         <pin name='postFxFogMediaEnabled'>
+          <node id='100169' type='11'>
+           <attr name='value' type='1'>0</attr>
+          </node>
+         </pin>
+         <pin name='postFxFogExtinctionDistance'>
+          <node id='100170' type='6'>
+           <attr name='value' type='9'>1000 0 0 0</attr>
+          </node>
+         </pin>
+         <pin name='postFxFogBaseLevel'>
+          <node id='100171' type='6'>
+           <attr name='value' type='9'>0 0 0 0</attr>
+          </node>
+         </pin>
+         <pin name='postFxFogHalfDensityHeight'>
+          <node id='100172' type='6'>
+           <attr name='value' type='9'>1 0 0 0</attr>
+          </node>
+         </pin>
+         <pin name='postFxFogEnvContribution'>
+          <node id='100173' type='6'>
+           <attr name='value' type='9'>1 0 0 0</attr>
+          </node>
+         </pin>
+         <pin name='baseColor'>
+          <node id='100174' type='33'>
+           <attr name='value' type='8'>1 1 1</attr>
+          </node>
+         </pin>
+         <pin name='mediumRadius'>
+          <node id='100175' type='6'>
+           <attr name='value' type='9'>100 0 0 0</attr>
+          </node>
+         </pin>
+        </node>
+       </pin>
+      </node>
+     </pin>
+    </node>
+ </graph>
+</OCS2>

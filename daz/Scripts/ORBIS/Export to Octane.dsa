@@ -1,0 +1,107 @@
+// DAZ Studio Script — ORBIS: export the current scene to Octane X.
+//
+// Runs the `orbis` binary shipped beside this script (bin/orbis) on the
+// saved scene, with DAZ Studio's content directories, and shows its report.
+// Octane X then opens with the .orbx revealed in Finder and its path on the
+// clipboard (File → Open, ⇧⌘G, paste).
+//
+// Interim: the export still reads a .dbz beside the scene for the posed
+// geometry; a direct dump from DAZ Studio replaces it (#2).
+
+(function () {
+
+    var sTitle = "ORBIS";
+
+    // ── The scene ─────────────────────────────────────────────────────────
+    var sScene = Scene.getFilename();
+    if (!sScene) {
+        MessageBox.information("Save the scene first — the export reads the saved .duf.", sTitle, "&OK");
+        return;
+    }
+    if (Scene.needsSave()) {
+        MessageBox.information("The scene has unsaved changes. Save it first — the export reads the saved .duf.", sTitle, "&OK");
+        return;
+    }
+
+    // ── Options ───────────────────────────────────────────────────────────
+    var wDlg = new DzBasicDialog();
+    wDlg.caption = sTitle + " — Export to Octane";
+    var wPreview = new DzCheckBox(wDlg);
+    wPreview.text = "Fast preview (direct lighting, no subsurface)";
+    wPreview.checked = false;
+    wDlg.addWidget(wPreview);
+    var wGround = new DzCheckBox(wDlg);
+    wGround.text = "Shadow-catching ground (when Iray draws one)";
+    wGround.checked = true;
+    wDlg.addWidget(wGround);
+    var wOpen = new DzCheckBox(wDlg);
+    wOpen.text = "Open Octane X when done";
+    wOpen.checked = true;
+    wDlg.addWidget(wOpen);
+    if (!wDlg.exec()) {
+        return;
+    }
+
+    // ── The binary ────────────────────────────────────────────────────────
+    var sDir = new DzFileInfo(getScriptFileName()).path();
+    var sBin = sDir + "/bin/orbis";
+    if (!new DzFileInfo(sBin).exists()) {
+        MessageBox.critical("The orbis binary is missing:\n" + sBin + "\n\nReinstall ORBIS.", sTitle, "&OK");
+        return;
+    }
+    // Zip extraction (DIM, copying between libraries) can drop the executable bit.
+    run(["/bin/chmod", "+x", sBin]);
+
+    var aArgs = [sBin, "export", sScene];
+    if (wPreview.checked) aArgs.push("--preview");
+    if (!wGround.checked) aArgs.push("--no-ground");
+    if (wOpen.checked) aArgs.push("--open");
+    var oContent = App.getContentMgr();
+    for (var i = 0; i < oContent.getNumContentDirectories(); i++) {
+        aArgs.push("--content-dir");
+        aArgs.push(oContent.getContentDirectoryPath(i));
+    }
+
+    // ── Run ───────────────────────────────────────────────────────────────
+    startProgress(sTitle + ": exporting to Octane…", 0, false, true);
+    var oResult = run(aArgs, function (sLine) {
+        setProgressInfo(sTitle + ": " + sLine);
+    });
+    finishProgress();
+
+    if (oResult.ok) {
+        MessageBox.information(oResult.out, sTitle, "&OK");
+    } else {
+        MessageBox.critical("The export failed.\n\n" + oResult.out + "\n" + oResult.err, sTitle, "&OK");
+    }
+
+    // Run aArgs[0] with the rest as arguments, wait for it and collect its
+    // stdout (each line also passed to fnLine) and stderr.
+    function run(aArgs, fnLine) {
+        var oProcess = new DzProcess(aArgs);
+        oProcess.communication = DzProcess.Stdout | DzProcess.Stderr;
+        var aOut = [];
+        var sErr = "";
+        if (!oProcess.start()) {
+            return { ok: false, out: "", err: "Could not start " + aArgs[0] };
+        }
+        var drain = function () {
+            while (oProcess.canReadLineStdout()) {
+                var sLine = oProcess.readLineStdout();
+                aOut.push(sLine);
+                if (fnLine) fnLine(sLine);
+            }
+        };
+        while (oProcess.isRunning()) {
+            drain();
+            processEvents();
+            sleep(100);
+        }
+        drain();
+        sErr = String(oProcess.readStderr());
+        print(sTitle + ": " + aOut.join("\n"));
+        if (sErr) print(sTitle + " (stderr): " + sErr);
+        return { ok: oProcess.normalExit && oProcess.exitStatus == 0, out: aOut.join("\n"), err: sErr };
+    }
+
+})();
