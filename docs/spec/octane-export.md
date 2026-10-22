@@ -54,7 +54,10 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   and accepts either count. — world space, cm,
   Y up, morphs and pose applied; flat `x y z`. The export refines it itself
   (SubD above), so the dump stays small and topology matches the `.dsf`.
-- `lod`: the resolution level DAZ renders at (> 0 = refined).
+- `lod`: the resolution level DAZ renders at (> 0 = refined). A geometry
+  shell reports 0 and renders at its host's level — the export refines it
+  with the host (an unrefined shell over a refined body showed as dark
+  patches).
 - `polylines` / `polyline_materials`: only for geometry without facets
   (strand hair) — the rendered strands as vertex indices, and each strand's
   index into `material_groups`.
