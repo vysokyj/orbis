@@ -132,6 +132,19 @@ fn shell_surface_visibility_and_hidden_nodes() {
 }
 
 #[test]
+fn host_dumped_with_its_grafts_appended() {
+    // DAZ hands out the host's cache with the graft's 4 vertices after its 6.
+    let mut d = dump();
+    let graft = d.nodes[1].vertices.clone();
+    d.nodes[0].vertices.extend(graft);
+    let mut lib = Library::new(vec![], scene());
+    let (meshes, report) = build_meshes(&mut lib, &d).unwrap();
+    assert!(report.skipped.is_empty(), "{:?}", report.skipped);
+    let (expected, _) = build_meshes(&mut Library::new(vec![], scene()), &dump()).unwrap();
+    assert_eq!(meshes[0].points, expected[0].points);
+}
+
+#[test]
 fn vertex_count_mismatch_is_skipped() {
     let mut d = dump();
     d.nodes[1].vertices.pop();

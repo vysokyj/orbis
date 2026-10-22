@@ -143,10 +143,6 @@
         wGround.checked = oOpt.ground;
         wDlg.addWidget(wGround);
 
-        // As large as its contents need, not a remembered (squeezed) size.
-        var oHint = wDlg.getWidget().minimumSizeHint;
-        wDlg.setFixedSize(oHint.width, oHint.height);
-
         if (!wDlg.exec()) {
             return false;
         }

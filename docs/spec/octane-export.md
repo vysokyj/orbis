@@ -48,7 +48,10 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   node's resolution level is switched to 0 and every cache rebuilt **before**
   any is read, then restored: a geometry shell copies its host's cached
   geometry, so a host restored early hands the shell its SubD mesh (72809
-  instead of 18396 vertices for a G8F shell) — world space, cm,
+  instead of 18396 vertices for a G8F shell). With every cache rebuilt, a
+  graft host's cache has its grafts' vertices appended like a shell's (G8F
+  16556 + graft 1840 = 18396); the export takes the host's first vertices
+  and accepts either count. — world space, cm,
   Y up, morphs and pose applied; flat `x y z`. The export refines it itself
   (SubD above), so the dump stays small and topology matches the `.dsf`.
 - `lod`: the resolution level DAZ renders at (> 0 = refined).

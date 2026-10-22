@@ -356,7 +356,12 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
         };
         // Points: this node's, then (merged grafts) each graft's.
         let own: usize = if is_shell { parts.iter().map(|p| p.topo.vcount).sum() } else { parts[0].topo.vcount };
-        if own != fig.vertices.len() {
+        // A host's cache can come with its grafts' vertices appended (as a
+        // shell's does) — DAZ attaches them once the grafts' caches are
+        // built; the host's own come first.
+        let with_grafts = own + grafts.get(&n.id).into_iter().flatten().filter_map(|g| topo_of.get(&g.id)).map(|t| t.vcount).sum::<usize>();
+        let host_with_grafts = !is_shell && with_grafts > own && fig.vertices.len() == with_grafts;
+        if own != fig.vertices.len() && !host_with_grafts {
             let breakdown: Vec<String> = parts.iter().map(|p| p.topo.vcount.to_string()).collect();
             report.skipped.push(format!(
                 "{}: the dump has {} vertices, geometry {}{}",
@@ -367,7 +372,7 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
             ));
             continue;
         }
-        let mut points: Vec<[f32; 3]> = fig.vertices.clone();
+        let mut points: Vec<[f32; 3]> = fig.vertices[..own].to_vec();
         if !is_shell {
             for g in grafts.get(&n.id).into_iter().flatten().filter(|g| merged.contains(g.id.as_str())) {
                 points.extend_from_slice(&dump.node(&g.label, &g.name).map(|f| f.vertices.clone()).unwrap_or_default());
