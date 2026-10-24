@@ -130,7 +130,7 @@ pub struct ExportReport {
 /// Convert `scene` (the saved `.duf`) with its `dump` (written by DAZ Studio)
 /// into a `.usdz` at `out`.
 pub fn export_scene_usdz(scene: &Path, dump: &Path, out: &Path, opts: &ExportOptions) -> Result<ExportReport> {
-    let (meshes, report, mut lib) = build_scene(scene, dump, opts)?;
+    let (meshes, report, mut lib) = build_scene(scene, dump, opts, true)?;
     let (layer, _) = write_usda(&meshes, &scene_lights(&mut lib));
     write_atomically(out, |f| write_usdz(f, &[("scene.usda", layer.as_bytes())]))?;
     Ok(report)
@@ -142,7 +142,7 @@ pub fn export_scene_usdz(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
 /// own Open panel or gallery (it refuses files handed over from outside).
 pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOptions) -> Result<ExportReport> {
     let progress = &opts.progress;
-    let (meshes, mut report, mut lib) = build_scene(scene, dump, opts)?;
+    let (meshes, mut report, mut lib) = build_scene(scene, dump, opts, !opts.octane_mode.skin_sss())?;
     progress.report(35, "writing the USD scene");
     let lights = scene_lights(&mut lib);
     let (layer, materials) = write_usda(&meshes, &lights);
@@ -215,7 +215,7 @@ const USDZ_ASSET: &str = "scene.usdz";
 const OCTANE_VERSION: &str = "15050000";
 
 /// Read the scene, its dump and library assets into meshes.
-fn build_scene(scene: &Path, dump: &Path, opts: &ExportOptions) -> Result<(Vec<Mesh>, ExportReport, Library)> {
+fn build_scene(scene: &Path, dump: &Path, opts: &ExportOptions, shells: bool) -> Result<(Vec<Mesh>, ExportReport, Library)> {
     let duf: Value = serde_json::from_str(&decompress_scene(
         &std::fs::read(scene).with_context(|| format!("reading {}", scene.display()))?,
     )?)?;
@@ -238,7 +238,7 @@ fn build_scene(scene: &Path, dump: &Path, opts: &ExportOptions) -> Result<(Vec<M
     }
     let mut lib = Library::new(dirs, duf);
     opts.progress.report(5, "building the meshes");
-    let (meshes, report) = build_meshes(&mut lib, &dump)?;
+    let (meshes, report) = build_meshes(&mut lib, &dump, shells)?;
     Ok((meshes, report, lib))
 }
 

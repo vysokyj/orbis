@@ -206,7 +206,9 @@ pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DumpNode, names:
     out
 }
 
-pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<Mesh>, ExportReport)> {
+/// `shells`: build geometry shells — off for Octane's random-walk skin, which
+/// a shell resting 0.1 mm above lights white along its open border.
+pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump, shells: bool) -> Result<(Vec<Mesh>, ExportReport)> {
     let nodes = geo_nodes(&lib.duf);
     let mut report = ExportReport::default();
 
@@ -283,6 +285,13 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
             continue;
         };
         let is_shell = topo.shell || n.shell_instance;
+        if is_shell && !shells {
+            // DAZ layers a shell (make-up, a genital colour layer) 0.005–0.02 cm
+            // over the skin; Octane's random walk lit the shell's open border
+            // white — the NGV8 Color Layer's outline (Octane4).
+            report.skipped.push(format!("{}: geometry shell over random-walk skin", n.label));
+            continue;
+        }
         // `shape_node` owns the geometry instance whose type decides subdivision
         // (a shell subdivides like its host).
         let (parts, shape_node): (Vec<Part>, &GeoNode) = if is_shell {

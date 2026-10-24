@@ -77,7 +77,7 @@ fn dump() -> SceneDump {
 #[test]
 fn builds_host_graft_and_shell_meshes() {
     let mut lib = Library::new(vec![], scene());
-    let (meshes, report) = build_meshes(&mut lib, &dump()).unwrap();
+    let (meshes, report) = build_meshes(&mut lib, &dump(), true).unwrap();
     assert!(report.skipped.is_empty(), "{:?}", report.skipped);
     // The graft is merged into its host's mesh: Body + Body Shell.
     assert_eq!(meshes.len(), 2);
@@ -121,7 +121,7 @@ fn shell_surface_visibility_and_hidden_nodes() {
     ]}]);
     duf["scene"]["nodes"][1]["extra"] = json!([{"type": "studio_node_channels", "channels": [vis("Visible", false)]}]);
     let mut lib = Library::new(vec![], duf);
-    let (meshes, report) = build_meshes(&mut lib, &dump()).unwrap();
+    let (meshes, report) = build_meshes(&mut lib, &dump(), true).unwrap();
     assert_eq!(report.skipped, vec!["Bits: hidden in the scene".to_string()]);
     let names: Vec<&str> = meshes.iter().map(|m| m.name.as_str()).collect();
     assert_eq!(names, ["Body", "Body_Shell"]);
@@ -129,6 +129,10 @@ fn shell_surface_visibility_and_hidden_nodes() {
     let shell = &meshes[1];
     assert_eq!(shell.face_indices, vec![1, 7, 8, 9]);
     assert_eq!(shell.subsets, vec![("Graft_Patch".to_string(), vec![0])]);
+    // Octane's random-walk skin: no shells.
+    let (meshes, report) = build_meshes(&mut lib, &dump(), false).unwrap();
+    assert_eq!(meshes.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(), ["Body"]);
+    assert!(report.skipped.contains(&"Body Shell: geometry shell over random-walk skin".to_string()), "{:?}", report.skipped);
 }
 
 #[test]
@@ -137,7 +141,7 @@ fn shell_refines_with_its_host() {
     let mut d = dump();
     d.nodes[0].lod = 1;
     let mut lib = Library::new(vec![], scene());
-    let (meshes, _) = build_meshes(&mut lib, &d).unwrap();
+    let (meshes, _) = build_meshes(&mut lib, &d, true).unwrap();
     assert_eq!(meshes[0].face_counts.len(), 8, "host: 2 quads refined");
     assert_eq!(meshes[1].face_counts.len(), 8, "shell refined like its host");
 }
@@ -149,9 +153,9 @@ fn host_dumped_with_its_grafts_appended() {
     let graft = d.nodes[1].vertices.clone();
     d.nodes[0].vertices.extend(graft);
     let mut lib = Library::new(vec![], scene());
-    let (meshes, report) = build_meshes(&mut lib, &d).unwrap();
+    let (meshes, report) = build_meshes(&mut lib, &d, true).unwrap();
     assert!(report.skipped.is_empty(), "{:?}", report.skipped);
-    let (expected, _) = build_meshes(&mut Library::new(vec![], scene()), &dump()).unwrap();
+    let (expected, _) = build_meshes(&mut Library::new(vec![], scene()), &dump(), true).unwrap();
     assert_eq!(meshes[0].points, expected[0].points);
 }
 
@@ -160,7 +164,7 @@ fn vertex_count_mismatch_is_skipped() {
     let mut d = dump();
     d.nodes[1].vertices.pop();
     let mut lib = Library::new(vec![], scene());
-    let (meshes, report) = build_meshes(&mut lib, &d).unwrap();
+    let (meshes, report) = build_meshes(&mut lib, &d, true).unwrap();
     assert_eq!(meshes.len(), 2);
     assert_eq!(report.skipped, vec!["Bits: the dump has 3 vertices, geometry 4".to_string()]);
 }
@@ -168,7 +172,7 @@ fn vertex_count_mismatch_is_skipped() {
 #[test]
 fn usda_has_stage_metadata_subsets_and_indexed_uvs() {
     let mut lib = Library::new(vec![], scene());
-    let (meshes, _) = build_meshes(&mut lib, &dump()).unwrap();
+    let (meshes, _) = build_meshes(&mut lib, &dump(), true).unwrap();
     let (usda, _) = write_usda(&meshes, &[]);
     assert!(usda.starts_with("#usda 1.0\n"));
     assert!(usda.contains("metersPerUnit = 1\n") && usda.contains("upAxis = \"Y\""));
