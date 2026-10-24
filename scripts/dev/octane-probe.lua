@@ -1,15 +1,15 @@
--- ORBIS probe (24th run): Octane3 after the fix for the pubic hair's
--- "Hiding" group (DAZ Default shader, Opacity Strength 0 → opacity 0). Logs
--- the pubic hair, Color Layer shell and graft materials, then renders: as
--- exported, shell switched off (opacity 0), pubic hair hidden too — a white
--- strip on the mons stayed in probe 63's "nohair".
--- Output: ~/Documents/orbis_p63_*.png, orbis_probe63.txt.
+-- ORBIS probe (30th run): Octane3-nohair.orbx — the scene exported with the
+-- pubic hair hidden, so its geometry is gone (its roots sit up to ~1.5 cm
+-- under the skin; at opacity 0 they stayed in the scene). Does the white
+-- strip on the mons (probes 62-68) go? Renders as exported, then with the
+-- shell at opacity 0.
+-- Output: ~/Documents/orbis_p69_*.png, orbis_probe69.txt.
 -- Close the scene without saving afterwards.
 
 local SAMPLES = 128
 local lines = {}
 local home = os.getenv("HOME") or "/tmp"
-local logpath = home .. "/Documents/orbis_probe63.txt"
+local logpath = home .. "/Documents/orbis_probe69.txt"
 local function log(s)
     lines[#lines + 1] = tostring(s)
     local f = io.open(logpath, "w")
@@ -39,8 +39,8 @@ for _, item in ipairs(scene:getOwnedItems()) do
 end
 log("rt " .. tostring(rt and rt:getProperties().name) .. " usd " .. tostring(usd and usd:getProperties().name))
 if not rt or not usd then
-    octane.gui.showDialog{ type = octane.gui.dialogType.BUTTON_DIALOG, title = "ORBIS probe 63",
-        text = "No ORBIS export open: open Octane3.orbx (File > Open) first." }
+    octane.gui.showDialog{ type = octane.gui.dialogType.BUTTON_DIALOG, title = "ORBIS probe 69",
+        text = "No ORBIS export open: open Octane3-nohair.orbx (File > Open) first." }
     return
 end
 
@@ -98,7 +98,7 @@ samplesNode:setAttribute(octane.A_VALUE, { SAMPLES, 0, 0, 0 }, true)
 local function save(name)
     -- The denoised pass when the imager's denoiser is on (saveImage writes
     -- the raw beauty, which keeps the noise).
-    local path = home .. "/Documents/orbis_p63_" .. name .. ".png"
+    local path = home .. "/Documents/orbis_p69_" .. name .. ".png"
     local ok, res = pcall(octane.render.saveRenderPass, octane.renderPassId.BEAUTY_DENOISER_OUTPUT, path, octane.imageSaveFormat.PNG_8)
     if not ok or not res then ok, res = pcall(octane.render.saveImage, path, octane.imageSaveFormat.PNG_8) end
     log("saved " .. name .. ": " .. tostring(ok) .. " " .. tostring(res))
@@ -131,19 +131,17 @@ local function setPin(e, pin, nodeType, value)
 end
 
 try("render base", function() render("base") end)
-for _, e in ipairs(matching("Color_Layer")) do
-    try("shell opacity", function() setPin(e, "opacity", 31, 0) end)
+for _, pat in ipairs({ "Color_Layer" }) do
+    for _, e in ipairs(matching(pat)) do
+        try("opacity " .. e.name, function() setPin(e, "opacity", 31, 0) end)
+    end
 end
 try("render noshell", function() render("noshell") end)
-for _, e in ipairs(matching("Pubic_Hair")) do
-    try("hair opacity", function() setPin(e, "opacity", 31, 0) end)
-end
-try("render nohair", function() render("nohair") end)
 
 try("restore", function() samplesNode:setAttribute(octane.A_VALUE, origSamples, true) end)
 log("done")
-local summary = "ORBIS probe 63 finished: " .. #lines .. " lines. Close the scene without saving."
+local summary = "ORBIS probe 69 finished: " .. #lines .. " lines. Close the scene without saving."
 print(summary)
 pcall(function()
-    octane.gui.showDialog{ type = octane.gui.dialogType.BUTTON_DIALOG, title = "ORBIS probe 63", text = summary }
+    octane.gui.showDialog{ type = octane.gui.dialogType.BUTTON_DIALOG, title = "ORBIS probe 69", text = summary }
 end)
