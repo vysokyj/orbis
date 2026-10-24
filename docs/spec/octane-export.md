@@ -290,7 +290,10 @@ widths) Octane2's hair matches Iray (0.16/0.14/0.06 vs 0.16/0.12/0.07).
 ### Emission
 
 Iray emission → Universal `emission`: blackbody (53: power, temperature,
-normalize) or, at temperature 0, texture emission (54) tinted by the colour.
+normalize) or, at temperature 0, texture emission (54) — **both × the
+Emission Color** on `efficiency or texture`, as Iray multiplies (left out
+on the blackbody, Fetroom's dark purple trims and door glowed white: door
+95× → 3.6× Iray).
 Power (W) = L × unit factor / 2 / **15 000** (`DAZ_LUMENS_PER_WATT`) ×
 **1 / 3.4** (`EMISSION_POWER_FACTOR`) — total for lm / W, × the material's
 surface area (m²) for luminance units. Calib-Emissive (one-sided 50 × 50 cm,

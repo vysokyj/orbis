@@ -317,10 +317,12 @@ impl Ocs<'_> {
         let blackbody = temperature > 0.0;
         let _ = writeln!(self.out, "{:i$}<node id='{id}' type='{}'>", "", if blackbody { 53 } else { 54 });
         let tint = mat.image("Emission Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t));
-        match (&tint, blackbody) {
-            (Some(asset), _) => self.image_pin(i + 1, "efficiency or texture", asset, false, 2.2, 1.0),
-            (None, true) => self.float_pin(i + 1, "efficiency or texture", 1.0),
-            (None, false) => self.rgb_pin(i + 1, "efficiency or texture", color),
+        // Iray multiplies the blackbody (or plain) emission by the colour:
+        // left out, Fetroom's dark purple trims and door (0.1, 0, 0.1) glowed
+        // white at full power — the room twice as bright, the door grey.
+        match &tint {
+            Some(asset) => self.tinted_image_pin(i + 1, "efficiency or texture", asset, 1.0, color),
+            None => self.rgb_pin(i + 1, "efficiency or texture", color),
         }
         self.value_pin(i + 1, "power", 6, 8, &format!("{} 0 0", num(watts as f32)));
         if blackbody {
@@ -1038,6 +1040,15 @@ mod tests {
         assert!(ex.contains("<attr name='value' type='8'>7000 0 0</attr>"));
         // 100 cd/m² over 2 m²: 100 / 2 / 15 000 · 2 / 3.4 ≈ 0.002 W, red.
         assert!(ex.contains("type='54'") && ex.contains("<attr name='value' type='8'>0.001961 0 0</attr>"), "{ex}");
+        // A coloured blackbody: Iray multiplies by the colour (sRGB 0.1 →
+        // linear 0.010023).
+        let trim = mat(json!([
+            {"channel": {"id": "Emission Color", "current_value": [0.1, 0, 0.1]}},
+            {"channel": {"id": "Luminance", "current_value": 1500}},
+            {"channel": {"id": "Emission Temperature", "current_value": 6500}},
+        ]));
+        let (trimx, _) = material_inputs(&[("Trim".into(), trim, 1.0)], &dirs, HashMap::new(), 9100, SkinShader::None);
+        assert!(trimx.contains("type='53'") && trimx.contains("<attr name='value' type='8'>0.010023 0 0.010023</attr>"), "{trimx}");
         let mirror = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [0, 0, 0]}},
             {"channel": {"id": "Base Mixing", "current_value": 1}},
