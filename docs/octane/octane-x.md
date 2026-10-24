@@ -113,6 +113,26 @@ decoded as sRGB.
 - Textures are held **decoded** (a 4096² map = 64 MB as RGBA8 however small
   its JPEG) in unified memory: ~17.8 GB of textures failed to render on a
   24 GB Mac ("(failed)" in the status bar).
+- **Material types** ([manual](manual/MaterialsDatabase.md)): the uber
+  shaders Universal (130), Standard Surface (277, Arnold's) and the newer
+  **OpenPBR Surface** ([manual](manual/OpenPBRSurfaceMaterial.md) — "metals,
+  glass, skin, fabrics"); specialised Diffuse, Glossy, Specular (glass,
+  water), Metallic, Hair (147), Toon. Mediums for volumes: Absorption,
+  Scattering, Random Walk (146), Standard Volume.
+- **LiveDB** (OTOY's online library of ready materials, node groups and
+  scenes; uploads closed) and **LocalDB** (one's own saved materials), in
+  the Scene Outliner: copy a thumbnail, paste into the node graph. Generic
+  presets with their own textures — a reference for how OTOY builds e.g.
+  skin, not something a DAZ material maps onto.
+- **Analytic light** (402): `analyticLightSpreadAngle` (full cone),
+  `analyticLightSpreadCutoffHardness` (0: a soft cos θ · cos²(θ · 90°/half)
+  falloff, 1: an even cone), `normalize` keeps the flux whatever the spread
+  (probe 74). **Spotlight Distribution** (158: `orientation`, `target`,
+  `coneAngle`, `hardness`, `normalize`) on a disk's emission `distribution`
+  with the spread at 180° rendered black (probe 73).
+- **Imager response** (`octane.responseCurveId`): LINEAR 400, sRGB 401,
+  GAMMA1_8 402, GAMMA2_2 403, then the film curves (probe 76).
+- **USD import emits rect and disk lights along +Z** (UsdLux: −Z).
 
 ## Kernels
 
