@@ -179,7 +179,7 @@ fn usda_has_stage_metadata_subsets_and_indexed_uvs() {
     // The host's Torso subset is bound to a preview material from DAZ.
     assert!(usda.contains("rel material:binding = </Scene/Materials/Body_Torso>"));
     assert!(usda.contains("def Material \"Body_Torso\""));
-    assert!(usda.contains("color3f inputs:diffuseColor = (1, 0.5, 0.25)"));
+    assert!(usda.contains("color3f inputs:diffuseColor = (1, 0.214, 0.0509)"), "linear base colour");
     assert!(usda.contains("uniform token subdivisionScheme = \"none\""));
 }
 

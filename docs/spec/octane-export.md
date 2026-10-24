@@ -229,6 +229,11 @@ Every material input (20007) is filled — Octane doesn't convert
   attribute data maps were decoded as sRGB — sunglasses nearly clear
   (probes 55–57); with it the lenses tint like Iray's, brightness unchanged
   (Octane2 moved 0.28 / 255).
+- **Colour channels** (Base / Glossy / Translucency / Transmitted / Emission
+  Color, light colours) are **sRGB as DAZ stores them** and decoded to
+  linear, as Iray does. Passed on raw, surfaces rendered 1.5× too bright
+  (Calib-HDRI: floor 1.53 → 1.03, cubes 1.77 → 1.00 of Iray; the HDRI
+  background 1.04 either way).
 - **Layered images** are flattened into one PNG per stack.
 
 ### Skin — Standard Surface (277), Final only

@@ -80,9 +80,12 @@ impl Material {
         }
     }
 
+    /// A colour channel, linear: DAZ keeps colours as entered (sRGB) and
+    /// Iray decodes them — passed on as-is, a 0.73 grey floor rendered 1.5×
+    /// too bright in Octane (Calib-HDRI).
     pub fn color(&self, id: &str) -> Option<[f32; 3]> {
         let a = self.channel(id)?.value.as_array()?;
-        Some([0, 1, 2].map(|i| a.get(i).and_then(Value::as_f64).unwrap_or(0.0) as f32))
+        Some([0, 1, 2].map(|i| srgb_to_linear(a.get(i).and_then(Value::as_f64).unwrap_or(0.0) as f32)))
     }
 
     pub fn image(&self, id: &str) -> Option<&str> {
@@ -133,6 +136,15 @@ impl Material {
     /// Cutout opacity, 1 = opaque (geometry shells are often 0 outside a mask).
     pub fn opacity(&self) -> f32 {
         self.float(self.opacity_channel()).unwrap_or(1.0)
+    }
+}
+
+/// sRGB-encoded → linear (values above 1 by the same power curve).
+pub fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
     }
 }
 
@@ -193,7 +205,9 @@ mod tests {
         let images = image_library(&json!({"image_library": [{"id": "mask", "map": [{"url": "/Runtime/Textures/m.png"}]}]}));
         let mut m = Material::from_dson(&def, &images);
         m.merge(&scene, &images);
-        assert_eq!(m.base_color(), [1.0, 0.5, 0.25]);
+        // Linear: DAZ's colours are sRGB.
+        let c = m.base_color();
+        assert!((c[0] - 1.0).abs() < 1e-6 && (c[1] - 0.214041).abs() < 1e-5 && (c[2] - 0.050876).abs() < 1e-5, "{c:?}");
         assert_eq!(m.image("diffuse"), Some("/Runtime/Textures/A B/skin.jpg"));
         assert_eq!(m.image("Cutout Opacity"), Some("/Runtime/Textures/m.png"));
         assert_eq!((m.roughness(), m.metallic(), m.opacity()), (0.4, 1.0, 1.0));

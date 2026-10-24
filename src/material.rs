@@ -902,7 +902,8 @@ mod tests {
         // chosen; every image node says so.
         assert_eq!(sx.matches("<attr name='initialColorSpaceSelected' type='1'>1</attr>").count(), sx.matches("<attr name='filename'").count());
         let (radius, scale) = sss_radius(&sss);
-        assert!((scale - 0.0173).abs() < 0.0005, "1.73 cm red diffusion length: {scale}");
+        // Transmitted Color (0.706, 0.557, 0.467) is sRGB: linear 0.456, 0.271, 0.184.
+        assert!((scale - 0.0115).abs() < 0.0005, "1.15 cm red diffusion length: {scale}");
         assert!(radius[0] == 1.0 && radius[1] < radius[0] && radius[2] < radius[1], "{radius:?}");
         let lashes = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}},
@@ -954,14 +955,15 @@ mod tests {
             {"channel": {"id": "diffuse", "current_value": [0.49, 0.49, 0.49], "image_file": "/Runtime/Textures/skin.jpg"}},
         ]));
         let (dx, _) = material_inputs(&[("Drawer".into(), drawer, 1.0)], &dirs, HashMap::new(), 6000, false);
-        assert!(dx.contains("<attr name='value' type='6'>0.49</attr>") && !dx.contains("type='39'"), "map × grey tint: {dx}");
+        // sRGB 0.49 grey = linear 0.205.
+        assert!(dx.contains("<attr name='value' type='6'>0.204902</attr>") && !dx.contains("type='39'"), "map × grey tint: {dx}");
         let pubic = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [0.447, 0.294, 0.145], "image_file": "/Runtime/Textures/skin.jpg"}},
         ]));
         let (px, _) = material_inputs(&[("Pubic".into(), pubic, 1.0)], &dirs, HashMap::new(), 6100, false);
         let albedo = &px[px.find("<pin name='albedo'>").unwrap()..];
         assert!(albedo.contains("type='39'") && albedo.contains("<pin name='texture1'>"), "map × coloured tint: {albedo}");
-        assert!(albedo.contains("<pin name='texture2'>") && albedo.contains("<attr name='value' type='8'>0.447 0.294 0.145</attr>"), "{albedo}");
+        assert!(albedo.contains("<pin name='texture2'>") && albedo.contains("<attr name='value' type='8'>0.168222 0.070303 0.018478</attr>"), "{albedo}");
         // DAZ Default shader: "Opacity Strength" 0 hides the group.
         let hiding = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},
@@ -1046,8 +1048,9 @@ mod tests {
         ]));
         let (hx, tex) = material_inputs(&[("Curls".into(), hair, 0.0)], &[dir.path().to_path_buf()], HashMap::new(), 4000, false);
         assert!(hx.contains("type='147' name='Curls'"), "{hx}");
-        // Root 0.5 × (1, 0.5, 0.5) and tip 0.5 → (0.5, 0.375, 0.375), squared.
-        assert!(hx.contains("<attr name='value' type='8'>0.252914 0.142264 0.142264</attr>"), "{hx}");
+        // Root 0.5 × (1, 0.214, 0.214) (the colour linear) and tip 0.5,
+        // averaged and squared.
+        assert!(hx.contains("<attr name='value' type='8'>0.252914 0.093192 0.093192</attr>"), "{hx}");
         assert!(hx.contains("<pin name='specular'>") && hx.contains("<attr name='value' type='8'>0.22 0.22 0.22</attr>"));
         assert!(hx.contains("<attr name='value' type='6'>0.35</attr>"));
         assert!(tex.files.is_empty(), "the map is averaged, not packed");
