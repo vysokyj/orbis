@@ -124,11 +124,24 @@ pub(super) fn scene_lights(lib: &mut Library) -> Vec<SceneLight> {
     out
 }
 
-/// Each light's power on DAZ's scale: watts at `DAZ_LUMENS_PER_WATT`, point
-/// lights ×3.
+/// Octane's power for a normalized UsdLux light against Iray, per emitter
+/// shape, measured on the primitives scene (#6): a 5000 lm point light lit
+/// every surface 5.2× Iray at the old ×3 (3 / 5.2), a 50 × 50 cm rect light
+/// 6.9× at ×1. A sphere radiates from four times the area a one-sided rect
+/// of the same radius would (0.58 / 0.145 ≈ 4). Distant lights matched as
+/// they were (0.97).
+const SPHERE_POWER_FACTOR: f64 = 0.58;
+const RECT_POWER_FACTOR: f64 = 0.145;
+
+/// Each light's power: watts at `DAZ_LUMENS_PER_WATT`, by emitter shape.
 pub(super) fn light_watts(l: &SceneLight) -> f64 {
-    let point_factor = if matches!(l.shape, LightShape::Point) && l.cone_deg.is_none() { 3.0 } else { 1.0 };
-    point_factor * l.lumens / crate::material::DAZ_LUMENS_PER_WATT
+    let factor = match l.shape {
+        _ if l.cone_deg.is_some() => 1.0, // spots: `SPOT_POWER_FACTOR`, #7
+        LightShape::Point | LightShape::Sphere { .. } => SPHERE_POWER_FACTOR,
+        LightShape::Rect { .. } | LightShape::Disk { .. } => RECT_POWER_FACTOR,
+        LightShape::Distant => 1.0,
+    };
+    factor * l.lumens / crate::material::DAZ_LUMENS_PER_WATT
 }
 
 /// The UsdLux prim name of each light (as `write_lights` names them).
@@ -175,8 +188,8 @@ pub(super) fn octane_spots(lights: &[SceneLight]) -> Vec<crate::material::Octane
         .collect()
 }
 
-/// UsdLux prims for the lights. Intensity is the light's power in watts on
-/// the scale DAZ scenes are lit for (`DAZ_LUMENS_PER_WATT`, point lights ×3),
+/// UsdLux prims for the lights. Intensity is the light's power in watts
+/// ([`light_watts`]),
 /// with `normalize` so the emitter's size doesn't
 /// change it.
 pub(super) fn write_lights(o: &mut String, lights: &[SceneLight]) {

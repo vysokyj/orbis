@@ -260,13 +260,25 @@ widths) Octane2's hair matches Iray (0.16/0.14/0.06 vs 0.16/0.12/0.07).
 
 Iray emission → Universal `emission`: blackbody (53: power, temperature,
 normalize) or, at temperature 0, texture emission (54) tinted by the colour.
-Power (W) = L × unit factor / 2 / **15 000** (`DAZ_LUMENS_PER_WATT`) — total
-for lm / W, × the material's surface area (m²) for luminance units.
+Power (W) = L × unit factor / 2 / **15 000** (`DAZ_LUMENS_PER_WATT`) ×
+**1 / 3.4** (`EMISSION_POWER_FACTOR`) — total for lm / W, × the material's
+surface area (m²) for luminance units. Calib-Emissive (one-sided 50 × 50 cm,
+5000 cd/m²): 3.4× Iray without the factor, 0.98–1.02 with it (#6).
 
 ## Lights
 
-Watts at 15 000 lm/W, point lights ×3;
-non-photometric lights 15 000 lm × Intensity (an assumption).
+Watts at 15 000 lm/W × a factor per emitter shape, fitted to Iray on the
+primitives scene (#6; Octane / Iray linear luminance on every surface):
+
+| light | factor | before → after |
+|---|---|---|
+| point, sphere (`SphereLight`) | **0.58** (`SPHERE_POWER_FACTOR`) | 5.2 (×3) → 0.97–1.03 |
+| rect, disc | **0.145** (`RECT_POWER_FACTOR`) | 6.9 → 0.97–1.03 |
+| distant | 1 | 0.96–1.01 |
+
+A sphere radiates from four times a one-sided rect's area (0.58 / 0.145 ≈ 4).
+Spheres and discs take their measured relative's factor. Non-photometric
+lights: 15 000 lm × Intensity (an assumption).
 
 - **Point / area** → UsdLux under `/Scene/Lights` (point → `SphereLight`
   r = 1 cm + `treatAsPoint`; rect, disc, sphere by `Light Geometry`; size in

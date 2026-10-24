@@ -390,7 +390,7 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     assert_eq!(crate::material::scene_lights(&[], None, 500, 1439), (String::new(), 1439));
     assert_ne!(mesh, 1439);
     assert!(light_emitters(&lights).is_empty(), "no UsdLux emitter for a spot");
-    // A point light stays UsdLux: 1500 lm ×3 / 15 000 = 0.3 W, glowing.
+    // A point light stays UsdLux: 1500 lm × 0.58 / 15 000 = 0.058 W, glowing.
     let mut point = lights[0].clone();
     point.cone_deg = None;
     point.lumens = 1500.0;
@@ -398,7 +398,7 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     let mut o = String::new();
     write_lights(&mut o, &[point.clone()]);
     assert!(o.contains("def SphereLight \"Bulb\"") && o.contains("bool treatAsPoint = 1") && o.contains("float inputs:colorTemperature = 6500"));
-    assert!(o.contains("float inputs:intensity = 0.300000") && o.contains("bool inputs:normalize = 1"), "{o}");
+    assert!(o.contains("float inputs:intensity = 0.058000") && o.contains("bool inputs:normalize = 1"), "{o}");
     let em = light_emitters(&[point]);
     let xml = crate::material::light_inputs(&em, 100);
     assert!(xml.contains("name='/Scene/Lights/Bulb_light'") && xml.contains("type='53'") && xml.contains("6500 0 0"));

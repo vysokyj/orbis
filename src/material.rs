@@ -25,12 +25,16 @@ const COLOUR_SPACE_LINEAR_SRGB: u32 = 2;
 /// of DAZ scenes confirm.
 pub const DAZ_LUMENS_PER_WATT: f64 = 15_000.0;
 
+/// Octane's emission against Iray's: a one-sided 50 × 50 cm plane at
+/// 5000 cd/m² lit every surface 3.4× Iray without it (#6).
+const EMISSION_POWER_FACTOR: f64 = 1.0 / 3.4;
+
 /// Emission power (W) of an Iray emissive surface of `area_m2`:
-/// Luminance × its unit factor / 2 / 15 000 —
+/// Luminance × its unit factor / 2 / 15 000 × `EMISSION_POWER_FACTOR` —
 /// a total for lm and W, per m² for the luminance units.
 pub fn iray_emission_watts(mat: &Material, area_m2: f64) -> f64 {
     let l = mat.float("Luminance").unwrap_or(1500.0) as f64;
-    let per = |factor: f64| l * factor / 2.0 / DAZ_LUMENS_PER_WATT;
+    let per = |factor: f64| l * factor / 2.0 / DAZ_LUMENS_PER_WATT * EMISSION_POWER_FACTOR;
     match mat.float("Luminance Units").unwrap_or(0.0) as i64 {
         1 => per(1000.0) * area_m2,
         2 => per(10.764) * area_m2,
@@ -933,11 +937,11 @@ mod tests {
         ]));
         let (ex, _) = material_inputs(&[("Bulbs".into(), bulbs, 0.01), ("Glow".into(), glow, 2.0)], &dirs, HashMap::new(), 9000, false);
         assert!(ex.contains("<pin name='emission'>") && ex.contains("type='53'"), "blackbody bulbs");
-        // 50 000 lm / 2 / 15 000 lm·W⁻¹.
-        assert!(ex.contains("<attr name='value' type='8'>1.666667 0 0</attr>"), "50 000 lm → 1.67 W");
+        // 50 000 lm / 2 / 15 000 lm·W⁻¹ / 3.4.
+        assert!(ex.contains("<attr name='value' type='8'>0.490196 0 0</attr>"), "50 000 lm → 0.49 W");
         assert!(ex.contains("<attr name='value' type='8'>7000 0 0</attr>"));
-        // 100 cd/m² over 2 m²: 100 / 2 / 15 000 · 2 ≈ 0.0067 W, red.
-        assert!(ex.contains("type='54'") && ex.contains("<attr name='value' type='8'>0.006667 0 0</attr>"), "{ex}");
+        // 100 cd/m² over 2 m²: 100 / 2 / 15 000 · 2 / 3.4 ≈ 0.002 W, red.
+        assert!(ex.contains("type='54'") && ex.contains("<attr name='value' type='8'>0.001961 0 0</attr>"), "{ex}");
         let mirror = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [0, 0, 0]}},
             {"channel": {"id": "Base Mixing", "current_value": 1}},
