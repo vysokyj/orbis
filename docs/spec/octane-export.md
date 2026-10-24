@@ -239,6 +239,12 @@ Every material input (20007) is filled — Octane doesn't convert
   `coatingRoughness` (Top Coat Roughness, or 1 − Top Coat Glossiness in
   modes 1 / 2, squared likewise), `coatingIor` = Top Coat IOR: the
   top-coated sphere's highlight 0 → 19 px (Iray 17).
+- **Weighted mixing** (Base Mixing 2) without translucency → `metallic` =
+  Glossy Weight / (Diffuse Weight + Glossy Weight), `specular` 0, the
+  diffuse map unbrightened (`weighted_gloss`): Iray blends a full-strength
+  glossy reflection by its share. Highlight 19 → 68 px (Iray 215), overall
+  0.81 of Iray either way — open in #10. With translucency (mesh hair) the
+  diffuse map is brightened by `weighted_mix` as before.
 - **Metallic Weight under 0.05** (no map) is left out: the GSOV4 jacket's
   0.0107 turned Octane's gloss off — black velvet (0.02× Iray) beside the
   same leather's trousers.

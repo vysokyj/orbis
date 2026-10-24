@@ -523,7 +523,16 @@ impl Ocs<'_> {
         // Iray multiplies the diffuse map by the diffuse colour: a grey tint
         // (the vanity's drawers: a pattern map × 0.49) darkens it — left
         // out, the pattern rendered washed-out white. See `tinted_image_pin`.
-        let (tint, mix) = if mat.image("diffuse").is_some() { (mat.base_color(), self.weighted_mix(mat)) } else { ([1.0; 3], 1.0) };
+        // Iray's weighted mixing (Base Mixing 2) without translucency blends
+        // the diffuse and a full-strength glossy reflection by their weights
+        // — Octane's metallic share does that (`weighted_gloss`); with
+        // translucency (mesh hair) the diffuse map is brightened instead.
+        let weighted = weighted_gloss(mat);
+        let (tint, mix) = match (mat.image("diffuse").is_some(), weighted) {
+            (true, None) => (mat.base_color(), self.weighted_mix(mat)),
+            (true, Some(_)) => (mat.base_color(), 1.0),
+            (false, _) => ([1.0; 3], 1.0),
+        };
         // The weighted blend scales the diffuse map (not a translucency
         // map standing in for a missing one — the HS CB cap went grey).
         if mirror {
@@ -541,7 +550,9 @@ impl Ocs<'_> {
         // over a normal map it made the matte slippers glitter (Octane1).
         let glossy = mat.float("Glossy Layered Weight").unwrap_or(0.0).max(mat.float("Glossy Weight").unwrap_or(0.0));
         let dual_lobe = mat.float("Dual Lobe Specular Weight").unwrap_or(0.0);
-        if !mirror && refraction == 0.0 && glossy <= 0.0 && dual_lobe <= 0.0 && mat.image("Glossy Layered Weight").is_none() {
+        if weighted.is_some() {
+            self.rgb_pin(i, "specular", [0.0; 3]);
+        } else if !mirror && refraction == 0.0 && glossy <= 0.0 && dual_lobe <= 0.0 && mat.image("Glossy Layered Weight").is_none() {
             self.rgb_pin(i, "specular", [0.0; 3]);
         } else if !mirror && glossy > 0.0 {
             // A coloured gloss map tints the reflection: the HS CB braids'
@@ -562,7 +573,9 @@ impl Ocs<'_> {
         let metallic = if mirror { 1.0 } else if specular_mode { 0.0 } else { mat.metallic() };
         // A trace of metallicity (the GSOV4 jacket's 0.0107) turned Octane's
         // gloss off — black velvet where Iray shows leather (Fetroom).
-        if mirror || (!specular_mode && (metallic >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some())) {
+        if let Some(share) = weighted {
+            self.float_pin(i, "metallic", (share + metallic * (1.0 - share)).clamp(0.0, 1.0));
+        } else if mirror || (!specular_mode && (metallic >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some())) {
             let ch = if mirror { None } else { Some("Metallic Weight") };
             self.float_or_map(i, "metallic", mat, ch, metallic.max(0.0));
         }
@@ -641,6 +654,24 @@ const SKIN_ALBEDO_FACTOR: f32 = 0.5;
 /// Victoria 8, Paisley; HDRI and Fetroom) green 1.25× and blue 1.6× Iray
 /// relative to red. Iray's volume keeps less of them (#8).
 const SKIN_HUE: [f32; 3] = [1.0, 0.8, 0.62];
+
+/// Iray's weighted base mixing (2) without translucency: the glossy share
+/// of the diffuse + glossy weights. Iray blends a full-strength glossy
+/// reflection by it — a weighted sphere (diffuse 1, gloss 0.6) measured
+/// 0.625 · its matte twin + 0.375 · the gloss colour × the mirrored sky,
+/// where Universal's dielectric specular gave a tenth of its highlight
+/// (Calib-Materials, #10). As a metallic share the highlight grew from 19
+/// to 68 px (Iray 215) at the same 0.81 of Iray's brightness — neither a
+/// white or gloss-coloured specular nor a larger share (0.6) closed that
+/// (probe 85).
+fn weighted_gloss(mat: &Material) -> Option<f32> {
+    if mat.float("Base Mixing").unwrap_or(0.0) as i32 != 2 || mat.float("Translucency Weight").unwrap_or(0.0) > 0.0 {
+        return None;
+    }
+    let gw = mat.float("Glossy Weight").unwrap_or(0.0).max(0.0);
+    let dw = mat.float("Diffuse Weight").unwrap_or(1.0).max(0.0);
+    (gw > 0.0 && dw + gw > 0.0).then(|| gw / (dw + gw))
+}
 
 /// Iray squares the roughness slider (`Roughness Squared`, and `Glossiness
 /// Squared` for 1 − glossiness; both on by default); Octane takes it as is —
