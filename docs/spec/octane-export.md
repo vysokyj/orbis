@@ -194,15 +194,19 @@ Every material input (20007) is filled — Octane doesn't convert
 
 ### Universal (130) — default
 
-- **albedo** = diffuse map (sRGB) with the diffuse colour's mean as the
-  image's power (a coloured tint loses its hue), or the colour; × (1 −
-  refraction). No diffuse map → a translucency colour map (hair, caps).
+- **albedo** = diffuse map (sRGB) × the diffuse colour, or the colour; ×
+  (1 − refraction). A grey colour is the image's power; a coloured one goes
+  through a Multiply texture (39, `texture1` map × `texture2` RGB) — as a
+  scalar a brown-tinted grey strand map rendered grey hair (probe 62). No diffuse map → a translucency colour map (hair, caps).
 - **Weighted base mixing** (`Base Mixing` 2): a real diffuse map is scaled
   to the blend's brightness (`weighted_mix`; 2.8 for a mesh hair) and
   `Glossy Weight` counts as gloss. Not applied to a translucency map standing
   in as albedo (greyed a cap's crown, probe 60).
 - roughness (dual-lobe skin: Specular Lobe 1 Roughness), metallic, cutout
-  opacity = greyscale map × value or constant; normal / bump maps.
+  opacity = greyscale map × value or constant; normal / bump maps. Without
+  `Cutout Opacity` (DAZ Default shader) opacity is `transparency` ("Opacity
+  Strength"): the NGV8 pubic hair's "Hiding" cards at 0 rendered as a white
+  layer over the skin (probes 62–63).
 - **No glossy layer, dual lobe, refraction or mirror → `specular` 0** (Iray
   is matte there; Universal's white default glittered velvet, probe 53).
   A `Glossy Color` map tints `specular` (× glossy weight).

@@ -123,9 +123,16 @@ impl Material {
         self.float("Metallic Weight").unwrap_or(0.0)
     }
 
+    /// The channel opacity lives in: Iray Uber's "Cutout Opacity", else the
+    /// DAZ Default shader's `transparency` ("Opacity Strength") — 0 there
+    /// hides a group (the NGV8 pubic hair's white "Hiding" cards, Octane3).
+    pub fn opacity_channel(&self) -> &'static str {
+        if self.channel("Cutout Opacity").is_none() && self.channel("transparency").is_some() { "transparency" } else { "Cutout Opacity" }
+    }
+
     /// Cutout opacity, 1 = opaque (geometry shells are often 0 outside a mask).
     pub fn opacity(&self) -> f32 {
-        self.float("Cutout Opacity").unwrap_or(1.0)
+        self.float(self.opacity_channel()).unwrap_or(1.0)
     }
 }
 

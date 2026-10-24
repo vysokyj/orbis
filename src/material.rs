@@ -368,8 +368,8 @@ impl Ocs<'_> {
             self.image_pin(i, "bump", &asset, true, 1.0, 1.0);
         }
         let opacity = mat.opacity().clamp(0.0, 1.0);
-        if opacity < 1.0 || mat.image("Cutout Opacity").is_some() {
-            self.float_or_map(i, "opacity", mat, Some("Cutout Opacity"), opacity);
+        if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
+            self.float_or_map(i, "opacity", mat, Some(mat.opacity_channel()), opacity);
         }
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
@@ -451,7 +451,7 @@ impl Ocs<'_> {
         let translucency = mat.float("Translucency Weight").unwrap_or(0.0).clamp(0.0, 1.0);
         let refractive = mat.float("Refraction Weight").unwrap_or(0.0) > 0.0;
         let emissive = mat.color("Emission Color").is_some_and(|c| c.iter().any(|v| *v > 0.0));
-        let cutout = mat.opacity() < 1.0 || mat.image("Cutout Opacity").is_some();
+        let cutout = mat.opacity() < 1.0 || mat.image(mat.opacity_channel()).is_some();
         // Iray "Thin Walled": clothing — a single-sided sheet, no volume.
         let thin = mat.float("Thin Walled").unwrap_or(0.0) > 0.0;
         if skin_sss && translucency > 0.0 && !refractive && !emissive && !cutout && !thin && mat.image("diffuse").is_some() {
@@ -549,8 +549,8 @@ impl Ocs<'_> {
 
         // Cutout: geometry shells are mostly transparent outside a mask.
         let opacity = mat.opacity().clamp(0.0, 1.0);
-        if opacity < 1.0 || mat.image("Cutout Opacity").is_some() {
-            self.float_or_map(i, "opacity", mat, Some("Cutout Opacity"), opacity);
+        if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
+            self.float_or_map(i, "opacity", mat, Some(mat.opacity_channel()), opacity);
         }
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
@@ -962,6 +962,14 @@ mod tests {
         let albedo = &px[px.find("<pin name='albedo'>").unwrap()..];
         assert!(albedo.contains("type='39'") && albedo.contains("<pin name='texture1'>"), "map × coloured tint: {albedo}");
         assert!(albedo.contains("<pin name='texture2'>") && albedo.contains("<attr name='value' type='8'>0.447 0.294 0.145</attr>"), "{albedo}");
+        // DAZ Default shader: "Opacity Strength" 0 hides the group.
+        let hiding = mat(json!([
+            {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},
+            {"channel": {"id": "transparency", "current_value": 0}},
+        ]));
+        let (hx, _) = material_inputs(&[("Hiding".into(), hiding, 1.0)], &dirs, HashMap::new(), 6200, false);
+        let op = &hx[hx.find("<pin name='opacity'>").expect("legacy opacity")..];
+        assert!(op.contains("<attr name='value' type='6'>0</attr>"), "{op}");
         let (mx, _) = material_inputs(&[("Mirror".into(), mirror, 1.0), ("Wall".into(), wall, 1.0)], &dirs, HashMap::new(), 5000, false);
         assert!(mx.contains("<attr name='value' type='8'>1 1 1</attr>"), "mirror albedo = gloss colour");
         assert!(mx.contains("<pin name='metallic'>"));

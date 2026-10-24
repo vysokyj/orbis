@@ -1,13 +1,15 @@
--- ORBIS probe (22nd run): Octane1 without the shadow-catching ground, exposure 1.4 and 1.0.
--- export, logs every pin of the skin (Torso) and swimsuit materials, then
--- renders (64 samples) variants with all materials' specular off, subsurface
--- off and roughness forced up. Output: ~/Documents/orbis_p61_*.png,
--- orbis_probe61.txt
+-- ORBIS probe (24th run): Octane3 after the fix for the pubic hair's
+-- "Hiding" group (DAZ Default shader, Opacity Strength 0 → opacity 0). Logs
+-- the pubic hair, Color Layer shell and graft materials, then renders: as
+-- exported, shell switched off (opacity 0), pubic hair hidden too — a white
+-- strip on the mons stayed in probe 63's "nohair".
+-- Output: ~/Documents/orbis_p63_*.png, orbis_probe63.txt.
+-- Close the scene without saving afterwards.
 
 local SAMPLES = 128
 local lines = {}
 local home = os.getenv("HOME") or "/tmp"
-local logpath = home .. "/Documents/orbis_probe61.txt"
+local logpath = home .. "/Documents/orbis_probe63.txt"
 local function log(s)
     lines[#lines + 1] = tostring(s)
     local f = io.open(logpath, "w")
@@ -37,8 +39,8 @@ for _, item in ipairs(scene:getOwnedItems()) do
 end
 log("rt " .. tostring(rt and rt:getProperties().name) .. " usd " .. tostring(usd and usd:getProperties().name))
 if not rt or not usd then
-    octane.gui.showDialog{ type = octane.gui.dialogType.BUTTON_DIALOG, title = "ORBIS probe 61",
-        text = "No ORBIS export open: open the .orbx (File > Open) first." }
+    octane.gui.showDialog{ type = octane.gui.dialogType.BUTTON_DIALOG, title = "ORBIS probe 63",
+        text = "No ORBIS export open: open Octane3.orbx (File > Open) first." }
     return
 end
 
@@ -56,24 +58,36 @@ for _, item in ipairs(usd:getOwnedItems()) do
 end
 log("materials " .. #mats)
 
-local function dump(entry)
-    local m = entry.node
-    log("== " .. entry.name .. " type " .. tostring(m:getProperties().type))
+local function dumpNode(n, depth)
+    local m = n
     for i = 1, m:getPinCount() do
         local name = m:getPinInfoIx(i).name
-        local n = m:getInputNodeIx(i)
-        local v = "-"
-        if n then
-            local p = n:getProperties()
-            v = "node type " .. tostring(p.type)
-            pcall(function() v = v .. " value " .. show(n:getAttribute(octane.A_VALUE)) end)
-            pcall(function() v = v .. " file " .. show(n:getAttribute(octane.A_FILENAME)) end)
+        local c = m:getInputNodeIx(i)
+        if c then
+            local p = c:getProperties()
+            local v = "node type " .. tostring(p.type)
+            pcall(function() v = v .. " value " .. show(c:getAttribute(octane.A_VALUE)) end)
+            pcall(function() v = v .. " file " .. show(c:getAttribute(octane.A_FILENAME)) end)
+            log(string.rep("  ", depth) .. i .. " " .. name .. " = " .. v)
+            -- Operators (multiply) and image textures: one level down.
+            if depth < 3 and (p.type == 39 or name == "power") then dumpNode(c, depth + 1) end
         end
-        log("  " .. i .. " " .. name .. " = " .. v)
     end
 end
-for _, e in ipairs(mats) do
-    if e.name:find("Torso") or e.name:find("Swimsuit_Base") then try("dump " .. e.name, function() dump(e) end) end
+local function matching(pattern)
+    local out = {}
+    for _, e in ipairs(mats) do
+        if e.name:find(pattern) then out[#out + 1] = e end
+    end
+    return out
+end
+for _, pat in ipairs({ "Pubic_Hair", "Color_Layer", "Fleur_HD_new_gens" }) do
+    for _, e in ipairs(matching(pat)) do
+        try("dump " .. e.name, function()
+            log("== " .. e.name .. " type " .. tostring(e.node:getProperties().type))
+            dumpNode(e.node, 1)
+        end)
+    end
 end
 
 local kernel = rt:getInputNode(octane.P_KERNEL)
@@ -84,7 +98,7 @@ samplesNode:setAttribute(octane.A_VALUE, { SAMPLES, 0, 0, 0 }, true)
 local function save(name)
     -- The denoised pass when the imager's denoiser is on (saveImage writes
     -- the raw beauty, which keeps the noise).
-    local path = home .. "/Documents/orbis_p61_" .. name .. ".png"
+    local path = home .. "/Documents/orbis_p63_" .. name .. ".png"
     local ok, res = pcall(octane.render.saveRenderPass, octane.renderPassId.BEAUTY_DENOISER_OUTPUT, path, octane.imageSaveFormat.PNG_8)
     if not ok or not res then ok, res = pcall(octane.render.saveImage, path, octane.imageSaveFormat.PNG_8) end
     log("saved " .. name .. ": " .. tostring(ok) .. " " .. tostring(res))
@@ -94,62 +108,42 @@ local function render(name)
     save(name)
 end
 
--- Set a pin's owned value node on every material that has the pin and a
--- plain value node there (textures are left alone unless `replace`).
-local undo = {}
-local function setAll(pin, value)
-    local count = 0
-    for _, e in ipairs(mats) do
-        local ix = pins(e.node)[pin]
-        if ix then
-            local n = e.node:getInputNodeIx(ix)
-            if n then
-                local ok, old = pcall(function() return n:getAttribute(octane.A_VALUE) end)
-                if ok and old ~= nil then
-                    undo[#undo + 1] = { n, old }
-                    n:setAttribute(octane.A_VALUE, value, true)
-                    count = count + 1
-                end
-            end
+-- Put a constant on a material pin: change its value node in place, or
+-- replace whatever drives it (a texture) with a new owned value node.
+local function setPin(e, pin, nodeType, value)
+    local ix = pins(e.node)[pin]
+    if not ix then log("no pin " .. pin .. " on " .. e.name); return end
+    local n = e.node:getInputNodeIx(ix)
+    if n and n:getProperties().type == nodeType then
+        n:setAttribute(octane.A_VALUE, value, true)
+    else
+        local ok = pcall(function()
+            local v = octane.node.create{ type = nodeType, name = pin, pinOwnerNode = e.node, pinOwnerIx = ix }
+            v:setAttribute(octane.A_VALUE, value, true)
+        end)
+        if not ok then
+            local v = octane.node.create{ type = nodeType, name = pin, graphOwner = usd }
+            v:setAttribute(octane.A_VALUE, value, true)
+            e.node:connectToIx(ix, v)
         end
     end
-    log("set " .. pin .. " = " .. show(value) .. " on " .. count)
-end
-local function restore()
-    for k = #undo, 1, -1 do undo[k][1]:setAttribute(octane.A_VALUE, undo[k][2], true) end
-    undo = {}
+    log("set " .. e.name .. " " .. pin .. " = " .. show(value))
 end
 
-local imager = rt:getInputNodeIx(pins(rt)["imager"])
-local function ipin(name) return imager:getInputNodeIx(pins(imager)[name]) end
-local orig = {}
-for _, n in ipairs({ "exposure", "highlightCompression", "acesToneMapping", "white_balance", "saturation", "response", "gamma" }) do
-    orig[n] = ipin(n):getAttribute(octane.A_VALUE)
-    log("imager " .. n .. " = " .. show(orig[n]))
+try("render base", function() render("base") end)
+for _, e in ipairs(matching("Color_Layer")) do
+    try("shell opacity", function() setPin(e, "opacity", 31, 0) end)
 end
-local function wait(seconds)
-    local t = os.clock() + seconds
-    while os.clock() < t do end
+try("render noshell", function() render("noshell") end)
+for _, e in ipairs(matching("Pubic_Hair")) do
+    try("hair opacity", function() setPin(e, "opacity", 31, 0) end)
 end
-
--- Weighted base mixing (export): the HS CB hair's albedo power; render at
--- exposure 1.0 as probe 59.
-try("exposure 1.0", function() ipin("exposure"):setAttribute(octane.A_VALUE, { 1.0, 0, 0 }, true) end)
-for _, e in ipairs(mats) do
-    if e.name:find("^/Scene/Materials/HS_CB_Hair") then
-        pcall(function()
-            local a = e.node:getInputNodeIx(pins(e.node)["albedo"])
-            log(e.name .. " albedo power " .. show(a:getInputNodeIx(pins(a)["power"]):getAttribute(octane.A_VALUE)))
-        end)
-    end
-end
-try("render", function() render("weighted") end)
-for n, v in pairs(orig) do pcall(function() ipin(n):setAttribute(octane.A_VALUE, v, true) end) end
+try("render nohair", function() render("nohair") end)
 
 try("restore", function() samplesNode:setAttribute(octane.A_VALUE, origSamples, true) end)
 log("done")
-local summary = "ORBIS probe 61 finished: " .. #lines .. " lines"
+local summary = "ORBIS probe 63 finished: " .. #lines .. " lines. Close the scene without saving."
 print(summary)
 pcall(function()
-    octane.gui.showDialog{ type = octane.gui.dialogType.BUTTON_DIALOG, title = "ORBIS probe 61", text = summary }
+    octane.gui.showDialog{ type = octane.gui.dialogType.BUTTON_DIALOG, title = "ORBIS probe 63", text = summary }
 end)
