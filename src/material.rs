@@ -570,7 +570,21 @@ impl Ocs<'_> {
         let (rough_ch, rough, inverted) = mat.roughness_source();
         // A glossiness map would need inverting; use its value only.
         let rough_ch = if inverted { None } else { rough_ch };
+        let rough = iray_roughness(mat, rough, inverted);
         self.float_or_map(i, "roughness", mat, rough_ch, rough.clamp(0.0, 1.0));
+
+        // Iray's Top Coat: a clear dielectric layer over everything.
+        let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
+        if coat > 0.0 {
+            let colour = mat.color("Top Coat Color").unwrap_or([1.0; 3]);
+            self.rgb_pin(i, "coating", colour.map(|c| c * coat));
+            let (r, inv) = match (mat.float("Base Mixing").unwrap_or(0.0) as i32, mat.float("Top Coat Glossiness")) {
+                (1 | 2, Some(g)) => (1.0 - g, true),
+                _ => (mat.float("Top Coat Roughness").unwrap_or(0.0), false),
+            };
+            self.float_pin(i, "coatingRoughness", iray_roughness(mat, r, inv).clamp(0.0, 1.0));
+            self.float_pin(i, "coatingIor", mat.float("Top Coat IOR").unwrap_or(1.5));
+        }
 
         // Glass-like surfaces (cornea, windows): Iray refraction → transmission.
         if refraction > 0.0 {
@@ -627,6 +641,15 @@ const SKIN_ALBEDO_FACTOR: f32 = 0.5;
 /// Victoria 8, Paisley; HDRI and Fetroom) green 1.25× and blue 1.6× Iray
 /// relative to red. Iray's volume keeps less of them (#8).
 const SKIN_HUE: [f32; 3] = [1.0, 0.8, 0.62];
+
+/// Iray squares the roughness slider (`Roughness Squared`, and `Glossiness
+/// Squared` for 1 − glossiness; both on by default); Octane takes it as is —
+/// unsquared, Octane's highlights came out broader and dimmer
+/// (Calib-Materials, #10).
+fn iray_roughness(mat: &Material, r: f32, from_glossiness: bool) -> f32 {
+    let channel = if from_glossiness { "Glossiness Squared" } else { "Roughness Squared" };
+    if mat.float(channel).unwrap_or(1.0) > 0.0 { r * r } else { r }
+}
 
 /// Metallic Weight below this (without a map) is left out: see `universal`.
 const NEGLIGIBLE_METALLIC: f32 = 0.05;

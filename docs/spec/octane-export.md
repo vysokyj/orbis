@@ -228,6 +228,17 @@ Every material input (20007) is filled — Octane doesn't convert
   Layered Weight` map × the weight, else glossy colour × weight when below 1
   — Universal's full white default made the GSOV4 leather (gloss 0.33 through
   a seam mask) 3.4× Iray's sheen; now 1.13–1.16 (Fetroom).
+- **Roughness** by Base Mixing: 0 → `Glossy Roughness`, 1 and 2 →
+  1 − `Glossiness` (both channels are always saved; Calib-Materials:
+  Glossiness 0.8 beside Glossy Roughness 0.5 rendered Iray's sharp
+  highlight), then **squared** when `Roughness Squared` / `Glossiness
+  Squared` (default on) — Iray squares the slider, Octane doesn't:
+  highlights went from 31 / 17 / 6 px to 48 / 24 / 22 against Iray's
+  56 / 26 / 20 (#10).
+- **Top Coat** → Universal `coating` = Top Coat Color × weight,
+  `coatingRoughness` (Top Coat Roughness, or 1 − Top Coat Glossiness in
+  modes 1 / 2, squared likewise), `coatingIor` = Top Coat IOR: the
+  top-coated sphere's highlight 0 → 19 px (Iray 17).
 - **Metallic Weight under 0.05** (no map) is left out: the GSOV4 jacket's
   0.0107 turned Octane's gloss off — black velvet (0.02× Iray) beside the
   same leather's trousers.

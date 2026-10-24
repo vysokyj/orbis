@@ -1,13 +1,12 @@
--- ORBIS probe (42nd run): skin on OpenPBR Surface (505), brightened by
--- 1 / (1 − 0.46 · w) to Standard Surface's level (#8): Calib-HDRI-openpbr.orbx and
--- Octane4-openpbr.orbx. Renders the open scene as exported, named after its
--- render target; run once per scene.
--- Output: ~/Documents/orbis_p81_<render target>.png, orbis_probe81.txt.
+-- ORBIS probe (44th run): Calib-Materials.orbx (#10) — roughness squared
+-- as Iray does (Roughness / Glossiness Squared) and the Top Coat as
+-- Universal's coating. Renders as exported, named after the render target.
+-- Output: ~/Documents/orbis_p83_<render target>.png, orbis_probe83.txt.
 
 local SAMPLES = 128
 local lines = {}
 local home = os.getenv("HOME") or "/tmp"
-local logpath = home .. "/Documents/orbis_probe81.txt"
+local logpath = home .. "/Documents/orbis_probe83.txt"
 local function log(s)
     lines[#lines + 1] = tostring(s)
     local f = io.open(logpath, "w")
@@ -37,7 +36,7 @@ for _, item in ipairs(scene:getOwnedItems()) do
 end
 log("rt " .. tostring(rt and rt:getProperties().name) .. " usd " .. tostring(usd and usd:getProperties().name))
 if not rt or not usd then
-    octane.gui.showDialog{ type = octane.gui.dialogType.BUTTON_DIALOG, title = "ORBIS probe 81",
+    octane.gui.showDialog{ type = octane.gui.dialogType.BUTTON_DIALOG, title = "ORBIS probe 83",
         text = "No ORBIS export open: open Calib-Point.orbx (File > Open) first." }
     return
 end
@@ -96,7 +95,7 @@ samplesNode:setAttribute(octane.A_VALUE, { SAMPLES, 0, 0, 0 }, true)
 local function save(name)
     -- The denoised pass when the imager's denoiser is on (saveImage writes
     -- the raw beauty, which keeps the noise).
-    local path = home .. "/Documents/orbis_p81_" .. name .. ".png"
+    local path = home .. "/Documents/orbis_p83_" .. name .. ".png"
     local ok, res = pcall(octane.render.saveRenderPass, octane.renderPassId.BEAUTY_DENOISER_OUTPUT, path, octane.imageSaveFormat.PNG_8)
     if not ok or not res then ok, res = pcall(octane.render.saveImage, path, octane.imageSaveFormat.PNG_8) end
     log("saved " .. name .. ": " .. tostring(ok) .. " " .. tostring(res))
@@ -132,8 +131,8 @@ try("render base", function() render(rt:getProperties().name) end)
 
 try("restore", function() samplesNode:setAttribute(octane.A_VALUE, origSamples, true) end)
 log("done")
-local summary = "ORBIS probe 81 finished: " .. #lines .. " lines. Close the scene without saving."
+local summary = "ORBIS probe 83 finished: " .. #lines .. " lines. Close the scene without saving."
 print(summary)
 pcall(function()
-    octane.gui.showDialog{ type = octane.gui.dialogType.BUTTON_DIALOG, title = "ORBIS probe 81", text = summary }
+    octane.gui.showDialog{ type = octane.gui.dialogType.BUTTON_DIALOG, title = "ORBIS probe 83", text = summary }
 end)

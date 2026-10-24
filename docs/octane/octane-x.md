@@ -133,6 +133,17 @@ decoded as sRGB.
 - **Imager response** (`octane.responseCurveId`): LINEAR 400, sRGB 401,
   GAMMA1_8 402, GAMMA2_2 403, then the film curves (probe 76).
 - **USD import emits rect and disk lights along +Z** (UsdLux: −Z).
+- **Universal (130) pins** (probe 82): transmission, transmissionType,
+  albedo, diffuseBrdf, metallic, edgeTint, specular, brdf, roughness,
+  anisotropyTexture, rotation, spread, ior, metallicMode, index, index2,
+  index3, hasCaustics, **coating, coatingRoughness, coatingIor**,
+  coatingBump, coatingNormal, filmwidth, filmIor, sheen, sheenBrdf,
+  sheenRoughness, sheenBump, sheenNormal, dispersion…, medium, opacity,
+  fake_shadows, refractionAlpha, bump, bumpHeight, normal, displacement,
+  smooth, smoothShadowTerminator, roundEdges, priority, emission, matte,
+  customAov…, layer. No `index4` (the export's IOR pin for glass, #9).
+- **OpenPBR Surface (505)**: like Standard Surface but `radius` is a
+  float (distance) and `scale` a colour (per channel) — the other way round.
 
 ## Kernels
 

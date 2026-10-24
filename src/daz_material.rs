@@ -113,11 +113,22 @@ impl Material {
                 return (Some("Specular Lobe 1 Roughness"), r, false);
             }
         }
-        if let Some(r) = self.float("Glossy Roughness") {
-            return (Some("Glossy Roughness"), r, false);
+        // Base Mixing 1 (specular / glossiness) and 2 (weighted) take their
+        // gloss from Glossiness, 0 (metallicity / roughness) from Glossy
+        // Roughness — both channels are always saved (Calib-Materials:
+        // Glossiness 0.8 with Glossy Roughness 0.5 rendered a sharp Iray
+        // highlight, a weighted sphere at the default Glossiness 1 a mirror).
+        let glossiness_mode = matches!(self.float("Base Mixing").unwrap_or(0.0) as i32, 1 | 2);
+        if !glossiness_mode {
+            if let Some(r) = self.float("Glossy Roughness") {
+                return (Some("Glossy Roughness"), r, false);
+            }
         }
         if let Some(g) = self.float("Glossiness") {
             return (Some("Glossiness"), 1.0 - g, true);
+        }
+        if let Some(r) = self.float("Glossy Roughness") {
+            return (Some("Glossy Roughness"), r, false);
         }
         (None, 0.5, false)
     }
@@ -211,6 +222,15 @@ mod tests {
         assert_eq!(m.image("diffuse"), Some("/Runtime/Textures/A B/skin.jpg"));
         assert_eq!(m.image("Cutout Opacity"), Some("/Runtime/Textures/m.png"));
         assert_eq!((m.roughness(), m.metallic(), m.opacity()), (0.4, 1.0, 1.0));
+        // Specular / glossiness mixing takes Glossiness, whatever Glossy
+        // Roughness says.
+        let gloss = json!({"extra": [{"type": "studio_material_channels", "channels": [
+            {"channel": {"id": "Base Mixing", "current_value": 1}},
+            {"channel": {"id": "Glossy Roughness", "current_value": 0.5}},
+            {"channel": {"id": "Glossiness", "current_value": 0.8}},
+        ]}]});
+        let g = Material::from_dson(&gloss, &images);
+        assert!((g.roughness() - 0.2).abs() < 1e-6, "{}", g.roughness());
     }
 
     #[test]
