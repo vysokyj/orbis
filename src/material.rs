@@ -547,11 +547,20 @@ impl Ocs<'_> {
             // default (Octane1, probe 60).
             if let Some(asset) = mat.image("Glossy Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
                 self.tinted_image_pin(i, "specular", &asset, glossy.min(1.0), gloss_color);
+            } else if let Some(asset) = mat.image("Glossy Layered Weight").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
+                // The glossy layer's weight map (data) × its weight: the
+                // GSOV4 leather's 0.33 gloss with a seam mask rendered 3.4×
+                // Iray's sheen with Universal's full white one (Fetroom).
+                self.image_pin(i, "specular", &asset, true, 1.0, glossy.min(1.0));
+            } else if glossy < 1.0 || gloss_color != [1.0; 3] {
+                self.rgb_pin(i, "specular", gloss_color.map(|c| c * glossy.min(1.0)));
             }
         }
 
         let metallic = if mirror { 1.0 } else if specular_mode { 0.0 } else { mat.metallic() };
-        if mirror || (!specular_mode && (metallic > 0.0 || mat.image("Metallic Weight").is_some())) {
+        // A trace of metallicity (the GSOV4 jacket's 0.0107) turned Octane's
+        // gloss off — black velvet where Iray shows leather (Fetroom).
+        if mirror || (!specular_mode && (metallic >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some())) {
             let ch = if mirror { None } else { Some("Metallic Weight") };
             self.float_or_map(i, "metallic", mat, ch, metallic.max(0.0));
         }
@@ -605,11 +614,20 @@ fn map_tint(c: [f32; 3]) -> f32 {
 fn skin_tint(mat: &Material, w: f32, tc_map: Option<[f32; 3]>) -> [f32; 3] {
     let tc = mat.color("Translucency Color").unwrap_or([1.0; 3]);
     let tc = [0, 1, 2].map(|k| tc[k] * tc_map.map_or(1.0, |m| m[k]));
-    tc.map(|t| SKIN_ALBEDO_FACTOR * ((1.0 - w) + w * t))
+    [0, 1, 2].map(|k| SKIN_ALBEDO_FACTOR * ((1.0 - w) + w * tc[k]) * SKIN_HUE[k])
 }
 
 /// See [`skin_tint`].
 const SKIN_ALBEDO_FACTOR: f32 = 0.5;
+
+/// Octane's random-walk skin comes out bluer than Iray's at the same tint:
+/// over nine regions of five figures (Genesis 8 Female, Fleur, Charity,
+/// Victoria 8, Paisley; HDRI and Fetroom) green 1.25× and blue 1.6× Iray
+/// relative to red. Iray's volume keeps less of them (#8).
+const SKIN_HUE: [f32; 3] = [1.0, 0.8, 0.62];
+
+/// Metallic Weight below this (without a map) is left out: see `universal`.
+const NEGLIGIBLE_METALLIC: f32 = 0.05;
 
 /// OpenPBR Surface rendered the same skin colour darker than Standard
 /// Surface, evenly in R, G and B: 0.78 at translucency 0.5 (Genesis 8
@@ -968,11 +986,11 @@ mod tests {
         let base = &sx[sx.find("<pin name='baseColor'>").unwrap()..];
         let base = &base[..base.find("</pin>\n      <pin").unwrap_or(base.len())];
         assert!(base.contains("<attr name='colorSpace' type='2'>1</attr>"), "{base}");
-        // Iray's skin shows ½ · ((1 − w) + w · Tc) of the map: w 0.5 and a
-        // white Translucency Color (its map unreadable here) → 0.5.
-        assert!(base.contains("<attr name='value' type='6'>0.5</attr>"), "skin tint: {base}");
+        // Iray's skin shows ½ · ((1 − w) + w · Tc) of the map × SKIN_HUE:
+        // w 0.5 and a white Translucency Color (its map unreadable here).
+        assert!(base.contains("<attr name='value' type='8'>0.5 0.4 0.31</attr>"), "skin tint: {base}");
         let ssc = &sx[sx.find("<pin name='subsurfaceColor'>").unwrap()..];
-        assert!(ssc[..ssc.find("</pin>\n      <pin").unwrap_or(ssc.len())].contains("<attr name='value' type='6'>0.5</attr>"), "{ssc}");
+        assert!(ssc[..ssc.find("</pin>\n      <pin").unwrap_or(ssc.len())].contains("<attr name='value' type='8'>0.5 0.4 0.31</attr>"), "{ssc}");
         // Octane keeps the pin's colour space only when told the image's was
         // chosen; every image node says so.
         assert_eq!(sx.matches("<attr name='initialColorSpaceSelected' type='1'>1</attr>").count(), sx.matches("<attr name='filename'").count());
@@ -982,7 +1000,7 @@ mod tests {
         assert!(ox.contains("type='505' name='Torso'"), "{ox}");
         let radius_pin = &ox[ox.find("<pin name='radius'>").unwrap()..];
         assert!(radius_pin[..120].contains("type='6'>") && ox[ox.find("<pin name='scale'>").unwrap()..].contains("type='33'>"), "{ox}");
-        assert!(ox.contains("<attr name='value' type='6'>0.649351</attr>"), "lifted tint: {ox}");
+        assert!(ox.contains("<attr name='value' type='8'>0.649351 0.519481 0.402597</attr>"), "lifted tint: {ox}");
         let (radius, scale) = sss_radius(&sss);
         // Transmitted Color (0.706, 0.557, 0.467) is sRGB: linear 0.456, 0.271, 0.184.
         assert!((scale - 0.0115).abs() < 0.0005, "1.15 cm red diffusion length: {scale}");
@@ -1028,6 +1046,16 @@ mod tests {
             {"channel": {"id": "Glossy Color", "current_value": [1, 1, 1]}},
             {"channel": {"id": "Glossy Roughness", "current_value": 0}},
         ]));
+        // Leather: a 0.33 gloss through a weight map, a trace of metallicity.
+        let leather = mat(json!([
+            {"channel": {"id": "diffuse", "current_value": [0, 0, 0]}},
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 0.33, "image_file": "/Runtime/Textures/rough.png"}},
+            {"channel": {"id": "Metallic Weight", "current_value": 0.0107}},
+        ]));
+        let (lx, _) = material_inputs(&[("Leather".into(), leather, 1.0)], &dirs, HashMap::new(), 8800, SkinShader::None);
+        let spec = &lx[lx.find("<pin name='specular'>").expect("gloss weight map")..];
+        assert!(spec.contains("type='36'") && spec[..900].contains("<attr name='value' type='6'>0.33</attr>"), "{spec}");
+        assert!(!lx.contains("<pin name='metallic'>"), "a trace of metallicity is left out: {lx}");
         let wall = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}},
             {"channel": {"id": "Horizontal Tiles", "current_value": 6}},

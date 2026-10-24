@@ -224,7 +224,13 @@ Every material input (20007) is filled — Octane doesn't convert
   layer over the skin (probes 62–63).
 - **No glossy layer, dual lobe, refraction or mirror → `specular` 0** (Iray
   is matte there; Universal's white default glittered velvet, probe 53).
-  A `Glossy Color` map tints `specular` (× glossy weight).
+  A `Glossy Color` map tints `specular` (× glossy weight); else a `Glossy
+  Layered Weight` map × the weight, else glossy colour × weight when below 1
+  — Universal's full white default made the GSOV4 leather (gloss 0.33 through
+  a seam mask) 3.4× Iray's sheen; now 1.13–1.16 (Fetroom).
+- **Metallic Weight under 0.05** (no map) is left out: the GSOV4 jacket's
+  0.0107 turned Octane's gloss off — black velvet (0.02× Iray) beside the
+  same leather's trousers.
 - Base Mixing 1 ignores Metallic Weight; a black base under a strong white
   gloss becomes a gloss-coloured metal (mirrors).
 - refraction → `transmission` + IOR (`index4`), transparent shadows.
@@ -256,8 +262,10 @@ not `Thin Walled`, non-refractive, non-emissive and has a diffuse map:
   map as is — Calib-HDRI's Genesis 8 Female skin 3.2× Iray (effective
   albedo 0.48 vs 0.154); Iray's per channel matched ½ · ((1 − w) · D +
   w · D · Tc) within 4 %. Tinted: G8F 1.14–1.18 × Iray, Fleur (Octane4)
-  0.9–1.0. The hue is still bluer (G8F B 1.75 ×, a third of it Octane's
-  specular reflecting the sky) — #8;
+  0.9–1.0. × **`SKIN_HUE` (1, 0.80, 0.62)**: Octane's random walk came out
+  bluer at the same tint on five figures (G 1.25 ×, B 1.6 × Iray relative
+  to red); with it G8F 1.02 / 1.05 / 1.30, Fetroom's figures within ~0.2
+  in hue (#8);
 - `radius` = per-channel diffusion length (see [iray.md](../daz/iray.md#translucency-and-subsurface-skin))
   normalised to its maximum and **square-rooted**; `scale` = that maximum in
   meters, clamped 0.5 mm – 2 cm. Why the root: Noemi's 1 / 0.18 / 0.15

@@ -34,6 +34,12 @@ generated from the docs, so undocumented members may be missing.
   `/resources/…` paths).
 - `Scene.getFilename()` (`""` when never saved), `Scene.needsSave()`,
   `Scene.getNumNodes()` / `getNode(i)`.
+- `Scene.saveScene()` always opens the Save As dialog; File > Save without
+  asking is `MainWindow.getActionMgr().findAction("DzSaveSceneAction").trigger()`.
+- Rendering from a script (`scripts/dev/daz-spot-variants.dsa`, works in
+  DS6): `App.getRenderMgr()`, `getRenderOptions()`, `renderImgToId =
+  DzRenderOptions.DirectToFile`, `renderImgFilename`, `doRender(options)`
+  (blocks until done).
 
 ## Evaluated geometry
 
