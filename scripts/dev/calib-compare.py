@@ -7,8 +7,9 @@
         Calib-Spot only: intensity per degree off the spot's axis, I(θ) ∝
         luminance · d² / cos(incidence) over the floor, both renders.
 
-Iray PNGs are decoded with gamma 2.2 (DAZ's tone mapping), Octane's with the
-sRGB curve. 1920 × 1080 renders from the Calib-* scenes' camera. No numpy /
+Both PNGs are decoded with gamma 2.2: DAZ's tone mapping and the export's
+imager response (403). `ORBIS_OCTANE_SRGB=1` decodes Octane renders exported
+before that (sRGB response 401) with the sRGB curve. 1920 × 1080 renders from the Calib-* scenes' camera. No numpy /
 Pillow: PNGs are converted to BMP with macOS `sips`.
 """
 import collections
@@ -71,12 +72,15 @@ def region(px, box, decode):
     return values[len(values) // 2]
 
 
+OCTANE_DECODE = srgb if os.environ.get("ORBIS_OCTANE_SRGB") else gamma22
+
+
 def regions(iray, octane):
     a, _, _ = load(iray)
     b, _, _ = load(octane)
     print(f"{'region':12s} {'iray':>8s} {'octane':>8s}  ratio")
     for name, box in REGIONS.items():
-        la, lb = region(a, box, gamma22), region(b, box, srgb)
+        la, lb = region(a, box, gamma22), region(b, box, OCTANE_DECODE)
         ratio = lb / la if la > 1e-5 else float("nan")
         print(f"{name:12s} {la:8.4f} {lb:8.4f}  {ratio:5.2f}")
 
@@ -120,7 +124,7 @@ def spot_profile(png, decode):
 
 
 def spot(iray, octane):
-    a, b = spot_profile(iray, gamma22), spot_profile(octane, srgb)
+    a, b = spot_profile(iray, gamma22), spot_profile(octane, OCTANE_DECODE)
     print("deg     iray   octane  ratio")
     for k in sorted(set(a) | set(b)):
         ia, ib = a.get(k, float("nan")), b.get(k, float("nan"))

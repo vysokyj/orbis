@@ -1,12 +1,15 @@
--- ORBIS probe (36th run): Calib-Spot.orbx — spots are now soft Octane
--- disks (hardness 0) with the spread fitted to Iray's cos(θ · 90°/half)^e
--- beam and the power from the beam's flux (#7). Renders as exported.
--- Output: ~/Documents/orbis_p75_*.png, orbis_probe75.txt.
+-- ORBIS probe (37th run): Calib-Point.orbx — Iray writes gamma 2.2, the
+-- export's imager uses the sRGB response (401): equal linear light, darker
+-- Octane shadows in pixels (#8). Logs the camera response constants, then
+-- renders with the response named like "gamma 2.2" and with the linear
+-- response + imager gamma 2.2.
+-- Output: ~/Documents/orbis_p76_*.png, orbis_probe76.txt.
+-- Close the scene without saving afterwards.
 
 local SAMPLES = 128
 local lines = {}
 local home = os.getenv("HOME") or "/tmp"
-local logpath = home .. "/Documents/orbis_probe75.txt"
+local logpath = home .. "/Documents/orbis_probe76.txt"
 local function log(s)
     lines[#lines + 1] = tostring(s)
     local f = io.open(logpath, "w")
@@ -36,8 +39,8 @@ for _, item in ipairs(scene:getOwnedItems()) do
 end
 log("rt " .. tostring(rt and rt:getProperties().name) .. " usd " .. tostring(usd and usd:getProperties().name))
 if not rt or not usd then
-    octane.gui.showDialog{ type = octane.gui.dialogType.BUTTON_DIALOG, title = "ORBIS probe 75",
-        text = "No ORBIS export open: open Calib-Spot.orbx (File > Open) first." }
+    octane.gui.showDialog{ type = octane.gui.dialogType.BUTTON_DIALOG, title = "ORBIS probe 76",
+        text = "No ORBIS export open: open Calib-Point.orbx (File > Open) first." }
     return
 end
 
@@ -95,7 +98,7 @@ samplesNode:setAttribute(octane.A_VALUE, { SAMPLES, 0, 0, 0 }, true)
 local function save(name)
     -- The denoised pass when the imager's denoiser is on (saveImage writes
     -- the raw beauty, which keeps the noise).
-    local path = home .. "/Documents/orbis_p75_" .. name .. ".png"
+    local path = home .. "/Documents/orbis_p76_" .. name .. ".png"
     local ok, res = pcall(octane.render.saveRenderPass, octane.renderPassId.BEAUTY_DENOISER_OUTPUT, path, octane.imageSaveFormat.PNG_8)
     if not ok or not res then ok, res = pcall(octane.render.saveImage, path, octane.imageSaveFormat.PNG_8) end
     log("saved " .. name .. ": " .. tostring(ok) .. " " .. tostring(res))
@@ -127,12 +130,42 @@ local function setPin(e, pin, nodeType, value)
     log("set " .. e.name .. " " .. pin .. " = " .. show(value))
 end
 
-try("render base", function() render("base") end)
+local imager = rt:getInputNodeIx(pins(rt)["imager"])
+local function ipin(name) return imager:getInputNodeIx(pins(imager)[name]) end
+log("imager response = " .. show(ipin("response"):getAttribute(octane.A_VALUE)) .. ", gamma = " .. show(ipin("gamma"):getAttribute(octane.A_VALUE)))
+local gamma22, linear
+local function scan(t, prefix, depth)
+    for k, v in pairs(t) do
+        local key = prefix .. tostring(k)
+        if type(v) == "table" and depth < 2 then
+            scan(v, key .. ".", depth + 1)
+        elseif type(v) == "number" and (key:upper():find("RESPONSE") or key:upper():find("CRF") or key:upper():find("GAMMA")) then
+            log("const " .. key .. " = " .. v)
+            local u = key:upper()
+            if u:find("2_2") or u:find("22") then gamma22 = gamma22 or v end
+            if u:find("LINEAR") or u:find("OFF") then linear = linear or v end
+        end
+    end
+end
+scan(octane, "octane.", 0)
+log("gamma 2.2 response " .. tostring(gamma22) .. ", linear " .. tostring(linear))
+try("render srgb", function() render("srgb") end)
+if gamma22 then
+    try("response gamma 2.2", function() ipin("response"):setAttribute(octane.A_VALUE, gamma22, true) end)
+    log("response = " .. show(ipin("response"):getAttribute(octane.A_VALUE)))
+    try("render gamma22", function() render("gamma22") end)
+end
+if linear then
+    try("response linear", function() ipin("response"):setAttribute(octane.A_VALUE, linear, true) end)
+    try("gamma 2.2", function() ipin("gamma"):setAttribute(octane.A_VALUE, { 2.2, 0, 0, 0 }, true) end)
+    log("response = " .. show(ipin("response"):getAttribute(octane.A_VALUE)) .. ", gamma = " .. show(ipin("gamma"):getAttribute(octane.A_VALUE)))
+    try("render linear_g22", function() render("linear_g22") end)
+end
 
 try("restore", function() samplesNode:setAttribute(octane.A_VALUE, origSamples, true) end)
 log("done")
-local summary = "ORBIS probe 75 finished: " .. #lines .. " lines. Close the scene without saving."
+local summary = "ORBIS probe 76 finished: " .. #lines .. " lines. Close the scene without saving."
 print(summary)
 pcall(function()
-    octane.gui.showDialog{ type = octane.gui.dialogType.BUTTON_DIALOG, title = "ORBIS probe 75", text = summary }
+    octane.gui.showDialog{ type = octane.gui.dialogType.BUTTON_DIALOG, title = "ORBIS probe 76", text = summary }
 end)

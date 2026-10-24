@@ -181,6 +181,7 @@ Group pins carry `dynamicType='12'`.
 | kernel | direct lighting (24), GI diffuse, depth 2 | path tracing (25): diffuse 8, glossy 24, **scatter 128**, **GI clamp 20** |
 | skin | Universal | Standard Surface + random-walk SSS |
 | imager exposure | 1 × 2^(13 − EV) × cm² | **1.4** × 2^(13 − EV) × cm² |
+| imager response | **Gamma 2.2** (403) | same |
 | highlight compression | 1 − Burn Highlights | same |
 | white balance / saturation | DAZ White Point × Scale / Saturation | same |
 | denoiser | off | **on**, during the render (`denoiserOnce` off, `maxDenoiserInterval` 20) |
@@ -193,6 +194,12 @@ isn't photorealistic; Cycles (the Blender reference) path-traces too.
 exposure 1.4, no highlight compression, no ACES fits best. As exported:
 181 167 141 vs Iray's 188 161 132 (sRGB, RMSE 7.7 / 255; the earlier fixed
 imager fitted to Blender gave 50.4). Only HDRI-lit scenes are calibrated.
+**Response Gamma 2.2** (`responseCurveId.GAMMA2_2` = 403; LINEAR 400, sRGB
+401, GAMMA1_8 402): DAZ's tone mapping writes a pure gamma 2.2, Octane's
+default sRGB curve rendered equal light darker in the shadows (Calib-Point
+floor 17 vs Iray's 24 / 255); with 403 every region matches Iray's pixels
+within 1 / 255 (probe 76). The linear match is unchanged, so the exposure
+stays.
 `Crush Blacks` has no counterpart and is left out.
 
 ## Materials
