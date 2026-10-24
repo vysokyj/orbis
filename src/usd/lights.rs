@@ -219,7 +219,16 @@ pub(super) fn write_lights(o: &mut String, lights: &[SceneLight]) {
         if let Some(cone) = l.cone_deg {
             let _ = writeln!(o, "            float inputs:shaping:cone:angle = {cone}");
         }
-        let m = l.transform;
+        let mut m = l.transform;
+        // Octane's USD import emits a rect or disk light along +Z, not
+        // UsdLux's (and DAZ's) −Z: turned half round its X axis, it lights
+        // where DAZ aims it (Calib-Area lit only the floor behind it).
+        if matches!(l.shape, LightShape::Rect { .. } | LightShape::Disk { .. }) {
+            for k in 0..3 {
+                m[1][k] = -m[1][k];
+                m[2][k] = -m[2][k];
+            }
+        }
         let rows: Vec<String> = m.iter().map(|r| format!("({}, {}, {}, {})", r[0], r[1], r[2], r[3])).collect();
         let _ = writeln!(o, "            matrix4d xformOp:transform = ({})", rows.join(", "));
         o.push_str("            uniform token[] xformOpOrder = [\"xformOp:transform\"]\n        }\n");

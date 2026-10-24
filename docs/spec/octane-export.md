@@ -272,7 +272,10 @@ non-photometric lights 15 000 lm × Intensity (an assumption).
   r = 1 cm + `treatAsPoint`; rect, disc, sphere by `Light Geometry`; size in
   cm; `colorTemperature`; intensity = watts, `normalize`). Their emitter
   inputs get a black diffuse with blackbody emission (`light_inputs`) —
-  Octane's import doesn't make them glow.
+  Octane's import doesn't make them glow. **Rect and disc lights are turned
+  half round their X axis**: Octane's import emits them along +Z, not
+  UsdLux's and DAZ's −Z (Calib-Area lit the floor behind the light; turned,
+  every surface 6.8–7.3 × Iray — power still to fit, #6).
 - **Spots** → analytic disk lights (402) — UsdLux shaping is lost: disk of
   the emitter size (2 cm for a point source), spread = DAZ `Spread Angle`,
   `normalize`, blackbody. Power = watts × (1 − cos(half angle)) / 2 × 0.75
