@@ -38,7 +38,8 @@
         besideScene: oSettings.getBoolValue("besideScene", false),
         outputDir: oSettings.getStringValue("outputDir", sDefaultOutputDir),
         preview: oSettings.getBoolValue("preview", false),
-        ground: oSettings.getBoolValue("ground", true)
+        ground: oSettings.getBoolValue("ground", true),
+        skinOpenPbr: oSettings.getBoolValue("skinOpenPbr", false)
     };
     if (!optionsDialog(oOptions)) {
         return;
@@ -47,6 +48,7 @@
     oSettings.setStringValue("outputDir", oOptions.outputDir);
     oSettings.setBoolValue("preview", oOptions.preview);
     oSettings.setBoolValue("ground", oOptions.ground);
+    oSettings.setBoolValue("skinOpenPbr", oOptions.skinOpenPbr);
 
     // ── The scene ─────────────────────────────────────────────────────────
     // The export reads the saved .duf (materials, cameras, lights), so save
@@ -80,6 +82,7 @@
     var aArgs = [sBin, "export", sScene, "--dump", sDump, "--out-dir", sOutDir];
     if (oOptions.preview) aArgs.push("--preview");
     if (!oOptions.ground) aArgs.push("--no-ground");
+    if (oOptions.skinOpenPbr) aArgs.push("--skin-openpbr");
 
     aArgs.push("--progress");
 
@@ -200,6 +203,10 @@
         wGround.text = "Shadow-catching ground (when Iray draws one)";
         wGround.checked = oOpt.ground;
         wDlg.addWidget(wGround);
+        var wOpenPbr = new DzCheckBox(wDlg);
+        wOpenPbr.text = "Skin as OpenPBR (grittier; off = closest to Iray)";
+        wOpenPbr.checked = oOpt.skinOpenPbr;
+        wDlg.addWidget(wOpenPbr);
 
         centerOnMainWindow(wDlg);
         if (!wDlg.exec()) {
@@ -209,6 +216,7 @@
         oOpt.outputDir = wPath.text;
         oOpt.preview = wPreview.checked;
         oOpt.ground = wGround.checked;
+        oOpt.skinOpenPbr = wOpenPbr.checked;
         return true;
     }
 

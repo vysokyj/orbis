@@ -263,6 +263,15 @@ not `Thin Walled`, non-refractive, non-emissive and has a diffuse map:
   meters, clamped 0.5 mm – 2 cm. Why the root: Noemi's 1 / 0.18 / 0.15
   threw coloured fireflies, and Iray's look is softer.
 
+**OpenPBR option** (`--skin-openpbr`, the dialog's "Skin as OpenPBR"):
+the same skin on OpenPBR Surface (505; its `radius` is the distance and
+`scale` the per-channel colour — the other way round from Standard
+Surface). It renders the colour darker, evenly per channel and more so with
+the translucency weight (G8F 0.78 at w 0.5, Fleur 0.70 at 0.62 of Standard
+Surface), so the tint is lifted by 1 / (1 − 0.46 · w)
+(`OPENPBR_SKIN_DARKENING`): G8F 1.00 / 1.17 / 1.70 of Iray, Fleur 0.81–0.92
+in red. Looks grittier; the hue offset is the same as Standard Surface's.
+
 ### dForce hair — Hair material (147)
 
 albedo = (mean of root and tip colour, each its map's linear mean × tint)²;

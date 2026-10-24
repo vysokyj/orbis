@@ -45,6 +45,10 @@ enum Command {
         /// Leave out the shadow-catching ground even when Iray draws one.
         #[arg(long)]
         no_ground: bool,
+        /// Skin as Octane's OpenPBR Surface (grittier) instead of Standard
+        /// Surface (closest to Iray).
+        #[arg(long)]
+        skin_openpbr: bool,
         /// DAZ content directory, in DAZ Studio's order (repeatable). Default:
         /// the dump's, else read from DAZ Studio's preferences.
         #[arg(long = "content-dir")]
@@ -80,7 +84,7 @@ fn main() -> Result<()> {
             );
             Ok(())
         }
-        Command::Export { scene, dump, out, out_dir, preview, no_ground, content_dirs, progress } => {
+        Command::Export { scene, dump, out, out_dir, preview, no_ground, skin_openpbr, content_dirs, progress } => {
             if !scene.is_file() {
                 bail!("scene not found: {}", scene.display());
             }
@@ -105,6 +109,7 @@ fn main() -> Result<()> {
                 content_dirs,
                 octane_mode: if preview { OctaneMode::Preview } else { OctaneMode::Final },
                 no_ground,
+                skin_openpbr,
                 progress: if progress {
                     usd::Progress::new(|percent, what| println!("progress: {percent} {what}"))
                 } else {

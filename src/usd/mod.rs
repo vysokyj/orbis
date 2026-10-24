@@ -60,6 +60,8 @@ pub struct ExportOptions {
     /// Leave out the shadow-catching ground even when Iray draws one — it
     /// shows through holes or dips in a floor or terrain at its height.
     pub no_ground: bool,
+    /// Skin as OpenPBR Surface instead of Standard Surface (Final only).
+    pub skin_openpbr: bool,
     /// Told how far the export got.
     pub progress: Progress,
 }
@@ -103,6 +105,15 @@ pub enum OctaneMode {
 impl OctaneMode {
     pub fn skin_sss(self) -> bool {
         self == OctaneMode::Final
+    }
+}
+
+fn skin_shader(opts: &ExportOptions) -> crate::material::SkinShader {
+    use crate::material::SkinShader;
+    match (opts.octane_mode.skin_sss(), opts.skin_openpbr) {
+        (false, _) => SkinShader::None,
+        (true, false) => SkinShader::StandardSurface,
+        (true, true) => SkinShader::OpenPbr,
     }
 }
 
@@ -157,7 +168,7 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     let name = scene.file_stem().and_then(|s| s.to_str()).unwrap_or("scene");
     progress.report(60, "translating the materials");
     let layered = crate::daz_material::layered_images(&lib.duf);
-    let (inputs, mut textures) = crate::material::material_inputs(&materials, &lib.dirs, layered, 200_000, opts.octane_mode.skin_sss());
+    let (inputs, mut textures) = crate::material::material_inputs(&materials, &lib.dirs, layered, 200_000, skin_shader(opts));
     let environment = scene_environment(&mut lib);
     let env_texture = crate::material::environment_texture(environment.as_ref(), &lib.dirs, &mut textures, 190_000);
     let env_power = environment.as_ref().map(|e| if e.scene_only { 0.0 } else { e.intensity }).unwrap_or(1.0);

@@ -347,16 +347,22 @@ impl Ocs<'_> {
     ///
     /// Only in `OctaneMode::Final`: it needs the path-tracing kernel —
     /// direct lighting renders random walk grey.
-    fn standard_surface(&mut self, indent: usize, name: &str, mat: &Material, translucency: f32) {
+    fn standard_surface(&mut self, indent: usize, name: &str, mat: &Material, translucency: f32, openpbr: bool) {
         let id = self.id();
-        let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='277' name='{}'>", "", esc(name));
+        let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='{}' name='{}'>", "", if openpbr { 505 } else { 277 }, esc(name));
         let i = indent + 1;
         let _ = writeln!(self.out, "{:i$}<attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
         self.float_pin(i, "base", 1.0);
         // The colour the skin shows: the diffuse map darkened as Iray's
         // translucent layer does (`skin_tint`).
         let tc_map = mat.image("Translucency Color").map(str::to_string).and_then(|t| self.textures.mean_covered_colour(self.dirs, &t));
-        let tint = skin_tint(mat, translucency, tc_map);
+        let mut tint = skin_tint(mat, translucency, tc_map);
+        if openpbr {
+            // OpenPBR's random walk shows less of the colour, the more so
+            // the more subsurface: brought back to Standard Surface's level.
+            let lift = 1.0 / (1.0 - OPENPBR_SKIN_DARKENING * translucency);
+            tint = tint.map(|t| t * lift);
+        }
         let colour = [0, 1, 2].map(|k| mat.base_color()[k] * tint[k]);
         match mat.image("diffuse").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             Some(asset) => self.tinted_image_pin(i, "baseColor", &asset, 1.0, colour),
@@ -377,8 +383,14 @@ impl Ocs<'_> {
             None => self.rgb_pin(i, "subsurfaceColor", colour),
         }
         let (radius, scale) = sss_radius(mat);
-        self.rgb_pin(i, "radius", radius);
-        self.value_pin(i, "scale", 6, 9, &format!("{} 0 0 0", num(scale)));
+        if openpbr {
+            // OpenPBR: `radius` the distance, `scale` the per-channel colour.
+            self.value_pin(i, "radius", 6, 9, &format!("{} 0 0 0", num(scale)));
+            self.rgb_pin(i, "scale", radius);
+        } else {
+            self.rgb_pin(i, "radius", radius);
+            self.value_pin(i, "scale", 6, 9, &format!("{} 0 0 0", num(scale)));
+        }
         let g = mat.float("SSS Direction").unwrap_or(0.0).clamp(-0.95, 0.95);
         self.value_pin(i, "subsurfaceAnisotropy", 6, 9, &format!("{} 0 0 0", num(g)));
 
@@ -458,7 +470,7 @@ impl Ocs<'_> {
         if yd <= 0.0 { 1.0 } else { sum.1 / (sum.0 * yd) }
     }
 
-    fn universal(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin_sss: bool) {
+    fn universal(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
         if mat.channel("Hair Root Color").is_some() {
             return self.hair(indent, name, mat);
         }
@@ -475,8 +487,8 @@ impl Ocs<'_> {
         let cutout = mat.opacity() < 1.0 || mat.image(mat.opacity_channel()).is_some();
         // Iray "Thin Walled": clothing — a single-sided sheet, no volume.
         let thin = mat.float("Thin Walled").unwrap_or(0.0) > 0.0;
-        if skin_sss && translucency > 0.0 && !refractive && !emissive && !cutout && !thin && mat.image("diffuse").is_some() {
-            return self.standard_surface(indent, name, mat, translucency);
+        if skin != SkinShader::None && translucency > 0.0 && !refractive && !emissive && !cutout && !thin && mat.image("diffuse").is_some() {
+            return self.standard_surface(indent, name, mat, translucency, skin == SkinShader::OpenPbr);
         }
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='130' name='{}'>", "", esc(name));
@@ -599,6 +611,11 @@ fn skin_tint(mat: &Material, w: f32, tc_map: Option<[f32; 3]>) -> [f32; 3] {
 /// See [`skin_tint`].
 const SKIN_ALBEDO_FACTOR: f32 = 0.5;
 
+/// OpenPBR Surface rendered the same skin colour darker than Standard
+/// Surface, evenly in R, G and B: 0.78 at translucency 0.5 (Genesis 8
+/// Female, Calib-HDRI), 0.70 at 0.62 (Fleur, Octane4) — 1 − 0.46 · w (#8).
+const OPENPBR_SKIN_DARKENING: f32 = 0.46;
+
 /// Subsurface radius colour (max channel 1, softened) and scale (meters)
 /// from Iray's volume channels; see [`Ocs::standard_surface`]. The scale is kept to
 /// 0.5 mm – 2 cm.
@@ -690,6 +707,19 @@ const GROUND_SHADOW_OPACITY: f64 = 0.89;
 /// room's floor, which then hides it like Iray's environment ground (at the
 /// floor's height it z-fought and smeared shadows over it — Octane1).
 const GROUND_DROP: f64 = 0.001;
+
+/// How skin (Iray translucency) renders.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SkinShader {
+    /// No subsurface: a Universal like any surface (preview kernel).
+    #[default]
+    None,
+    /// Standard Surface (277) with random walk — closest to Iray.
+    StandardSurface,
+    /// OpenPBR Surface (505) with random walk, brightened to Iray's level
+    /// (`OPENPBR_SKIN_DARKENING`); looks grittier.
+    OpenPbr,
+}
 
 /// A DAZ spotlight as an Octane analytic light.
 #[derive(Debug, Clone, PartialEq)]
@@ -861,7 +891,7 @@ pub fn material_inputs(
     dirs: &[PathBuf],
     layered: HashMap<String, crate::layered_image::LayeredImage>,
     first_id: u32,
-    skin_sss: bool,
+    skin: SkinShader,
 ) -> (String, Textures) {
     let mut textures = Textures { layered, ..Default::default() };
     let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None };
@@ -875,7 +905,7 @@ pub fn material_inputs(
         );
         w.out.push_str("    <attr name='group' type='10'></attr>\n    <attr name='description' type='10'></attr>\n");
         w.pin_open(4, "input");
-        w.universal(5, name, mat, *area, skin_sss);
+        w.universal(5, name, mat, *area, skin);
         w.pin_close(4);
         w.out.push_str("   </node>\n");
     }
@@ -918,7 +948,7 @@ mod tests {
             {"channel": {"id": "Translucency Weight", "current_value": 0.5}},
             {"channel": {"id": "Translucency Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}},
         ]));
-        let (cx, _) = material_inputs(&[("Cap".into(), cap, 1.0)], &dirs, HashMap::new(), 7000, false);
+        let (cx, _) = material_inputs(&[("Cap".into(), cap, 1.0)], &dirs, HashMap::new(), 7000, SkinShader::None);
         assert!(cx.contains("skin.jpg"), "hair colour from the translucency map");
         // Skin (Octane1's Zelie): Standard Surface with random-walk SSS.
         let sss = mat(json!([
@@ -930,7 +960,7 @@ mod tests {
             {"channel": {"id": "Scattering Measurement Distance", "current_value": 0.5}},
             {"channel": {"id": "SSS Direction", "current_value": -0.6}},
         ]));
-        let (sx, _) = material_inputs(&[("Torso".into(), sss.clone(), 1.0)], &dirs, HashMap::new(), 8000, true);
+        let (sx, _) = material_inputs(&[("Torso".into(), sss.clone(), 1.0)], &dirs, HashMap::new(), 8000, SkinShader::StandardSurface);
         assert!(sx.contains("type='277' name='Torso'"), "{sx}");
         assert!(sx.contains("<pin name='baseColor'>") && sx.contains("<pin name='subsurfaceColor'>"));
         // Colour maps decode as sRGB, data maps (the rough.png translucency
@@ -946,6 +976,13 @@ mod tests {
         // Octane keeps the pin's colour space only when told the image's was
         // chosen; every image node says so.
         assert_eq!(sx.matches("<attr name='initialColorSpaceSelected' type='1'>1</attr>").count(), sx.matches("<attr name='filename'").count());
+        // OpenPBR: radius the distance, scale the colour; the tint lifted by
+        // 1 / (1 − 0.46 · 0.5) to Standard Surface's level.
+        let (ox, _) = material_inputs(&[("Torso".into(), sss.clone(), 1.0)], &dirs, HashMap::new(), 8100, SkinShader::OpenPbr);
+        assert!(ox.contains("type='505' name='Torso'"), "{ox}");
+        let radius_pin = &ox[ox.find("<pin name='radius'>").unwrap()..];
+        assert!(radius_pin[..120].contains("type='6'>") && ox[ox.find("<pin name='scale'>").unwrap()..].contains("type='33'>"), "{ox}");
+        assert!(ox.contains("<attr name='value' type='6'>0.649351</attr>"), "lifted tint: {ox}");
         let (radius, scale) = sss_radius(&sss);
         // Transmitted Color (0.706, 0.557, 0.467) is sRGB: linear 0.456, 0.271, 0.184.
         assert!((scale - 0.0115).abs() < 0.0005, "1.15 cm red diffusion length: {scale}");
@@ -955,14 +992,14 @@ mod tests {
             {"channel": {"id": "Translucency Weight", "current_value": 0.5}},
             {"channel": {"id": "Cutout Opacity", "current_value": 1, "image_file": "/Runtime/Textures/rough.png"}},
         ]));
-        let (lx, _) = material_inputs(&[("Lashes".into(), lashes, 1.0)], &dirs, HashMap::new(), 8500, true);
+        let (lx, _) = material_inputs(&[("Lashes".into(), lashes, 1.0)], &dirs, HashMap::new(), 8500, SkinShader::StandardSurface);
         assert!(lx.contains("type='130'"), "cut-out cards stay Universal");
         let shirt = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}},
             {"channel": {"id": "Translucency Weight", "current_value": 0.3}},
             {"channel": {"id": "Thin Walled", "current_value": true}},
         ]));
-        let (tx, _) = material_inputs(&[("Shirt".into(), shirt, 1.0)], &dirs, HashMap::new(), 8700, true);
+        let (tx, _) = material_inputs(&[("Shirt".into(), shirt, 1.0)], &dirs, HashMap::new(), 8700, SkinShader::StandardSurface);
         assert!(tx.contains("type='130'"), "thin-walled fabric stays Universal");
         let bulbs = mat(json!([
             {"channel": {"id": "Emission Color", "current_value": [1, 1, 1]}},
@@ -976,7 +1013,7 @@ mod tests {
             {"channel": {"id": "Luminance Units", "current_value": 0}},
             {"channel": {"id": "Two Sided Light", "current_value": true}},
         ]));
-        let (ex, _) = material_inputs(&[("Bulbs".into(), bulbs, 0.01), ("Glow".into(), glow, 2.0)], &dirs, HashMap::new(), 9000, false);
+        let (ex, _) = material_inputs(&[("Bulbs".into(), bulbs, 0.01), ("Glow".into(), glow, 2.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
         assert!(ex.contains("<pin name='emission'>") && ex.contains("type='53'"), "blackbody bulbs");
         // 50 000 lm / 2 / 15 000 lm·W⁻¹ / 3.4.
         assert!(ex.contains("<attr name='value' type='8'>0.490196 0 0</attr>"), "50 000 lm → 0.49 W");
@@ -999,13 +1036,13 @@ mod tests {
         let drawer = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [0.49, 0.49, 0.49], "image_file": "/Runtime/Textures/skin.jpg"}},
         ]));
-        let (dx, _) = material_inputs(&[("Drawer".into(), drawer, 1.0)], &dirs, HashMap::new(), 6000, false);
+        let (dx, _) = material_inputs(&[("Drawer".into(), drawer, 1.0)], &dirs, HashMap::new(), 6000, SkinShader::None);
         // sRGB 0.49 grey = linear 0.205.
         assert!(dx.contains("<attr name='value' type='6'>0.204902</attr>") && !dx.contains("type='39'"), "map × grey tint: {dx}");
         let pubic = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [0.447, 0.294, 0.145], "image_file": "/Runtime/Textures/skin.jpg"}},
         ]));
-        let (px, _) = material_inputs(&[("Pubic".into(), pubic, 1.0)], &dirs, HashMap::new(), 6100, false);
+        let (px, _) = material_inputs(&[("Pubic".into(), pubic, 1.0)], &dirs, HashMap::new(), 6100, SkinShader::None);
         let albedo = &px[px.find("<pin name='albedo'>").unwrap()..];
         assert!(albedo.contains("type='39'") && albedo.contains("<pin name='texture1'>"), "map × coloured tint: {albedo}");
         assert!(albedo.contains("<pin name='texture2'>") && albedo.contains("<attr name='value' type='8'>0.168222 0.070303 0.018478</attr>"), "{albedo}");
@@ -1014,10 +1051,10 @@ mod tests {
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},
             {"channel": {"id": "transparency", "current_value": 0}},
         ]));
-        let (hx, _) = material_inputs(&[("Hiding".into(), hiding, 1.0)], &dirs, HashMap::new(), 6200, false);
+        let (hx, _) = material_inputs(&[("Hiding".into(), hiding, 1.0)], &dirs, HashMap::new(), 6200, SkinShader::None);
         let op = &hx[hx.find("<pin name='opacity'>").expect("legacy opacity")..];
         assert!(op.contains("<attr name='value' type='6'>0</attr>"), "{op}");
-        let (mx, _) = material_inputs(&[("Mirror".into(), mirror, 1.0), ("Wall".into(), wall, 1.0)], &dirs, HashMap::new(), 5000, false);
+        let (mx, _) = material_inputs(&[("Mirror".into(), mirror, 1.0), ("Wall".into(), wall, 1.0)], &dirs, HashMap::new(), 5000, SkinShader::None);
         assert!(mx.contains("<attr name='value' type='8'>1 1 1</attr>"), "mirror albedo = gloss colour");
         assert!(mx.contains("<pin name='metallic'>"));
         assert!(mx.contains("<attr name='scale' type='8'>0.166667 0.25 1</attr>"), "{mx}");
@@ -1025,7 +1062,7 @@ mod tests {
         let wall_xml = &mx[mx.find("name='Wall'").unwrap()..];
         assert!(wall_xml.contains("<pin name='specular'>"), "{wall_xml}");
         assert_eq!(mx.matches("<pin name='specular'>").count(), 1, "only the wall");
-        let (xml, tex) = material_inputs(&[("Body_Torso".into(), skin, 1.0), ("Body_Cornea".into(), cornea, 1.0)], &dirs, HashMap::new(), 1000, false);
+        let (xml, tex) = material_inputs(&[("Body_Torso".into(), skin, 1.0), ("Body_Cornea".into(), cornea, 1.0)], &dirs, HashMap::new(), 1000, SkinShader::None);
 
         assert!(xml.contains("type='20007' name='/Scene/Materials/Body_Torso'"));
         assert!(xml.contains("type='130' name='Body_Torso'"));
@@ -1067,7 +1104,7 @@ mod tests {
             {"channel": {"id": "Glossy Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/light.png"}},
             {"channel": {"id": "Cutout Opacity", "current_value": 1, "image_file": "/Runtime/Textures/dark.png"}},
         ]));
-        let (x, _) = material_inputs(&[("Braids".into(), hair, 1.0)], &[dir.path().to_path_buf()], HashMap::new(), 3000, false);
+        let (x, _) = material_inputs(&[("Braids".into(), hair, 1.0)], &[dir.path().to_path_buf()], HashMap::new(), 3000, SkinShader::None);
         // (1·0.125 + 0.5·0.5 + 1·0.5) / (2.5 · 0.125) ≈ 2.8: the diffuse map's power.
         let albedo = &x[x.find("<pin name='albedo'>").unwrap()..];
         let power = &albedo[albedo.find("<pin name='power'>").unwrap()..];
@@ -1091,7 +1128,7 @@ mod tests {
             {"channel": {"id": "Glossy Layer Weight", "current_value": 0.22}},
             {"channel": {"id": "base_roughness", "current_value": 0.35}},
         ]));
-        let (hx, tex) = material_inputs(&[("Curls".into(), hair, 0.0)], &[dir.path().to_path_buf()], HashMap::new(), 4000, false);
+        let (hx, tex) = material_inputs(&[("Curls".into(), hair, 0.0)], &[dir.path().to_path_buf()], HashMap::new(), 4000, SkinShader::None);
         assert!(hx.contains("type='147' name='Curls'"), "{hx}");
         // Root 0.5 × (1, 0.214, 0.214) (the colour linear) and tip 0.5,
         // averaged and squared.
