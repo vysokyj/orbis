@@ -252,6 +252,25 @@ impl Ocs<'_> {
         self.pin_close(indent);
     }
 
+    /// A colour map scaled by `power` and multiplied by Iray's colour `tint`:
+    /// a grey tint folds into the image's power, a coloured one goes through
+    /// a Multiply texture (39) — as a scalar, a grey strand map × brown
+    /// rendered grey-white pubic hair (Octane3).
+    fn tinted_image_pin(&mut self, indent: usize, pin: &str, asset: &str, power: f32, tint: [f32; 3]) {
+        let (lo, hi) = tint.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &c| (lo.min(c), hi.max(c)));
+        if hi - lo < 0.01 {
+            return self.image_pin(indent, pin, asset, false, 2.2, power * map_tint(tint));
+        }
+        let id = self.id();
+        self.pin_open(indent, pin);
+        let i = indent + 1;
+        let _ = writeln!(self.out, "{:i$}<node id='{id}' type='39'>", "");
+        self.image_pin(i + 1, "texture1", asset, false, 2.2, power);
+        self.rgb_pin(i + 1, "texture2", tint.map(|c| c.clamp(0.0, 1.0)));
+        let _ = writeln!(self.out, "{:i$}</node>", "");
+        self.pin_close(indent);
+    }
+
     /// A float pin driven by `channel`'s texture when it has one (scaled by
     /// `value`), else the constant `value`.
     fn float_or_map(&mut self, indent: usize, pin: &str, mat: &Material, channel: Option<&str>, value: f32) {
@@ -319,7 +338,7 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:i$}<attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
         self.float_pin(i, "base", 1.0);
         match mat.image("diffuse").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            Some(asset) => self.image_pin(i, "baseColor", &asset, false, 2.2, map_tint(mat.base_color())),
+            Some(asset) => self.tinted_image_pin(i, "baseColor", &asset, 1.0, mat.base_color()),
             None => self.rgb_pin(i, "baseColor", mat.base_color()),
         }
         let (rough_ch, rough, inverted) = mat.roughness_source();
@@ -468,17 +487,15 @@ impl Ocs<'_> {
         let diffuse = mat.image("diffuse").or(translucent_map).map(str::to_string);
         // Iray multiplies the diffuse map by the diffuse colour: a grey tint
         // (the vanity's drawers: a pattern map × 0.49) darkens it — left
-        // out, the pattern rendered washed-out white. The image node's power
-        // is a scalar, so the tint's mean stands in (exact for grey tints).
-        let tint = if mat.image("diffuse").is_some() { map_tint(mat.base_color()) } else { 1.0 };
+        // out, the pattern rendered washed-out white. See `tinted_image_pin`.
+        let (tint, mix) = if mat.image("diffuse").is_some() { (mat.base_color(), self.weighted_mix(mat)) } else { ([1.0; 3], 1.0) };
         // The weighted blend scales the diffuse map (not a translucency
         // map standing in for a missing one — the HS CB cap went grey).
-        let tint = if mat.image("diffuse").is_some() { tint * self.weighted_mix(mat) } else { tint };
         if mirror {
             self.rgb_pin(i, "albedo", gloss_color);
         } else {
             match diffuse.and_then(|t| self.textures.asset(self.dirs, &t)) {
-                Some(asset) => self.image_pin(i, "albedo", &asset, false, 2.2, diffuse_weight * tint),
+                Some(asset) => self.tinted_image_pin(i, "albedo", &asset, diffuse_weight * mix, tint),
                 None => self.rgb_pin(i, "albedo", mat.base_color().map(|c| c * diffuse_weight)),
             }
         }
@@ -496,7 +513,7 @@ impl Ocs<'_> {
             // brown gloss rendered as a grey sheen with Universal's white
             // default (Octane1, probe 60).
             if let Some(asset) = mat.image("Glossy Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-                self.image_pin(i, "specular", &asset, false, 2.2, glossy.min(1.0) * map_tint(gloss_color));
+                self.tinted_image_pin(i, "specular", &asset, glossy.min(1.0), gloss_color);
             }
         }
 
@@ -539,9 +556,8 @@ impl Ocs<'_> {
     }
 }
 
-/// The scalar a diffuse map is scaled by for Iray's diffuse colour tint: its
-/// mean (white → 1). A coloured tint loses its hue — Octane would need a
-/// multiply texture node for that.
+/// The scalar a map is scaled by for a grey Iray colour tint: its mean
+/// (white → 1).
 fn map_tint(c: [f32; 3]) -> f32 {
     ((c[0] + c[1] + c[2]) / 3.0).clamp(0.0, 1.0)
 }
@@ -935,10 +951,17 @@ mod tests {
             {"channel": {"id": "Vertical Tiles", "current_value": 4}},
         ]));
         let drawer = mat(json!([
-            {"channel": {"id": "diffuse", "current_value": [0.5, 0.5, 0.47], "image_file": "/Runtime/Textures/skin.jpg"}},
+            {"channel": {"id": "diffuse", "current_value": [0.49, 0.49, 0.49], "image_file": "/Runtime/Textures/skin.jpg"}},
         ]));
         let (dx, _) = material_inputs(&[("Drawer".into(), drawer, 1.0)], &dirs, HashMap::new(), 6000, false);
-        assert!(dx.contains("<attr name='value' type='6'>0.49</attr>"), "map × grey tint: {dx}");
+        assert!(dx.contains("<attr name='value' type='6'>0.49</attr>") && !dx.contains("type='39'"), "map × grey tint: {dx}");
+        let pubic = mat(json!([
+            {"channel": {"id": "diffuse", "current_value": [0.447, 0.294, 0.145], "image_file": "/Runtime/Textures/skin.jpg"}},
+        ]));
+        let (px, _) = material_inputs(&[("Pubic".into(), pubic, 1.0)], &dirs, HashMap::new(), 6100, false);
+        let albedo = &px[px.find("<pin name='albedo'>").unwrap()..];
+        assert!(albedo.contains("type='39'") && albedo.contains("<pin name='texture1'>"), "map × coloured tint: {albedo}");
+        assert!(albedo.contains("<pin name='texture2'>") && albedo.contains("<attr name='value' type='8'>0.447 0.294 0.145</attr>"), "{albedo}");
         let (mx, _) = material_inputs(&[("Mirror".into(), mirror, 1.0), ("Wall".into(), wall, 1.0)], &dirs, HashMap::new(), 5000, false);
         assert!(mx.contains("<attr name='value' type='8'>1 1 1</attr>"), "mirror albedo = gloss colour");
         assert!(mx.contains("<pin name='metallic'>"));
