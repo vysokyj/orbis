@@ -340,6 +340,7 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
             "extra": [{"type": "studio_node_channels", "channels": [
                 ch("Photometric Mode", json!(true)), ch("Flux", json!(150000)), ch("Temperature", json!(6500)),
                 ch("Spread Angle", json!(60)), ch("Light Geometry", json!(0)), ch("Color", json!([1, 1, 1])),
+                ch("Beam Exponent", json!(4)),
             ]}]},
             {"id": "Off", "type": "light", "point": {}, "extra": [{"type": "studio_node_channels", "channels": [ch("Illumination", json!(0))]}]}],
         "scene": {"nodes": [{"id": "SpotLight-2", "url": "#SpotLight", "label": "SpotLight"}, {"id": "Off-1", "url": "#Off", "label": "Off"}]},
@@ -359,16 +360,18 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     write_lights(&mut o, &lights);
     assert!(!o.contains("SpotLight"), "spots are not UsdLux lights");
     let spots = octane_spots(&lights);
-    assert_eq!((spots[0].spread_deg, spots[0].watts), (60.0, 10.0));
+    // Iray's cos(θ · 90°/30°)⁴ beam: a soft Octane disk 0.78 × as wide.
+    assert!((spots[0].spread_deg - 46.8).abs() < 1.0 && spots[0].watts == 10.0, "{:?}", spots[0]);
+    assert!((octane_cone_half(30.0, 1.0) - 37.8).abs() < 1.0, "a cos¹ beam: a wider soft disk");
     let (nodes, mesh) = crate::material::scene_lights(&spots, None, 500, 1439);
     assert!(nodes.contains("type='402' name='SpotLight'") && nodes.contains("type='3' name='DAZ 3D lights'"));
     assert!(nodes.contains("<pin name='Input 1' dynamicType='12' connect='1439'/>"));
     // DAZ "XYZ" (X applied first) is Octane "ZYX" (enum 5).
     assert!(nodes.contains("<attr name='rotationOrder' type='2'>5</attr>"));
     assert!(nodes.contains("<attr name='scale' type='8'>1 1 -1</attr>"), "disk faces DAZ's -Z");
-    // 10 W × (1 − cos 30°) / 2 × 0.75 (trim against Blender) ≈ 0.5 W
-    // into the 60° cone.
-    assert!(nodes.contains("<attr name='value' type='9'>0.502405 0 0 0</attr>"), "{nodes}");
+    // 10 W × 0.039: DAZ's flux is the beam's.
+    assert!(nodes.contains("<attr name='value' type='9'>0.39 0 0 0</attr>"), "{nodes}");
+    assert!(nodes.contains("<pin name='analyticLightSpreadCutoffHardness'>"), "a soft cone");
     assert!(nodes.contains("<attr name='rotation' type='8'>176.186 -45.924 179.984</attr>"), "{nodes}");
     assert_eq!(nodes.matches("<node ").count(), nodes.matches("</node>").count());
     // Iray's ground: a shadow-catching infinite plane in the group, placed

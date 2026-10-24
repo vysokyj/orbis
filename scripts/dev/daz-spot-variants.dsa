@@ -1,0 +1,65 @@
+// ORBIS calibration (#7): Iray renders of Calib-Spot.duf with the spot's
+// beam parameters varied, to fit Iray's spot profile. Open Calib-Spot.duf,
+// then run this from Window > Panes > Script IDE (Open..., Execute). Renders
+// go to ~/Desktop/spotcal/, one PNG per variant; the spot is restored after.
+// ECMAScript 3 (QtScript): var only, ASCII only.
+
+var OUT = "/Users/jirka/Desktop/spotcal";
+var VARIANTS = [
+    // [name, Beam Distribution, Beam Exponent, Spread Angle]
+    ["d2_e1_s60", 2, 1, 60],
+    ["d2_e16_s60", 2, 16, 60],
+    ["d2_e4_s30", 2, 4, 30],
+    ["d2_e4_s90", 2, 4, 90],
+    ["d0_e4_s60", 0, 4, 60],
+    ["d1_e4_s60", 1, 4, 60]
+];
+
+function findSpot() {
+    var nodes = Scene.getNodeList();
+    for (var i = 0; i < nodes.length; i++) {
+        if (nodes[i].inherits("DzSpotLight")) {
+            return nodes[i];
+        }
+    }
+    return null;
+}
+
+function prop(node, name) {
+    var p = node.findProperty(name);
+    if (!p) {
+        print("ORBIS spot variants: no property " + name);
+    }
+    return p;
+}
+
+var spot = findSpot();
+if (!spot) {
+    MessageBox.critical("No spotlight in the scene: open Calib-Spot.duf first.", "ORBIS spot variants", "OK");
+} else {
+    var dist = prop(spot, "Beam Distribution");
+    var expo = prop(spot, "Beam Exponent");
+    var spread = prop(spot, "Spread Angle");
+    var saved = [dist.getValue(), expo.getValue(), spread.getValue()];
+    new DzDir("/Users/jirka/Desktop").mkdir("spotcal");
+    var mgr = App.getRenderMgr();
+    var opts = mgr.getRenderOptions();
+    var savedTo = opts.renderImgToId;
+    var savedFile = opts.renderImgFilename;
+    for (var v = 0; v < VARIANTS.length; v++) {
+        var row = VARIANTS[v];
+        dist.setValue(row[1]);
+        expo.setValue(row[2]);
+        spread.setValue(row[3]);
+        opts.renderImgToId = DzRenderOptions.DirectToFile;
+        opts.renderImgFilename = OUT + "/" + row[0] + ".png";
+        print("ORBIS spot variants: rendering " + row[0]);
+        mgr.doRender(opts);
+    }
+    opts.renderImgToId = savedTo;
+    opts.renderImgFilename = savedFile;
+    dist.setValue(saved[0]);
+    expo.setValue(saved[1]);
+    spread.setValue(saved[2]);
+    MessageBox.information("Done: " + VARIANTS.length + " renders in " + OUT, "ORBIS spot variants", "OK");
+}

@@ -639,9 +639,13 @@ pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     w.out
 }
 
-/// Spots came out ~1.33× brighter than the Blender reference on the pool they
-/// light (Octane1 test scene, 2026-10-21); an empirical trim.
-const SPOT_POWER_FACTOR: f64 = 0.75;
+/// Octane disk power for a DAZ spot's watts (`DAZ_LUMENS_PER_WATT`): DAZ's
+/// flux is the beam's, whatever its spread and exponent, and the normalised
+/// soft disk keeps its flux too — the same 1500 lm beam measured 0.256
+/// (Iray) and 0.29 (Octane at the old 0.00502 W), so 0.0443 at equal flux.
+/// The fitted disk is a little narrower and lit the middle of the beam 1.14×
+/// Iray at that (Calib-Spot, probe 75); trimmed to the lit middle (#7).
+const SPOT_POWER_FACTOR: f64 = 0.039;
 
 /// Octane's shadow catcher darkens a full shadow to black; Iray's ground
 /// keeps the sky's fill — 11 % of the lit sand in Octane2's umbra (linear,
@@ -661,7 +665,7 @@ pub struct OctaneSpot {
     pub watts: f64,
     pub kelvin: Option<f64>,
     pub color: [f64; 3],
-    /// Full cone angle, degrees.
+    /// Full cone angle of the Octane disk, degrees (fitted to Iray's beam).
     pub spread_deg: f64,
     /// Emitter disk diameter, meters.
     pub diameter: f64,
@@ -700,6 +704,9 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, first_id: 
         let _ = writeln!(w.out, "    <node id='{id}' type='402' name='{}' position='{} -450'>", esc(&l.name), 300 + k * 200);
         w.value_pin(5, "analyticLightType", 57, 2, "1"); // DISK
         w.value_pin(5, "analyticLightSpreadAngle", 6, 9, &format!("{} 0 0 0", num(l.spread_deg as f32)));
+        // A soft cone, cos θ · cos²(θ · 90° / half): Iray's beam falls off
+        // towards the edge (`octane_cone_half` fits the spread to it).
+        w.value_pin(5, "analyticLightSpreadCutoffHardness", 6, 9, "0 0 0 0");
         w.value_pin(5, "normalize", 11, 1, "1");
         let d = num(l.diameter as f32);
         w.value_pin(5, "diskAnalyticLightSize", 6, 9, &format!("{d} {d} 0 0"));
@@ -714,11 +721,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, first_id: 
         } else {
             w.rgb_pin(7, "efficiency or texture", l.color.map(|c| c as f32));
         }
-        // DAZ/Blender spot power is that of a point source the cone cuts from;
-        // Octane puts all of it into the cone — scale by the cone's share of
-        // the sphere, (1 − cos(half angle)) / 2.
-        let cone_share = (1.0 - (l.spread_deg / 2.0).to_radians().cos()) / 2.0;
-        let watts = l.watts * cone_share * SPOT_POWER_FACTOR;
+        let watts = l.watts * SPOT_POWER_FACTOR;
         w.value_pin(7, "power", 6, 9, &format!("{} 0 0 0", num(watts as f32)));
         w.out.push_str("      </node>\n");
         w.pin_close(5);

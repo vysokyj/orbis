@@ -289,11 +289,19 @@ lights: 15 000 lm × Intensity (an assumption).
   UsdLux's and DAZ's −Z (Calib-Area lit the floor behind the light; turned,
   every surface 6.8–7.3 × Iray — power still to fit, #6).
 - **Spots** → analytic disk lights (402) — UsdLux shaping is lost: disk of
-  the emitter size (2 cm for a point source), spread = DAZ `Spread Angle`,
-  `normalize`, blackbody. Power = watts × (1 − cos(half angle)) / 2 × 0.75
-  (Octane puts all power into the cone; 0.75 = trim against the Blender
-  reference). Transform: DAZ rotation order mapped, scale `1 1 -1` (the disk
-  shines +Z, a DAZ spot −Z).
+  the emitter size (2 cm for a point source), `normalize`, blackbody.
+  **Beam**: Iray lights cos(θ · 90°/half)^`Beam Exponent` (half = `Spread
+  Angle` / 2; `Beam Distribution` changes nothing); the disk at
+  `analyticLightSpreadCutoffHardness` 0 lights cos θ · cos²(θ · 90°/half′)
+  (probe 74, three spreads). `octane_cone_half` fits half′ to the
+  flux-normalised Iray profile (e = 4: 0.78 × half; e = 1: 1.26 ×).
+  **Power** = watts × 0.039 (`SPOT_POWER_FACTOR`): DAZ's flux is the beam's
+  whatever the spread and exponent (Iray: 0.255–0.257 over five variants),
+  and the normalised disk keeps its flux; 0.0443 at equal flux, trimmed to
+  the beam's middle. Calib-Spot: lit cubes / sphere 0.54–0.96 → ~1.0, floor
+  2–8 → 0.3–1.0 at the edge where Octane's narrower cone fades first (#7).
+  Transform: DAZ rotation order mapped, scale `1 1 -1` (the disk shines +Z,
+  a DAZ spot −Z).
 
 ## Environment
 

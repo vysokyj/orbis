@@ -24,6 +24,8 @@ pub struct SceneLight {
     pub shape: LightShape,
     /// Spotlight half angle, degrees.
     pub cone_deg: Option<f64>,
+    /// Iray spot profile: cos(θ · 90° / half angle)^`beam_exponent` (#7).
+    pub beam_exponent: f64,
     pub color: [f64; 3],
     pub kelvin: Option<f64>,
     /// Luminous flux, lumens.
@@ -113,6 +115,7 @@ pub(super) fn scene_lights(lib: &mut Library) -> Vec<SceneLight> {
             transform,
             shape,
             cone_deg,
+            beam_exponent: num("Beam Exponent").filter(|e| *e > 0.0).unwrap_or(1.0),
             color,
             kelvin: if photometric { num("Temperature") } else { None },
             lumens,
@@ -161,6 +164,29 @@ pub(super) fn light_emitters(lights: &[SceneLight]) -> Vec<crate::material::Ligh
         .collect()
 }
 
+/// The half angle (degrees) of an Octane analytic disk at spread cutoff
+/// hardness 0 whose beam best matches Iray's spot of half angle `half` and
+/// beam exponent `e`, both at the same total flux. Measured (#7, Calib-Spot
+/// and probe 74): Iray lights cos(θ · 90°/half)^e, the soft disk
+/// cos θ · cos²(θ · 90°/half′); the fit minimises the squared difference of
+/// the flux-normalised profiles (e = 4: 0.78 × half, e = 1: 1.26 ×).
+pub(super) fn octane_cone_half(half: f64, e: f64) -> f64 {
+    let iray = |t: f64| if t < half { (t * 90.0 / half).to_radians().cos().max(0.0).powf(e) } else { 0.0 };
+    let octane = |t: f64, h: f64| if t < h { t.to_radians().cos() * (t * 90.0 / h).to_radians().cos().max(0.0).powi(2) } else { 0.0 };
+    // Flux of a profile: 2π ∫ I(θ) sin θ dθ.
+    let flux = |f: &dyn Fn(f64) -> f64, h: f64| {
+        let n = 400;
+        (0..n).map(|i| (i as f64 + 0.5) / n as f64 * h).map(|t| f(t) * t.to_radians().sin()).sum::<f64>() * h.to_radians() / n as f64
+    };
+    let fi = flux(&iray, half);
+    let err = |h: f64| {
+        let fo = flux(&|t| octane(t, h), h);
+        let top = half.max(h);
+        (0..=200).map(|i| i as f64 / 200.0 * top).map(|t| (iray(t) / fi - octane(t, h) / fo).powi(2)).sum::<f64>()
+    };
+    (1..=300).map(|i| half * i as f64 / 150.0).filter(|h| *h < 89.5).min_by(|a, b| err(*a).total_cmp(&err(*b))).unwrap_or(half)
+}
+
 /// DAZ spotlights as Octane analytic disk lights: UsdLux shaping is lost on
 /// import (the emitter shines all around), Octane's own light keeps the cone.
 pub(super) fn octane_spots(lights: &[SceneLight]) -> Vec<crate::material::OctaneSpot> {
@@ -178,7 +204,7 @@ pub(super) fn octane_spots(lights: &[SceneLight]) -> Vec<crate::material::Octane
                 watts: light_watts(l),
                 kelvin: l.kelvin,
                 color: l.color,
-                spread_deg: 2.0 * cone,
+                spread_deg: 2.0 * octane_cone_half(cone, l.beam_exponent),
                 diameter,
                 euler_deg: l.euler_deg,
                 rotation_order: l.rotation_order.clone(),

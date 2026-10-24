@@ -73,8 +73,10 @@ skin; the first layer alone drops them.
   `Intensity Scale` apply to non-photometric lights.
 - `Light Geometry`: 0 point, 1 rect, 2 disc, 3 sphere; `Width`, `Height` in
   cm; `Temperature`.
-- Spots: `Spread Angle` = full cone. DAZ (and Blender) spot power is a point
-  source's power that the cone cuts from.
+- Spots: `Spread Angle` = full cone. Iray's beam is
+  cos(θ · 90° / (Spread / 2))^`Beam Exponent` — zero at the cone's edge;
+  `Beam Distribution` (0–2) doesn't change it. The `Flux` is the beam's: the
+  same total whatever the spread and exponent (measured, #7).
 - **Watts ↔ lumens**: converting at **15 000 lm/W** (point lights
   ×3), which reproduces Iray's EV 13 exposure in watt-based renderers
   (overall luminance within ~5 % of Iray in Blender). Nits (L = Φ/(π·A)) or
