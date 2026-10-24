@@ -77,7 +77,7 @@ fn dump() -> SceneDump {
 #[test]
 fn builds_host_graft_and_shell_meshes() {
     let mut lib = Library::new(vec![], scene());
-    let (meshes, report) = build_meshes(&mut lib, &dump(), true).unwrap();
+    let (meshes, report) = build_meshes(&mut lib, &dump()).unwrap();
     assert!(report.skipped.is_empty(), "{:?}", report.skipped);
     // The graft is merged into its host's mesh: Body + Body Shell.
     assert_eq!(meshes.len(), 2);
@@ -121,7 +121,7 @@ fn shell_surface_visibility_and_hidden_nodes() {
     ]}]);
     duf["scene"]["nodes"][1]["extra"] = json!([{"type": "studio_node_channels", "channels": [vis("Visible", false)]}]);
     let mut lib = Library::new(vec![], duf);
-    let (meshes, report) = build_meshes(&mut lib, &dump(), true).unwrap();
+    let (meshes, report) = build_meshes(&mut lib, &dump()).unwrap();
     assert_eq!(report.skipped, vec!["Bits: hidden in the scene".to_string()]);
     let names: Vec<&str> = meshes.iter().map(|m| m.name.as_str()).collect();
     assert_eq!(names, ["Body", "Body_Shell"]);
@@ -129,10 +129,6 @@ fn shell_surface_visibility_and_hidden_nodes() {
     let shell = &meshes[1];
     assert_eq!(shell.face_indices, vec![1, 7, 8, 9]);
     assert_eq!(shell.subsets, vec![("Graft_Patch".to_string(), vec![0])]);
-    // Octane's random-walk skin: no shells.
-    let (meshes, report) = build_meshes(&mut lib, &dump(), false).unwrap();
-    assert_eq!(meshes.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(), ["Body"]);
-    assert!(report.skipped.contains(&"Body Shell: geometry shell over random-walk skin".to_string()), "{:?}", report.skipped);
 }
 
 #[test]
@@ -141,7 +137,7 @@ fn shell_refines_with_its_host() {
     let mut d = dump();
     d.nodes[0].lod = 1;
     let mut lib = Library::new(vec![], scene());
-    let (meshes, _) = build_meshes(&mut lib, &d, true).unwrap();
+    let (meshes, _) = build_meshes(&mut lib, &d).unwrap();
     assert_eq!(meshes[0].face_counts.len(), 8, "host: 2 quads refined");
     assert_eq!(meshes[1].face_counts.len(), 8, "shell refined like its host");
 }
@@ -153,9 +149,9 @@ fn host_dumped_with_its_grafts_appended() {
     let graft = d.nodes[1].vertices.clone();
     d.nodes[0].vertices.extend(graft);
     let mut lib = Library::new(vec![], scene());
-    let (meshes, report) = build_meshes(&mut lib, &d, true).unwrap();
+    let (meshes, report) = build_meshes(&mut lib, &d).unwrap();
     assert!(report.skipped.is_empty(), "{:?}", report.skipped);
-    let (expected, _) = build_meshes(&mut Library::new(vec![], scene()), &dump(), true).unwrap();
+    let (expected, _) = build_meshes(&mut Library::new(vec![], scene()), &dump()).unwrap();
     assert_eq!(meshes[0].points, expected[0].points);
 }
 
@@ -164,7 +160,7 @@ fn vertex_count_mismatch_is_skipped() {
     let mut d = dump();
     d.nodes[1].vertices.pop();
     let mut lib = Library::new(vec![], scene());
-    let (meshes, report) = build_meshes(&mut lib, &d, true).unwrap();
+    let (meshes, report) = build_meshes(&mut lib, &d).unwrap();
     assert_eq!(meshes.len(), 2);
     assert_eq!(report.skipped, vec!["Bits: the dump has 3 vertices, geometry 4".to_string()]);
 }
@@ -172,7 +168,7 @@ fn vertex_count_mismatch_is_skipped() {
 #[test]
 fn usda_has_stage_metadata_subsets_and_indexed_uvs() {
     let mut lib = Library::new(vec![], scene());
-    let (meshes, _) = build_meshes(&mut lib, &dump(), true).unwrap();
+    let (meshes, _) = build_meshes(&mut lib, &dump()).unwrap();
     let (usda, _) = write_usda(&meshes, &[]);
     assert!(usda.starts_with("#usda 1.0\n"));
     assert!(usda.contains("metersPerUnit = 1\n") && usda.contains("upAxis = \"Y\""));
@@ -606,4 +602,35 @@ fn dump_cache_path_is_per_scene() {
     assert_ne!(a, b);
     assert!(a.file_name().unwrap().to_str().unwrap().starts_with("My Scene-"));
     assert_eq!(a, dump_cache_path(Path::new("/a/My Scene.duf")));
+}
+
+#[test]
+fn shell_surfaces_are_cut_after_refining() {
+    // A creased strip of 3 quads (A B C); the shell shows only B. Cut after
+    // refining, B's border lies on the refined whole — cut first, the
+    // boundary rules keep it on the crease (under a smooth host there).
+    let pts: Vec<[f32; 3]> = (0..8).map(|i| [(i % 4) as f32, (i / 4) as f32, if (i % 4) == 1 || (i % 4) == 2 { 0.0 } else { 1.0 }]).collect();
+    let quad = |a: u32| [a, a + 1, a + 5, a + 4];
+    let whole = Mesh {
+        points: pts.clone(),
+        face_counts: vec![4; 3],
+        face_indices: [quad(0), quad(1), quad(2)].concat(),
+        subsets: vec![("A".into(), vec![0]), ("B".into(), vec![1]), ("C".into(), vec![2])],
+        materials: vec![None; 3],
+        ..Default::default()
+    };
+    let keep: HashSet<String> = ["B".to_string()].into();
+    let cut_after = subdivide::keep_groups(&subdivide::subdivide_once(&whole), &keep);
+    assert_eq!(cut_after.face_counts.len(), 4);
+    assert_eq!(cut_after.subsets, vec![("B".to_string(), vec![0, 1, 2, 3])]);
+    let refined = subdivide::subdivide_once(&whole).points;
+    assert!(cut_after.points.iter().all(|p| refined.contains(p)), "B's points are the whole's");
+    let patch = Mesh { face_counts: vec![4], face_indices: quad(1).to_vec(), subsets: vec![("B".into(), vec![0])], materials: vec![None], points: pts.clone(), ..Default::default() };
+    let cut_first = subdivide::subdivide_once(&patch);
+    // B's border with A (x = 1): smoothed towards A like the host's, or left
+    // in the crease.
+    let border = |m: &Mesh| m.points.iter().filter(|p| p[0] == 1.0).map(|p| p[2]).fold(0.0f32, f32::min);
+    let lifted = |m: &Mesh| m.points.iter().filter(|p| p[0] == 1.0).all(|p| p[2] > 0.0);
+    assert!(lifted(&cut_after), "{:?}", cut_after.points);
+    assert_eq!(border(&cut_first), 0.0, "the cut-first border stays in the crease");
 }

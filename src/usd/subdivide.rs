@@ -197,6 +197,48 @@ pub(super) fn subdivide_once(m: &Mesh) -> Mesh {
     out
 }
 
+/// The faces of the subsets named in `keep` (with their materials and UVs),
+/// the points they use renumbered in order.
+pub(super) fn keep_groups(m: &Mesh, keep: &HashSet<String>) -> Mesh {
+    let mut starts = Vec::with_capacity(m.face_counts.len());
+    let mut at = 0usize;
+    for &c in &m.face_counts {
+        starts.push(at);
+        at += c as usize;
+    }
+    let mut out = Mesh { name: m.name.clone(), label: m.label.clone(), ..Default::default() };
+    let mut point_of: HashMap<u32, u32> = HashMap::new();
+    let mut uv_idx: Vec<u32> = Vec::new();
+    for (i, (group, faces)) in m.subsets.iter().enumerate() {
+        if !keep.contains(group) {
+            continue;
+        }
+        let mut new_faces = Vec::with_capacity(faces.len());
+        for &f in faces {
+            let (s, n) = (starts[f as usize], m.face_counts[f as usize] as usize);
+            new_faces.push(out.face_counts.len() as u32);
+            out.face_counts.push(n as u32);
+            for &v in &m.face_indices[s..s + n] {
+                let next = point_of.len() as u32;
+                let p = *point_of.entry(v).or_insert_with(|| {
+                    out.points.push(m.points[v as usize]);
+                    next
+                });
+                out.face_indices.push(p);
+            }
+            if let Some((_, idx)) = &m.uvs {
+                uv_idx.extend_from_slice(&idx[s..s + n]);
+            }
+        }
+        out.subsets.push((group.clone(), new_faces));
+        out.materials.push(m.materials.get(i).cloned().flatten());
+    }
+    if let Some((vals, _)) = &m.uvs {
+        out.uvs = Some((vals.clone(), uv_idx));
+    }
+    out
+}
+
 /// Area-weighted smooth vertex normals (Newell's method per face).
 pub(super) fn vertex_normals(points: &[[f32; 3]], counts: &[u32], indices: &[u32]) -> Vec<[f32; 3]> {
     let mut acc = vec![[0f32; 3]; points.len()];

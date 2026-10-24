@@ -107,10 +107,11 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
 - **Geometry shells** are rebuilt as DAZ does (host + grafts), rendering only
   the groups their `material_group_<group>_vis` channels switch on — the
   rest (typically opaque white) would lay a white body over the figure.
-  **Not in `.orbx` with random-walk skin (Final mode)**: a shell rests only
-  0.005–0.02 cm above the skin and the random walk lit its open border white
-  (the NGV8 Color Layer's outline, Octane4 / probes 62–69); it is left out
-  and reported as skipped. Layering it as a Mix material is #5.
+  The surfaces are picked **after refining the shell whole**, as its host
+  is: cut first, the patch's border refined by the boundary rules and sank
+  up to 0.3 mm under the skin in creases (0.12–0.21 mm above once fixed),
+  which random-walk skin lit as white lines along the NGV8 Color Layer's
+  outline (Octane4, probes 62–71).
 - **Visible grafts are welded into their host mesh**: graft points follow the
   host's, border vertices are remapped onto their paired host vertex, graft
   groups are named `<graft node>_<group>` and keep the graft's materials and

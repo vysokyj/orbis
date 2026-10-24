@@ -206,9 +206,7 @@ pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DumpNode, names:
     out
 }
 
-/// `shells`: build geometry shells — off for Octane's random-walk skin, which
-/// a shell resting 0.1 mm above lights white along its open border.
-pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump, shells: bool) -> Result<(Vec<Mesh>, ExportReport)> {
+pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<Mesh>, ExportReport)> {
     let nodes = geo_nodes(&lib.duf);
     let mut report = ExportReport::default();
 
@@ -285,13 +283,6 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump, shells: bool) ->
             continue;
         };
         let is_shell = topo.shell || n.shell_instance;
-        if is_shell && !shells {
-            // DAZ layers a shell (make-up, a genital colour layer) 0.005–0.02 cm
-            // over the skin; Octane's random walk lit the shell's open border
-            // white — the NGV8 Color Layer's outline (Octane4).
-            report.skipped.push(format!("{}: geometry shell over random-walk skin", n.label));
-            continue;
-        }
         // `shape_node` owns the geometry instance whose type decides subdivision
         // (a shell subdivides like its host).
         let (parts, shape_node): (Vec<Part>, &GeoNode) = if is_shell {
@@ -387,20 +378,26 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump, shells: bool) ->
                 points.extend_from_slice(&dump.node(&g.label, &g.name).map(|f| f.vertices.clone()).unwrap_or_default());
             }
         }
-        // A shell renders only the surfaces it switches on.
+        // A shell has no resolution level of its own (0 in the dump); it
+        // renders at its host's.
+        let lod = if is_shell { dump.node(&shape_node.label, &shape_node.name).map_or(fig.lod, |h| h.lod) } else { fig.lod };
+        let refined = shape_node.subdivision.unwrap_or(parts[0].topo.subdivision) && lod > 0;
+        // A shell renders only the surfaces it switches on — picked after
+        // refining it whole, as its host is: a cut-out patch refines its
+        // border by the boundary rules and pulled it up to 0.3 mm under the
+        // skin in creases, where random-walk skin lit it white (Octane4).
         let visible = if is_shell { n.shell_groups.as_ref() } else { None };
-        let mut mesh = assemble(lib, &parts, visible);
+        let mut mesh = assemble(lib, &parts, if refined { None } else { visible });
         mesh.label = n.label.clone();
         mesh.name = unique_name(&mut names, &n.label);
         // DAZ works in centimeters; write meters. Octane's USD import ignores
         // `metersPerUnit` and takes points as meters.
         mesh.points = points.iter().map(|p| [p[0] * CM, p[1] * CM, p[2] * CM]).collect();
-        // A shell has no resolution level of its own (0 in the dump); it
-        // renders at its host's.
-        let lod = if is_shell { dump.node(&shape_node.label, &shape_node.name).map_or(fig.lod, |h| h.lod) } else { fig.lod };
-        let refined = shape_node.subdivision.unwrap_or(parts[0].topo.subdivision) && lod > 0;
         if refined {
             mesh = subdivide_once(&mesh);
+            if let Some(v) = visible {
+                mesh = keep_groups(&mesh, v);
+            }
         }
         report.meshes += 1;
         report.points += mesh.points.len();
