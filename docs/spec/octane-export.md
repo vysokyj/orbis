@@ -104,6 +104,9 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
 - One `Mesh` per visible node (points from the dump, topology from the
   `.dsf`); `Visible` = false nodes are left out.
 - `GeomSubset` per material group; `primvars:st` indexed `faceVarying`.
+  **Fully transparent groups** (opacity 0, no map — the NGV8 pubic hair's
+  "Hiding" strands) are left out: invisible, yet under random-walk skin the
+  ones 0–2 mm under it showed as white specks (probes 71–72).
 - **Geometry shells** are rebuilt as DAZ does (host + grafts), rendering only
   the groups their `material_group_<group>_vis` channels switch on — the
   rest (typically opaque white) would lay a white body over the figure.

@@ -634,3 +634,19 @@ fn shell_surfaces_are_cut_after_refining() {
     assert!(lifted(&cut_after), "{:?}", cut_after.points);
     assert_eq!(border(&cut_first), 0.0, "the cut-first border stays in the crease");
 }
+
+#[test]
+fn fully_transparent_surfaces_are_left_out() {
+    // Legs at the DAZ Default shader's Opacity Strength 0 (NGV8's "Hiding").
+    let mut duf = scene();
+    duf["scene"]["materials"] = json!([
+        {"geometry": "#hi", "groups": ["Torso"], "uv_set": "#huv"},
+        {"geometry": "#hi", "groups": ["Legs"], "uv_set": "#huv",
+         "transparency": {"channel": {"id": "transparency", "current_value": 0}}},
+    ]);
+    let mut lib = Library::new(vec![], duf);
+    let (meshes, _) = build_meshes(&mut lib, &dump()).unwrap();
+    let body = &meshes[0];
+    let groups: Vec<&str> = body.subsets.iter().map(|(g, _)| g.as_str()).collect();
+    assert!(groups.contains(&"Torso") && !groups.contains(&"Legs"), "{groups:?}");
+}

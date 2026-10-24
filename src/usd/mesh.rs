@@ -453,6 +453,13 @@ pub(super) fn assemble(lib: &mut Library, parts: &[Part], visible: Option<&HashS
             if visible.is_some_and(|v| !v.contains(&group_name)) {
                 continue;
             }
+            // A fully transparent surface (opacity 0, no map) is left out: it
+            // renders nothing, yet under random-walk skin it is a boundary —
+            // the NGV8 pubic hair's "Hiding" strands 0–2 mm under the skin
+            // showed as white specks (Octane4).
+            if part.materials.get(&group_name).is_some_and(|m| m.opacity() <= 0.0 && m.image(m.opacity_channel()).is_none()) {
+                continue;
+            }
             let face = mesh.face_counts.len() as u32;
             let gi = *group_index.entry(group_name.clone()).or_insert_with(|| {
                 mesh.materials.push(part.materials.get(&group_name).cloned());
