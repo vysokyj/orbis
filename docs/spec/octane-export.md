@@ -249,8 +249,15 @@ A material with Iray `Translucency Weight` > 0 that is opaque (no cutout),
 not `Thin Walled`, non-refractive, non-emissive and has a diffuse map:
 
 - `baseColor` and `subsurfaceColor` = the diffuse map (Iray's translucency
-  map is pale and bleached skin and make-up), `subsurface` = translucency
-  weight, `subsurfaceAnisotropy` = `SSS Direction`;
+  map is pale and bleached skin and make-up) × **½ · ((1 − w) + w · Tc)**
+  (`skin_tint`; w = translucency weight, Tc = `Translucency Color` × its
+  map's mean over painted texels), `subsurface` = w,
+  `subsurfaceAnisotropy` = `SSS Direction`. Why: Standard Surface shows the
+  map as is — Calib-HDRI's Genesis 8 Female skin 3.2× Iray (effective
+  albedo 0.48 vs 0.154); Iray's per channel matched ½ · ((1 − w) · D +
+  w · D · Tc) within 4 %. Tinted: G8F 1.14–1.18 × Iray, Fleur (Octane4)
+  0.9–1.0. The hue is still bluer (G8F B 1.75 ×, a third of it Octane's
+  specular reflecting the sky) — #8;
 - `radius` = per-channel diffusion length (see [iray.md](../daz/iray.md#translucency-and-subsurface-skin))
   normalised to its maximum and **square-rooted**; `scale` = that maximum in
   meters, clamped 0.5 mm – 2 cm. Why the root: Noemi's 1 / 0.18 / 0.15

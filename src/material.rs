@@ -91,25 +91,37 @@ impl Textures {
     /// A DAZ image's mean colour, linear (sRGB-decoded): strands carry no
     /// UVs, so a hair map can't be mapped onto them.
     fn mean_colour(&mut self, dirs: &[PathBuf], daz_path: &str) -> Option<[f32; 3]> {
-        if let Some(c) = self.means.get(daz_path) {
+        self.mean(dirs, daz_path, false)
+    }
+
+    /// The mean colour over the map's painted texels: near-black ones (the
+    /// empty space between a figure map's UV islands) left out.
+    fn mean_covered_colour(&mut self, dirs: &[PathBuf], daz_path: &str) -> Option<[f32; 3]> {
+        self.mean(dirs, daz_path, true)
+    }
+
+    fn mean(&mut self, dirs: &[PathBuf], daz_path: &str, covered: bool) -> Option<[f32; 3]> {
+        let key = format!("{}{daz_path}", if covered { "covered:" } else { "" });
+        if let Some(c) = self.means.get(&key) {
             return *c;
         }
         let rel = daz_path.trim_start_matches('/');
         let mean = dirs.iter().map(|d| d.join(rel)).find(|p| p.is_file()).and_then(|f| {
             let img = image::open(&f).map_err(|e| tracing::warn!(file = %f.display(), error = %e, "Octane export: hair map unreadable")).ok()?;
             let small = img.thumbnail(64, 64).to_rgb8();
-            let n = (small.width() * small.height()).max(1) as f32;
             let lin = |c: u8| {
                 let c = c as f32 / 255.0;
                 if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
             };
             let mut sum = [0.0f32; 3];
-            for p in small.pixels() {
+            let mut n = 0.0f32;
+            for p in small.pixels().filter(|p| !covered || p.0.iter().map(|c| *c as u32).sum::<u32>() >= 30) {
                 (0..3).for_each(|k| sum[k] += lin(p[k]));
+                n += 1.0;
             }
-            Some(sum.map(|s| s / n))
+            Some(sum.map(|s| s / n.max(1.0)))
         });
-        self.means.insert(daz_path.to_string(), mean);
+        self.means.insert(key, mean);
         mean
     }
 
@@ -341,9 +353,14 @@ impl Ocs<'_> {
         let i = indent + 1;
         let _ = writeln!(self.out, "{:i$}<attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
         self.float_pin(i, "base", 1.0);
+        // The colour the skin shows: the diffuse map darkened as Iray's
+        // translucent layer does (`skin_tint`).
+        let tc_map = mat.image("Translucency Color").map(str::to_string).and_then(|t| self.textures.mean_covered_colour(self.dirs, &t));
+        let tint = skin_tint(mat, translucency, tc_map);
+        let colour = [0, 1, 2].map(|k| mat.base_color()[k] * tint[k]);
         match mat.image("diffuse").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            Some(asset) => self.tinted_image_pin(i, "baseColor", &asset, 1.0, mat.base_color()),
-            None => self.rgb_pin(i, "baseColor", mat.base_color()),
+            Some(asset) => self.tinted_image_pin(i, "baseColor", &asset, 1.0, colour),
+            None => self.rgb_pin(i, "baseColor", colour),
         }
         let (rough_ch, rough, inverted) = mat.roughness_source();
         let rough_ch = if inverted { None } else { rough_ch };
@@ -356,8 +373,8 @@ impl Ocs<'_> {
         // through — as subsurface colour it bleached Zelie and wiped her
         // make-up (Octane1 vs Blender, 2026-10-21).
         match mat.image("diffuse").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            Some(asset) => self.image_pin(i, "subsurfaceColor", &asset, false, 2.2, 1.0),
-            None => self.rgb_pin(i, "subsurfaceColor", mat.base_color()),
+            Some(asset) => self.tinted_image_pin(i, "subsurfaceColor", &asset, 1.0, colour),
+            None => self.rgb_pin(i, "subsurfaceColor", colour),
         }
         let (radius, scale) = sss_radius(mat);
         self.rgb_pin(i, "radius", radius);
@@ -565,6 +582,22 @@ impl Ocs<'_> {
 fn map_tint(c: [f32; 3]) -> f32 {
     ((c[0] + c[1] + c[2]) / 3.0).clamp(0.0, 1.0)
 }
+
+/// Iray's skin reflects only part of its diffuse map: the translucent share
+/// `w` shows the map × `Translucency Color` (× its map's mean, `tc_map`), and
+/// the whole comes out at half (`SKIN_ALBEDO_FACTOR`) — Calib-HDRI's
+/// Genesis 8 Female skin measured (0.228, 0.121, 0.081) of linear albedo
+/// against ½ · ((1 − w) · D + w · D · Tc) = (0.225, 0.116, 0.081), while
+/// Standard Surface shows the map as is (3.2× Iray). The tint for the map,
+/// per channel.
+fn skin_tint(mat: &Material, w: f32, tc_map: Option<[f32; 3]>) -> [f32; 3] {
+    let tc = mat.color("Translucency Color").unwrap_or([1.0; 3]);
+    let tc = [0, 1, 2].map(|k| tc[k] * tc_map.map_or(1.0, |m| m[k]));
+    tc.map(|t| SKIN_ALBEDO_FACTOR * ((1.0 - w) + w * t))
+}
+
+/// See [`skin_tint`].
+const SKIN_ALBEDO_FACTOR: f32 = 0.5;
 
 /// Subsurface radius colour (max channel 1, softened) and scale (meters)
 /// from Iray's volume channels; see [`Ocs::standard_surface`]. The scale is kept to
@@ -905,6 +938,11 @@ mod tests {
         let base = &sx[sx.find("<pin name='baseColor'>").unwrap()..];
         let base = &base[..base.find("</pin>\n      <pin").unwrap_or(base.len())];
         assert!(base.contains("<attr name='colorSpace' type='2'>1</attr>"), "{base}");
+        // Iray's skin shows ½ · ((1 − w) + w · Tc) of the map: w 0.5 and a
+        // white Translucency Color (its map unreadable here) → 0.5.
+        assert!(base.contains("<attr name='value' type='6'>0.5</attr>"), "skin tint: {base}");
+        let ssc = &sx[sx.find("<pin name='subsurfaceColor'>").unwrap()..];
+        assert!(ssc[..ssc.find("</pin>\n      <pin").unwrap_or(ssc.len())].contains("<attr name='value' type='6'>0.5</attr>"), "{ssc}");
         // Octane keeps the pin's colour space only when told the image's was
         // chosen; every image node says so.
         assert_eq!(sx.matches("<attr name='initialColorSpaceSelected' type='1'>1</attr>").count(), sx.matches("<attr name='filename'").count());
