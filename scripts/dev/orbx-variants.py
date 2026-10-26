@@ -27,6 +27,11 @@ Hypotheses (by the Iray channels the variants stand for):
   doubled (≤ 1): Tc · min(2w, 1).
 - `ior=<n>`: Universal's Dielectric IOR (`ior`) n on every material but
   the floor (Plane).
+- `daylight-model=<n>`: the Daylight environment's model (0 Preetham,
+  1 Octane, 2 Nishita, 3 Hosek-Wilkie — the export's).
+- `daylight=<model>,<power>,<sun>,<ground start>`: the Daylight
+  environment's model, power, sunIntensity and groundStartAngle.
+- `turbidity=<t>`: the Daylight environment's turbidity.
 - `dl-ior`: the same for PBRSkin's Dual Lobe Specular Reflectivity.
 - `twosided-x1`: two-sided emitters at the one-sided power (the export
   doubles it, `TWO_SIDED_POWER`, assuming Octane splits it over both faces).
@@ -114,6 +119,20 @@ def halve_double_sided(ocs):
 def apply(ocs, hyp):
     if hyp == 'twosided-x1':
         return halve_double_sided(ocs)
+    if hyp.startswith('turbidity='):
+        return re.sub(r"(<node id='100212' type='6'>\s*<attr name='value' type='9'>)[^<]*", lambda m: m.group(1) + hyp.split('=')[1] + ' 0 0 0', ocs)
+    if hyp.startswith('daylight='):
+        model, power, sun, start = hyp.split('=')[1].split(',')
+        val = lambda node, v: (rf"(<node id='{node}' type='\d+'>\s*<attr name='value' type='\d+'>)[^<]*", lambda m: m.group(1) + v)
+        for node, v in ((100215, model), (100213, f'{power} 0 0 0'), (100214, f'{sun} 0 0 0')):
+            ocs = re.sub(*val(node, v), ocs)
+        pin = (f"       <pin name='groundStartAngle'>\n        <node id='100218' type='6'>\n"
+               f"         <attr name='value' type='9'>{start} 0 0 0</attr>\n        </node>\n       </pin>\n")
+        at = ocs.index("<pin name='sun_size'>")
+        at = ocs.rindex('\n', 0, at) + 1
+        return ocs[:at] + pin + ocs[at:]
+    if hyp.startswith('daylight-model='):
+        return re.sub(r"(<node id='100215' type='57'>\s*<attr name='value' type='2'>)\d+", lambda m: m.group(1) + hyp.split('=')[1], ocs)
     if hyp.startswith('ior='):
         for mat in sorted(set(re.findall(r"name='/Scene/Materials/([^']*)'", ocs))):
             if not mat.startswith('Plane'):

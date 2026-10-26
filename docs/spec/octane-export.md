@@ -493,8 +493,30 @@ emission units keep their ratios (20 000 lm and 50 W against 5000 cd/m² on
   ignores the scene's lights — a 2 000 000 lm point light left the floor
   unchanged (Calib-L-Mode-*, 1.000), so the export leaves them out
   (`lights_iray_uses`); Octane renders both Dome Only scenes, the light
-  on or off, at 1.03 – 1.04 × Iray (floor, background). Sun-Sky itself (DAZ's procedural sun and sky) has
-  no Octane counterpart in the export yet: such a scene keeps its HDRI.
+  on or off, at 1.03 – 1.04 × Iray (floor, background). Sun-Sky itself → below.
+- **Sun-Sky** (Environment Mode 2) → Octane's **Daylight environment** (14)
+  on the render target, Hosek-Wilkie (`model` 3) with its ground from the
+  horizon down (`groundStartAngle` 0: the default 90 shows sky below the
+  horizon; Preetham has no ground — 4.9 × Iray's grey there, though its
+  sun and sky colours were closest). `sundir` is the sun's position for
+  `SS Latitude` / `Longitude` / `Day` (Julian day number) / `Time` (s) /
+  `UTC Offset` (`sun_direction`, the Astronomical Almanac's low-precision
+  formula) in scene axes — north −Z, east +X: DAZ's default 18:00 in Salt
+  Lake City casts the same shadows in both, and so does noon.
+  `turbidity` = 2 + 2 × `SS Haze`, at most 10 (Hosek-Wilkie renders 14
+  like 10); `power` = 2.7 × `SS Multiplier` / 0.10132 × exp(−0.128 · haze)
+  (`haze_dimming`: Iray's haze dims, Octane's turbidity brightens — haze 4
+  at turbidity 10 was 1.67 × Iray, now floor 1.00, shadow 1.13, sky 0.91,
+  ground 0.61; one haze measured) and `sunIntensity` = 0.55 ×
+  `SS Sun Disk Intensity` (`SUN_SKY_POWER`, `SUN_SKY_SUN_SHARE`): at 1 / 1
+  the sky-lit shadow came out 0.37 × Iray, the sunlit floor 0.53 × — Octane's
+  sun 2.2 × its sky where Iray's is 1.2 ×; at 2.7 / 0.55 floor 1.02, shadow
+  0.96, ground 0.92 (Calib-L-Mode-SunSky-off; noon: floor 1.01, shadow
+  1.14 — Calib-L-Mode-SunSky-noon). `sun_size` = `SS Sun Disk
+  Scale` / 4, `groundColor` = `SS Ground Color`. Iray's sun stays whiter low
+  in the sky (Octane's sunlit floor R : B 1.12 : 0.91 of Iray's). Not read
+  yet: `SS Sun Direction` (a node steering the sun), tint, saturation,
+  horizon height / blur, night colour.
 - **Draw Dome** off (the dome lights but isn't seen): Iray shows black
   behind the scene, the HDRI still lighting it (Calib-Dome-Off; the
   Calib-L scenes are "Scene Only", black anyway). The render target gets a

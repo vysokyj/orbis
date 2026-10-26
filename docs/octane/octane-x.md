@@ -145,6 +145,17 @@ decoded as sRGB.
   fake_shadows, refractionAlpha, bump, bumpHeight, normal, displacement,
   smooth, smoothShadowTerminator, roundEdges, priority, emission, matte,
   customAov…, layer. No `index4` (the export's IOR pin for glass, #9).
+- **Daylight environment (14)** (probe 97): `sundir` (float3, default
+  node 30 = sun direction; direction *towards* the sun), `turbidity` (2 –
+  15, 2.4), `power` (1), `sunIntensity` (1, sun only), `northoffset` (−1 …
+  1), `model` (enum 57: 0 Preetham, 1 Octane (default), 2 Nishita,
+  3 Hosek-Wilkie), `sky_color`, `sunset_color` (Octane model only),
+  `sun_size` (× the real ~0.5°), `groundColor`, `groundStartAngle`,
+  `groundBlendAngle` (ground: not Preetham), `texture`,
+  `importance_sampling`, `medium`, `mediumRadius`, the visible-environment
+  flags. **Sun direction (30)**: `latitude`, `longitude`, `month`, `day`,
+  `hour` (local, float), `gmtoffset` (int); its attribute holds the
+  normalised direction.
 - **OpenPBR Surface (505)**: like Standard Surface but `radius` is a
   float (distance) and `scale` a colour (per channel) — the other way round.
 

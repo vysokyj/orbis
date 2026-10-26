@@ -140,6 +140,12 @@ def env_mode(d, mode, light_on=True):
     set_channel(channels(lib(d, 'PointLight')), 'Flux', 2000000.0)
 
 
+def sun_sky(d, values):
+    env = channels(lib(d, 'Environment Options'))
+    for k, v in values.items():
+        set_channel(env, k, v)
+
+
 DOWN = {'x': -90.0, 'y': 0.0, 'z': 0.0}
 VARIANTS = [
     # name, source, profile view, edit
@@ -170,6 +176,9 @@ VARIANTS = [
     ('Mode-DomeOnly-off', 'Calib-Point', False, lambda d: env_mode(d, 1, False)),
     ('Mode-SunSky-point', 'Calib-Point', False, lambda d: env_mode(d, 2)),
     ('Mode-SunSky-off', 'Calib-Point', False, lambda d: env_mode(d, 2, False)),
+    # Iray's Sun-Sky elsewhere on its curve (#17): noon, hazy.
+    ('Mode-SunSky-noon', 'Calib-Point', False, lambda d: (env_mode(d, 2, False), sun_sky(d, {'SS Time': 43200}))),
+    ('Mode-SunSky-noon-haze4', 'Calib-Point', False, lambda d: (env_mode(d, 2, False), sun_sky(d, {'SS Time': 43200, 'SS Haze': 4.0}))),
     ('Emit-cd', 'Calib-Emissive', False, lambda d: None),
     ('Emit-cd-2sided', 'Calib-Emissive', False, lambda d: emitter(d, {'Two Sided Light': True})),
     ('Emit-lm', 'Calib-Emissive', False, lambda d: emitter(d, {'Luminance Units': 4, 'Luminance': 20000.0})),

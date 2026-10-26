@@ -188,7 +188,7 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     // Iray lights with a hidden dome (Draw Dome off) but shows black there;
     // "Scene Only" has no dome light to begin with (power 0, black anyway).
     let hide_dome = environment.as_ref().is_some_and(|e| !e.draw_dome && !e.scene_only);
-    let ocs = project_ocs(name, USDZ_ASSET, &cameras, render_size(&lib.duf), &env_texture, opts.octane_mode, &tone, hide_dome)
+    let ocs = project_ocs(name, USDZ_ASSET, &cameras, render_size(&lib.duf), &env_texture, opts.octane_mode, &tone, hide_dome, environment.as_ref().and_then(|e| e.sun_sky.as_ref()))
         .replace("@MATERIAL_INPUTS@", &(inputs + &light_inputs))
         .replace("@SCENE_NODES@", &scene_nodes)
         .replace("@MESH_CONNECT@", &mesh_connect.to_string())

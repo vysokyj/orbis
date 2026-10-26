@@ -27,6 +27,70 @@ pub struct SceneEnvironment {
     /// (1) or "Sun-Sky Only" (2) — a 2 000 000 lm point light left the
     /// floor unchanged there (Calib-L-Mode-*: 1.000).
     pub scene_lights: bool,
+    /// Iray's procedural sun and sky ("Sun-Sky Only", Environment Mode 2):
+    /// Octane's Daylight environment instead of the dome.
+    pub sun_sky: Option<SunSky>,
+}
+
+/// DAZ's Iray Sun-Sky (the `SS …` channels of "Environment Options") as
+/// Octane Daylight environment inputs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SunSky {
+    /// Unit vector towards the sun, scene axes (Y up, north −Z, east +X).
+    pub sun_dir: [f64; 3],
+    /// Octane's sky turbidity: 2 + 2 × `SS Haze`, at most 10 (Hosek-Wilkie
+    /// renders 14 like 10).
+    pub turbidity: f64,
+    /// Octane's `power`: `SS Multiplier` relative to DAZ's default 0.10132,
+    /// × `SUN_SKY_POWER`, dimmed by the haze (`haze_dimming`).
+    pub power: f64,
+    /// Octane's `sunIntensity`: `SUN_SKY_SUN_SHARE` × `SS Sun Disk Intensity`.
+    pub sun_intensity: f64,
+    /// Octane's `sun_size` (× the real sun): `SS Sun Disk Scale` / 4.
+    pub sun_size: f64,
+    /// `SS Ground Color`, linear.
+    pub ground: [f64; 3],
+}
+
+/// Octane Daylight (Hosek-Wilkie) `power` at DAZ's default `SS Multiplier`
+/// (0.10132), and its `sunIntensity` at `SS Sun Disk Intensity` 1:
+/// Calib-L-Mode-SunSky-off (Iray's defaults, 18:00) at power 1 rendered the
+/// sky-lit shadow 0.37 × Iray and the sunlit floor 0.53 × — Octane's sun
+/// 2.2 × its sky where Iray's is 1.2 ×; at 2.7 / 0.55 the floor 1.02, the
+/// shadow 0.96, the ground below the horizon 0.92.
+pub const SUN_SKY_POWER: f64 = 2.7;
+
+/// Iray's haze dims its sun and sky where Octane's turbidity brightens:
+/// Calib-L-Mode-SunSky-noon-haze4 (haze 4) at turbidity 10 rendered 1.67 ×
+/// Iray (floor and shadow alike) — × exp(−0.128 · haze) = 0.60 there. One
+/// haze measured; haze 0 at noon and 18:00 sits at 1.01 – 1.02.
+pub fn haze_dimming(haze: f64) -> f64 {
+    (-0.128 * haze.max(0.0)).exp()
+}
+pub const SUN_SKY_SUN_SHARE: f64 = 0.55;
+
+/// The sun's direction for DAZ's `SS Latitude` / `SS Longitude` (degrees,
+/// east positive), `SS Day` (Julian day number), `SS Time` (seconds since
+/// local midnight) and `SS UTC Offset` (hours): the low-precision solar
+/// position of the Astronomical Almanac (≈ 0.01°), as a unit vector in
+/// scene axes — north −Z, east +X, up +Y (Calib-L-Mode-SunSky-off: 18:00
+/// in Salt Lake City casts its shadows east, to +X).
+pub fn sun_direction(lat: f64, lon: f64, day: f64, time_s: f64, utc_offset: f64) -> [f64; 3] {
+    let jd = day - 0.5 + (time_s / 3600.0 - utc_offset) / 24.0;
+    let n = jd - 2_451_545.0;
+    let l = (280.460 + 0.985_647_4 * n).rem_euclid(360.0);
+    let g = (357.528 + 0.985_600_3 * n).rem_euclid(360.0).to_radians();
+    let lambda = (l + 1.915 * g.sin() + 0.020 * (2.0 * g).sin()).to_radians();
+    let eps = (23.439 - 0.000_000_4 * n).to_radians();
+    let ra = (eps.cos() * lambda.sin()).atan2(lambda.cos());
+    let dec = (eps.sin() * lambda.sin()).asin();
+    let gmst_h = (18.697_374_558 + 24.065_709_824_419_08 * n).rem_euclid(24.0);
+    let h = (gmst_h * 15.0 + lon).to_radians() - ra;
+    let phi = lat.to_radians();
+    let el = (phi.sin() * dec.sin() + phi.cos() * dec.cos() * h.cos()).asin();
+    // Azimuth from north, clockwise (east 90°).
+    let az = (-h.sin()).atan2(dec.tan() * phi.cos() - phi.sin() * h.cos());
+    [az.sin() * el.cos(), el.sin(), -az.cos() * el.cos()]
 }
 
 impl SceneEnvironment {
@@ -84,6 +148,25 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
             ground_origin_y: (num("Ground Position Mode") == Some(1.0)).then(|| num("Ground Origin Y").unwrap_or(0.0)),
             draw_dome: ch.get("Draw Dome").and_then(Value::as_bool).unwrap_or(true),
             scene_lights: !matches!(num("Environment Mode").map(|m| m as i64), Some(1 | 2)),
+            sun_sky: (num("Environment Mode") == Some(2.0)).then(|| {
+                let ground = ch.get("SS Ground Color").and_then(Value::as_array);
+                SunSky {
+                    sun_dir: sun_direction(
+                        num("SS Latitude").unwrap_or(40.76426),
+                        num("SS Longitude").unwrap_or(-111.8972),
+                        num("SS Day").unwrap_or(2_457_092.0),
+                        num("SS Time").unwrap_or(43_200.0),
+                        num("SS UTC Offset").unwrap_or(-6.0),
+                    ),
+                    turbidity: (2.0 + 2.0 * num("SS Haze").unwrap_or(0.0)).clamp(2.0, 10.0),
+                    power: SUN_SKY_POWER * num("SS Multiplier").unwrap_or(0.10132) / 0.10132 * haze_dimming(num("SS Haze").unwrap_or(0.0)),
+                    sun_intensity: SUN_SKY_SUN_SHARE * num("SS Sun Disk Intensity").unwrap_or(1.0),
+                    sun_size: num("SS Sun Disk Scale").unwrap_or(4.0) / 4.0,
+                    ground: [0, 1, 2].map(|i| {
+                        f64::from(crate::daz_material::colour_to_linear(ground.and_then(|g| g.get(i)).and_then(Value::as_f64).unwrap_or(0.4) as f32))
+                    }),
+                }
+            }),
         });
     }
     None

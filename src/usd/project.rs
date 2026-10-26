@@ -23,6 +23,7 @@ pub(super) fn project_ocs(
     mode: OctaneMode,
     tone: &ToneMapping,
     hide_dome: bool,
+    sun_sky: Option<&SunSky>,
 ) -> String {
     let v3 = |v: [f64; 3]| format!("{:.6} {:.6} {:.6} 0", v[0], v[1], v[2]);
     // The render target carries the scene's name — Octane offers it as the
@@ -34,6 +35,16 @@ pub(super) fn project_ocs(
         .replace("@RESOLUTION@", &format!("{w} {h}"))
         .replace("@ENV_TEXTURE@", env_texture)
         .replace("@VISIBLE_ENVIRONMENT@", if hide_dome { BLACK_BACKPLATE } else { "" });
+    // Iray's Sun-Sky: the render target's environment becomes Octane's
+    // Daylight environment.
+    let template = match sun_sky {
+        Some(s) => {
+            let start = template.find("     <pin name='environment'>\n").expect("render target environment");
+            let end = start + template[start..].find("\n     </pin>\n").expect("environment pin end") + "\n     </pin>\n".len();
+            format!("{}{}{}", &template[..start], daylight_environment(s), &template[end..])
+        }
+        None => template,
+    };
     // Kernel per mode; the imager follows DAZ's Iray tone mapping. Exposure
     // at DAZ's default EV 13: 1.4 under path tracing — measured against the
     // Iray render of Octane2 (HDRI only) with a Lua sweep, 2026-10-21 —
@@ -113,6 +124,30 @@ const LENS_FOCAL_MM: f64 = 65.0;
 /// exported aperture. No aperture (DOF off) → a pinhole.
 fn lens_fstop(aperture_cm: f64) -> f64 {
     if aperture_cm > 0.0 { LENS_FOCAL_MM / (20.0 * aperture_cm) } else { 1000.0 }
+}
+
+/// Octane's Daylight environment (14, probe 97) for Iray's Sun-Sky: the sun
+/// direction given directly (`sundir`), Hosek-Wilkie with its ground from
+/// the horizon down (`groundStartAngle` 0; the default 90 leaves a bright
+/// sky below the horizon — 4.9 × Iray's ground under Preetham, which has
+/// no ground: Calib-L-Mode-SunSky-off).
+fn daylight_environment(s: &SunSky) -> String {
+    let float = |id: u32, pin: &str, v: String| {
+        format!("       <pin name='{pin}'>\n        <node id='{id}' type='6'>\n         <attr name='value' type='9'>{v}</attr>\n        </node>\n       </pin>\n")
+    };
+    let [x, y, z] = s.sun_dir;
+    let [r, g, b] = s.ground;
+    let mut out = String::from("     <pin name='environment'>\n      <node id='100210' type='14'>\n");
+    out += &float(100211, "sundir", format!("{x:.6} {y:.6} {z:.6} 0"));
+    out += &float(100212, "turbidity", format!("{:.6} 0 0 0", s.turbidity));
+    out += &float(100213, "power", format!("{:.6} 0 0 0", s.power));
+    out += &float(100214, "sunIntensity", format!("{:.6} 0 0 0", s.sun_intensity));
+    out += "       <pin name='model'>\n        <node id='100215' type='57'>\n         <attr name='value' type='2'>3</attr>\n        </node>\n       </pin>\n";
+    out += &float(100218, "groundStartAngle", "0 0 0 0".into());
+    out += &float(100216, "sun_size", format!("{:.6} 0 0 0", s.sun_size));
+    out += &float(100217, "groundColor", format!("{r:.6} {g:.6} {b:.6} 0"));
+    out += "      </node>\n     </pin>\n";
+    out
 }
 
 /// The render target's camera ("visible") environment when DAZ's dome isn't
