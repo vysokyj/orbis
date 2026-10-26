@@ -379,7 +379,7 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     // just under y = 0 so a room's floor hides it.
     // Auto: the scene's lowest point; Manual: Ground Origin Y (cm).
     let low = Mesh { points: vec![[0.0, 0.25, 0.0], [1.0, -0.03, 0.0]], ..Default::default() };
-    let mut e = SceneEnvironment { map: None, intensity: 1.0, rotation_deg: 0.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None };
+    let mut e = SceneEnvironment { map: None, intensity: 1.0, rotation_deg: 0.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None, draw_dome: true };
     assert!((ground_height(&e, &[low]) + 0.03).abs() < 1e-6);
     assert_eq!(ground_height(&e, &[]), 0.0);
     e.ground_origin_y = Some(12.0);
@@ -426,12 +426,12 @@ fn iray_tone_mapping_drives_the_imager() {
     let cams = vec![("Camera".to_string(), framing_camera(&[]))];
     // Burn 0.25 is beyond Octane's imager: Iray's curve as a LUT, the
     // exposure lowered by its headroom, no highlight compression.
-    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Final, &tone);
+    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Final, &tone, false);
     assert!(ocs.contains("0.175000 0 0 0") && ocs.contains("1.200000 0 0 0"), "exposure 2.8 / 16, saturation");
     assert!(ocs.contains("type='103'") && ocs.contains(&format!("<attr name='filename' type='11'>{TONE_LUT_ASSET}</attr>")));
     assert!(ocs.contains("0.800000 0.900000 1.000000"));
     let plain = ToneMapping { burn_highlights: 1.0, ..tone.clone() };
-    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Final, &plain);
+    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Final, &plain, false);
     assert!(ocs.contains("2.800000 0 0 0") && !ocs.contains("type='103'") && !ocs.contains("@TONE_LUT@"));
     assert_eq!(scene_tone_mapping(&mut Library::new(vec![], json!({"scene": {"nodes": []}}))), ToneMapping::default());
     // Iray exposes by shutter, f-number and ISO; DAZ's EV is only shown.
@@ -451,7 +451,7 @@ fn iray_tone_mapping_drives_the_imager() {
 
 #[test]
 fn dome_rotation_is_a_u_shift() {
-    let env = |rot: f64, oy: f64| SceneEnvironment { map: None, intensity: 1.0, rotation_deg: rot, orientation_deg: [0.0, oy, 0.0], scene_only: false, ground_shadow: None, ground_origin_y: None };
+    let env = |rot: f64, oy: f64| SceneEnvironment { map: None, intensity: 1.0, rotation_deg: rot, orientation_deg: [0.0, oy, 0.0], scene_only: false, ground_shadow: None, ground_origin_y: None, draw_dome: true };
     assert_eq!(env(0.0, 0.0).dome_u_shift(), 0.25);
     assert!((env(110.0, 0.0).dome_u_shift() - (0.25 + 110.0 / 360.0)).abs() < 1e-12);
     assert_eq!(env(270.0, 0.0).dome_u_shift(), 0.0);
@@ -471,7 +471,7 @@ fn iray_environment_becomes_an_hdri_texture_environment() {
     });
     let mut lib = Library::new(vec![], duf);
     let env = scene_environment(&mut lib).unwrap();
-    assert_eq!(env, SceneEnvironment { map: Some("/Environments/HDRI/sky 1.hdr".into()), intensity: 4.0, rotation_deg: 90.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None });
+    assert_eq!(env, SceneEnvironment { map: Some("/Environments/HDRI/sky 1.hdr".into()), intensity: 4.0, rotation_deg: 90.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None, draw_dome: true });
 
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("Environments/HDRI")).unwrap();
@@ -489,7 +489,7 @@ fn iray_environment_becomes_an_hdri_texture_environment() {
 #[test]
 fn project_ocs_fills_every_placeholder() {
     let cam = vec![("Camera".to_string(), framing_camera(&[]))];
-    let ocs = project_ocs("Bob's <scene>", "scene.usdz", &cam, (1280, 720), "", OctaneMode::Preview, &ToneMapping::default())
+    let ocs = project_ocs("Bob's <scene>", "scene.usdz", &cam, (1280, 720), "", OctaneMode::Preview, &ToneMapping::default(), false)
         .replace("@MATERIAL_INPUTS@", "")
         .replace("@SCENE_NODES@", "")
         .replace("@MESH_CONNECT@", "1439")
@@ -524,7 +524,7 @@ fn every_daz_camera_gets_its_own_render_target() {
     assert!((cams[0].1.pos[2] + 1.0).abs() < 0.01);
 
     let env = "        <node id='190001' type='33'>\n        </node>\n";
-    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), env, OctaneMode::Final, &ToneMapping::default());
+    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), env, OctaneMode::Final, &ToneMapping::default(), false);
     assert!(ocs.contains("type='56' name='Shot – Close'") && ocs.contains("type='56' name='Shot – Wide'"));
     assert_eq!(ocs.matches("connect='@MESH_CONNECT@'").count(), 2, "both wired to the geometry");
     // Node ids stay unique across the copies.
@@ -539,11 +539,11 @@ fn every_daz_camera_gets_its_own_render_target() {
 #[test]
 fn octane_modes_set_kernel_and_imager() {
     let cams = vec![("A".to_string(), framing_camera(&[])), ("B".to_string(), framing_camera(&[]))];
-    let fin = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Final, &ToneMapping::default());
+    let fin = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Final, &ToneMapping::default(), false);
     assert!(fin.contains("<node id='100060' type='25'>") && fin.contains("<node id='1100060' type='25'>"), "path tracing");
     assert_eq!(fin.matches("<pin name='maxScatterDepth'>").count(), 2);
     assert!(fin.contains("<attr name='value' type='9'>1.400000 0 0 0</attr>"), "Final exposure at EV 13");
-    let pre = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Preview, &ToneMapping::default());
+    let pre = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Preview, &ToneMapping::default(), false);
     assert!(pre.contains("<node id='100060' type='24'>") && pre.contains("<node id='1100060' type='24'>"), "direct lighting");
     for ocs in [&fin, &pre] {
         for ph in ["@KERNEL@", "@EXPOSURE@", "@HIGHLIGHT_COMPRESSION@", "@WHITE_BALANCE@", "@SATURATION@", "@DENOISER@"] {
@@ -774,4 +774,15 @@ fn iray_light_flux_rules() {
     assert!((sphere / point - 0.25).abs() < 1e-12);
     // Non-photometric: 1000 π lm per unit of Intensity.
     assert!((LEGACY_LUMENS - 3141.59).abs() < 0.01);
+}
+
+#[test]
+fn hidden_dome_gets_a_black_backplate() {
+    let cams = vec![("Camera".to_string(), framing_camera(&[])), ("Other".to_string(), framing_camera(&[]))];
+    let shown = project_ocs("Shot", "scene.usdz", &cams, (640, 480), "", OctaneMode::Final, &ToneMapping::default(), false);
+    assert!(!shown.contains("visibleEnvironment'") && !shown.contains("@VISIBLE_ENVIRONMENT@"));
+    let hidden = project_ocs("Shot", "scene.usdz", &cams, (640, 480), "", OctaneMode::Final, &ToneMapping::default(), true);
+    // One per render target, each with its own ids.
+    assert_eq!(hidden.matches("<pin name='visibleEnvironment'>").count(), 2);
+    assert!(hidden.contains("id='100195'") && hidden.contains("id='1100195'"));
 }

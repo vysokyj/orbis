@@ -185,7 +185,10 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     drop(meshes);
     let (scene_nodes, mesh_connect) = crate::material::scene_lights(&octane_spots(&lights), ground, 170_000, 1439);
     let tone = scene_tone_mapping(&mut lib);
-    let ocs = project_ocs(name, USDZ_ASSET, &cameras, render_size(&lib.duf), &env_texture, opts.octane_mode, &tone)
+    // Iray lights with a hidden dome (Draw Dome off) but shows black there;
+    // "Scene Only" has no dome light to begin with (power 0, black anyway).
+    let hide_dome = environment.as_ref().is_some_and(|e| !e.draw_dome && !e.scene_only);
+    let ocs = project_ocs(name, USDZ_ASSET, &cameras, render_size(&lib.duf), &env_texture, opts.octane_mode, &tone, hide_dome)
         .replace("@MATERIAL_INPUTS@", &(inputs + &light_inputs))
         .replace("@SCENE_NODES@", &scene_nodes)
         .replace("@MESH_CONNECT@", &mesh_connect.to_string())

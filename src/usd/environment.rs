@@ -20,6 +20,9 @@ pub struct SceneEnvironment {
     /// `Ground Position Mode` Manual: the ground's height (`Ground Origin Y`,
     /// DAZ cm). Auto (`None`) puts it at the scene's lowest point.
     pub ground_origin_y: Option<f64>,
+    /// "Draw Dome": the dome is seen behind the scene. Off, Iray still lights
+    /// with it but shows black there (Calib-L-*, Calib-Dome-Off).
+    pub draw_dome: bool,
 }
 
 impl SceneEnvironment {
@@ -75,6 +78,7 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
             ground_shadow: (ch.get("Draw Ground").and_then(Value::as_bool).unwrap_or(true) && num("Environment Mode") != Some(3.0))
                 .then(|| num("Ground Shadow Intensity").unwrap_or(1.0)),
             ground_origin_y: (num("Ground Position Mode") == Some(1.0)).then(|| num("Ground Origin Y").unwrap_or(0.0)),
+            draw_dome: ch.get("Draw Dome").and_then(Value::as_bool).unwrap_or(true),
         });
     }
     None

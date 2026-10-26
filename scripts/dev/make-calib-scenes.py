@@ -172,6 +172,12 @@ for name, over in TONES:
         set_channel(ch, k, v, 'float')
     made.append((save(d, 'Calib-Tone-' + name), None))
 
+# --- Draw Dome off: the HDRI lights, the camera sees black behind
+d = copy.deepcopy(base)
+env = next(l for l in d['node_library'] if l['id'] == 'Environment Options')
+set_channel(next(e for e in env['extra'] if e['type'] == 'studio_node_channels')['channels'], 'Draw Dome', False, 'bool')
+made.append((save(d, 'Calib-Dome-Off'), None))
+
 # --- Depth of field
 for fstop in (4, 8, 16):
     d = copy.deepcopy(base)

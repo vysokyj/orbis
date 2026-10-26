@@ -22,6 +22,7 @@ pub(super) fn project_ocs(
     env_texture: &str,
     mode: OctaneMode,
     tone: &ToneMapping,
+    hide_dome: bool,
 ) -> String {
     let v3 = |v: [f64; 3]| format!("{:.6} {:.6} {:.6} 0", v[0], v[1], v[2]);
     // The render target carries the scene's name — Octane offers it as the
@@ -31,7 +32,8 @@ pub(super) fn project_ocs(
         .replace("@SCENE_NAME@", &xml_escape(&format!("{scene_name} (DAZ 3D)")))
         .replace("@USD_FILE@", &xml_escape(usd_file))
         .replace("@RESOLUTION@", &format!("{w} {h}"))
-        .replace("@ENV_TEXTURE@", env_texture);
+        .replace("@ENV_TEXTURE@", env_texture)
+        .replace("@VISIBLE_ENVIRONMENT@", if hide_dome { BLACK_BACKPLATE } else { "" });
     // Kernel per mode; the imager follows DAZ's Iray tone mapping. Exposure
     // at DAZ's default EV 13: 1.4 under path tracing — measured against the
     // Iray render of Octane2 (HDRI only) with a Lua sweep, 2026-10-21 —
@@ -112,3 +114,22 @@ const LENS_FOCAL_MM: f64 = 65.0;
 fn lens_fstop(aperture_cm: f64) -> f64 {
     if aperture_cm > 0.0 { LENS_FOCAL_MM / (20.0 * aperture_cm) } else { 1000.0 }
 }
+
+/// The render target's visible environment when DAZ's dome isn't drawn: a
+/// black texture environment as the backplate — the camera sees black, the
+/// HDRI still lights the scene and shows in reflections, as in Iray.
+const BLACK_BACKPLATE: &str = "     <pin name='visibleEnvironment'>
+      <node id='100195' type='37'>
+       <pin name='texture'>
+        <node id='100196' type='33'>
+         <attr name='value' type='8'>0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='visibleEnvironmentBackplate'>
+        <node id='100197' type='11'>
+         <attr name='value' type='1'>1</attr>
+        </node>
+       </pin>
+      </node>
+     </pin>
+";

@@ -1161,7 +1161,7 @@
        </pin>
       </node>
      </pin>
-     <pin name='filmSettings'>
+@VISIBLE_ENVIRONMENT@     <pin name='filmSettings'>
       <node id='100048' type='100'>
        <pin name='resolution'>
         <node id='100049' type='12'>
