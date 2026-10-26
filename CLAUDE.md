@@ -16,6 +16,9 @@ scripts/install.sh                             # build + `orbis install` into "M
 scripts/package.sh                             # plugin zip → dist/ (git-ignored)
 scripts/dev/render-icons.sh                    # assets/icon/*.svg → committed thumbnails
 python3 scripts/dev/fetch-octane-docs.py docs/octane/manual <cache dir>   # Octane manual mirror (git-ignored)
+scripts/dev/daz-render.sh <scene.duf> <out.png> [secs] [samples]   # unattended capped Iray render (own DAZ instance)
+scripts/dev/octane-run.sh <probe.lua> [scene.orbx]   # unattended Octane X Lua probe (starts/quits Octane X)
+python3 scripts/dev/make-calib-scenes.py   # Calib-PBRSkin / Calib-Tone-* / Calib-DOF-* from Calib-Materials.duf
 ```
 CI (`.github/workflows/ci.yml`) tests and packages on every push; a `v*` tag
 attaches the zip to a GitHub release.
@@ -70,3 +73,8 @@ attaches the zip to a GitHub release.
 - Octane X is sandboxed and refuses files opened from outside — don't try to
   launch it with a file; the user opens the `.orbx` from its File → Open.
 - The binary is ad-hoc signed until #3; a downloaded copy is quarantined.
+- Automation: never run a DAZ render and an Octane probe at once (Iray takes
+  the whole CPU; both scripts refuse). `octane-run.sh` needs an unlocked
+  screen — behind a lock Octane X never leaves its simple mode (no Script
+  menu). DAZ renders fine headless; App Nap is off for DAZ
+  (`NSAppSleepDisabled`), else it crawls in the background.

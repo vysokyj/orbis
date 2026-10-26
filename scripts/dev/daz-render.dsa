@@ -1,0 +1,37 @@
+// ORBIS calibration: render a scene with Iray to a file and quit, run from
+// the command line by scripts/dev/daz-render.sh (script arguments: the scene,
+// the output PNG, then the content directories). Its own DAZ instance has its
+// own preferences, so the content directories are added here (not saved).
+// The render's limits come from the scene file, which the wrapper caps.
+// ECMAScript 3 (QtScript): var only, ASCII only.
+
+(function () {
+    var aArgs = App.scriptArgs;
+    var sScene = aArgs[0];
+    var sOut = aArgs[1];
+    var sLog = sOut + ".log";
+    function log(s) {
+        var f = new DzFile(sLog);
+        f.open(DzFile.Append);
+        f.write(s + "\n");
+        f.close();
+        print("ORBIS render: " + s);
+    }
+    var oContent = App.getContentMgr();
+    for (var i = 2; i < aArgs.length; i++) {
+        oContent.addContentDirectory(aArgs[i], false);
+        log("content dir " + aArgs[i]);
+    }
+    log("open " + sScene);
+    var err = oContent.openFile(sScene, false);
+    log("opened: " + err);
+    var mgr = App.getRenderMgr();
+    var opts = mgr.getRenderOptions();
+    opts.renderImgToId = DzRenderOptions.DirectToFile;
+    opts.renderImgFilename = sOut;
+    var t = new Date().getTime();
+    mgr.doRender(opts);
+    log("rendered in " + Math.round((new Date().getTime() - t) / 1000) + " s");
+    log("done");
+    App.delayedExit();
+})();
