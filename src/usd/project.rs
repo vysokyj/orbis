@@ -62,7 +62,8 @@ pub(super) fn project_ocs(
             .replace("@CAM_FOV@", &format!("{:.6} 0 0 0", cam.fov_deg))
             .replace("@CAM_AUTOFOCUS@", "0")
             .replace("@CAM_FOCAL_DEPTH@", &format!("{:.6} 0 0 0", cam.focal_depth))
-            .replace("@CAM_APERTURE@", &format!("{:.6} 0 0 0", cam.aperture_cm));
+            .replace("@CAM_APERTURE@", &format!("{:.6} 0 0 0", cam.aperture_cm))
+            .replace("@CAM_FSTOP@", &format!("{:.6} 0 0 0", lens_fstop(cam.aperture_cm)));
         out.push_str(&offset_node_ids(&rt, k as u64 * 1_000_000));
     }
     out + tail
@@ -87,4 +88,14 @@ pub(super) fn offset_node_ids(s: &str, delta: u64) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// The render target lens's focal length (mm, from the template).
+const LENS_FOCAL_MM: f64 = 65.0;
+
+/// The f-stop matching an aperture radius (cm) on the template's lens: Octane
+/// keeps `fstop` beside `aperture`, and the template's 12 disagreed with every
+/// exported aperture. No aperture (DOF off) → a pinhole.
+fn lens_fstop(aperture_cm: f64) -> f64 {
+    if aperture_cm > 0.0 { LENS_FOCAL_MM / (20.0 * aperture_cm) } else { 1000.0 }
 }

@@ -24,6 +24,9 @@ pub struct Channel {
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Material {
     pub channels: HashMap<String, Channel>,
+    /// On a prop, not a figure: no random-walk skin (grass blades and leaves
+    /// are open cards).
+    pub prop: bool,
 }
 
 impl Material {

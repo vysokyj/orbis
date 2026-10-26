@@ -48,6 +48,8 @@ pub(super) struct DumpNode {
     /// Resolution level DAZ Studio renders at (0 = base, 1 = SubD); the
     /// vertices are always the base mesh's.
     pub(super) lod: i64,
+    /// DAZ class: `DzFigure` for figures and what is fitted to them.
+    pub(super) class: String,
     /// The node's world-space transform — instances of it replace it.
     pub(super) transform: Option<Affine>,
     /// World space, cm, Y up, morphs and pose applied — `x y z` flat in the file.

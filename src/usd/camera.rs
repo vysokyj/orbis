@@ -150,8 +150,10 @@ pub(super) fn camera_from_node(lib: &Library, node: &Value, def: Option<&Value>)
         up: mat_vec(&rot, [0.0, 1.0, 0.0]),
         fov_deg: horizontal_fov(&def_channels, focal_mm, render_size(&lib.duf)),
         focal_depth,
-        // Aperture radius = focal length / (2 · f-number), in cm.
-        aperture_cm: if dof { focal_mm / 10.0 / (2.0 * fstop) } else { 0.0 },
+        // Iray's aperture radius is focal length (mm) / (2 · f-number) taken
+        // as cm — 10× a real lens's: Gladiator's 65 mm f/6 blurs a trunk at
+        // 5.3 m by ~15–20 px (15 px predicted, 1.5 px for a real lens).
+        aperture_cm: if dof { focal_mm / (2.0 * fstop) } else { 0.0 },
     })
 }
 

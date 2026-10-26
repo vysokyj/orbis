@@ -316,7 +316,8 @@ fn camera_comes_from_the_daz_scene() {
     // 65 mm on DAZ's 36 mm frame = 30.96° vertically; the 16:9 render
     // (1280×720) sees 52.4° across.
     assert!((c.fov_deg - 52.42).abs() < 0.05, "{}", c.fov_deg);
-    assert!((c.aperture_cm - 0.2708).abs() < 0.001);
+    // Iray: 65 / (2 · 12) taken as cm.
+    assert!((c.aperture_cm - 2.708).abs() < 0.001);
     assert_eq!(render_size(&lib.duf), (1280, 720));
 }
 

@@ -199,8 +199,14 @@ Group pins carry `dynamicType='12'`.
 - Copies share geometry, environment and kernel; each copy's node ids are
   moved up by 1 000 000 (`offset_node_ids`), environment texture included.
 - Camera: `fov` = horizontal FOV from DAZ's vertical frame fit; DAZ Euler
-  order mapped to Octane's (reverse naming); DOF aperture = focal /
-  (2 · f-stop) when DAZ has DOF on, else 0. Render size from the scene.
+  order mapped to Octane's (reverse naming). Render size from the scene.
+- **DOF**: aperture radius = focal length in mm / (2 · f-stop) **as cm**
+  when DAZ has DOF on, else 0 — 10× a real lens. Why: Gladiator (65 mm,
+  f/6, focus 3.87 m) blurs the trunk at 5.3 m over 10–13 px (10–90 % edge,
+  a ~15–20 px disc) and the trees at 10–20 m by ~40 px; a real lens gives
+  1.5 / 3–5 px, 10× gives 15 / 34–45 px. The lens `fstop` is written to
+  match (`lens_fstop`, the template's 65 mm; 1000 without DOF) — the
+  template's fixed 12 disagreed with the aperture.
 
 ## Render modes
 
@@ -303,7 +309,9 @@ not `Thin Walled`, non-refractive, non-emissive, not metallic (`Metallic
 Weight` under 0.05 and no map) and has a diffuse map. Why not metallic: the
 Gladio outfit is PBRSkin with translucency 0.5 and a metallic map on every
 surface — as skin its metal was lost and the open cloak rendered grey
-instead of red (Gladiator).
+instead of red (Gladiator). And on a figure (the dump's `class` names a figure): props'
+translucency is grass blades and leaves, open cards — Gladiator's grass
+rendered grey.
 
 - `baseColor` and `subsurfaceColor` = the diffuse map (Iray's translucency
   map is pale and bleached skin and make-up) × **½ · ((1 − w) + w · Tc)**

@@ -493,7 +493,9 @@ impl Ocs<'_> {
         // and a metallic map throughout — as skin its metal was lost and the
         // open cloak rendered grey instead of red (Gladiator).
         let metal = mat.metallic() >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some();
-        if skin != SkinShader::None && translucency > 0.0 && !refractive && !emissive && !cutout && !thin && !metal && mat.image("diffuse").is_some() {
+        // Nor is it on a prop: Gladiator's grass (Iray Uber, translucent, not
+        // thin-walled) rendered as grey cards.
+        if skin != SkinShader::None && translucency > 0.0 && !refractive && !emissive && !cutout && !thin && !metal && !mat.prop && mat.image("diffuse").is_some() {
             return self.standard_surface(indent, name, mat, translucency, skin == SkinShader::OpenPbr);
         }
         let id = self.id();
@@ -1086,6 +1088,10 @@ mod tests {
         ]));
         let (kx, _) = material_inputs(&[("Cloak".into(), cloak, 1.0)], &dirs, HashMap::new(), 8750, SkinShader::StandardSurface);
         assert!(kx.contains("type='130'") && kx.contains("<pin name='metallic'>"), "metallic PBRSkin stays Universal: {kx}");
+        let mut grass = (*sss).clone();
+        grass.prop = true;
+        let (gx, _) = material_inputs(&[("Grass".into(), Rc::new(grass), 1.0)], &dirs, HashMap::new(), 8760, SkinShader::StandardSurface);
+        assert!(gx.contains("type='130'"), "a prop's translucency stays Universal");
         let bulbs = mat(json!([
             {"channel": {"id": "Emission Color", "current_value": [1, 1, 1]}},
             {"channel": {"id": "Luminance", "current_value": 50000}},

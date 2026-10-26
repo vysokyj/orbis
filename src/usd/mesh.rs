@@ -397,6 +397,11 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
         // skin in creases, where random-walk skin lit it white (Octane4).
         let visible = if is_shell { n.shell_groups.as_ref() } else { None };
         let mut mesh = assemble(lib, &parts, if refined { None } else { visible });
+        if !fig.class.contains("Figure") {
+            for m in mesh.materials.iter_mut().flatten() {
+                *m = Rc::new(crate::daz_material::Material { prop: true, ..(**m).clone() });
+            }
+        }
         mesh.label = n.label.clone();
         mesh.name = unique_name(&mut names, &n.label);
         // DAZ works in centimeters; write meters. Octane's USD import ignores
