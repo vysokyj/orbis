@@ -240,6 +240,15 @@ default sRGB curve rendered equal light darker in the shadows (Calib-Point
 floor 17 vs Iray's 24 / 255); with 403 every region matches Iray's pixels
 within 1 / 255 (probe 76). The linear match is unchanged, so the exposure
 stays.
+**Exposure** comes from the Tonemapper's Shutter Speed S, Aperture N and
+Film ISO as the ISO-100 EV log2(N² · S) − log2(ISO / 100) (Iray exposes ∝
+ISO / (N² S)); its "Exposure Value" channel only when they're missing. Why:
+DAZ derives the EV from them for show — a scene edited outside DAZ (the
+calibration scripts) can carry a stale EV, and at ISO ≠ 100 DAZ shows
+log2(N² S) + log2(ISO / 100), the opposite sign. The ISO term is the
+photographic tone mapper's, to be confirmed by Calib-Tone-ISO200 (one stop
+brighter than Calib-Tone-Default if right).
+
 **Tone LUT** (#14): Octane's imager has no curve for Iray's burn, crush or
 another gamma — its highlight compression is far weaker (probe 91: 0.70×
 at 0.84 where Iray's Burn 0 gives 0.54×). A scene off the calibrated

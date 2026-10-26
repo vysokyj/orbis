@@ -180,8 +180,19 @@ pub(super) fn scene_tone_mapping(lib: &mut Library) -> ToneMapping {
             Some(&[r, g, b]) => [r * scale, g * scale, b * scale],
             _ => [scale; 3],
         };
+        // Iray exposes by the camera's shutter, f-number and ISO (∝ ISO /
+        // (N² · S)); DAZ's "Exposure Value" is derived from them for show,
+        // and only in a saved scene is it sure to agree. Stated as the EV
+        // that gives the same exposure at ISO 100.
+        let physical = match (ch.get("Shutter Speed"), ch.get("Aperture"), ch.get("Film ISO")) {
+            (Some(s), Some(n), Some(iso)) => match (s.as_f64(), n.as_f64(), iso.as_f64()) {
+                (Some(s), Some(n), Some(iso)) if s > 0.0 && n > 0.0 && iso > 0.0 => Some((n * n * s).log2() - (iso / 100.0).log2()),
+                _ => None,
+            },
+            _ => None,
+        };
         return ToneMapping {
-            exposure_value: num("Exposure Value", 13.0),
+            exposure_value: physical.unwrap_or_else(|| num("Exposure Value", 13.0)),
             cm2_factor: num("cm2 Factor", 1.0),
             white_point,
             burn_highlights: num("Burn Highlights", 1.0),

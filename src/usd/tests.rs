@@ -434,6 +434,19 @@ fn iray_tone_mapping_drives_the_imager() {
     let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Final, &plain);
     assert!(ocs.contains("2.800000 0 0 0") && !ocs.contains("type='103'") && !ocs.contains("@TONE_LUT@"));
     assert_eq!(scene_tone_mapping(&mut Library::new(vec![], json!({"scene": {"nodes": []}}))), ToneMapping::default());
+    // Iray exposes by shutter, f-number and ISO; DAZ's EV is only shown.
+    let physical = |s: f64, n: f64, iso: f64| {
+        let duf = json!({
+            "node_library": [{"id": "Tonemapper Options", "extra": [{"type": "studio_node_channels", "channels": [
+                ch("Exposure Value", json!(13)), ch("Shutter Speed", json!(s)), ch("Aperture", json!(n)), ch("Film ISO", json!(iso)),
+            ]}]}],
+            "scene": {"nodes": [{"id": "Tonemapper Options-1", "url": "#Tonemapper%20Options"}]},
+        });
+        scene_tone_mapping(&mut Library::new(vec![], duf)).exposure_value
+    };
+    assert_eq!(physical(128.0, 8.0, 100.0), 13.0);
+    assert_eq!(physical(64.0, 8.0, 100.0), 12.0, "a stale EV 13 beside a 1/64 s shutter");
+    assert_eq!(physical(128.0, 8.0, 200.0), 12.0, "ISO 200: one stop brighter");
 }
 
 #[test]

@@ -114,6 +114,9 @@ TONES = [('Burn05', {'Burn Highlights': 0.5}), ('Burn0', {'Burn Highlights': 0.0
          ('Crush01', {'Crush Blacks': 0.1}), ('Crush03', {'Crush Blacks': 0.3}),
          ('Gamma18', {'Gamma': 1.8}), ('Gamma26', {'Gamma': 2.6}),
          ('Gladiator', {'Burn Highlights': 0.0, 'Crush Blacks': 0.06985294, 'Gamma': 1.856618}),
+         # ISO 200 at the same shutter and f-number: Iray (exposure ∝ ISO /
+         # (N² S)) one stop brighter; DAZ's derived EV reads 14 there.
+         ('ISO200', {'Film ISO': 200.0, 'Exposure Value': 14.0}),
          ('Default', {})]
 for name, over in TONES:
     d = copy.deepcopy(base)
