@@ -192,6 +192,43 @@ for s0, (label, over) in zip(spheres, SSS):
         set_channel(ch, k, v, TYPES.get(type(v), 'float'))
 made.append((save(d, 'Calib-SSS'), sss_labels))
 
+# --- Iray Uber refraction (#9: glass and water — colour, absorption, thin
+# walls, roughness): the spheres' Uber material, grey, refraction variants.
+GREY_GLASS = [0.6, 0.6, 0.6]
+GLASS = [
+    ('R1 glass', {'Refraction Weight': 1.0}),
+    ('R2 water', {'Refraction Weight': 1.0, 'Refraction Index': 1.33}),
+    ('R3 green', {'Refraction Weight': 1.0, 'Share Glossy Inputs': False, 'Refraction Color': [0.3, 0.9, 0.4]}),
+    ('R4 absorb', {'Refraction Weight': 1.0, 'Transmitted Color': [0.2, 0.5, 0.9], 'Transmitted Measurement Distance': 5.0}),
+    ('R5 thin', {'Refraction Weight': 1.0, 'Thin Walled': True}),
+    ('R6 rough', {'Refraction Weight': 1.0, 'Share Glossy Inputs': False, 'Refraction Roughness': 0.3}),
+    ('R7 half', {'Refraction Weight': 0.5}),
+    ('R8 glossy', {'Refraction Weight': 1.0, 'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.05}),
+]
+d = copy.deepcopy(base)
+d_nodes = {n['id']: n for n in d['scene']['nodes']}
+mlib = {m['id']: m for m in d['material_library']}
+first = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[spheres[0]['id']])
+base_extra = copy.deepcopy(mlib[first['url'].lstrip('#')]['extra'])
+glass_labels = []
+for s0, (label, over) in zip(spheres, GLASS):
+    n = d_nodes[s0['id']]
+    n['label'] = label
+    lib = next(l for l in d['node_library'] if '#' + l['id'].replace('(', '%28').replace(')', '%29') == n['url'])
+    lib['label'] = label
+    glass_labels.append(label)
+    m = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[n['id']])
+    m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': GREY_GLASS}}
+    lm = mlib[m['url'].lstrip('#')]
+    lm['extra'] = copy.deepcopy(base_extra)
+    lm['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': GREY_GLASS}}
+    ch = next(e for e in lm['extra'] if e['type'] == 'studio_material_channels')['channels']
+    for k, v in {'Base Mixing': 0, 'Metallic Weight': 0.0, 'Dual Lobe Specular Weight': 0.0, 'Top Coat Weight': 0.0,
+                 'Translucency Weight': 0.0, 'Glossy Layered Weight': 0.0, 'Thin Walled': False, 'Refraction Index': 1.5,
+                 'Share Glossy Inputs': True, **over}.items():
+        set_channel(ch, k, v, TYPES.get(type(v), 'float'))
+made.append((save(d, 'Calib-Glass'), glass_labels))
+
 # --- Leaf cards (Calib-Leaf, built headless by daz-build-leaf-scene.dsa):
 # its cards come with DAZ's default shader; give them an Iray Uber material
 # (a copy of the sphere's) and the variants. Done once, on the built scene.

@@ -232,6 +232,21 @@ impl Ocs<'_> {
         self.pin_close(indent);
     }
 
+    /// An absorption medium (58) on `medium`: `sigma` (1/m per channel) as
+    /// its colour × `scale`, not inverted.
+    fn absorption_pin(&mut self, indent: usize, sigma: [f32; 3]) {
+        let scale = sigma.iter().copied().fold(0.0f32, f32::max);
+        let id = self.id();
+        self.pin_open(indent, "medium");
+        let i = indent + 1;
+        let _ = writeln!(self.out, "{:i$}<node id='{id}' type='58'>", "");
+        self.value_pin(i + 1, "scale", 6, 9, &format!("{} 0 0 0", num(scale)));
+        self.rgb_pin(i + 1, "absorption", sigma.map(|s| s / scale));
+        self.value_pin(i + 1, "invertAbsorption", 11, 1, "0");
+        let _ = writeln!(self.out, "{:i$}</node>", "");
+        self.pin_close(indent);
+    }
+
     fn float_pin(&mut self, indent: usize, pin: &str, v: f32) {
         self.value_pin(indent, pin, 31, 6, &num(v));
     }
@@ -636,10 +651,32 @@ impl Ocs<'_> {
             self.float_or_map(i, "metallic", mat, ch, metallic.max(0.0));
         }
 
-        let (rough_ch, rough, inverted) = mat.roughness_source();
+        // Iray refraction takes the glossy layer's colour and roughness unless
+        // "Share Glossy Inputs" is off, then its own (Calib-Glass: Refraction
+        // Color and Roughness did nothing while shared; unshared, roughness
+        // 0.3 frosted the sphere). Universal has one roughness: a mostly
+        // refractive surface gets the refraction's.
+        let own_refraction = refraction > 0.0 && mat.float("Share Glossy Inputs").unwrap_or(1.0) == 0.0;
+        let (rough_ch, rough, inverted) = if own_refraction && refraction >= 0.5 {
+            match (mat.float("Base Mixing").unwrap_or(0.0) as i32, mat.float("Refraction Glossiness")) {
+                (1 | 2, Some(g)) => (Some("Refraction Glossiness"), 1.0 - g, true),
+                _ => (Some("Refraction Roughness"), mat.float("Refraction Roughness").unwrap_or(0.0), false),
+            }
+        } else {
+            mat.roughness_source()
+        };
         // A glossiness map would need inverting; use its value only.
         let rough_ch = if inverted { None } else { rough_ch };
-        let rough = iray_roughness(mat, rough, inverted);
+        let mut rough = iray_roughness(mat, rough, inverted);
+        // Octane blurs a refraction ~3× more at the same roughness: Iray's
+        // Refraction Roughness 0.3 (0.09 squared) matched Octane's 0.02 –
+        // 0.03, not 0.09 (frosted) (Calib-Glass R6).
+        let rough_ch = if own_refraction && refraction >= 0.5 {
+            rough *= REFRACTION_ROUGHNESS_SCALE;
+            None
+        } else {
+            rough_ch
+        };
         self.float_or_map(i, "roughness", mat, rough_ch, rough.clamp(0.0, 1.0));
 
         // Iray's Top Coat: a clear dielectric layer over everything.
@@ -664,11 +701,20 @@ impl Ocs<'_> {
             self.float_pin(i, "coatingIor", mat.float("Top Coat IOR").unwrap_or(1.5));
         }
 
-        // Glass-like surfaces (cornea, windows): Iray refraction → transmission.
+        // Glass-like surfaces (cornea, windows): Iray refraction → transmission,
+        // tinted by the refraction's colour (see `own_refraction`).
         if refraction > 0.0 {
-            self.float_pin(i, "transmission", refraction);
+            let colour = mat.color(if own_refraction { "Refraction Color" } else { "Glossy Color" }).unwrap_or([1.0; 3]);
+            self.rgb_pin(i, "transmission", colour.map(|c| c * refraction));
             let ior = mat.float("Refraction Index").unwrap_or(1.5);
             self.float_pin(i, "ior", ior);
+            if thin {
+                // Thin Wall (2): no bending — Iray's thin-walled glass sphere
+                // showed the background straight through (Calib-Glass).
+                self.value_pin(i, "transmissionType", 57, 2, "2");
+            } else if let Some(sigma) = absorption(mat) {
+                self.absorption_pin(i, sigma);
+            }
             // Let light through for shadows (the iris behind a cornea).
             self.value_pin(i, "fake_shadows", 11, 1, "1");
         }
@@ -697,6 +743,24 @@ impl Ocs<'_> {
 fn reflectivity_share(r: Option<f32>) -> f32 {
     (2.0 * r.unwrap_or(0.5)).clamp(0.0, 1.0)
 }
+
+/// Iray's volume absorption as an absorption coefficient per channel (1/m):
+/// light keeps `Transmitted Color` (linear) after `Transmitted Measurement
+/// Distance` (cm), so σ = −ln(colour) / distance. Black is Iray's default
+/// and means none (Calib-Glass: the clear spheres stayed clear), as does
+/// white or a zero distance.
+fn absorption(mat: &Material) -> Option<[f32; 3]> {
+    let colour = mat.color("Transmitted Color")?;
+    let distance_m = mat.float("Transmitted Measurement Distance").unwrap_or(0.0) * CM_PER_M_INV;
+    let (lo, hi) = colour.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &c| (lo.min(c), hi.max(c)));
+    (distance_m > 0.0 && hi > 0.0 && lo < 1.0).then(|| colour.map(|c| -c.clamp(1e-4, 1.0).ln() / distance_m))
+}
+
+/// See the roughness in `universal`.
+const REFRACTION_ROUGHNESS_SCALE: f32 = 0.3;
+
+/// Meters per centimeter.
+const CM_PER_M_INV: f32 = 0.01;
 
 /// The reflectivity beyond Universal's full specular: 2r − 1 for r > 0.5.
 fn glossy_excess(r: Option<f32>) -> f32 {
@@ -1235,6 +1299,30 @@ mod tests {
         assert!(wx.contains("<pin name='transmission'>") && wx.contains("<pin name='transmissionType'>"), "{wx}");
         let albedo = &wx[wx.find("<pin name='albedo'>").unwrap()..];
         assert!(albedo[..200].contains("0.5 0.5 0.5"), "{albedo}");
+        // Tinted glass with its own refraction inputs and a blue volume.
+        let bottle = mat(json!([
+            {"channel": {"id": "Refraction Weight", "current_value": 1}},
+            {"channel": {"id": "Share Glossy Inputs", "current_value": false}},
+            {"channel": {"id": "Refraction Color", "current_value": [1, 0.5, 1]}},
+            {"channel": {"id": "Refraction Roughness", "current_value": 0.3}},
+            {"channel": {"id": "Transmitted Color", "current_value": [0.5, 0.5, 1]}},
+            {"channel": {"id": "Transmitted Measurement Distance", "current_value": 5}},
+        ]));
+        let (bx, _) = material_inputs(&[("Bottle".into(), bottle, 1.0)], &dirs, HashMap::new(), 8980, SkinShader::None);
+        let tr = &bx[bx.find("<pin name='transmission'>").unwrap()..];
+        assert!(tr[..200].contains("1 0.217638 1"), "refraction colour, linear: {tr}");
+        assert!(bx.contains("<attr name='value' type='6'>0.027</attr>"), "refraction roughness, squared, × 0.3: {bx}");
+        // −ln(0.5^2.2) / 0.05 m = 30.5 per m in R and G, none in B.
+        let medium = &bx[bx.find("<pin name='medium'>").expect("absorption medium")..];
+        assert!(medium.contains("type='58'") && medium.contains("30.49") && medium.contains("1 1 0"), "{medium}");
+        // Thin-walled: no bending, no volume.
+        let pane = mat(json!([
+            {"channel": {"id": "Refraction Weight", "current_value": 1}},
+            {"channel": {"id": "Thin Walled", "current_value": true}},
+            {"channel": {"id": "Transmitted Color", "current_value": [0.5, 0.5, 1]}},
+        ]));
+        let (px, _) = material_inputs(&[("Pane".into(), pane, 1.0)], &dirs, HashMap::new(), 8990, SkinShader::None);
+        assert!(px.contains("<pin name='transmissionType'>") && !px.contains("<pin name='medium'>"), "{px}");
         // On an open card it passes twice the share.
         let leaf = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},

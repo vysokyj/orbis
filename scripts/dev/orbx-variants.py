@@ -32,6 +32,8 @@ Hypotheses (by the Iray channels the variants stand for):
 - `daylight=<model>,<power>,<sun>,<ground start>`: the Daylight
   environment's model, power, sunIntensity and groundStartAngle.
 - `turbidity=<t>`: the Daylight environment's turbidity.
+- `absorb-x<k>`: every absorption medium's scale × k.
+- `thin-ior1`: thin-walled glass (transmissionType 2) at IOR 1.
 - `dl-ior`: the same for PBRSkin's Dual Lobe Specular Reflectivity.
 - `twosided-x1`: two-sided emitters at the one-sided power (the export
   doubles it, `TWO_SIDED_POWER`, assuming Octane splits it over both faces).
@@ -119,6 +121,13 @@ def halve_double_sided(ocs):
 def apply(ocs, hyp):
     if hyp == 'twosided-x1':
         return halve_double_sided(ocs)
+    if hyp.startswith('absorb-x'):
+        k = float(hyp[len('absorb-x'):])
+        pat = r"(<node id='\d+' type='58'>\s*<pin name='scale'>\s*<node[^>]*>\s*<attr name='value' type='9'>)([0-9.eE+-]+)"
+        return re.sub(pat, lambda m: m.group(1) + f'{float(m.group(2)) * k:.6g}', ocs)
+    if hyp == 'thin-ior1':
+        pat = r"(<pin name='ior'>\s*<node[^>]*>\s*<attr name='value' type='6'>)[^<]*(</attr>\s*</node>\s*</pin>\s*<pin name='transmissionType'>\s*<node[^>]*>\s*<attr name='value' type='2'>2)"
+        return re.sub(pat, lambda m: m.group(1) + '1' + m.group(2), ocs)
     if hyp.startswith('turbidity='):
         return re.sub(r"(<node id='100212' type='6'>\s*<attr name='value' type='9'>)[^<]*", lambda m: m.group(1) + hyp.split('=')[1] + ' 0 0 0', ocs)
     if hyp.startswith('daylight='):

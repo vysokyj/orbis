@@ -358,9 +358,27 @@ Every material input (20007) is filled — Octane doesn't convert
   same leather's trousers.
 - Base Mixing 1 ignores Metallic Weight; a black base under a strong white
   gloss becomes a gloss-coloured metal (mirrors).
-- refraction → `transmission` + IOR (`ior`, Dielectric IOR — Universal
-  has no `index4`, probe 82; `ior` 2.0 brightened Calib-Materials' gloss
-  1.08 → 1.15), transparent shadows.
+- **Refraction** (glass, water) → `transmission` = Refraction Weight ×
+  the refraction's colour, IOR on `ior` (Dielectric IOR — Universal has no
+  `index4`, probe 82; `ior` 2.0 brightened Calib-Materials' gloss 1.08 →
+  1.15), transparent shadows. Iray's refraction takes the glossy layer's
+  colour and roughness while **Share Glossy Inputs** is on (the default),
+  its own Refraction Color / Roughness (Glossiness in Base Mixing 1 / 2)
+  when off: shared, a green Refraction Color and roughness 0.3 changed
+  nothing in Iray. A mostly refractive surface (weight ≥ 0.5) with its own
+  roughness gets it on Universal's one `roughness`, squared as usual and
+  × 0.3: Iray's 0.3 matched Octane's 0.02 – 0.03, Octane frosted at 0.09.
+  **Thin Walled** → `transmissionType` 2 (Thin wall), no volume. Iray shows
+  a thin-walled glass sphere without any reflection — invisible; Octane's
+  thin wall keeps its Fresnel reflection, kept as the more plausible.
+  **Absorption**: `Transmitted Color` T (linear) after `Transmitted
+  Measurement Distance` d (cm) → an absorption medium (58) on `medium`,
+  σ = −ln T / d per meter (`scale` = max σ, `absorption` = σ / scale,
+  `invertAbsorption` 0); black T (Iray's default) and white mean none —
+  the clear spheres stayed clear. Calib-Glass (Octane / Iray): clear,
+  water, green, thin, rough, half, glossy 0.95 – 1.09; the absorbing blue
+  sphere's core 0.59 in blue (Octane's spectral upsampling of a deep
+  colour absorbs more), its surface keeps reflections Iray drops.
 - Iray UV tiling → each texture's transform (scale 1/N); textures **wrap**
   (UDIM tiles).
 - **Colour space**: colour maps sRGB, data maps (roughness, opacity,
