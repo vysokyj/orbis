@@ -17,6 +17,12 @@ Hypotheses (by the Iray channels the variants stand for):
   whether Universal takes a specular above 1.
 - `gloss-coat`: the reflectivity above 0.5 (specular capped at 1) as a
   clear coating of weight 2·r − 1 at the glossy roughness.
+- `transl-diffuse`: Iray translucency w on props as Universal's diffuse
+  transmission: albedo × (1 − w), `transmission` albedo × w (Translucency
+  Color = the base colour in Calib-SSS / P6), `transmissionType` 1
+  (Diffuse; 3, Thin Wall (Diffuse), when thin-walled).
+- `transl-thin`: the same, `transmissionType` 3 for all.
+- `transl-dark`: no transmission, albedo × (1 − 0.67 w) (the measured loss).
 - `dl-ior`: the same for PBRSkin's Dual Lobe Specular Reflectivity.
 - `twosided-x1`: two-sided emitters at the one-sided power (the export
   doubles it, `TWO_SIDED_POWER`, assuming Octane splits it over both faces).
@@ -38,6 +44,12 @@ REFLECTIVITY = {
 }
 # Calib-Glossy's G4 roughness as the export writes it (its `roughness` pin).
 COAT_ROUGHNESS = os.environ.get('COAT_ROUGHNESS', '0.09')
+# Material → (Translucency Weight, thin-walled) (Calib-SSS S*, Calib-PBRSkin P6 / P8).
+TRANSLUCENT = {
+    'S2_transl_0_5': (0.5, False), 'S3_transl_1': (1.0, False), 'S4_thin_walled': (0.5, True),
+    'S5_red_transmit': (0.5, False), 'S6_sss_amount': (0.5, False), 'S7_chromatic': (0.5, False),
+    'S8_short_scatter': (0.5, False), 'P6_Gladio_cloth': (0.5, False), 'P8_Gladio_armour': (0.85, False),
+}
 next_id = [990000]
 
 
@@ -72,6 +84,14 @@ def set_pin(ocs, material, pin, node_xml):
     return ocs[:start] + block + ocs[end:]
 
 
+def albedo_of(ocs, material):
+    m = re.search(rf"name='/Scene/Materials/{re.escape(material)}[^']*'", ocs)
+    if not m:
+        return None
+    a = re.search(r"<pin name='albedo'>\s*<node[^>]*>\s*<attr name='value' type='8'>([^<]*)</attr>", ocs[m.end():])
+    return [float(x) for x in a.group(1).split()] if a else None
+
+
 def ior_from(r):
     f0 = 0.08 * r
     s = math.sqrt(f0)
@@ -89,6 +109,19 @@ def halve_double_sided(ocs):
 def apply(ocs, hyp):
     if hyp == 'twosided-x1':
         return halve_double_sided(ocs)
+    if hyp.startswith('transl-'):
+        for mat, (w, thin) in TRANSLUCENT.items():
+            a = albedo_of(ocs, mat)
+            if a is None:
+                continue
+            rgb = lambda k: ' '.join(f'{c * k:.6f}' for c in a)
+            if hyp == 'transl-dark':
+                ocs = set_pin(ocs, mat, 'albedo', value_node(33, 8, rgb(1 - 0.67 * w)))
+                continue
+            ocs = set_pin(ocs, mat, 'albedo', value_node(33, 8, rgb(1 - w)))
+            ocs = set_pin(ocs, mat, 'transmission', value_node(33, 8, rgb(w)))
+            ocs = set_pin(ocs, mat, 'transmissionType', value_node(57, 2, '3' if thin or hyp == 'transl-thin' else '1'))
+        return ocs
     for mat, r in REFLECTIVITY.items():
         dual = mat.startswith(('P', 'G8'))
         if hyp in ('gloss-2r', 'gloss-uncapped') and not dual:

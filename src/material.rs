@@ -519,7 +519,15 @@ impl Ocs<'_> {
         // surface (cornea, eye moisture, glass) has no diffuse left — a white
         // albedo there renders a milky shell over the eye.
         let refraction = mat.float("Refraction Weight").unwrap_or(0.0).clamp(0.0, 1.0);
-        let diffuse_weight = 1.0 - refraction;
+        // Iray translucency (off the skin path) passes its share of the
+        // diffuse through the surface: Universal's diffuse transmission. Left
+        // out, Calib-SSS's translucent spheres rendered 1.6 – 3.2 × Iray
+        // (Translucency Weight 0.5 / 1), the Gladio cloth sphere 1.72; with it
+        // 0.91 – 0.96 and 1.23 (like its neighbours). Not on metal (the
+        // transmission swallowed P8's metallic 0.75: 0.23) nor in weighted
+        // mixing, whose weights `weighted_mix` already shares out.
+        let transmit = if metal || refractive || mat.float("Base Mixing").unwrap_or(0.0) as i32 == 2 { 0.0 } else { translucency };
+        let diffuse_weight = (1.0 - refraction) * (1.0 - transmit);
 
         // Iray "Base Mixing" 1 (specular/glossiness) ignores Metallic Weight;
         // a black base under a strong white gloss there is a mirror —
@@ -560,6 +568,17 @@ impl Ocs<'_> {
                 Some(asset) => self.tinted_image_pin(i, "albedo", &asset, diffuse_weight * mix, tint),
                 None => self.rgb_pin(i, "albedo", mat.base_color().map(|c| c * diffuse_weight)),
             }
+        }
+
+        if transmit > 0.0 {
+            let tc = mat.color("Translucency Color").unwrap_or([1.0; 3]);
+            match mat.image("Translucency Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
+                Some(asset) => self.tinted_image_pin(i, "transmission", &asset, transmit, tc),
+                None => self.rgb_pin(i, "transmission", tc.map(|c| c * transmit)),
+            }
+            // Diffuse (1), or Thin Wall (Diffuse) (3) for a thin-walled sheet:
+            // Calib-SSS rendered the two alike on closed spheres.
+            self.value_pin(i, "transmissionType", 57, 2, if thin { "3" } else { "1" });
         }
 
         // Iray gives a surface a dielectric gloss only through its glossy
@@ -1201,6 +1220,16 @@ mod tests {
         let coat = &sx[sx.find("<pin name='coating'>").expect("excess gloss as a coating")..];
         assert!(coat[..300].contains("1 1 1"), "{coat}");
         assert!(sx.contains("<pin name='coatingRoughness'>"), "{sx}");
+        // A translucent prop: half its diffuse passes through.
+        let wax = mat(json!([
+            {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},
+            {"channel": {"id": "Translucency Weight", "current_value": 0.5}},
+            {"channel": {"id": "Translucency Color", "current_value": [1, 1, 1]}},
+        ]));
+        let (wx, _) = material_inputs(&[("Wax".into(), wax, 1.0)], &dirs, HashMap::new(), 8950, SkinShader::None);
+        assert!(wx.contains("<pin name='transmission'>") && wx.contains("<pin name='transmissionType'>"), "{wx}");
+        let albedo = &wx[wx.find("<pin name='albedo'>").unwrap()..];
+        assert!(albedo[..200].contains("0.5 0.5 0.5"), "{albedo}");
         let wall = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}},
             {"channel": {"id": "Horizontal Tiles", "current_value": 6}},

@@ -10,7 +10,7 @@ default ~/Library/Caches/orbis/calib/octane). Both are decoded to linear with ga
 2.2 (Iray's Gamma 2.2 tone mapping, the export's Gamma 2.2 response) and
 compared as Octane / Iray luminance per region:
 
-- sphere scenes (Calib-PBRSkin, -Glossy, -Tone-*, -DOF-*): each sphere,
+- sphere scenes (Calib-PBRSkin, -Glossy, -SSS, -Tone-*, -DOF-*): each sphere,
   found in Calib-Glossy's Iray render (the spheres are red there), and the
   floor in front;
 - light scenes (Calib-L-*): floor front / left / right, the cubes, the
@@ -109,7 +109,7 @@ for opath in sorted(glob.glob(os.path.join(oct_dir, 'Calib-*.png'))):
         for k, box in LIGHT_REGIONS.items():
             r = ratio(o, i, box)
             cells.append(f'{k} {r:.2f}' if r else f'{k} –')
-    elif boxes and any(name.startswith(p) for p in ('Calib-PBRSkin', 'Calib-Glossy', 'Calib-Tone', 'Calib-DOF')):
+    elif boxes and any(name.startswith(p) for p in ('Calib-PBRSkin', 'Calib-Glossy', 'Calib-Tone', 'Calib-DOF', 'Calib-SSS')):
         rs = [ratio(o, i, b) for b in boxes]
         cells.append('spheres ' + ' '.join(f'{r:.2f}' if r else '–' for r in rs))
         fr = ratio(o, i, (boxes[0][1] + 60, boxes[0][1] + 140, 700, 1220))

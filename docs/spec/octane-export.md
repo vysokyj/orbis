@@ -306,6 +306,15 @@ Every material input (20007) is filled — Octane doesn't convert
   Layered Weight` map × the weight, else glossy colour × weight when below 1
   — Universal's full white default made the GSOV4 leather (gloss 0.33 through
   a seam mask) 3.4× Iray's sheen; now 1.13–1.16 (Fetroom).
+- **Translucency** off the skin path (props, cloth, cards) → Universal's
+  diffuse transmission: `albedo` × (1 − w), `transmission` = Translucency
+  Color (map) × w, `transmissionType` 1 (Diffuse), 3 (Thin Wall (Diffuse))
+  when thin-walled. Not on metal, refraction or Base Mixing 2 (its weights
+  are shared out by the weighted mix). Why: left out, Calib-SSS's spheres at
+  w 0.5 / 1 rendered 1.6 – 1.7 / 3.2 × Iray and Calib-PBRSkin's Gladio cloth
+  1.72; with it 0.91 – 0.96 and 1.23 (its neighbours 1.14 – 1.26), the two
+  types alike on closed spheres. On P8 (metallic 0.75) the transmission
+  swallowed the metal (0.23 × Iray). Calib-Leaf 0.83 → 0.86.
 - **Glossy Reflectivity** r (0.5 = Universal's full specular) scales the
   glossy weight by min(2r, 1) (PBRSkin's Dual Lobe Specular Reflectivity
   likewise); above 0.5 the excess 2r − 1 (× glossy weight, × glossy colour)
