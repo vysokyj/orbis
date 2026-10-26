@@ -20,14 +20,12 @@ light measured in the bottom 10–20 % of the range. Here:
   shape, angle, units); the spot's profile on an empty floor seen from
   straight above.
 
-The scene dumps of the originals are stored for every variant (format 2),
-the sphere's vertices moved with it, for `orbis export`.
+Existing scenes are kept (--force rewrites): calib-render.py tunes their
+exposure in place. Dump and export them with scripts/dev/daz-dump.sh.
 """
-import copy, glob, gzip, json, os, subprocess, sys
+import gzip, json, os, sys
 
-scenes = sys.argv[1] if len(sys.argv) > 1 else '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes'
-orbis = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../../target/release/orbis')
-SPHERE_MOVE = (100.0, -120.0, 0.0)   # x 20 → 120, y 120 → 0 (cm)
+scenes = next((a for a in sys.argv[1:] if not a.startswith('--')), None) or '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes'
 
 
 def load(name):
@@ -137,18 +135,7 @@ VARIANTS = [
     ('Emit-W', 'Calib-Emissive', False, lambda d: emitter(d, {'Luminance Units': 5, 'Luminance': 50.0})),
 ]
 
-dump_of = {}
-for src in sorted({v[1] for v in VARIANTS}):
-    path = sorted(glob.glob(os.path.expanduser(f'~/Library/Caches/orbis/dumps/{src}-*.json')))[-1]
-    dump = json.load(open(path))
-    dump['format_version'] = 2
-    dump.setdefault('instances', [])
-    for n in dump['nodes']:
-        if n['label'] == 'Sphere':
-            n['vertices'] = [v + SPHERE_MOVE[i % 3] for i, v in enumerate(n['vertices'])]
-    dump_of[src] = dump
-
-only = set(sys.argv[2:])
+only = {a for a in sys.argv[2:] if not a.startswith('--')}
 for name, src, profile, edit in VARIANTS:
     if only and name not in only:
         continue
@@ -156,13 +143,7 @@ for name, src, profile, edit in VARIANTS:
     clean(d, profile)
     edit(d)
     path = os.path.join(scenes, f'Calib-L-{name}.duf')
+    if os.path.exists(path) and '--force' not in sys.argv:
+        continue   # it may carry the exposure calib-render.py tuned
     open(path, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
-    dd = copy.deepcopy(dump_of[src])
-    dd['scene'] = path
-    tmp = path + '.dump.json'
-    json.dump(dd, open(tmp, 'w'))
-    subprocess.run([orbis, 'export', path, '--dump', tmp, '-o', '/dev/null'], check=False,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if os.path.exists(tmp):
-        os.remove(tmp)
     print(path)

@@ -16,12 +16,12 @@ a plane under an HDRI) that each change one thing, written beside it.
 
 Renders are capped by samples, not time (scripts/dev/daz-render.sh): Iray is
 then deterministic, so the tone variants share their noise pixel for pixel.
-The scene dump of Calib-Materials (the geometry doesn't change) is stored for
-every variant, at format 2, for `orbis export`.
+Existing scenes are kept (--force rewrites); dump and export the new ones
+with scripts/dev/daz-dump.sh.
 """
 import copy, glob, gzip, json, os, subprocess, sys
 
-src = sys.argv[1] if len(sys.argv) > 1 else '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes/Calib-Materials.duf'
+src = next((a for a in sys.argv[1:] if a.endswith('.duf')), None) or '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes/Calib-Materials.duf'
 out_dir = os.path.dirname(src)
 
 
@@ -30,9 +30,17 @@ def load(p):
     return json.loads(gzip.decompress(raw) if raw[:2] == b'\x1f\x8b' else raw)
 
 
+FORCE = '--force' in sys.argv
+
+
 def save(d, name):
+    """Write a scene unless it exists (it may carry a tuned exposure);
+    --force rewrites. Returns its path, None when kept."""
     p = os.path.join(out_dir, name + '.duf')
+    if os.path.exists(p) and not FORCE:
+        return None
     open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    print(p)
     return p
 
 
@@ -84,7 +92,7 @@ VARIANTS = [
                                'Specular Lobe 1 Roughness': 0.4, 'Translucency Enable': True, 'Translucency Weight': 0.85,
                                'Translucency Color': GREY}),
 ]
-TYPES = {bool: 'bool', float: 'float', list: 'float_color'}
+TYPES = {bool: 'bool', float: 'float', int: 'int', list: 'float_color'}
 
 made = []
 
@@ -108,6 +116,39 @@ for s0, (label, colour, over) in zip(spheres, VARIANTS):
     m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': colour}}
     m['extra'] = [{'type': 'studio/material/daz_brick'}, {'type': 'studio_material_channels', 'channels': channels}]
 made.append((save(d, 'Calib-PBRSkin'), pbr_labels))
+
+# --- Iray Uber gloss (#15: Glossy Reflectivity is set in 128 scenes and not
+# read): the spheres' own Uber materials, red, PBR metallicity / roughness.
+UBER = [
+    ('G1 matte', {'Glossy Layered Weight': 0.0}),
+    ('G2 refl 0.5', {'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.3}),
+    ('G3 refl 0.25', {'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.25, 'Glossy Roughness': 0.3}),
+    ('G4 refl 1', {'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 1.0, 'Glossy Roughness': 0.3}),
+    ('G5 refl 0', {'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.0, 'Glossy Roughness': 0.3}),
+    ('G6 rough 0.1', {'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.1}),
+    ('G7 rough 0.6', {'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.6}),
+    ('G8 dual lobe', {'Glossy Layered Weight': 0.0, 'Dual Lobe Specular Weight': 1.0, 'Dual Lobe Specular Reflectivity': 0.5,
+                      'Specular Lobe 1 Roughness': 0.3}),
+]
+d = copy.deepcopy(base)
+d_nodes = {n['id']: n for n in d['scene']['nodes']}
+mlib = {m['id']: m for m in d['material_library']}
+uber_labels = []
+for s0, (label, over) in zip(spheres, UBER):
+    n = d_nodes[s0['id']]
+    n['label'] = label
+    lib = next(l for l in d['node_library'] if '#' + l['id'].replace('(', '%28').replace(')', '%29') == n['url'])
+    lib['label'] = label
+    uber_labels.append(label)
+    m = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[n['id']])
+    m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': RED}}
+    lm = mlib[m['url'].lstrip('#')]
+    ch = next(e for e in lm['extra'] if e['type'] == 'studio_material_channels')['channels']
+    for k, v in {'Base Mixing': 0, 'Metallic Weight': 0.0, 'Dual Lobe Specular Weight': 0.0, 'Top Coat Weight': 0.0,
+                 'Translucency Weight': 0.0, 'Refraction Weight': 0.0, **over}.items():
+        set_channel(ch, k, v, TYPES.get(type(v), 'float'))
+    lm['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': RED}}
+made.append((save(d, 'Calib-Glossy'), uber_labels))
 
 # --- Tone mapping
 TONES = [('Burn05', {'Burn Highlights': 0.5}), ('Burn0', {'Burn Highlights': 0.0}),
@@ -137,26 +178,4 @@ for fstop in (4, 8, 16):
     set_channel(ch, 'Aperature', float(fstop), 'float')
     made.append((save(d, f'Calib-DOF-f{fstop}'), None))
 
-# --- Scene dumps (format 2) for `orbis export`
-dumps = sorted(glob.glob(os.path.expanduser('~/Library/Caches/orbis/dumps/Calib-Materials-*.json')))
-dump = json.load(open(dumps[-1]))
-dump['format_version'] = 2
-dump.setdefault('instances', [])
-orbis = os.path.join(os.path.dirname(__file__), '../../target/release/orbis')
-for path, labels in made:
-    dd = copy.deepcopy(dump)
-    dd['scene'] = path
-    if labels:
-        geo = [n for n in dd['nodes'] if n['label'] != 'Plane']
-        old = ['M0 matte', 'M0 gloss03', 'M0 gloss1', 'M1 rough', 'M1 smooth', 'M1 tinted', 'M2 weighted', 'TopCoat']
-        by_label = {n['label']: n for n in geo}
-        # Same left-to-right order as the scene's spheres.
-        for o, new in zip(old, labels):
-            by_label[o]['label'] = new
-    tmp = path + '.dump.json'
-    json.dump(dd, open(tmp, 'w'))
-    subprocess.run([orbis, 'export', path, '--dump', tmp, '-o', '/dev/null'], check=False,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if os.path.exists(tmp):
-        os.remove(tmp)
-    print(path)
+# Scene dumps: scripts/dev/daz-dump.sh (DAZ evaluates each scene headless).

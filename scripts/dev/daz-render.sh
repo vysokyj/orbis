@@ -48,6 +48,11 @@ done
 rm -f "$out" "$out.log"
 # App Nap off for DAZ Studio (passed as an argument, DAZ takes it for a scene).
 defaults write com.daz.Studio6 NSAppSleepDisabled -bool YES
-"$app" -instanceName orbis-render -noPrompt "$@" "$here/daz-render.dsa"
+"$app" -instanceName orbis-render -noPrompt "$@" "$here/daz-render.dsa" &
+pid=$!
+# Kill it once the render is saved: quitting cleans up for minutes.
+while kill -0 $pid 2>/dev/null && ! grep -q '^done$' "$out.log" 2>/dev/null; do sleep 1; done
+kill -9 $pid 2>/dev/null || true
+wait $pid 2>/dev/null || true
 cat "$out.log" 2>/dev/null || true
 test -f "$out"

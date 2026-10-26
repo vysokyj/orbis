@@ -23,6 +23,11 @@ pub fn dimensions(data: &[u8]) -> Option<(u32, u32)> {
     ImageReader::new(Cursor::new(data)).with_guessed_format().ok()?.into_dimensions().ok()
 }
 
+/// A texture file's size in pixels, from its header alone.
+pub fn file_dimensions(path: &std::path::Path) -> Option<(u32, u32)> {
+    ImageReader::open(path).ok()?.with_guessed_format().ok()?.into_dimensions().ok()
+}
+
 fn decoded_bytes((w, h): (u32, u32), limit: Option<u32>) -> u64 {
     let scale = limit.map(|l| (l as f64 / w.max(h) as f64).min(1.0)).unwrap_or(1.0);
     let (w, h) = ((w as f64 * scale).round() as u64, (h as f64 * scale).round() as u64);

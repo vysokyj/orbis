@@ -22,7 +22,6 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::dson::{decompress_scene, percent_decode};
-use crate::orbx::write_orbx;
 
 mod camera;
 mod dump;
@@ -161,9 +160,6 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     progress.report(35, "writing the USD scene");
     let lights = scene_lights(&mut lib);
     let (layer, materials) = write_usda(&meshes, &lights);
-    let mut usdz = Vec::new();
-    write_usdz(&mut usdz, &[("scene.usda", layer.as_bytes())])?;
-    drop(layer);
     let mut cameras = scene_cameras(&mut lib);
     if cameras.is_empty() {
         tracing::info!("USD export: no camera in the scene, framing all meshes");
@@ -184,6 +180,9 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
         .as_ref()
         .filter(|e| e.map.is_some() && !opts.no_ground)
         .and_then(|e| Some((e.ground_shadow?, ground_height(e, &meshes))));
+    // The meshes are in the layer now; a big scene's (19.8 M points) held
+    // beside it, its package and every texture peaked at 16 GB.
+    drop(meshes);
     let (scene_nodes, mesh_connect) = crate::material::scene_lights(&octane_spots(&lights), ground, 170_000, 1439);
     let tone = scene_tone_mapping(&mut lib);
     let ocs = project_ocs(name, USDZ_ASSET, &cameras, render_size(&lib.duf), &env_texture, opts.octane_mode, &tone)
@@ -197,32 +196,52 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     for t in &textures.missing {
         tracing::info!(texture = %t, "Octane export: texture not found");
     }
-    let mut images = Vec::with_capacity(textures.files.len() + textures.generated.len());
-    let n_files = textures.files.len().max(1);
-    for (k, (asset, file)) in textures.files.iter().enumerate() {
-        progress.report(65 + (25 * k / n_files) as u32, &format!("reading textures ({}/{})", k + 1, textures.files.len()));
-        images.push((asset.clone(), std::fs::read(file).with_context(|| format!("reading {}", file.display()))?));
-    }
-    images.append(&mut textures.generated);
     // Octane holds textures decoded; scale them down when they'd crowd out
-    // the GPU's (unified) memory.
-    let dims: Vec<_> = images.iter().filter_map(|(_, d)| crate::texture_budget::dimensions(d)).collect();
+    // the GPU's (unified) memory. Only their headers are read here; each is
+    // read (and scaled) as it goes into the package.
+    let dims: Vec<_> = textures
+        .files
+        .iter()
+        .filter_map(|(_, f)| crate::texture_budget::file_dimensions(f))
+        .chain(textures.generated.iter().filter_map(|(_, d)| crate::texture_budget::dimensions(d)))
+        .collect();
     report.texture_limit = crate::texture_budget::choose_limit(&dims, crate::texture_budget::BUDGET_BYTES);
     if let Some(limit) = report.texture_limit {
-        progress.report(90, "scaling textures down");
-        report.textures_scaled = crate::texture_budget::downscale_all(&mut images, limit);
-        tracing::info!(limit, scaled = report.textures_scaled, "Octane export: textures scaled down to fit the memory budget");
+        tracing::info!(limit, "Octane export: textures scaled down to fit the memory budget");
     }
-    let asset = format!("assets/{USDZ_ASSET}");
-    let mut files: Vec<(&str, &[u8])> = vec![(&asset, &usdz)];
-    files.extend(images.iter().map(|(a, d)| (a.as_str(), d.as_slice())));
-    let lut = (!tone.is_plain()).then(|| tone.cube_lut());
-    if let Some(lut) = &lut {
-        files.push((TONE_LUT_ASSET, lut.as_bytes()));
-    }
-    files.push(("project.ocs", ocs.as_bytes()));
-    progress.report(95, "writing the .orbx");
-    write_atomically(out, |f| write_orbx(f, OCTANE_VERSION, &files))?;
+    let n_files = textures.files.len().max(1);
+    let mut scaled = 0;
+    progress.report(65, "writing the .orbx");
+    write_atomically(out, |f| {
+        let mut w = crate::orbx::OrbxWriter::new(f, OCTANE_VERSION)?;
+        // The scene: the layer streamed into its .usdz inside the package.
+        w.begin(&format!("assets/{USDZ_ASSET}"))?;
+        write_usdz(&mut w, &[("scene.usda", layer.as_bytes())])?;
+        for (k, (asset, file)) in textures.files.iter().enumerate() {
+            progress.report(65 + (30 * k / n_files) as u32, &format!("writing textures ({}/{})", k + 1, textures.files.len()));
+            let data = std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
+            let data = match report.texture_limit.map(|l| crate::texture_budget::downscale(&data, l)) {
+                Some(Ok(Some(small))) => {
+                    scaled += 1;
+                    small
+                }
+                _ => data,
+            };
+            w.add(asset, &data)?;
+        }
+        for (asset, data) in &textures.generated {
+            match report.texture_limit.map(|l| crate::texture_budget::downscale(data, l)) {
+                Some(Ok(Some(small))) => {
+                    scaled += 1;
+                    w.add(asset, &small)?;
+                }
+                _ => w.add(asset, data)?,
+            }
+        }
+        w.add("project.ocs", ocs.as_bytes())?;
+        w.finish()
+    })?;
+    report.textures_scaled = scaled;
     progress.report(100, "done");
     Ok(report)
 }

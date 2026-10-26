@@ -45,76 +45,161 @@ fn enc_s(v: u64) -> Result<Vec<u8>> {
 /// assets (`assets/…`) first, the scene `project.ocs` last, as Octane does.
 /// `version` is the Octane version as decimal text (e.g. `15050000`).
 pub fn write_orbx(out: &mut impl Write, version: &str, files: &[(&str, &[u8])]) -> Result<()> {
-    let mut header = vec![0x0e, 0x02, b'O', b'X', 0x12, 0x01, 0x1a, 0x1d, 0x61, 0x5e, 0x0e];
-    header.extend_from_slice(b"octane_version");
-    header.push(0x66);
-    header.extend(enc_u(version.len() as u64)?);
-    header.extend_from_slice(version.as_bytes());
-    header.push(0x00);
-    out.write_all(&header)?;
-
-    // Chunks, in write order.
-    let mut chunks: Vec<u64> = Vec::new();
-    let mut first_chunk: Vec<usize> = Vec::with_capacity(files.len());
+    let mut w = OrbxWriter::new(out, version)?;
     for (path, data) in files {
-        first_chunk.push(chunks.len());
-        let step = if path.ends_with(".ocs") { data.len().max(1) } else { CHUNK };
-        let mut parts: Vec<&[u8]> = data.chunks(step).collect();
-        if parts.is_empty() {
-            parts.push(&[]);
-        }
-        for part in parts {
-            out.write_all(&[0x3f])?;
-            out.write_all(&enc_u(part.len() as u64)?)?;
-            out.write_all(part)?;
-            chunks.push(part.len() as u64);
-        }
+        w.add(path, data)?;
+    }
+    w.finish()
+}
+
+/// An ORBX package written file by file, each file streamed in: chunks go
+/// out as they fill, the index (chunk sizes, files by path) at the end — a
+/// big scene's assets never have to be in memory at once. Its `Write`
+/// implementation feeds the file begun last.
+pub struct OrbxWriter<'a, W: Write> {
+    out: &'a mut W,
+    /// Every chunk's size, in write order.
+    chunks: Vec<u64>,
+    /// Finished files: path, first chunk, length.
+    files: Vec<(String, usize, u64)>,
+    /// The file being written: path, first chunk, length so far, the
+    /// unwritten tail of its data, whether it goes out as one chunk.
+    current: Option<(String, usize, u64, Vec<u8>, bool)>,
+}
+
+impl<'a, W: Write> OrbxWriter<'a, W> {
+    pub fn new(out: &'a mut W, version: &str) -> Result<Self> {
+        let mut header = vec![0x0e, 0x02, b'O', b'X', 0x12, 0x01, 0x1a, 0x1d, 0x61, 0x5e, 0x0e];
+        header.extend_from_slice(b"octane_version");
+        header.push(0x66);
+        header.extend(enc_u(version.len() as u64)?);
+        header.extend_from_slice(version.as_bytes());
+        header.push(0x00);
+        out.write_all(&header)?;
+        Ok(OrbxWriter { out, chunks: Vec::new(), files: Vec::new(), current: None })
     }
 
-    // Index: chunk list (offset deltas between consecutive chunk tags), then
-    // the files sorted by path.
-    let mut idx = vec![0x79, 0x79, 0x1e, 0x04];
-    idx.extend_from_slice(b"file");
-    idx.push(0x3b);
-    idx.extend(enc_s(chunks.len() as u64)?);
-    idx.push(0x43);
-    idx.extend(enc_s(chunks.iter().sum())?);
-    idx.extend_from_slice(&[0x00, 0x00, 0x71, 0x71]);
-    let mut prev: Option<u64> = None;
-    for &size in &chunks {
-        let delta = match prev {
-            None => 0,
-            Some(p) => p + 1 + enc_u(p)?.len() as u64,
+    fn chunk(&mut self, part: &[u8]) -> Result<()> {
+        self.out.write_all(&[0x3f])?;
+        self.out.write_all(&enc_u(part.len() as u64)?)?;
+        self.out.write_all(part)?;
+        self.chunks.push(part.len() as u64);
+        Ok(())
+    }
+
+    /// Start a file; its data follows through `Write`, until `end`. The
+    /// scene (`*.ocs`) is kept whole, as one chunk.
+    pub fn begin(&mut self, path: &str) -> Result<()> {
+        self.end()?;
+        self.current = Some((path.to_string(), self.chunks.len(), 0, Vec::new(), path.ends_with(".ocs")));
+        Ok(())
+    }
+
+    /// Finish the file begun last (its tail as the last chunk; an empty
+    /// file is one empty chunk).
+    pub fn end(&mut self) -> Result<()> {
+        if let Some((path, first, len, tail, _)) = self.current.take() {
+            if !tail.is_empty() || self.chunks.len() == first {
+                self.chunk(&tail)?;
+            }
+            self.files.push((path, first, len));
+        }
+        Ok(())
+    }
+
+    /// A whole file.
+    pub fn add(&mut self, path: &str, data: &[u8]) -> Result<()> {
+        self.begin(path)?;
+        self.write_all(data)?;
+        self.end()
+    }
+
+    /// End the last file and write the index: the chunk list (offset deltas
+    /// between consecutive chunk tags), then the files sorted by path.
+    pub fn finish(mut self) -> Result<()> {
+        self.end()?;
+        let chunks = &self.chunks;
+        let mut idx = vec![0x79, 0x79, 0x1e, 0x04];
+        idx.extend_from_slice(b"file");
+        idx.push(0x3b);
+        idx.extend(enc_s(chunks.len() as u64)?);
+        idx.push(0x43);
+        idx.extend(enc_s(chunks.iter().sum())?);
+        idx.extend_from_slice(&[0x00, 0x00, 0x71, 0x71]);
+        let mut prev: Option<u64> = None;
+        for &size in chunks {
+            let delta = match prev {
+                None => 0,
+                Some(p) => p + 1 + enc_u(p)?.len() as u64,
+            };
+            idx.push(0x33);
+            idx.extend(enc_s(delta)?);
+            idx.push(0x53);
+            idx.extend(enc_s(size)?);
+            prev = Some(size);
+        }
+        idx.extend_from_slice(&[0x00, 0x00, 0x69, 0x69]);
+        let mut files: Vec<&(String, usize, u64)> = self.files.iter().collect();
+        files.sort_by(|a, b| a.0.cmp(&b.0));
+        for (path, first, len) in files {
+            idx.push(0x23);
+            idx.extend(enc_s(*first as u64)?);
+            idx.push(0x33);
+            idx.extend(enc_s(*len)?);
+            idx.push(0x3e);
+            idx.extend(enc_u(path.len() as u64)?);
+            idx.extend_from_slice(path.as_bytes());
+        }
+        idx.extend_from_slice(&[0x00, 0x00]);
+
+        // Index + footer, written twice.
+        let len = u32::try_from(idx.len()).context("orbx index too large")?;
+        for _ in 0..2 {
+            self.out.write_all(&idx)?;
+            self.out.write_all(&len.to_le_bytes())?;
+            self.out.write_all(&MAGIC)?;
+        }
+        Ok(())
+    }
+}
+
+impl<W: Write> Write for OrbxWriter<'_, W> {
+    fn write(&mut self, mut data: &[u8]) -> std::io::Result<usize> {
+        let n = data.len();
+        let Some((_, _, len, tail, whole)) = self.current.as_mut() else {
+            return Err(std::io::Error::other("orbx: no file begun"));
         };
-        idx.push(0x33);
-        idx.extend(enc_s(delta)?);
-        idx.push(0x53);
-        idx.extend(enc_s(size)?);
-        prev = Some(size);
+        *len += n as u64;
+        if *whole {
+            tail.extend_from_slice(data);
+            return Ok(n);
+        }
+        // Top up the pending chunk, send full chunks straight from `data`,
+        // keep the rest.
+        let mut tail = std::mem::take(tail);
+        if !tail.is_empty() {
+            let take = (CHUNK - tail.len()).min(data.len());
+            tail.extend_from_slice(&data[..take]);
+            data = &data[take..];
+            if tail.len() == CHUNK {
+                self.chunk(&tail).map_err(std::io::Error::other)?;
+                tail.clear();
+            }
+        }
+        while data.len() >= CHUNK {
+            self.chunk(&data[..CHUNK]).map_err(std::io::Error::other)?;
+            data = &data[CHUNK..];
+        }
+        tail.extend_from_slice(data);
+        if let Some(cur) = self.current.as_mut() {
+            cur.3 = tail;
+        }
+        Ok(n)
     }
-    idx.extend_from_slice(&[0x00, 0x00, 0x69, 0x69]);
-    let mut order: Vec<usize> = (0..files.len()).collect();
-    order.sort_by_key(|&i| files[i].0);
-    for i in order {
-        let (path, data) = files[i];
-        idx.push(0x23);
-        idx.extend(enc_s(first_chunk[i] as u64)?);
-        idx.push(0x33);
-        idx.extend(enc_s(data.len() as u64)?);
-        idx.push(0x3e);
-        idx.extend(enc_u(path.len() as u64)?);
-        idx.extend_from_slice(path.as_bytes());
-    }
-    idx.extend_from_slice(&[0x00, 0x00]);
 
-    // Index + footer, written twice.
-    let len = u32::try_from(idx.len()).context("orbx index too large")?;
-    for _ in 0..2 {
-        out.write_all(&idx)?;
-        out.write_all(&len.to_le_bytes())?;
-        out.write_all(&MAGIC)?;
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.out.flush()
     }
-    Ok(())
 }
 
 /// Read an integer of either flavor (the forms share one layout).
@@ -241,6 +326,26 @@ mod tests {
         let n = u32::from_le_bytes(buf[buf.len() - 8..buf.len() - 4].try_into().unwrap()) as usize;
         let idx = &buf[buf.len() - 8 - n..buf.len() - 8];
         assert_eq!(&idx[..10], &[0x79, 0x79, 0x1e, 0x04, b'f', b'i', b'l', b'e', 0x3b, 5]);
+    }
+
+    /// Streamed in uneven pieces, a package comes out as written whole.
+    #[test]
+    fn streaming_matches_whole_files() {
+        let big: Vec<u8> = (0..(CHUNK * 3 + 77)).map(|i| (i * 7) as u8).collect();
+        let ocs = vec![b'y'; CHUNK + 9];
+        let files: [(&str, &[u8]); 4] = [("assets/b.bin", &big), ("assets/e", b""), ("assets/a.png", b"png"), ("project.ocs", &ocs)];
+        let mut whole = Vec::new();
+        write_orbx(&mut whole, "15050000", &files).unwrap();
+        let mut streamed = Vec::new();
+        let mut w = OrbxWriter::new(&mut streamed, "15050000").unwrap();
+        for (path, data) in files {
+            w.begin(path).unwrap();
+            for piece in data.chunks(333_333) {
+                w.write_all(piece).unwrap();
+            }
+        }
+        w.finish().unwrap();
+        assert!(streamed == whole);
     }
 
     /// The bundled Octane X sample, rebuilt from its own files, is identical.
