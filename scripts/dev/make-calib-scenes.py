@@ -156,6 +156,42 @@ for s0, (label, over) in zip(spheres, UBER):
     lm['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': RED}}
 made.append((save(d, 'Calib-Glossy'), uber_labels))
 
+# --- Iray Uber translucency / subsurface on props (#15: SSS Color / Amount
+# set in 74-113 scenes and not read; props skip the random-walk skin). A
+# skin-like base, one material for all.
+SKINLIKE = [0.8, 0.55, 0.45]
+SSS = [
+    ('S1 opaque', {'Translucency Weight': 0.0}),
+    ('S2 transl 0.5', {'Translucency Weight': 0.5}),
+    ('S3 transl 1', {'Translucency Weight': 1.0}),
+    ('S4 thin walled', {'Translucency Weight': 0.5, 'Thin Walled': True}),
+    ('S5 red transmit', {'Translucency Weight': 0.5, 'Transmitted Color': [0.9, 0.3, 0.2], 'Transmitted Measurement Distance': 1.0}),
+    ('S6 sss amount', {'Translucency Weight': 0.5, 'SSS Amount': 0.5, 'SSS Color': [0.9, 0.6, 0.5]}),
+    ('S7 chromatic', {'Translucency Weight': 0.5, 'SSS Mode': 1, 'Transmitted Color': [0.9, 0.3, 0.2]}),
+    ('S8 short scatter', {'Translucency Weight': 0.5, 'Scattering Measurement Distance': 0.1}),
+]
+d = copy.deepcopy(base)
+d_nodes = {n['id']: n for n in d['scene']['nodes']}
+mlib = {m['id']: m for m in d['material_library']}
+first = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[spheres[0]['id']])
+base_extra = copy.deepcopy(mlib[first['url'].lstrip('#')]['extra'])
+sss_labels = []
+for s0, (label, over) in zip(spheres, SSS):
+    n = d_nodes[s0['id']]
+    n['label'] = label
+    lib = next(l for l in d['node_library'] if '#' + l['id'].replace('(', '%28').replace(')', '%29') == n['url'])
+    lib['label'] = label
+    sss_labels.append(label)
+    m = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[n['id']])
+    m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': SKINLIKE}}
+    lm = mlib[m['url'].lstrip('#')]
+    lm['extra'] = copy.deepcopy(base_extra)
+    lm['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': SKINLIKE}}
+    ch = next(e for e in lm['extra'] if e['type'] == 'studio_material_channels')['channels']
+    for k, v in {'Base Mixing': 0, 'Glossy Layered Weight': 0.0, 'Translucency Color': SKINLIKE, **over}.items():
+        set_channel(ch, k, v, TYPES.get(type(v), 'float'))
+made.append((save(d, 'Calib-SSS'), sss_labels))
+
 # --- Tone mapping
 TONES = [('Burn05', {'Burn Highlights': 0.5}), ('Burn0', {'Burn Highlights': 0.0}),
          ('Crush01', {'Crush Blacks': 0.1}), ('Crush03', {'Crush Blacks': 0.3}),

@@ -1,0 +1,49 @@
+// ORBIS calibration: Calib-Leaf — three vertical cards (Iray Uber) lit from
+// behind by a distant light, the cubes and sphere hidden; built headless
+// from Calib-L-Distant-45 (scripts/dev/daz-script.sh with DONE_FILE=<out>.done).
+// Arguments: base .duf, Iray Uber Base preset .duf, out .duf, then the
+// content directories. The cards' materials are tuned in the saved file
+// (scripts/dev/make-calib-scenes.py). ECMAScript 3, ASCII only.
+(function () {
+    var a = App.scriptArgs;
+    var sBase = a[0], sUber = a[1], sOut = a[2];
+    var oContent = App.getContentMgr();
+    for (var i = 3; i < a.length; i++) oContent.addContentDirectory(a[i], false);
+    var sLog = "";
+    function done(s) {
+        var f = new DzFile(sOut + ".done");
+        f.open(DzFile.WriteOnly | DzFile.Truncate);
+        f.write(s + "\n" + sLog);
+        f.close();
+        App.delayedExit();
+    }
+    if (!oContent.openFile(sBase, false)) { done("base not opened"); return; }
+    for (var n = 0; n < Scene.getNumNodes(); n++) {
+        var oNode = Scene.getNode(n);
+        var sLabel = oNode.getLabel();
+        if (sLabel.indexOf("Cube") == 0 || sLabel == "Sphere") oNode.setVisible(false);
+        if (oNode.inherits("DzDistantLight")) {
+            // From behind the cards, 45 degrees up, towards the camera.
+            oNode.getXRotControl().setValue(-45);
+            oNode.getYRotControl().setValue(180);
+        }
+    }
+    var oSettings = new DzSettings();
+    DzGeometryUtil.getDefaultPrimitiveOptions(DzGeometryUtil.Plane, oSettings);
+    for (var k = 0; k < oSettings.getNumValues(); k++) sLog += "option " + oSettings.getKey(k) + " = " + oSettings.getValue(k) + "\n";
+    var aX = [-80, 0, 80];
+    for (var c = 0; c < 3; c++) {
+        var oCard = DzGeometryUtil.createPrimitive(oSettings);
+        if (!oCard) { done("no primitive"); return; }
+        oCard.setLabel("Leaf " + (c + 1));
+        oCard.getXPosControl().setValue(aX[c]);
+        oCard.getYPosControl().setValue(60);
+        oCard.getZPosControl().setValue(40);
+        oCard.getXRotControl().setValue(90);
+        Scene.selectAllNodes(false);
+        oCard.select(true);
+        Scene.setPrimarySelection(oCard);
+        sLog += "uber " + oContent.openFile(sUber, true) + "\n";
+    }
+    done("saved " + Scene.saveScene(sOut));
+})();

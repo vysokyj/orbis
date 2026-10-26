@@ -379,7 +379,7 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     // just under y = 0 so a room's floor hides it.
     // Auto: the scene's lowest point; Manual: Ground Origin Y (cm).
     let low = Mesh { points: vec![[0.0, 0.25, 0.0], [1.0, -0.03, 0.0]], ..Default::default() };
-    let mut e = SceneEnvironment { map: None, intensity: 1.0, rotation_deg: 0.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None, draw_dome: true };
+    let mut e = SceneEnvironment { map: None, intensity: 1.0, rotation_deg: 0.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None, draw_dome: true, scene_lights: true };
     assert!((ground_height(&e, &[low]) + 0.03).abs() < 1e-6);
     assert_eq!(ground_height(&e, &[]), 0.0);
     e.ground_origin_y = Some(12.0);
@@ -451,7 +451,7 @@ fn iray_tone_mapping_drives_the_imager() {
 
 #[test]
 fn dome_rotation_is_a_u_shift() {
-    let env = |rot: f64, oy: f64| SceneEnvironment { map: None, intensity: 1.0, rotation_deg: rot, orientation_deg: [0.0, oy, 0.0], scene_only: false, ground_shadow: None, ground_origin_y: None, draw_dome: true };
+    let env = |rot: f64, oy: f64| SceneEnvironment { map: None, intensity: 1.0, rotation_deg: rot, orientation_deg: [0.0, oy, 0.0], scene_only: false, ground_shadow: None, ground_origin_y: None, draw_dome: true, scene_lights: true };
     assert_eq!(env(0.0, 0.0).dome_u_shift(), 0.25);
     assert!((env(110.0, 0.0).dome_u_shift() - (0.25 + 110.0 / 360.0)).abs() < 1e-12);
     assert_eq!(env(270.0, 0.0).dome_u_shift(), 0.0);
@@ -471,7 +471,7 @@ fn iray_environment_becomes_an_hdri_texture_environment() {
     });
     let mut lib = Library::new(vec![], duf);
     let env = scene_environment(&mut lib).unwrap();
-    assert_eq!(env, SceneEnvironment { map: Some("/Environments/HDRI/sky 1.hdr".into()), intensity: 4.0, rotation_deg: 90.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None, draw_dome: true });
+    assert_eq!(env, SceneEnvironment { map: Some("/Environments/HDRI/sky 1.hdr".into()), intensity: 4.0, rotation_deg: 90.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None, draw_dome: true, scene_lights: true });
 
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("Environments/HDRI")).unwrap();
@@ -785,4 +785,22 @@ fn hidden_dome_gets_a_black_backplate() {
     // One per render target, each with its own ids.
     assert_eq!(hidden.matches("<pin name='visibleEnvironment'>").count(), 2);
     assert!(hidden.contains("id='100195'") && hidden.contains("id='1100195'"));
+}
+
+#[test]
+fn dome_only_and_sun_sky_drop_the_scene_lights() {
+    let ch = |id: &str, v: Value| json!({"channel": {"id": id, "current_value": v}});
+    let duf = |mode: i64| {
+        json!({
+            "node_library": [
+                {"id": "Point", "type": "light", "point": {}, "extra": [{"type": "studio_node_channels", "channels": [ch("Flux", json!(5000)), ch("Photometric Mode", json!(true))]}]},
+                {"id": "Environment Options", "extra": [{"type": "studio_node_channels", "channels": [ch("Environment Mode", json!(mode))]}]},
+            ],
+            "scene": {"nodes": [{"id": "Point-1", "url": "#Point", "label": "Point"},
+                                {"id": "Environment Options-1", "url": "#Environment%20Options"}]},
+        })
+    };
+    for (mode, lights) in [(0, 1), (1, 0), (2, 0), (3, 1)] {
+        assert_eq!(lights_iray_uses(&mut Library::new(vec![], duf(mode))).len(), lights, "Environment Mode {mode}");
+    }
 }

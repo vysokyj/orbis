@@ -128,6 +128,18 @@ def emitter(d, ch):
         set_channel(ext['channels'], k, v)
 
 
+def env_mode(d, mode, light_on=True):
+    """Iray Environment Mode (0 Dome and Scene, 1 Dome Only, 2 Sun-Sky Only,
+    3 Scene Only) with the dome drawn, the point light on or off: whether
+    Iray lights with the scene's lights in that mode is the difference."""
+    env = channels(lib(d, 'Environment Options'))
+    set_channel(env, 'Environment Mode', mode)
+    set_channel(env, 'Draw Dome', True)
+    lib(d, 'PointLight')['on'] = light_on
+    # Strong enough to dominate the dome or the sun if Iray used it.
+    set_channel(channels(lib(d, 'PointLight')), 'Flux', 2000000.0)
+
+
 DOWN = {'x': -90.0, 'y': 0.0, 'z': 0.0}
 VARIANTS = [
     # name, source, profile view, edit
@@ -154,6 +166,10 @@ VARIANTS = [
     ('Distant-45', 'Calib-Distant', False, lambda d: None),
     ('Distant-60', 'Calib-Distant', False, lambda d: light(d, 'DistantLight', r={'x': -60.0})),
     ('Distant-45-5k', 'Calib-Distant', False, lambda d: light(d, 'DistantLight', {'Flux': 5000.0})),
+    ('Mode-DomeOnly-point', 'Calib-Point', False, lambda d: env_mode(d, 1)),
+    ('Mode-DomeOnly-off', 'Calib-Point', False, lambda d: env_mode(d, 1, False)),
+    ('Mode-SunSky-point', 'Calib-Point', False, lambda d: env_mode(d, 2)),
+    ('Mode-SunSky-off', 'Calib-Point', False, lambda d: env_mode(d, 2, False)),
     ('Emit-cd', 'Calib-Emissive', False, lambda d: None),
     ('Emit-cd-2sided', 'Calib-Emissive', False, lambda d: emitter(d, {'Two Sided Light': True})),
     ('Emit-lm', 'Calib-Emissive', False, lambda d: emitter(d, {'Luminance Units': 4, 'Luminance': 20000.0})),

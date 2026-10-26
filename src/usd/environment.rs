@@ -23,6 +23,10 @@ pub struct SceneEnvironment {
     /// "Draw Dome": the dome is seen behind the scene. Off, Iray still lights
     /// with it but shows black there (Calib-L-*, Calib-Dome-Off).
     pub draw_dome: bool,
+    /// Whether Iray lights with the scene's lights: not under "Dome Only"
+    /// (1) or "Sun-Sky Only" (2) — a 2 000 000 lm point light left the
+    /// floor unchanged there (Calib-L-Mode-*: 1.000).
+    pub scene_lights: bool,
 }
 
 impl SceneEnvironment {
@@ -79,6 +83,7 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
                 .then(|| num("Ground Shadow Intensity").unwrap_or(1.0)),
             ground_origin_y: (num("Ground Position Mode") == Some(1.0)).then(|| num("Ground Origin Y").unwrap_or(0.0)),
             draw_dome: ch.get("Draw Dome").and_then(Value::as_bool).unwrap_or(true),
+            scene_lights: !matches!(num("Environment Mode").map(|m| m as i64), Some(1 | 2)),
         });
     }
     None

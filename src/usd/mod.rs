@@ -145,7 +145,7 @@ pub struct ExportReport {
 /// into a `.usdz` at `out`.
 pub fn export_scene_usdz(scene: &Path, dump: &Path, out: &Path, opts: &ExportOptions) -> Result<ExportReport> {
     let (meshes, report, mut lib) = build_scene(scene, dump, opts)?;
-    let (layer, _) = write_usda(&meshes, &scene_lights(&mut lib));
+    let (layer, _) = write_usda(&meshes, &lights_iray_uses(&mut lib));
     write_atomically(out, |f| write_usdz(f, &[("scene.usda", layer.as_bytes())]))?;
     Ok(report)
 }
@@ -158,7 +158,7 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     let progress = &opts.progress;
     let (meshes, mut report, mut lib) = build_scene(scene, dump, opts)?;
     progress.report(35, "writing the USD scene");
-    let lights = scene_lights(&mut lib);
+    let lights = lights_iray_uses(&mut lib);
     let (layer, materials) = write_usda(&meshes, &lights);
     let mut cameras = scene_cameras(&mut lib);
     if cameras.is_empty() {
@@ -247,6 +247,16 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     report.textures_scaled = scaled;
     progress.report(100, "done");
     Ok(report)
+}
+
+/// The scene's lights, unless its environment mode leaves them out ("Dome
+/// Only", "Sun-Sky Only").
+fn lights_iray_uses(lib: &mut Library) -> Vec<SceneLight> {
+    if scene_environment(lib).is_some_and(|e| !e.scene_lights) {
+        tracing::info!("USD export: the environment mode ignores the scene's lights");
+        return Vec::new();
+    }
+    scene_lights(lib)
 }
 
 /// The embedded scene's file name inside an `.orbx`.
