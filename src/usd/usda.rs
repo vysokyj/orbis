@@ -106,6 +106,9 @@ pub(super) fn write_usda(meshes: &[Mesh], lights: &[SceneLight]) -> (String, Vec
     let mut material_names = HashSet::new();
     let mut materials: Vec<BoundMaterial> = Vec::new();
     for m in meshes {
+        if let Some(copies) = &m.instances {
+            begin_instancer(&mut o, &m.name, copies);
+        }
         if let Some(widths) = &m.curve_widths {
             // Strand hair: linear curves, the material bound on the prim.
             let material = m.materials.first().cloned().flatten().map(|mat| {
@@ -136,6 +139,9 @@ pub(super) fn write_usda(meshes: &[Mesh], lights: &[SceneLight]) -> (String, Vec
                 let _ = writeln!(o, "        rel material:binding = </Scene/Materials/{name}>");
             }
             o.push_str("    }\n\n");
+            if m.instances.is_some() {
+                o.push_str("    }\n    }\n\n");
+            }
             continue;
         }
         let _ = writeln!(o, "    def Mesh \"{}\" (\n        displayName = {}\n    )\n    {{", m.name, usd_string(&m.label));
@@ -186,6 +192,9 @@ pub(super) fn write_usda(meshes: &[Mesh], lights: &[SceneLight]) -> (String, Vec
             o.push_str("\n        }\n");
         }
         o.push_str("    }\n\n");
+        if m.instances.is_some() {
+            o.push_str("    }\n    }\n\n");
+        }
     }
     write_lights(&mut o, lights);
     if !materials.is_empty() {
@@ -197,6 +206,35 @@ pub(super) fn write_usda(meshes: &[Mesh], lights: &[SceneLight]) -> (String, Vec
     }
     o.push_str("}\n");
     (o, materials)
+}
+
+/// Open `<name>_copies`, a `PointInstancer` drawing the prim that follows
+/// (named `name`, closed by the caller with two braces) at `copies`.
+fn begin_instancer(o: &mut String, name: &str, copies: &[Placement]) {
+    let parts: Vec<_> = copies.iter().map(decompose).collect();
+    let _ = writeln!(o, "    def PointInstancer \"{name}_copies\"\n    {{");
+    let _ = writeln!(o, "        rel prototypes = [</Scene/{name}_copies/Prototypes/{name}>]");
+    o.push_str("        int[] protoIndices = ");
+    write_ints(o, copies.iter().map(|_| 0));
+    o.push_str("\n        point3f[] positions = ");
+    write_vec3(o, &parts.iter().map(|p| p.0).collect::<Vec<_>>(), 5);
+    o.push_str("\n        quath[] orientations = [");
+    for (i, (_, q, _)) in parts.iter().enumerate() {
+        if i > 0 {
+            o.push_str(", ");
+        }
+        o.push('(');
+        for (k, v) in q.iter().enumerate() {
+            if k > 0 {
+                o.push_str(", ");
+            }
+            push_num(o, *v, 5);
+        }
+        o.push(')');
+    }
+    o.push_str("]\n        float3[] scales = ");
+    write_vec3(o, &parts.iter().map(|p| p.2).collect::<Vec<_>>(), 5);
+    o.push_str("\n\n        def Scope \"Prototypes\"\n        {\n");
 }
 
 /// Total area (m²) of some faces of a mesh (fan triangulation).

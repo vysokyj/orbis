@@ -553,7 +553,7 @@ fn exports_an_orbx_with_the_scene_and_project() {
         .map(|f| json!({"name": f.name, "label": f.label, "lod": f.lod, "vertices": f.vertices.concat()}))
         .collect();
     let dump_path = dir.path().join("dump.json");
-    std::fs::write(&dump_path, json!({"format": "orbis-scene-dump", "format_version": 1, "nodes": nodes}).to_string()).unwrap();
+    std::fs::write(&dump_path, json!({"format": "orbis-scene-dump", "format_version": 2, "nodes": nodes}).to_string()).unwrap();
 
     let out = dir.path().join("My Scene.orbx");
     let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -577,7 +577,7 @@ fn exports_an_orbx_with_the_scene_and_project() {
 #[test]
 fn dump_matches_by_label_then_unique_name() {
     let d = SceneDump::parse(
-        r#"{"format": "orbis-scene-dump", "format_version": 1,
+        r#"{"format": "orbis-scene-dump", "format_version": 2,
             "nodes": [{"name": "Cuff", "label": "Cuff (2)", "vertices": [0,0,0, 2,2,2]},
                       {"name": "Prop", "label": "Prop (3)", "vertices": [1,1,1]},
                       {"name": "Empty", "label": "Empty", "vertices": []}]}"#,
@@ -595,7 +595,7 @@ fn dump_format_is_checked() {
     let err = |json: &str| SceneDump::parse(json).unwrap_err().to_string();
     assert!(err(r#"{"figures": []}"#).contains("not an ORBIS scene dump"));
     assert!(err(r#"{"format": "orbis-scene-dump", "format_version": 99}"#).contains("format 99"));
-    assert!(SceneDump::parse(r#"{"format": "orbis-scene-dump", "format_version": 1, "nodes": [{"vertices": [1, 2]}]}"#).is_err());
+    assert!(SceneDump::parse(r#"{"format": "orbis-scene-dump", "format_version": 2, "nodes": [{"vertices": [1, 2]}]}"#).is_err());
 }
 
 #[test]
@@ -652,4 +652,55 @@ fn fully_transparent_surfaces_are_left_out() {
     let body = &meshes[0];
     let groups: Vec<&str> = body.subsets.iter().map(|(g, _)| g.as_str()).collect();
     assert!(groups.contains(&"Torso") && !groups.contains(&"Legs"), "{groups:?}");
+}
+
+#[test]
+fn instance_math() {
+    // Rotated 90° about Y, scaled 2, moved: inverse undoes it.
+    let m: Affine = [0.0, 0.0, 2.0, 10.0, 0.0, 2.0, 0.0, 20.0, -2.0, 0.0, 0.0, 30.0];
+    let id = compose(&m, &invert(&m).unwrap());
+    for (k, v) in id.iter().enumerate() {
+        let want = if [0, 5, 10].contains(&k) { 1.0 } else { 0.0 };
+        assert!((v - want).abs() < 1e-12, "{id:?}");
+    }
+    let p: Placement = std::array::from_fn(|k| m[k] as f32);
+    let (pos, q, scale) = decompose(&p);
+    assert_eq!(pos, [10.0, 20.0, 30.0]);
+    assert_eq!(scale, [2.0, 2.0, 2.0]);
+    let s = std::f32::consts::FRAC_1_SQRT_2;
+    assert!((q[0] - s).abs() < 1e-6 && (q[2] - s).abs() < 1e-6 && q[1].abs() < 1e-6 && q[3].abs() < 1e-6, "{q:?}");
+    // A mirror keeps its rotation proper: the flip goes into the scale.
+    let (_, _, scale) = decompose(&[-1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+    assert_eq!(scale, [-1.0, 1.0, 1.0]);
+}
+
+#[test]
+fn instances_of_a_hidden_source() {
+    // UltraScatter hides the source tree; its copies render. The source sits
+    // at x = 100 cm, a copy at x = 300 cm turned 180° about Y.
+    let mut duf = scene();
+    let hidden = json!([{"type": "studio_node_channels", "channels": [{"channel": {"id": "Visible", "current_value": false}}]}]);
+    duf["scene"]["nodes"][0]["extra"] = hidden;
+    let mut d = dump();
+    d.nodes[0].transform = Some([1.0, 0.0, 0.0, 100.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+    d.instances = vec![DumpInstance {
+        target_label: "Body".into(),
+        transforms: vec![[-1.0, 0.0, 0.0, 300.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0]],
+        ..Default::default()
+    }];
+    let mut lib = Library::new(vec![], duf);
+    let (meshes, report) = build_meshes(&mut lib, &d).unwrap();
+    assert_eq!(report.instances, 1);
+    let body = meshes.iter().find(|m| m.name == "Body").unwrap();
+    let copies = body.instances.as_ref().unwrap();
+    assert_eq!(copies.len(), 1, "the hidden source itself isn't drawn");
+    // copy · source⁻¹: a world point p of the source lands at R·(p − 1 m) + 3 m.
+    assert_eq!(copies[0], [-1.0, 0.0, 0.0, 4.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0]);
+    let (usda, _) = write_usda(&meshes, &[]);
+    assert!(usda.contains("def PointInstancer \"Body_copies\""), "{}", &usda[..400]);
+    assert!(usda.contains("rel prototypes = [</Scene/Body_copies/Prototypes/Body>]"));
+    assert!(usda.contains("point3f[] positions = [(4, 0, 0)]"));
+    assert!(usda.contains("quath[] orientations = [(0, 0, 1, 0)]"));
+    // Balanced braces: the prototype is closed inside its instancer.
+    assert_eq!(usda.matches('{').count(), usda.matches('}').count());
 }

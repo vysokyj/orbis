@@ -125,8 +125,9 @@ fn main() -> Result<()> {
                 usd::export_scene_usdz(&scene, &dump, &out, &opts)?
             };
             println!(
-                "{} meshes, {} points, {} faces, {} textures ({} missing), {} render targets in {:.1?}",
+                "{} meshes, {} instances, {} points, {} faces, {} textures ({} missing), {} render targets in {:.1?}",
                 r.meshes,
+                r.instances,
                 r.points,
                 r.faces,
                 r.textures,

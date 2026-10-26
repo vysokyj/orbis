@@ -34,13 +34,17 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
 `orbis export <scene.duf> --dump <file> --out-dir <dir>`:
 
 ```json
-{ "format": "orbis-scene-dump", "format_version": 1,
+{ "format": "orbis-scene-dump", "format_version": 2,
   "daz_version": "6.x.y.z", "scene": "/…/scene.duf",
   "content_dirs": ["…"], "builtin_mdl_dirs": ["…"],
   "nodes": [ { "name": "Genesis9", "label": "Noemi", "class": "DzFigure",
-               "lod": 1, "material_groups": ["Torso", …],
+               "lod": 1, "transform": [m11, m12, m13, m14, m21, …, m34],
+               "material_groups": ["Torso", …],
                "vertices": [x, y, z, x, y, z, …],
-               "polylines": [[0, 1, 2], …], "polyline_materials": [0, …] } ] }
+               "polylines": [[0, 1, 2], …], "polyline_materials": [0, …] } ],
+  "instances": [ { "name": "…", "label": "HFGG Tree 07_Ins_0",
+                   "target_name": "HFGG_Tree_07", "target_label": "HFGG Tree 07",
+                   "transforms": [[m11, …, m34], …] } ] }
 ```
 
 - One entry per node with an object and a non-empty cached geometry (bones
@@ -58,6 +62,13 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   shell reports 0 and renders at its host's level — the export refines it
   with the host (an unrefined shell over a refined body showed as dark
   patches).
+- `transform`: the node's `getWSTransform()`, the rows of DAZ's 3×4
+  `DzMatrix3` (p' = M · p + t, t = `m14 m24 m34` in cm).
+- `instances`: one entry per `DzInstanceNode` that is visible (and visible
+  in render) and has a target, with one world-space transform — or, for a
+  `DzInstanceGroupNode` (UltraScatter), one per group item
+  (`getGroupItem(i).getWSTransform()`). Instance nodes are not dumped as
+  nodes. UltraScatter's `[S] … Proxies` groups have no target and drop out.
 - `polylines` / `polyline_materials`: only for geometry without facets
   (strand hair) — the rendered strands as vertex indices, and each strand's
   index into `material_groups`.
@@ -138,6 +149,25 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
 - A `Material` per (mesh, group) under `/Scene/Materials/<mesh>_<group>` (a
   constant `UsdPreviewSurface`) — overridden by the Octane material inputs
   below.
+
+### Instances
+
+UltraScatter's forests and meadows are instances: the visible trees and
+grass are instance nodes and instance groups over a source mesh (Gladiator:
+12 trees, three grass patches, tens of thousands of copies). Their positions
+live only in DAZ Studio — UltraScatter keeps them in its own settings blob
+in the `.duf` and rebuilds the groups on load — so they come from the dump.
+
+- An instance's transform **replaces** its target's: a copy is drawn at
+  instance · target⁻¹ applied to the target's world-space mesh. Why: placed
+  so, Gladiator's `HFGG Tree 07_Ins_0` stands on the terrain (y −40 cm,
+  ground −17 cm); on top of the target's transform it would be 1.9 m under it.
+- The source mesh is written once, as the prototype of a `PointInstancer`
+  `<mesh>_copies` (positions in m, orientations `quath`, per-axis scales;
+  a mirror goes into a negative x scale, shear is lost). A visible source
+  is one more copy at identity; a **hidden** one still serves its instances
+  (UltraScatter hides its sources), else it is left out as before.
+- Copy mode "target + children" isn't followed: only the target's mesh.
 
 ## Package
 

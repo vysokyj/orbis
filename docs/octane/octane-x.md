@@ -40,6 +40,9 @@ container is in [orbx.md](orbx.md); USD specs in [usd.md](usd.md).
   don't glow** until that input gets an emissive material. **UsdLux shaping
   (spot cones) is lost**.
 - `BasisCurves` import as hair geometry (`A_HAIR_THICKNESS` per vertex).
+- `PointInstancer` imports as instances: `positions`, `orientations`
+  (`quath`, w x y z) and per-axis `scales` all apply, the prototype under it
+  isn't drawn on its own (Octane X 2026.6, a cube instanced three times).
 - Imported mesh items are type 1; each prim gets a placement
   `<prim>_xform` (type 4).
 

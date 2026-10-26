@@ -6,7 +6,7 @@
 use super::*;
 
 /// The dump format this build reads (`format_version`).
-pub const DUMP_FORMAT_VERSION: u32 = 1;
+pub const DUMP_FORMAT_VERSION: u32 = 2;
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
@@ -19,6 +19,25 @@ pub(super) struct SceneDump {
     /// HDRI) resolves against these.
     pub(super) builtin_mdl_dirs: Vec<String>,
     pub(super) nodes: Vec<DumpNode>,
+    /// Instance nodes and instance groups (UltraScatter): copies of a node
+    /// placed elsewhere.
+    pub(super) instances: Vec<DumpInstance>,
+}
+
+/// An affine transform, the rows of DAZ's 3×4 `DzMatrix3` (`m11 m12 m13 m14
+/// m21 …`): p' = M · p + t, the 4th column t in cm.
+pub(super) type Affine = [f64; 12];
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub(super) struct DumpInstance {
+    pub(super) name: String,
+    pub(super) label: String,
+    pub(super) target_name: String,
+    pub(super) target_label: String,
+    /// World space, one per copy: the instance node's, or each item's of an
+    /// instance group.
+    pub(super) transforms: Vec<Affine>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -29,6 +48,8 @@ pub(super) struct DumpNode {
     /// Resolution level DAZ Studio renders at (0 = base, 1 = SubD); the
     /// vertices are always the base mesh's.
     pub(super) lod: i64,
+    /// The node's world-space transform — instances of it replace it.
+    pub(super) transform: Option<Affine>,
     /// World space, cm, Y up, morphs and pose applied — `x y z` flat in the file.
     #[serde(deserialize_with = "flat_points")]
     pub(super) vertices: Vec<[f32; 3]>,

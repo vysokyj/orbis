@@ -27,6 +27,7 @@ use crate::orbx::write_orbx;
 mod camera;
 mod dump;
 mod environment;
+mod instance;
 mod library;
 mod lights;
 mod mesh;
@@ -41,6 +42,7 @@ pub use camera::*;
 use dump::*;
 pub use dump::{dump_cache_path, store_dump, DUMP_FORMAT_VERSION};
 pub use environment::*;
+use instance::*;
 use library::*;
 pub use lights::*;
 use mesh::*;
@@ -123,6 +125,8 @@ pub struct ExportReport {
     pub meshes: usize,
     pub points: usize,
     pub faces: usize,
+    /// Copies drawn through instancing (instance nodes, UltraScatter).
+    pub instances: usize,
     /// Nodes left out, with the reason (`label: why`).
     pub skipped: Vec<String>,
     /// Textures packed into an `.orbx`.

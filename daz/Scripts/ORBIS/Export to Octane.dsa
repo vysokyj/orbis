@@ -16,7 +16,7 @@
     var sTitle = "ORBIS";
     var sActionText = "Export to Octane...";
     // Must match orbis's DUMP_FORMAT_VERSION (src/usd/dump.rs).
-    var nDumpFormatVersion = 1;
+    var nDumpFormatVersion = 2;
 
     var sBin = "@ORBIS_BIN@";
     var sDefaultOutputDir = "@DEFAULT_OUTPUT_DIR@";
@@ -300,6 +300,7 @@
         var nNodes = Scene.getNumNodes();
         var bFirst = true;
         var bCancelled = false;
+        var aInstances = [];
         // Every mesh at its base resolution at once: a geometry shell copies
         // its host's cached geometry, so the host has to stay at LOD 0 while
         // the shell is read. Our export refines the base meshes as DAZ does.
@@ -311,6 +312,10 @@
                 break;
             }
             var oNode = Scene.getNode(n);
+            if (oNode.inherits("DzInstanceNode")) {
+                dumpInstances(oNode, aInstances);
+                continue;
+            }
             var sNode = dumpNode(oNode, lodOf(aLods, oNode));
             if (sNode) {
                 oFile.write((bFirst ? "" : ",") + sNode);
@@ -320,7 +325,7 @@
         for (var r = 0; r < aLods.length; r++) {
             aLods[r].control.setValue(aLods[r].value);
         }
-        oFile.write("]}");
+        oFile.write("],\"instances\":[" + aInstances.join(",") + "]}");
         oFile.close();
         return bCancelled ? "cancelled" : "";
     }
@@ -371,7 +376,8 @@
             "{\"name\":" + jsonString(oNode.name),
             "\"label\":" + jsonString(oNode.getLabel()),
             "\"class\":" + jsonString(oNode.className()),
-            "\"lod\":" + nLod
+            "\"lod\":" + nLod,
+            "\"transform\":" + matrixJson(oNode.getWSTransform())
         ];
         var aGroups = [];
         for (var g = 0; g < oGeom.getNumMaterialGroups(); g++) {
@@ -397,6 +403,37 @@
             aParts.push("\"polyline_materials\":[" + aLineMats.join(",") + "]");
         }
         return aParts.join(",") + "}";
+    }
+
+    // The instances an instance node renders, as JSON onto aOut: its target
+    // and a world-space transform per copy -- one for a DzInstanceNode, one
+    // per item for a DzInstanceGroupNode (UltraScatter). Hidden ones and
+    // those without a target (UltraScatter's viewport proxies) are left out.
+    function dumpInstances(oNode, aOut) {
+        var oTarget = oNode.getTarget();
+        if (!oTarget || !oNode.isVisible()) return;
+        if (oNode.isVisibleInRender && !oNode.isVisibleInRender()) return;
+        var sHead = "{\"name\":" + jsonString(oNode.name) +
+            ",\"label\":" + jsonString(oNode.getLabel()) +
+            ",\"target_name\":" + jsonString(oTarget.name) +
+            ",\"target_label\":" + jsonString(oTarget.getLabel()) +
+            ",\"transforms\":[";
+        var aTms = [];
+        if (oNode.inherits("DzInstanceGroupNode")) {
+            var nItems = oNode.getNumberOfGroupItems();
+            for (var i = 0; i < nItems; i++) {
+                aTms.push(matrixJson(oNode.getGroupItem(i).getWSTransform()));
+            }
+        } else {
+            aTms.push(matrixJson(oNode.getWSTransform()));
+        }
+        if (aTms.length > 0) aOut.push(sHead + aTms.join(",") + "]}");
+    }
+
+    // A DzMatrix3 as [m11, m12, m13, m14, m21, ..., m34]: rows of the 3x4
+    // affine transform, the 4th column the translation (cm).
+    function matrixJson(m) {
+        return "[" + [m.m11, m.m12, m.m13, m.m14, m.m21, m.m22, m.m23, m.m24, m.m31, m.m32, m.m33, m.m34].join(",") + "]";
     }
 
     // A JSON string literal, ASCII only (anything else as \uXXXX).

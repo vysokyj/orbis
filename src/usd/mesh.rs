@@ -155,6 +155,9 @@ pub(super) struct Mesh {
     /// run strand by strand, one subset (its material group) — written as
     /// `BasisCurves` with these per-vertex widths (meters).
     pub(super) curve_widths: Option<Vec<f32>>,
+    /// Instanced: where its copies go (the mesh itself, when drawn, is one at
+    /// `IDENTITY`) — written as a `PointInstancer` with it as the prototype.
+    pub(super) instances: Option<Vec<Placement>>,
 }
 
 /// Meters per unit of DAZ's hair line widths (`Line Start Width` /
@@ -257,13 +260,17 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
     // Polygon meshes: (index in `meshes`, node id, conform target, refined).
     let mut surfaces: Vec<(usize, String, Option<String>, bool)> = Vec::new();
     for n in &nodes {
-        if !n.visible {
+        // A hidden node's instances still render (UltraScatter hides its
+        // sources); the node is then only their prototype.
+        let copies = dump.node(&n.label, &n.name).and_then(|f| placements(dump, &n.label, &n.name, f, n.visible));
+        if !n.visible && copies.is_none() {
             report.skipped.push(format!("{}: hidden in the scene", n.label));
             continue;
         }
         if merged.contains(n.id.as_str()) {
             continue; // part of its host's mesh
         }
+        let instances = copies.as_ref().map_or(0, |c| c.len() - usize::from(n.visible));
         let Some(fig) = dump.node(&n.label, &n.name) else {
             report.skipped.push(format!("{}: not in the scene dump", n.label));
             continue;
@@ -271,7 +278,9 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
         if !fig.polylines.is_empty() {
             // Strand hair: the dump holds the rendered strands; the library
             // mesh is only their guide.
-            for mesh in hair_curves(lib, n, fig, &mut names) {
+            for mut mesh in hair_curves(lib, n, fig, &mut names) {
+                mesh.instances = copies.clone();
+                report.instances += instances;
                 report.meshes += 1;
                 report.points += mesh.points.len();
                 meshes.push(mesh);
@@ -399,6 +408,8 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
                 mesh = keep_groups(&mesh, v);
             }
         }
+        mesh.instances = copies;
+        report.instances += instances;
         report.meshes += 1;
         report.points += mesh.points.len();
         report.faces += mesh.face_counts.len();
