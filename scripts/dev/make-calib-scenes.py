@@ -192,6 +192,39 @@ for s0, (label, over) in zip(spheres, SSS):
         set_channel(ch, k, v, TYPES.get(type(v), 'float'))
 made.append((save(d, 'Calib-SSS'), sss_labels))
 
+# --- Leaf cards (Calib-Leaf, built headless by daz-build-leaf-scene.dsa):
+# its cards come with DAZ's default shader; give them an Iray Uber material
+# (a copy of the sphere's) and the variants. Done once, on the built scene.
+leaf = os.path.join(out_dir, 'Calib-Leaf.duf')
+if os.path.exists(leaf):
+    d = load(leaf)
+    mlib = {m['id']: m for m in d['material_library']}
+    cards = sorted((n for n in d['scene']['nodes'] if n.get('label', '').startswith('Leaf ')), key=lambda n: n['label'])
+    uber = next(m for m in d['material_library'] if any(e.get('type') == 'studio/material/uber_iray' for e in m.get('extra', []))
+                and len(next(e for e in m['extra'] if e['type'] == 'studio_material_channels')['channels']) > 100)
+    GREEN = [0.25, 0.55, 0.1]
+    LEAF = [('Leaf 1', {'Translucency Weight': 0.0}),
+            ('Leaf 2', {'Translucency Weight': 0.5, 'Translucency Color': GREEN, 'Thin Walled': False}),
+            ('Leaf 3', {'Translucency Weight': 0.5, 'Translucency Color': GREEN, 'Thin Walled': True})]
+    tuned = False
+    for card, (label, over) in zip(cards, LEAF):
+        geo = '#' + card['geometries'][0]['id']
+        m = next(m for m in d['scene']['materials'] if m['geometry'] == geo)
+        lm = mlib[m['url'].lstrip('#')]
+        if any(e.get('type') == 'studio/material/uber_iray' for e in lm.get('extra', [])):
+            continue
+        lm['extra'] = copy.deepcopy(uber['extra'])
+        m['extra'] = [{'type': 'studio/material/uber_iray', 'version': '1.1.0.0'}]
+        for x in (m, lm):
+            x['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': GREEN}}
+        ch = next(e for e in lm['extra'] if e['type'] == 'studio_material_channels')['channels']
+        for k, v in {'Base Mixing': 0, 'Glossy Layered Weight': 0.0, 'Metallic Weight': 0.0, **over}.items():
+            set_channel(ch, k, v, TYPES.get(type(v), 'float'))
+        tuned = True
+    if tuned:
+        open(leaf, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+        print(leaf, '(cards tuned)')
+
 # --- Tone mapping
 TONES = [('Burn05', {'Burn Highlights': 0.5}), ('Burn0', {'Burn Highlights': 0.0}),
          ('Crush01', {'Crush Blacks': 0.1}), ('Crush03', {'Crush Blacks': 0.3}),

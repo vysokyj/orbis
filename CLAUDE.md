@@ -22,6 +22,7 @@ scripts/dev/octane-render.sh <out dir> [samples] <scene.orbx>...   # unattended 
 python3 scripts/dev/make-calib-scenes.py   # Calib-PBRSkin / Calib-Tone-* / Calib-DOF-* from Calib-Materials.duf
 python3 scripts/dev/make-light-scenes.py   # Calib-L-* light scenes from Calib-Point/-Area/-Spot/-Distant/-Emissive
 python3 scripts/dev/calib-render.py [--auto-ev] <scene.duf>...   # Iray references → ~/Library/Caches/orbis/calib/iray
+DONE_FILE=<out>.done scripts/dev/daz-script.sh scripts/dev/daz-build-leaf-scene.dsa <Calib-L-Distant-45.duf> <Iray Uber Base.duf> <out>   # Calib-Leaf (then make-calib-scenes.py tunes its cards)
 scripts/dev/daz-dump.sh <out dir> <scene.duf>...   # headless DAZ dump (the ORBIS script's --dump) + orbis export
 python3 scripts/dev/orbx-variants.py <in.orbx> <out dir> <hypothesis>...   # material-pin variants of an export (gloss-2r, gloss-ior, dl-ior)
 scripts/dev/calib-octane-batch.sh   # Octane side of the calibration: render all exports + variants, report vs Iray

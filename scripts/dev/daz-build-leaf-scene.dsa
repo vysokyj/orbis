@@ -28,12 +28,16 @@
             oNode.getYRotControl().setValue(180);
         }
     }
+    // The geometry utilities' global is "Geometry" in DAZ Studio 6.
+    var oGeo = (typeof Geometry != "undefined") ? Geometry : null;
+    if (!oGeo) { done("no Geometry global"); return; }
     var oSettings = new DzSettings();
-    DzGeometryUtil.getDefaultPrimitiveOptions(DzGeometryUtil.Plane, oSettings);
+    oGeo.getDefaultPrimitiveOptions(oGeo.Plane, oSettings);
+    oSettings.setStringValue("Size", "0.6");
     for (var k = 0; k < oSettings.getNumValues(); k++) sLog += "option " + oSettings.getKey(k) + " = " + oSettings.getValue(k) + "\n";
     var aX = [-80, 0, 80];
     for (var c = 0; c < 3; c++) {
-        var oCard = DzGeometryUtil.createPrimitive(oSettings);
+        var oCard = oGeo.createPrimitive(oSettings);
         if (!oCard) { done("no primitive"); return; }
         oCard.setLabel("Leaf " + (c + 1));
         oCard.getXPosControl().setValue(aX[c]);
