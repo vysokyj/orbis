@@ -37,8 +37,14 @@
         var sScene = Scene.getFilename();
         var nProgress = 0;
         startProgress(sTitle + ": reading the scene...", 300, false, false);
-        print("ORBIS dump: " + (writeDump(aScriptArgs[2]) || "ok"));
+        var sDumpError = writeDump(aScriptArgs[2]);
+        print("ORBIS dump: " + (sDumpError || "ok"));
         finishProgress();
+        // Tell the caller it may stop us (quitting a big scene is slow).
+        var oDone = new DzFile(aScriptArgs[2] + ".done");
+        oDone.open(DzFile.WriteOnly | DzFile.Truncate);
+        oDone.write(sDumpError || "ok");
+        oDone.close();
         App.delayedExit();
         return;
     }
