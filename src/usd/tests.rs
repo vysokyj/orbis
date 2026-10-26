@@ -817,3 +817,18 @@ fn dome_only_and_sun_sky_drop_the_scene_lights() {
         assert_eq!(lights_iray_uses(&mut Library::new(vec![], duf(mode))).len(), lights, "Environment Mode {mode}");
     }
 }
+
+#[test]
+fn hidden_in_the_scenes_own_node_definition() {
+    // A primitive made in DAZ: its node is defined in the scene file, and
+    // hiding it sets `Visible` there (Calib-Leaf's cubes), not on the node.
+    let duf = json!({
+        "node_library": [{"id": "pCube(1)", "extra": [{"type": "studio_node_channels",
+            "channels": [{"channel": {"id": "Visible", "current_value": false}}]}]}],
+        "scene": {"nodes": [{"id": "pCube(1)-1", "url": "#pCube%281%29", "name": "pCube(1)", "label": "Cube1",
+            "geometries": [{"id": "geometry-1", "url": "#geometry"}]}]},
+    });
+    let nodes = super::mesh::geo_nodes(&duf);
+    assert_eq!(nodes.len(), 1);
+    assert!(!nodes[0].visible);
+}

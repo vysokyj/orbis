@@ -42,12 +42,23 @@ pub(super) fn ref_id(v: Option<&Value>) -> Option<String> {
 
 pub(super) fn geo_nodes(duf: &Value) -> Vec<GeoNode> {
     let nodes = duf.pointer("/scene/nodes").and_then(Value::as_array).cloned().unwrap_or_default();
+    // The scene's own node definitions (primitives, props made in DAZ): a
+    // hidden one keeps its `Visible` there, not on the scene node — Calib-Leaf's
+    // hidden cubes rendered in Octane, not in Iray.
+    let local: HashMap<String, &Value> = duf.pointer("/node_library").and_then(Value::as_array).into_iter().flatten()
+        .filter_map(|d| Some((percent_decode(d.get("id")?.as_str()?), d)))
+        .collect();
     nodes
         .iter()
         .filter_map(|n| {
             let gi = n.get("geometries")?.as_array()?.first()?;
             let id = percent_decode(n.get("id")?.as_str()?);
-            let channels = node_channels(n);
+            let mut channels = n.get("url").and_then(Value::as_str)
+                .filter(|u| u.starts_with('#'))
+                .and_then(|u| local.get(&percent_decode(&u[1..])))
+                .map(|d| node_channels(d))
+                .unwrap_or_default();
+            channels.extend(node_channels(n));
             let shell_groups: HashSet<String> = channels
                 .iter()
                 .filter(|(_, v)| v.as_bool() == Some(true))
