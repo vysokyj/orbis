@@ -41,9 +41,12 @@ pub struct SceneLight {
 /// sphere as a point but needs it for the intensity).
 pub(super) const POINT_RADIUS_M: f64 = 0.01;
 
-/// Flux of a non-photometric DAZ light at 100 % intensity (no physical
-/// meaning in DAZ; a bright bulb).
-pub(super) const LEGACY_LUMENS: f64 = 15_000.0;
+/// Flux of a non-photometric DAZ light per unit of Intensity: Iray lights
+/// it as 1000 π lm × Intensity, whatever its Intensity Scale
+/// (Calib-L-Point-legacy: Intensity 1 / 2 at scale 1000, 1 at 3000 → 3146
+/// / 6281 / 3146 lm against a 5000 lm photometric light; the old 15 000 lm
+/// × Intensity × Scale was a guess, 4800× too bright at the default scale).
+pub(super) const LEGACY_LUMENS: f64 = 1000.0 * std::f64::consts::PI;
 
 /// The scene's lights that DAZ renders: visible, switched on, illuminating.
 pub(super) fn scene_lights(lib: &mut Library) -> Vec<SceneLight> {
@@ -108,7 +111,7 @@ pub(super) fn scene_lights(lib: &mut Library) -> Vec<SceneLight> {
         let lumens = if photometric {
             num("Flux").unwrap_or(1500.0)
         } else {
-            LEGACY_LUMENS * num("Intensity").unwrap_or(1.0) * num("Intensity Scale").unwrap_or(1.0)
+            LEGACY_LUMENS * num("Intensity").unwrap_or(1.0)
         };
         out.push(SceneLight {
             label,
@@ -134,13 +137,19 @@ pub(super) fn scene_lights(lib: &mut Library) -> Vec<SceneLight> {
 /// of the same radius would (0.58 / 0.145 ≈ 4). Distant lights matched as
 /// they were (0.97).
 const SPHERE_POWER_FACTOR: f64 = 0.58;
+/// An Iray sphere light (Light Geometry 3) lights the floor with a quarter of
+/// a point light of the same flux, 20 and 50 cm alike (Calib-L-Sphere-d20 /
+/// -d50: 0.250 / 0.250) — its flux as if from a disc of its radius, a
+/// quarter of the sphere's area.
+const IRAY_SPHERE_SHARE: f64 = 0.25;
 const RECT_POWER_FACTOR: f64 = 0.145;
 
 /// Each light's power: watts at `DAZ_LUMENS_PER_WATT`, by emitter shape.
 pub(super) fn light_watts(l: &SceneLight) -> f64 {
     let factor = match l.shape {
         _ if l.cone_deg.is_some() => 1.0, // spots: `SPOT_POWER_FACTOR`, #7
-        LightShape::Point | LightShape::Sphere { .. } => SPHERE_POWER_FACTOR,
+        LightShape::Point => SPHERE_POWER_FACTOR,
+        LightShape::Sphere { .. } => SPHERE_POWER_FACTOR * IRAY_SPHERE_SHARE,
         LightShape::Rect { .. } | LightShape::Disk { .. } => RECT_POWER_FACTOR,
         LightShape::Distant => 1.0,
     };

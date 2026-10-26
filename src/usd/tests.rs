@@ -752,3 +752,26 @@ fn iray_tone_curve() {
     assert!((mid - want((2048.0f64 / 4095.0).powf(2.2) * 16.0)).abs() < 1e-6, "{mid}");
     assert!(lut.contains("LUT_1D_SIZE 4096"));
 }
+
+#[test]
+fn iray_light_flux_rules() {
+    let light = |shape: LightShape, lumens: f64| SceneLight {
+        label: "L".into(),
+        transform: [[0.0; 4]; 4],
+        shape,
+        cone_deg: None,
+        beam_exponent: 1.0,
+        color: [1.0; 3],
+        kelvin: None,
+        lumens,
+        euler_deg: [0.0; 3],
+        rotation_order: "XYZ".into(),
+        translation: [0.0; 3],
+    };
+    // A sphere light gives a quarter of a point light of the same flux.
+    let point = light_watts(&light(LightShape::Point, 5000.0));
+    let sphere = light_watts(&light(LightShape::Sphere { radius: 0.1 }, 5000.0));
+    assert!((sphere / point - 0.25).abs() < 1e-12);
+    // Non-photometric: 1000 π lm per unit of Intensity.
+    assert!((LEGACY_LUMENS - 3141.59).abs() < 0.01);
+}

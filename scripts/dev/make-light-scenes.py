@@ -112,6 +112,8 @@ VARIANTS = [
     ('Point-5k-h150', 'Calib-Point', False, lambda d: light(d, 'PointLight', t={'y': 150.0})),
     ('Point-20k', 'Calib-Point', False, lambda d: light(d, 'PointLight', {'Flux': 20000.0})),
     ('Point-legacy', 'Calib-Point', False, lambda d: light(d, 'PointLight', {'Photometric Mode': False, 'Intensity': 1.0})),
+    ('Point-legacy-2x500', 'Calib-Point', False, lambda d: light(d, 'PointLight', {'Photometric Mode': False, 'Intensity': 2.0, 'Intensity Scale': 500.0})),
+    ('Point-legacy-1x3000', 'Calib-Point', False, lambda d: light(d, 'PointLight', {'Photometric Mode': False, 'Intensity': 1.0, 'Intensity Scale': 3000.0})),
     ('Sphere-d20', 'Calib-Point', False, lambda d: light(d, 'PointLight', {'Light Geometry': 3, 'Width': 20.0, 'Height': 20.0})),
     ('Sphere-d50', 'Calib-Point', False, lambda d: light(d, 'PointLight', {'Light Geometry': 3, 'Width': 50.0, 'Height': 50.0})),
     ('Rect-25', 'Calib-Area', False, lambda d: light(d, 'PointLight', {'Width': 25.0, 'Height': 25.0}, r=DOWN)),

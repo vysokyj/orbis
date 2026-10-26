@@ -410,8 +410,25 @@ primitives scene (#6; Octane / Iray linear luminance on every surface):
 | distant | 1 | 0.96–1.01 |
 
 A sphere radiates from four times a one-sided rect's area (0.58 / 0.145 ≈ 4).
-Spheres and discs take their measured relative's factor. Non-photometric
-lights: 15 000 lm × Intensity (an assumption).
+Discs take the rect's factor. **Sphere lights** take a quarter of the
+point's (`IRAY_SPHERE_SHARE`): Iray lights the floor with 0.250 of a point
+light of the same flux, at 20 and 50 cm alike (Calib-L-Sphere-d20/-d50) —
+its flux as if from a disc of its radius. **Non-photometric lights**: 1000 π
+lm × Intensity, Intensity Scale ignored as Iray does (Calib-L-Point-legacy:
+Intensity 1 / 2 at scale 1000, 1 at scale 3000 → 3146 / 6281 / 3146 lm
+equivalent; the former 15 000 lm × Intensity × Scale was 4800× too bright
+at the default scale 1000).
+
+**Iray-side checks** (the Calib-L-* scenes, exposure undone from shutter /
+f-number / ISO, a floor patch): flux is linear (point 5k → 20k: 3.999×,
+distant 1.5k → 5k: 3.337×); a rect or disc of the same flux lights the floor
+alike at 25 / 50 / 100 cm (1.009 / 1 / 0.965, disc 1.003); a two-sided rect
+sends its full flux down (1.000) — the export's one-sided light matches the
+side it faces; a distant light lights the floor by the sine of its
+elevation (30° / 60°: 0.717 / 1.232 of 45°, sine 0.707 / 1.225); the
+emission units keep their ratios (20 000 lm and 50 W against 5000 cd/m² on
+50 × 50 cm: 16.000 and 0.600 in Iray, the export's formula gives 16 and
+0.6).
 
 - **Point / area** → UsdLux under `/Scene/Lights` (point → `SphereLight`
   r = 1 cm + `treatAsPoint`; rect, disc, sphere by `Light Geometry`; size in
