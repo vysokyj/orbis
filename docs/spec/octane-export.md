@@ -481,7 +481,8 @@ emission units keep their ratios (20 000 lm and 50 W against 5000 cd/m² on
 - **Environment Mode** "Dome Only" (1) and "Sun-Sky Only" (2): Iray
   ignores the scene's lights — a 2 000 000 lm point light left the floor
   unchanged (Calib-L-Mode-*, 1.000), so the export leaves them out
-  (`lights_iray_uses`). Sun-Sky itself (DAZ's procedural sun and sky) has
+  (`lights_iray_uses`); Octane renders both Dome Only scenes, the light
+  on or off, at 1.03 – 1.04 × Iray (floor, background). Sun-Sky itself (DAZ's procedural sun and sky) has
   no Octane counterpart in the export yet: such a scene keeps its HDRI.
 - **Draw Dome** off (the dome lights but isn't seen): Iray shows black
   behind the scene, the HDRI still lighting it (Calib-Dome-Off; the
