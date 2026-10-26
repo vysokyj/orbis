@@ -11,7 +11,7 @@ partly off the floor; the sphere floating 1.2 m up; the cubes sitting
 where the spot's beam peaks; one flux / size / angle per light; the point
 light measured in the bottom 10–20 % of the range. Here:
 
-- the figure is hidden, the sphere rests on the floor beside the cubes;
+- the figure is removed, the sphere rests on the floor beside the cubes;
 - the scene's lights only (Environment Mode "Scene Only", no dome);
 - tone mapping at the calibrated defaults (Burn 1, Crush 0, Gamma 2.2);
   the exposure is set per scene by scripts/dev/calib-render.py from a test
@@ -67,8 +67,31 @@ def hide(d, pred):
             set_channel(channels(n), 'Visible', False)
 
 
+def drop_figures(d):
+    """Remove the Genesis figure and everything of it (nodes, their
+    children, modifiers, materials, its textures): it has no part in a light
+    scene, and the scene keeps no reference to DAZ's content but the
+    primitives' own."""
+    sc = d['scene']
+    gone, grew = set(), True
+    while grew:
+        grew = False
+        for n in sc['nodes']:
+            par = (n.get('parent') or '').lstrip('#').replace('%20', ' ')
+            if n['id'] not in gone and ('Genesis' in n.get('url', '') or par in gone):
+                gone.add(n['id'])
+                grew = True
+    geos = {'#' + g['id'] for n in sc['nodes'] if n['id'] in gone for g in n.get('geometries', [])}
+    sc['nodes'] = [n for n in sc['nodes'] if n['id'] not in gone]
+    sc['modifiers'] = [m for m in sc.get('modifiers', []) if 'Genesis' not in m.get('url', '')
+                       and (m.get('parent') or '').lstrip('#').replace('%20', ' ') not in gone]
+    sc['materials'] = [m for m in sc.get('materials', []) if m.get('geometry') not in geos]
+    rest = json.dumps({k: v for k, v in d.items() if k != 'image_library'})
+    d['image_library'] = [i for i in d.get('image_library', []) if ('#' + i['id']) in rest or 'Genesis' not in json.dumps(i)]
+
+
 def clean(d, profile=False):
-    hide(d, lambda n: 'Genesis' in n.get('url', ''))
+    drop_figures(d)
     sphere = lib(d, 'pSphere(1120000)24_12')
     set_xyz(sphere, 'translation', {'x': 120.0, 'y': 0.0})
     env = channels(lib(d, 'Environment Options'))

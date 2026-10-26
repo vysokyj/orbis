@@ -49,6 +49,7 @@ attaches the zip to a GitHub release.
 | `assets/icon/` | Thumbnail sources: `globe.svg` (folder), `orbx.svg` (script) |
 | `scripts/package.sh` | Builds the release zip: the (universal) binary + docs |
 | `scripts/dev/` | Calibration tools: Octane Lua probes, render comparison, manual mirror |
+| `calib/scenes/` | Calibration scenes the scripts generated (Calib-PBRSkin, -Glossy, -Tone-*, -DOF-*, -L-*): copies of `My Library/Scenes`, exposure as tuned; DAZ built-ins and primitives only |
 
 ## Documentation
 - `docs/spec/octane-export.md` — **normative**: what the export does and why
@@ -65,6 +66,10 @@ attaches the zip to a GitHub release.
 - Plans and to-dos go into GitHub issues, not docs.
 
 ## Watch out for
+- `calib/scenes/` holds only generated scenes — never the user's own
+  Calib-*.duf (Base, Point, Area, Spot, Distant, Emissive, HDRI, Materials)
+  nor Calib-Hair (it wears a DAZ Store hair): copy a new one in with its
+  references checked (DAZ built-ins / primitives only).
 - **Nothing third-party-copyrighted in the repo**: no OTOY manual text, no
   Octane sample files (the ORBX round-trip test reads `cornell.orbx` from the
   installed app and skips without it), no DAZ store content in fixtures —
