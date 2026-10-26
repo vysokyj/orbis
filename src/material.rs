@@ -599,7 +599,10 @@ impl Ocs<'_> {
         let metal = mat.metallic() >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some();
         // Nor is it on a prop: Gladiator's grass (Iray Uber, translucent, not
         // thin-walled) rendered as grey cards.
-        if skin != SkinShader::None && translucency > 0.0 && !refractive && !emissive && !cutout && !thin && !metal && !mat.prop && mat.image("diffuse").is_some() {
+        // Nor in the eye: Genesis irises, pupils and sclera are translucent
+        // too, and the skin's tint (half, reddened) turned blue irises dark
+        // green (Calib-Hair, #20).
+        if skin != SkinShader::None && translucency > 0.0 && !refractive && !emissive && !cutout && !thin && !metal && !mat.prop && !is_eye(name) && mat.image("diffuse").is_some() {
             return self.standard_surface(indent, name, mat, translucency, skin == SkinShader::OpenPbr);
         }
         if !self.in_mix {
@@ -623,7 +626,10 @@ impl Ocs<'_> {
         // 0.91 – 0.96 and 1.23 (like its neighbours). Not on metal (the
         // transmission swallowed P8's metallic 0.75: 0.23) nor in weighted
         // mixing, whose weights `weighted_mix` already shares out.
-        let transmit = if metal || refractive || mat.float("Base Mixing").unwrap_or(0.0) as i32 == 2 { 0.0 } else { translucency };
+        // Nor on a figure's thin-walled skin (the Genesis EyeSocket): with
+        // the head behind it nothing comes through, and the corners of the
+        // eyes went dark (Calib-Hair, #20).
+        let transmit = if metal || refractive || (thin && !mat.prop) || mat.float("Base Mixing").unwrap_or(0.0) as i32 == 2 { 0.0 } else { translucency };
         let diffuse_weight = (1.0 - refraction) * (1.0 - transmit);
 
         // Iray "Base Mixing" 1 (specular/glossiness) ignores Metallic Weight;
@@ -828,6 +834,13 @@ fn absorption(mat: &Material) -> Option<[f32; 3]> {
     let distance_m = mat.float("Transmitted Measurement Distance").unwrap_or(0.0) * CM_PER_M_INV;
     let (lo, hi) = colour.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &c| (lo.min(c), hi.max(c)));
     (distance_m > 0.0 && hi > 0.0 && lo < 1.0).then(|| colour.map(|c| -c.clamp(1e-4, 1.0).ln() / distance_m))
+}
+
+/// A figure's eye surface by its material name (Genesis 3 / 8 / 9: Irises,
+/// Pupils, Sclera; Cornea and EyeMoisture are refractive anyway).
+fn is_eye(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    ["iris", "irises", "pupil", "sclera"].iter().any(|e| n.ends_with(e) || n.ends_with(&format!("{e}s")) || n.contains(&format!("_{e}")))
 }
 
 /// See the roughness in `universal`.

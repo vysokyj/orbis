@@ -322,7 +322,8 @@ Every material input (20007) is filled — Octane doesn't convert
   w 0.5 / 1 rendered 1.6 – 1.7 / 3.2 × Iray and Calib-PBRSkin's Gladio cloth
   1.72; with it 0.91 – 0.96 and 1.23 (its neighbours 1.14 – 1.26), the two
   types alike on closed spheres. On P8 (metallic 0.75) the transmission
-  swallowed the metal (0.23 × Iray). An **open sheet** that isn't
+  swallowed the metal (0.23 × Iray). Nor on a figure's thin-walled skin
+  (the Genesis EyeSocket: the head behind it, nothing comes through). An **open sheet** that isn't
   thin-walled (a material whose faces have an edge no other face of the mesh
   shares: cards, leaves, a cloak) passes Tc × min(2w, 1): Iray lit
   Calib-Leaf's backlit card 1.9 × its thin-walled twin, Octane rendered them
@@ -413,7 +414,9 @@ Gladio outfit is PBRSkin with translucency 0.5 and a metallic map on every
 surface — as skin its metal was lost and the open cloak rendered grey
 instead of red (Gladiator). And on a figure (the dump's `class` names a figure): props'
 translucency is grass blades and leaves, open cards — Gladiator's grass
-rendered grey.
+rendered grey. And not the eye (material named …Irises / Pupils / Sclera,
+`is_eye`): Genesis eyes are translucent too, and the skin's tint (half,
+reddened) turned blue irises dark green (Calib-Hair, #20).
 
 - `baseColor` and `subsurfaceColor` = the diffuse map (Iray's translucency
   map is pale and bleached skin and make-up) × **½ · ((1 − w) + w · Tc)**
