@@ -257,8 +257,8 @@ ISO / (N² S)); its "Exposure Value" channel only when they're missing. Why:
 DAZ derives the EV from them for show — a scene edited outside DAZ (the
 calibration scripts) can carry a stale EV, and at ISO ≠ 100 DAZ shows
 log2(N² S) + log2(ISO / 100), the opposite sign. The ISO term is the
-photographic tone mapper's, to be confirmed by Calib-Tone-ISO200 (one stop
-brighter than Calib-Tone-Default if right).
+photographic tone mapper's: Calib-Tone-ISO200 renders in Octane at the
+same ratio to Iray as Calib-Tone-Default (1.02 – 1.13 per sphere).
 
 **Tone LUT** (#14): Octane's imager has no curve for Iray's burn, crush or
 another gamma — its highlight compression is far weaker (probe 91: 0.70×
@@ -276,7 +276,9 @@ formula; the crush is a fit (`CRUSH_KNEE`): Crush 0.1 / 0.3 1.4 / 2.4 / 255,
 Gladiator's mix (Burn 0, Crush 0.07, Gamma 1.857) 1.2 (Reinhard and gamma
 alone 5.9; `^(1 + crush)` 2.3 / 4.2 / 1.7). Octane's LUT render matches the
 curve applied to its linear render within +0.5 / 255 (+4 in the deepest
-shadows).
+shadows); end to end, every Calib-Tone-* export renders in Octane at
+Calib-Tone-Default's ratio to Iray (floor 1.01 – 1.05; the spheres differ
+by material, not by tone setting).
 
 ## Materials
 

@@ -13,6 +13,8 @@ Hypotheses (by the Iray channels the variants stand for):
   (r = 0.5 → the default 1).
 - `gloss-ior`: specular 1 and the dielectric IOR from F0 = 0.08·r
   (r = 0.5 → 1.5, 0 → 1: no reflection), as Iray's reflectivity reads.
+- `gloss-uncapped`: specular 2·r without the cap at 1 (r 1 → 2), to see
+  whether Universal takes a specular above 1.
 - `dl-ior`: the same for PBRSkin's Dual Lobe Specular Reflectivity.
 - `twosided-x1`: two-sided emitters at the one-sided power (the export
   doubles it, `TWO_SIDED_POWER`, assuming Octane splits it over both faces).
@@ -85,8 +87,9 @@ def apply(ocs, hyp):
         return halve_double_sided(ocs)
     for mat, r in REFLECTIVITY.items():
         dual = mat.startswith(('P', 'G8'))
-        if hyp == 'gloss-2r' and not dual:
-            ocs = set_pin(ocs, mat, 'specular', value_node(33, 8, ' '.join([f'{min(2 * r, 1):.4f}'] * 3)))
+        if hyp in ('gloss-2r', 'gloss-uncapped') and not dual:
+            share = 2 * r if hyp == 'gloss-uncapped' else min(2 * r, 1)
+            ocs = set_pin(ocs, mat, 'specular', value_node(33, 8, ' '.join([f'{share:.4f}'] * 3)))
         elif (hyp == 'gloss-ior' and not dual) or (hyp == 'dl-ior' and dual):
             ocs = set_pin(ocs, mat, 'specular', value_node(33, 8, '1 1 1'))
             ocs = set_pin(ocs, mat, 'index4', value_node(6, 8, f'{ior_from(r):.4f} 0 0'))
