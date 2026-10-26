@@ -23,6 +23,7 @@ python3 scripts/dev/make-calib-scenes.py   # Calib-PBRSkin / Calib-Tone-* / Cali
 python3 scripts/dev/make-light-scenes.py   # Calib-L-* light scenes from Calib-Point/-Area/-Spot/-Distant/-Emissive
 python3 scripts/dev/calib-render.py [--auto-ev] <scene.duf>...   # Iray references → ~/Library/Caches/orbis/calib/iray
 python3 scripts/dev/channel-audit.py > audit.md   # DAZ channels set in My Library's scenes vs. read by the export (#15)
+python3 scripts/dev/shader-coverage.py > coverage.md   # every Iray Uber / PBRSkin / DAZ Default channel: default, read or not (#15)
 ```
 CI (`.github/workflows/ci.yml`) tests and packages on every push; a `v*` tag
 attaches the zip to a GitHub release.
