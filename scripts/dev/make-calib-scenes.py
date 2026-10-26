@@ -134,6 +134,11 @@ d = copy.deepcopy(base)
 d_nodes = {n['id']: n for n in d['scene']['nodes']}
 mlib = {m['id']: m for m in d['material_library']}
 uber_labels = []
+# One base material for all (the leftmost sphere's, M0 matte): the original
+# spheres differ in more than their gloss (a tinted glossy colour, other
+# mixing modes), which would ride along with each variant.
+first = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[spheres[0]['id']])
+base_extra = copy.deepcopy(mlib[first['url'].lstrip('#')]['extra'])
 for s0, (label, over) in zip(spheres, UBER):
     n = d_nodes[s0['id']]
     n['label'] = label
@@ -143,6 +148,7 @@ for s0, (label, over) in zip(spheres, UBER):
     m = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[n['id']])
     m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': RED}}
     lm = mlib[m['url'].lstrip('#')]
+    lm['extra'] = copy.deepcopy(base_extra)
     ch = next(e for e in lm['extra'] if e['type'] == 'studio_material_channels')['channels']
     for k, v in {'Base Mixing': 0, 'Metallic Weight': 0.0, 'Dual Lobe Specular Weight': 0.0, 'Top Coat Weight': 0.0,
                  'Translucency Weight': 0.0, 'Refraction Weight': 0.0, **over}.items():

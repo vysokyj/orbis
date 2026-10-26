@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Variants of an exported .orbx with material pins changed in its
+project.ocs, so one Octane batch tests several hypotheses:
+
+  python3 scripts/dev/orbx-variants.py <in.orbx> <out dir> <hypothesis>...
+
+Each hypothesis writes <out dir>/<scene>__<hypothesis>.orbx; render them with
+scripts/dev/octane-render.sh and compare with scripts/dev/calib-compare-all.py
+(the Iray reference of <scene> serves every variant).
+
+Hypotheses (by the Iray channels the variants stand for):
+- `gloss-2r`: Iray Uber Glossy Reflectivity r → Universal specular 2·r
+  (r = 0.5 → the default 1).
+- `gloss-ior`: specular 1 and the dielectric IOR from F0 = 0.08·r
+  (r = 0.5 → 1.5, 0 → 1: no reflection), as Iray's reflectivity reads.
+- `dl-ior`: the same for PBRSkin's Dual Lobe Specular Reflectivity.
+The channel values come from the scene materials' names (Calib-Glossy /
+Calib-PBRSkin label their spheres with them) via HYPOTHESES below.
+"""
+import math, os, re, subprocess, sys
+
+root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..')
+tool = os.path.join(root, 'target/release/examples/orbx_ocs')
+
+# Material (prefix of its name in project.ocs) → the Iray reflectivity it
+# was built with (Calib-Glossy G*, Calib-PBRSkin P*; see make-calib-scenes.py).
+REFLECTIVITY = {
+    'G2_refl_0_5': 0.5, 'G3_refl_0_25': 0.25, 'G4_refl_1': 1.0, 'G5_refl_0': 0.0,
+    'G6_rough_0_1': 0.5, 'G7_rough_0_6': 0.5, 'G8_dual_lobe': 0.5,
+    'P2_dual_lobe_0_25': 0.25, 'P3_dual_lobe_0_5': 0.5, 'P4_dual_lobe_w0_25': 0.25,
+    'P6_Gladio_cloth': 0.25, 'P7_metal': 0.25, 'P8_Gladio_armour': 0.25,
+}
+next_id = [990000]
+
+
+def value_node(typ, attr_type, value):
+    next_id[0] += 1
+    return (f"<node id='{next_id[0]}' type='{typ}'>\n"
+            f"         <attr name='value' type='{attr_type}'>{value}</attr>\n        </node>")
+
+
+def set_pin(ocs, material, pin, node_xml):
+    """Set `pin` of the Universal material whose input is named
+    /Scene/Materials/<material>…: replace the pin's node, or add the pin."""
+    m = re.search(rf"name='/Scene/Materials/{re.escape(material)}[^']*'", ocs)
+    if not m:
+        return ocs
+    start = ocs.index("<node", ocs.index("<pin name='input'>", m.end()))
+    # The material node ends at its matching </node>.
+    depth, i = 0, start
+    for t in re.finditer(r"<node\b|</node>", ocs[start:]):
+        depth += 1 if t.group() == '<node' else -1
+        if depth == 0:
+            end = start + t.end()
+            break
+    block = ocs[start:end]
+    pin_re = re.compile(rf"(<pin name='{pin}'>\s*)<node\b.*?</node>(\s*</pin>)", re.S)
+    if pin_re.search(block):
+        # Only the pin's own node (no nested nodes inside the value nodes we set).
+        block = pin_re.sub(lambda mm: mm.group(1) + node_xml + mm.group(2), block, count=1)
+    else:
+        at = block.index('\n', block.index("compatibilityVersion")) + 1
+        block = block[:at] + f"       <pin name='{pin}'>\n        {node_xml}\n       </pin>\n" + block[at:]
+    return ocs[:start] + block + ocs[end:]
+
+
+def ior_from(r):
+    f0 = 0.08 * r
+    s = math.sqrt(f0)
+    return (1 + s) / (1 - s) if f0 > 0 else 1.0
+
+
+def apply(ocs, hyp):
+    for mat, r in REFLECTIVITY.items():
+        dual = mat.startswith(('P', 'G8'))
+        if hyp == 'gloss-2r' and not dual:
+            ocs = set_pin(ocs, mat, 'specular', value_node(33, 8, ' '.join([f'{min(2 * r, 1):.4f}'] * 3)))
+        elif (hyp == 'gloss-ior' and not dual) or (hyp == 'dl-ior' and dual):
+            ocs = set_pin(ocs, mat, 'specular', value_node(33, 8, '1 1 1'))
+            ocs = set_pin(ocs, mat, 'index4', value_node(6, 8, f'{ior_from(r):.4f} 0 0'))
+    return ocs
+
+
+src, out = sys.argv[1], sys.argv[2]
+os.makedirs(out, exist_ok=True)
+scene = os.path.basename(src)[:-5]
+tmp = os.path.join(out, scene + '.ocs')
+subprocess.run([tool, 'get', src, tmp], check=True)
+ocs = open(tmp).read()
+for hyp in sys.argv[3:]:
+    v = apply(ocs, hyp)
+    p = os.path.join(out, f'{scene}__{hyp}.ocs')
+    open(p, 'w').write(v)
+    subprocess.run([tool, 'set', src, p, os.path.join(out, f'{scene}__{hyp}.orbx')], check=True)
+    os.remove(p)
+    print(f'{scene}__{hyp}: {sum(1 for _ in re.finditer("990[0-9]{3}", v))} pins set')
+os.remove(tmp)
