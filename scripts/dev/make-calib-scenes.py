@@ -75,20 +75,29 @@ VARIANTS = [
     ('P3 dual lobe 0.5', RED, {**DL, 'Dual Lobe Specular Reflectivity': 0.5}),
     ('P4 dual lobe w0.25', RED, {**DL, 'Dual Lobe Specular Weight': 0.25}),
     ('P5 top coat', RED, TC),
-    ('P6 Gladio cloth', RED, {**DL, **TC, 'Translucency Enable': True, 'Translucency Weight': 0.5}),
+    # Gladio maps its translucency colour with the base colour map; PBRSkin's
+    # default (skin-pale) turned the sphere pink in Iray too.
+    ('P6 Gladio cloth', RED, {**DL, **TC, 'Translucency Enable': True, 'Translucency Weight': 0.5,
+                              'Translucency Color': RED}),
     ('P7 metal', GREY, {**DL, 'Metallicity Enable': True, 'Metallic Weight': 0.9, 'Specular Lobe 1 Roughness': 0.4}),
     ('P8 Gladio armour', GREY, {**DL, **TC, 'Metallicity Enable': True, 'Metallic Weight': 0.75,
-                               'Specular Lobe 1 Roughness': 0.4, 'Translucency Enable': True, 'Translucency Weight': 0.85}),
+                               'Specular Lobe 1 Roughness': 0.4, 'Translucency Enable': True, 'Translucency Weight': 0.85,
+                               'Translucency Color': GREY}),
 ]
-TYPES = {bool: 'bool', float: 'float'}
+TYPES = {bool: 'bool', float: 'float', list: 'float_color'}
 
 made = []
 
-# --- PBRSkin spheres
+# --- PBRSkin spheres (renamed in the copy only: the other variants keep the
+# base's labels, which the shared dump matches by)
 d = copy.deepcopy(base)
 geo_of = {n['id']: n['geometries'][0]['id'] for n in spheres}
-for n, (label, colour, over) in zip(spheres, VARIANTS):
+d_nodes = {n['id']: n for n in d['scene']['nodes']}
+pbr_labels = []
+for s0, (label, colour, over) in zip(spheres, VARIANTS):
+    n = d_nodes[s0['id']]
     n['label'] = label
+    pbr_labels.append(label)
     lib = next(l for l in d['node_library'] if '#' + l['id'].replace('(', '%28').replace(')', '%29') == n['url'])
     lib['label'] = label
     m = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[n['id']])
@@ -98,12 +107,7 @@ for n, (label, colour, over) in zip(spheres, VARIANTS):
     m['url'] = PBRSKIN
     m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': colour}}
     m['extra'] = [{'type': 'studio/material/daz_brick'}, {'type': 'studio_material_channels', 'channels': channels}]
-# Scene node labels too (the dump matches by label).
-for n in d['scene']['nodes']:
-    for s in spheres:
-        if n['id'] == s['id']:
-            n['label'] = s['label']
-made.append((save(d, 'Calib-PBRSkin'), [s['label'] for s in spheres]))
+made.append((save(d, 'Calib-PBRSkin'), pbr_labels))
 
 # --- Tone mapping
 TONES = [('Burn05', {'Burn Highlights': 0.5}), ('Burn0', {'Burn Highlights': 0.0}),

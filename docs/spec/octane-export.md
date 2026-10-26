@@ -204,7 +204,11 @@ Group pins carry `dynamicType='12'`.
   when DAZ has DOF on, else 0 — 10× a real lens. Why: Gladiator (65 mm,
   f/6, focus 3.87 m) blurs the trunk at 5.3 m over 10–13 px (10–90 % edge,
   a ~15–20 px disc) and the trees at 10–20 m by ~40 px; a real lens gives
-  1.5 / 3–5 px, 10× gives 15 / 34–45 px. The lens `fstop` is written to
+  1.5 / 3–5 px, 10× gives 15 / 34–45 px. **Calib-DOF-f4/f8/f16** (focus
+  1.5 m, spheres at 4.6 m): a disc blur fitted to Iray's render has
+  diameter 104 / 52 / 26 px against 107 / 54 / 27 predicted at 10× (a real
+  lens: 10.7 / 5.4 / 2.7). DAZ renders the camera by its channels (`DOF`,
+  `Depth of Field`, `Aperature` — sic); `perspective` mirrors them. The lens `fstop` is written to
   match (`lens_fstop`, the template's 65 mm; 1000 without DOF) — the
   template's fixed 12 disagreed with the aperture.
 
