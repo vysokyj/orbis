@@ -347,12 +347,18 @@ Every material input (20007) is filled — Octane doesn't convert
   `coatingRoughness` (Top Coat Roughness, or 1 − Top Coat Glossiness in
   modes 1 / 2, squared likewise), `coatingIor` = Top Coat IOR: the
   top-coated sphere's highlight 0 → 19 px (Iray 17).
-- **Weighted mixing** (Base Mixing 2) without translucency → `metallic` =
-  Glossy Weight / (Diffuse Weight + Glossy Weight), `specular` 0, the
-  diffuse map unbrightened (`weighted_gloss`): Iray blends a full-strength
-  glossy reflection by its share. Highlight 19 → 68 px (Iray 215), overall
-  0.81 of Iray either way — open in #10. With translucency (mesh hair) the
-  diffuse map is brightened by `weighted_mix` as before.
+- **Weighted mixing** (Base Mixing 2) without translucency → a **Mix
+  material** (19): `material1` a metal (metallic 1) in the Glossy Color (or
+  its map) at the surface's roughness, `material2` the surface without its
+  gloss (`specular` 0, the diffuse map unbrightened), `amount` = Glossy
+  Weight / (Diffuse Weight + Glossy Weight) (`weighted_gloss`); the Top Coat
+  on both. Iray blends a full-strength glossy reflection by that share: as
+  a metallic share of one Universal the reflection took the diffuse colour
+  — Calib-Mixing (Fetroom's surfaces): weighted grey 0.63 → 1.05, ceiling
+  0.85 → 1.06, door jamb (black, 0.8 coat) 1.09 once the coat covered the
+  metal too (0.55 without). With translucency (mesh hair) the diffuse map
+  is brightened by `weighted_mix` as before. Base Mixing 1 with the wall
+  map as Diffuse and Glossy Color renders like a flat one (1.12 – 1.14).
 - **Metallic Weight under 0.05** (no map) is left out: the GSOV4 jacket's
   0.0107 turned Octane's gloss off — black velvet (0.02× Iray) beside the
   same leather's trousers.

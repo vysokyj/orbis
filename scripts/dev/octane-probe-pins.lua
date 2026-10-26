@@ -1,8 +1,8 @@
--- ORBIS probe 98 (unattended via scripts/dev/octane-run.sh): node pins for
--- glass (#9) — the absorption medium and the Universal material (its
--- transmission type enum) — name, type, default node, description and the
--- default nodes' attributes (enum values). The node-type constants with
--- MED / ABSORPTION / UNIVERSAL in their name are listed first.
+-- ORBIS probe 98 (unattended via scripts/dev/octane-run.sh): pins of the
+-- node types in `which` (probe 98: absorption medium for glass, #9; then
+-- the mix material for Iray's weighted mixing, #10) — name, type, default
+-- node, description and the default nodes' attributes (enum values). The
+-- material and medium node-type constants are listed first.
 -- Output: ~/Documents/orbis_probe98.txt, orbis_probe.done.
 
 local home = os.getenv("HOME") or "/tmp"
@@ -30,7 +30,7 @@ end
 log("start " .. os.date())
 try("constants", function()
     for name, v in pairs(octane) do
-        if type(name) == "string" and (name:find("MED") or name:find("ABSORPTION") or name:find("UNIVERSAL")) and type(v) == "number" then
+        if type(name) == "string" and (name:find("NT_MAT_") or name:find("NT_MED_")) and type(v) == "number" then
             log("const " .. name .. " = " .. v)
         end
     end
@@ -63,8 +63,10 @@ local function describe(label, typ)
     end)
 end
 
-if octane.NT_MED_ABSORPTION then describe("absorption medium", octane.NT_MED_ABSORPTION) end
-describe("universal", 130)
+local which = { "NT_MAT_MIX", "NT_MED_ABSORPTION" }
+for _, k in ipairs(which) do
+    if octane[k] then describe(k, octane[k]) end
+end
 
 log("done " .. os.date())
 local f = io.open(docs .. "orbis_probe.done", "w")

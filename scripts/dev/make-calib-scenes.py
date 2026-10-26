@@ -229,6 +229,77 @@ for s0, (label, over) in zip(spheres, GLASS):
         set_channel(ch, k, v, TYPES.get(type(v), 'float'))
 made.append((save(d, 'Calib-Glass'), glass_labels))
 
+# --- Iray Base Mixing 1 / 2 and Top Coat as Fetroom's room surfaces use
+# them (#10: walls 2x, weighted surfaces 0.81 in Octane). A synthetic tile
+# texture (written beside the scenes' library, ours) stands in for the
+# walls' map, as their Diffuse and Glossy Color.
+TILES = '/Runtime/Textures/ORBIS/calib-tiles.png'
+tiles_path = os.path.join(os.path.dirname(out_dir), TILES.lstrip('/'))
+if not os.path.exists(tiles_path):
+    from PIL import Image
+    import numpy as np
+    os.makedirs(os.path.dirname(tiles_path), exist_ok=True)
+    yy, xx = np.mgrid[0:512, 0:512]
+    grout = ((xx % 128) < 6) | ((yy % 128) < 6)
+    tone = 0.55 + 0.25 * (((xx // 128) + (yy // 128)) % 2) - 0.1 * np.sin(xx / 9.0) * np.cos(yy / 13.0)
+    rgb = np.stack([tone, tone * 0.93, tone * 0.82], -1)
+    rgb[grout] = 0.25
+    Image.fromarray((np.clip(rgb, 0, 1) * 255).astype(np.uint8)).save(tiles_path)
+WALL = {'Base Mixing': 1, 'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.7419355, 'Glossiness': 0.08888889}
+MIXING = [
+    ('X1 wall flat', [0.6, 0.6, 0.6], None, {**WALL}),
+    ('X2 wall tex', [1.0, 1.0, 1.0], TILES, {**WALL, ('Glossy Color', 'image'): TILES}),
+    ('X3 wall tex diffuse', [1.0, 1.0, 1.0], TILES, {**WALL}),
+    ('X4 inner topcoat', [0.835, 0.776, 0.71], None, {'Base Mixing': 1, 'Glossy Layered Weight': 1.0, 'Glossy Color': [0.204, 0.204, 0.204],
+                                                     'Glossiness': 0.5, 'Top Coat Weight': 1.0, 'Top Coat Glossiness': 0.546875}),
+    ('X5 ceiling', [0.545, 0.576, 0.627], None, {'Base Mixing': 2, 'Diffuse Weight': 0.5, 'Glossy Weight': 0.6, 'Glossy Color': [0.67, 0.70, 0.75],
+                                                 'Glossiness': 1.0, 'Top Coat Weight': 0.8, 'Top Coat Glossiness': 1.0}),
+    ('X6 jamb', [0.0, 0.0, 0.0], None, {'Base Mixing': 2, 'Diffuse Weight': 0.5, 'Glossy Weight': 0.6, 'Glossy Color': [0.094, 0.094, 0.094],
+                                        'Glossiness': 1.0, 'Top Coat Weight': 0.8, 'Top Coat Glossiness': 1.0}),
+    ('X7 weighted', [0.6, 0.6, 0.6], None, {'Base Mixing': 2, 'Diffuse Weight': 1.0, 'Glossy Weight': 0.5, 'Glossiness': 0.7}),
+    ('X8 weighted diffuse', [0.6, 0.6, 0.6], None, {'Base Mixing': 2, 'Diffuse Weight': 1.0, 'Glossy Weight': 0.0}),
+]
+d = copy.deepcopy(base)
+d_nodes = {n['id']: n for n in d['scene']['nodes']}
+mlib = {m['id']: m for m in d['material_library']}
+first = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[spheres[0]['id']])
+base_extra = copy.deepcopy(mlib[first['url'].lstrip('#')]['extra'])
+mixing_labels = []
+for s0, (label, colour, diffuse_map, over) in zip(spheres, MIXING):
+    n = d_nodes[s0['id']]
+    n['label'] = label
+    lib = next(l for l in d['node_library'] if '#' + l['id'].replace('(', '%28').replace(')', '%29') == n['url'])
+    lib['label'] = label
+    mixing_labels.append(label)
+    m = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[n['id']])
+    lm = mlib[m['url'].lstrip('#')]
+    diffuse = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': colour}}
+    if diffuse_map:
+        diffuse['channel']['image_file'] = diffuse_map
+    m['diffuse'] = copy.deepcopy(diffuse)
+    # Keep the library's channel definition (mappable, …): a bare channel
+    # there made DAZ drop the diffuse map.
+    lm.setdefault('diffuse', {'channel': {'id': 'diffuse', 'type': 'float_color'}})['channel']['current_value'] = colour
+    lm['extra'] = copy.deepcopy(base_extra)
+    ch = next(e for e in lm['extra'] if e['type'] == 'studio_material_channels')['channels']
+    plain = {'Metallic Weight': 0.0, 'Dual Lobe Specular Weight': 0.0, 'Top Coat Weight': 0.0, 'Translucency Weight': 0.0,
+             'Refraction Weight': 0.0, 'Glossy Color': [1.0, 1.0, 1.0], 'Glossy Reflectivity': 0.5, 'Diffuse Weight': 1.0, 'Glossy Weight': 0.0}
+    for k, v in {**plain, **over}.items():
+        if isinstance(k, tuple):
+            # DAZ reads a map from the scene material's channel (and lists
+            # the image in image_library), as it saves them.
+            scene_ch = next(e for e in m.setdefault('extra', []) if e.get('type') == 'studio_material_channels') \
+                if any(e.get('type') == 'studio_material_channels' for e in m.get('extra', [])) else None
+            if scene_ch is None:
+                scene_ch = {'type': 'studio_material_channels', 'channels': []}
+                m['extra'].append(scene_ch)
+            scene_ch['channels'].append({'channel': {'id': k[0], 'type': 'float_color', 'current_value': [1.0, 1.0, 1.0], 'image_file': v}})
+        else:
+            set_channel(ch, k, v, TYPES.get(type(v), 'float'))
+d.setdefault('image_library', []).append({'id': 'calib-tiles.png', 'name': 'calib-tiles.png', 'map_gamma': 0,
+                                          'map': [{'url': TILES, 'label': 'calib-tiles.png'}]})
+made.append((save(d, 'Calib-Mixing'), mixing_labels))
+
 # --- Leaf cards (Calib-Leaf, built headless by daz-build-leaf-scene.dsa):
 # its cards come with DAZ's default shader; give them an Iray Uber material
 # (a copy of the sphere's) and the variants. Done once, on the built scene.
