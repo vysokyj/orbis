@@ -1,0 +1,49 @@
+// ORBIS calibration: Calib-L-Mode-SunSky-dir — Iray's Sun-Sky steered by a
+// node ("SS Sun Direction") instead of date and time (#18): a distant light
+// turned away from the date's sun, built headless from
+// Calib-L-Mode-SunSky-off (scripts/dev/daz-script.sh with
+// DONE_FILE=<out>.done). Arguments: base .duf, out .duf, then the content
+// directories. ECMAScript 3, ASCII only.
+(function () {
+    var a = App.scriptArgs;
+    var sBase = a[0], sOut = a[1];
+    var oContent = App.getContentMgr();
+    for (var i = 2; i < a.length; i++) oContent.addContentDirectory(a[i], false);
+    var sLog = "";
+    function done(s) {
+        var f = new DzFile(sOut + ".done");
+        f.open(DzFile.WriteOnly | DzFile.Truncate);
+        f.write(s + "\n" + sLog);
+        f.close();
+        App.delayedExit();
+    }
+    if (!oContent.openFile(sBase, false)) { done("base not opened"); return; }
+    var oSun = new DzDistantLight();
+    oSun.setName("SunDirection");
+    oSun.setLabel("SunDirection");
+    Scene.addNode(oSun);
+    // Turned (pointing 40 degrees up to the back left) and moved (up, to
+    // the front right): which of the two steers Iray's sun shows in the
+    // render (at the origin and turned only, Iray rendered night).
+    oSun.getXRotControl().setValue(40);
+    oSun.getYRotControl().setValue(35);
+    oSun.getXPosControl().setValue(300);
+    oSun.getYPosControl().setValue(400);
+    oSun.getZPosControl().setValue(300);
+    var oEnv = null;
+    for (var n = 0; n < Scene.getNumNodes(); n++) {
+        var oNode = Scene.getNode(n);
+        if (oNode.getLabel() == "Environment Options" || oNode.getName().indexOf("Environment Options") == 0) oEnv = oNode;
+    }
+    if (!oEnv) { done("no Environment Options"); return; }
+    var oProp = null;
+    for (var p = 0; p < oEnv.getNumProperties(); p++) {
+        var oP = oEnv.getProperty(p);
+        if (oP.getLabel() == "SS Sun Direction" || oP.getName() == "SS Sun Direction") oProp = oP;
+    }
+    if (!oProp) { done("no SS Sun Direction"); return; }
+    sLog += "property " + oProp.className() + "\n";
+    oProp.setValue(oSun);
+    sLog += "value " + (oProp.getValue() ? oProp.getValue().getLabel() : "null") + "\n";
+    done("saved " + Scene.saveScene(sOut));
+})();

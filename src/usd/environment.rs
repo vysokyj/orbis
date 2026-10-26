@@ -136,6 +136,7 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
         };
         let map = image(node).or_else(|| def.as_ref().and_then(image)).filter(|m| !m.is_empty() && !m.starts_with('#'));
         let num = |k: &str| ch.get(k).and_then(Value::as_f64);
+        let steered = sun_direction_node(lib, node, def.as_ref(), &nodes);
         return Some(SceneEnvironment {
             map,
             // Intensity × the map channel's own value.
@@ -151,13 +152,15 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
             sun_sky: (num("Environment Mode") == Some(2.0)).then(|| {
                 let ground = ch.get("SS Ground Color").and_then(Value::as_array);
                 SunSky {
-                    sun_dir: sun_direction(
-                        num("SS Latitude").unwrap_or(40.76426),
-                        num("SS Longitude").unwrap_or(-111.8972),
-                        num("SS Day").unwrap_or(2_457_092.0),
-                        num("SS Time").unwrap_or(43_200.0),
-                        num("SS UTC Offset").unwrap_or(-6.0),
-                    ),
+                    sun_dir: steered.unwrap_or_else(|| {
+                        sun_direction(
+                            num("SS Latitude").unwrap_or(40.76426),
+                            num("SS Longitude").unwrap_or(-111.8972),
+                            num("SS Day").unwrap_or(2_457_092.0),
+                            num("SS Time").unwrap_or(43_200.0),
+                            num("SS UTC Offset").unwrap_or(-6.0),
+                        )
+                    }),
                     turbidity: (2.0 + 2.0 * num("SS Haze").unwrap_or(0.0)).clamp(2.0, 10.0),
                     power: SUN_SKY_POWER * num("SS Multiplier").unwrap_or(0.10132) / 0.10132 * haze_dimming(num("SS Haze").unwrap_or(0.0)),
                     sun_intensity: SUN_SKY_SUN_SHARE * num("SS Sun Disk Intensity").unwrap_or(1.0),
@@ -170,6 +173,28 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
         });
     }
     None
+}
+
+/// The sun's direction from the node `SS Sun Direction` names (a channel
+/// whose `node` is `#<scene node id>`), when set: from the origin to the
+/// node's position — Iray ignores its rotation (Calib-L-Mode-SunSky-dir: a
+/// light at (300, 400, 300) cm turned to point back left cast its shadows
+/// back left, from a high front-right sun; at the origin, only turned,
+/// Iray rendered night). None for a node at the origin.
+fn sun_direction_node(lib: &mut Library, env: &Value, env_def: Option<&Value>, nodes: &[Value]) -> Option<[f64; 3]> {
+    let target = |n: &Value| -> Option<String> {
+        n.get("extra")?.as_array()?.iter().flat_map(|e| e.get("channels").and_then(Value::as_array).into_iter().flatten()).find_map(|c| {
+            let c = c.get("channel")?;
+            (c.get("id")?.as_str()? == "SS Sun Direction").then_some(())?;
+            c.get("node").and_then(Value::as_str).map(|s| percent_decode(s.trim_start_matches('#')))
+        })
+    };
+    let id = target(env).or_else(|| env_def.and_then(target))?;
+    let node = nodes.iter().find(|n| n.get("id").and_then(Value::as_str).map(percent_decode).as_deref() == Some(id.as_str()))?;
+    let def = node.get("url").and_then(Value::as_str).and_then(|u| lib.entry(u, "node_library"));
+    let p = channel3(node, def.as_ref(), "translation", 0.0);
+    let len = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
+    (len > 0.0).then(|| p.map(|c| c / len))
 }
 
 /// DAZ's Iray tone mapping (the "Tonemapper Options" node).

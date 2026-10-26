@@ -866,3 +866,25 @@ fn iray_sun_sky_becomes_octane_daylight() {
     assert!(ocs.contains("<node id='100210' type='14'>") && ocs.contains("<pin name='sundir'>"), "daylight environment");
     assert!(!ocs.contains("<node id='100035' type='37'>"), "no texture environment on the render target");
 }
+
+#[test]
+fn sun_sky_steered_by_a_node() {
+    // "SS Sun Direction" names a distant light straight above the origin
+    // (turned, which Iray ignores): the sun stands overhead, whatever the
+    // date says.
+    let duf = json!({
+        "node_library": [
+            {"id": "Environment Options", "extra": [{"type": "studio_node_channels", "channels": [
+                {"channel": {"id": "Environment Mode", "current_value": 2}}]}]},
+            {"id": "Sun", "type": "light", "directional": {}}
+        ],
+        "scene": {"nodes": [
+            {"id": "Environment Options-1", "url": "#Environment%20Options", "extra": [{"type": "studio_node_channels", "channels": [
+                {"channel": {"id": "SS Sun Direction", "type": "node", "node": "#Sun-1"}}]}]},
+            {"id": "Sun-1", "url": "#Sun", "rotation": [{"id": "x", "current_value": 45}], "translation": [{"id": "y", "current_value": 500}]}
+        ]},
+    });
+    let mut lib = Library::new(vec![], duf);
+    let sky = scene_environment(&mut lib).unwrap().sun_sky.unwrap();
+    assert!((sky.sun_dir[1] - 1.0).abs() < 1e-9, "{:?}", sky.sun_dir);
+}

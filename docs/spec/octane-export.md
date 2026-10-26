@@ -525,9 +525,15 @@ emission units keep their ratios (20 000 lm and 50 W against 5000 cd/m² on
   purpose: Hosek-Wilkie warms a low sun as the atmosphere does, Iray's
   stays nearly white (sunlit floor R : B 1.12 : 0.91 of Iray's at 18:00,
   1.11 : 0.93 at noon) — the export matches the light's amount and the
-  sun / sky balance, not Iray's hue. Not read
-  yet: `SS Sun Direction` (a node steering the sun), tint, saturation,
-  horizon height / blur, night colour.
+  sun / sky balance, not Iray's hue. **`SS Sun Direction`**
+  (a scene node, saved as the channel's `node`) overrides the date: the
+  sun stands in the direction of the node's *position* from the origin —
+  its rotation doesn't count (Calib-L-Mode-SunSky-dir: a light at (300,
+  400, 300) cm turned to point back left lit from the front right, Octane
+  0.97 with the same shadows; at the origin Iray rendered night). Left to
+  Octane's sky, as looks rather than lighting: `SS Blue-Red Tint`,
+  `Saturation`, `Sun Glow Intensity`, `Horizon Height` / `Blur`; `SS
+  Night Color` (black by default, as Octane's night).
 - **Draw Dome** off (the dome lights but isn't seen): Iray shows black
   behind the scene, the HDRI still lighting it (Calib-Dome-Off; the
   Calib-L scenes are "Scene Only", black anyway). The render target gets a
