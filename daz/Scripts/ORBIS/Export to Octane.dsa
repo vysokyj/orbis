@@ -52,18 +52,15 @@
 
     // ── The scene ─────────────────────────────────────────────────────────
     // The export reads the saved .duf (materials, cameras, lights), so save
-    // first — to the last file, or asking for one if the scene has none.
-    // Scene.saveScene() always asks (Save As); File > Save's action doesn't
-    // once the scene has a file.
+    // first -- to its own file without asking, or asking for one if the
+    // scene has none. A freshly opened scene can need saving already
+    // (UltraScatter rebuilds its instances on load). Scene.saveScene()
+    // without a name and File > Save's action both ask in DAZ Studio 6, and
+    // the action runs only after the script has finished.
     if (!Scene.getFilename()) {
         Scene.saveScene();
     } else if (Scene.needsSave()) {
-        var oSave = MainWindow.getActionMgr().findAction("DzSaveSceneAction");
-        if (oSave) {
-            oSave.trigger();
-        } else {
-            Scene.saveScene();
-        }
+        Scene.saveScene(Scene.getFilename());
     }
     var sScene = Scene.getFilename();
     if (!sScene || Scene.needsSave()) {

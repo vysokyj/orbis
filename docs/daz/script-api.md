@@ -34,8 +34,12 @@ generated from the docs, so undocumented members may be missing.
   `/resources/…` paths).
 - `Scene.getFilename()` (`""` when never saved), `Scene.needsSave()`,
   `Scene.getNumNodes()` / `getNode(i)`.
-- `Scene.saveScene()` always opens the Save As dialog; File > Save without
-  asking is `MainWindow.getActionMgr().findAction("DzSaveSceneAction").trigger()`.
+- `Scene.saveScene(filename)` saves there without asking (and makes it the
+  scene's file); `Scene.saveScene()` without a name opens the Save As
+  dialog. In DAZ Studio 6 `findAction("DzSaveSceneAction").trigger()` (File >
+  Save) asks for a name too, and runs only after the script has returned.
+- `Scene.needsSave()` can be true right after opening a scene: UltraScatter
+  rebuilds its instance groups on load.
 - Rendering from a script (`scripts/dev/daz-spot-variants.dsa`, works in
   DS6): `App.getRenderMgr()`, `getRenderOptions()`, `renderImgToId =
   DzRenderOptions.DirectToFile`, `renderImgFilename`, `doRender(options)`
