@@ -813,14 +813,6 @@ impl Ocs<'_> {
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
             self.float_or_map(i, "opacity", mat, Some(mat.opacity_channel()), opacity);
-        } else if refraction > 0.0 && thin && is_eye_moisture(name) {
-            // The tear film over the whole eye (Genesis' EyeMoisture, twice:
-            // the figure's and its eyelashes'): Iray's thin-walled refraction
-            // passes all light and shows only its gloss; Octane's thin wall,
-            // 0.1 mm over the sclera, darkened the whites to 0.31 × Iray
-            // whatever its IOR or specular (Calib-Hair, #20). Mostly
-            // see-through it keeps the wet highlight: 0.57 – 0.68 at 0.3 – 0.1.
-            self.float_pin(i, "opacity", EYE_MOISTURE_OPACITY);
         }
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
@@ -843,16 +835,6 @@ fn absorption(mat: &Material) -> Option<[f32; 3]> {
     let (lo, hi) = colour.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &c| (lo.min(c), hi.max(c)));
     (distance_m > 0.0 && hi > 0.0 && lo < 1.0).then(|| colour.map(|c| -c.clamp(1e-4, 1.0).ln() / distance_m))
 }
-
-/// A film over the eye by its material name (Genesis EyeMoisture, a tear
-/// line).
-fn is_eye_moisture(name: &str) -> bool {
-    let n = name.to_ascii_lowercase();
-    n.contains("moisture") || n.contains("tear")
-}
-
-/// See `is_eye_moisture` in `universal`.
-const EYE_MOISTURE_OPACITY: f32 = 0.3;
 
 /// A figure's eye surface by its material name (Genesis 3 / 8 / 9: Irises,
 /// Pupils, Sclera; Cornea and EyeMoisture are refractive anyway).
@@ -1426,13 +1408,6 @@ mod tests {
         assert!(gloss.contains("<pin name='metallic'>") && gloss.contains("<pin name='coating'>"), "{gloss}");
         let base = &mx[mx.find("<pin name='material2'>").unwrap()..];
         assert!(!base.contains("<pin name='metallic'>") && base.contains("<pin name='coating'>"), "{base}");
-        // The tear film over the eye stays mostly see-through.
-        let moisture = mat(json!([
-            {"channel": {"id": "Refraction Weight", "current_value": 1}},
-            {"channel": {"id": "Thin Walled", "current_value": true}},
-        ]));
-        let (ex2, _) = material_inputs(&[("Genesis_8_Female_EyeMoisture".into(), moisture, 1.0)], &dirs, HashMap::new(), 8995, SkinShader::None);
-        assert!(ex2.contains("<pin name='opacity'>") && ex2.contains("<attr name='value' type='6'>0.3</attr>"), "{ex2}");
         // Tinted glass with its own refraction inputs and a blue volume.
         let bottle = mat(json!([
             {"channel": {"id": "Refraction Weight", "current_value": 1}},

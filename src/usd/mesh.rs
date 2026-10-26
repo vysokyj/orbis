@@ -422,7 +422,6 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
         mesh.points = points.iter().map(|p| [p[0] * CM, p[1] * CM, p[2] * CM]).collect();
         if refined {
             mesh = subdivide_once(&mesh);
-            subdivide::sink_eye_sockets(&mut mesh);
             if let Some(v) = visible {
                 mesh = keep_groups(&mesh, v);
             }

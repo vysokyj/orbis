@@ -48,39 +48,6 @@ pub(super) fn lift_off(guest: &mut Mesh, host: &Mesh) -> usize {
     lifted
 }
 
-/// How far (meters) a refined figure's eye socket sinks behind the eyeball.
-pub(super) const EYE_SOCKET_SINK: f32 = 0.0005;
-
-/// Push the Genesis EyeSocket (the inner lids, 0.2 mm behind the sclera in
-/// the base mesh) back by `EYE_SOCKET_SINK` along its normals after refining:
-/// refined, the eyeball shrinks a little more than the socket, which came
-/// out 0.1 mm in front of it — dark wedges over the whites of the eyes
-/// where Iray shows sclera (Calib-Hair, #20). Points it shares with another
-/// surface (the lid's rim) stay, so no seam opens.
-pub(super) fn sink_eye_sockets(m: &mut Mesh) {
-    let Some((_, faces)) = m.subsets.iter().find(|(g, _)| g.to_ascii_lowercase().replace(' ', "") == "eyesocket") else { return };
-    let mut starts = Vec::with_capacity(m.face_counts.len());
-    let mut at = 0usize;
-    for &c in &m.face_counts {
-        starts.push(at);
-        at += c as usize;
-    }
-    let socket: HashSet<u32> = faces.iter().copied().collect();
-    let mut inside = vec![0u8; m.points.len()]; // 1 socket only, 2 shared
-    for f in 0..m.face_counts.len() {
-        let mark = if socket.contains(&(f as u32)) { 1 } else { 2 };
-        for &v in &m.face_indices[starts[f]..starts[f] + m.face_counts[f] as usize] {
-            inside[v as usize] |= mark;
-        }
-    }
-    let normals = vertex_normals(&m.points, &m.face_counts, &m.face_indices);
-    for (v, p) in m.points.iter_mut().enumerate() {
-        if inside[v] == 1 {
-            (0..3).for_each(|k| p[k] -= normals[v][k] * EYE_SOCKET_SINK);
-        }
-    }
-}
-
 /// One level of Catmull-Clark subdivision, as DAZ renders SubD level 1 (a
 /// refined mesh, not the limit surface): every n-gon becomes n quads.
 /// Boundaries stay put at corners (one face) and follow the boundary curve

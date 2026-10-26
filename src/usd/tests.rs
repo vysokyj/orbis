@@ -888,22 +888,3 @@ fn sun_sky_steered_by_a_node() {
     let sky = scene_environment(&mut lib).unwrap().sun_sky.unwrap();
     assert!((sky.sun_dir[1] - 1.0).abs() < 1e-9, "{:?}", sky.sun_dir);
 }
-
-#[test]
-fn eye_socket_sinks_behind_the_eyeball() {
-    // Two quads sharing an edge: the socket's free corner moves back along
-    // its normal (−Z for this winding), the corners it shares with the lid
-    // stay.
-    let mut m = Mesh {
-        points: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0], [2.0, 0.0, 0.0], [2.0, 1.0, 0.0]],
-        face_counts: vec![4, 4],
-        face_indices: vec![0, 1, 2, 3, 1, 4, 5, 2],
-        subsets: vec![("Face".into(), vec![0]), ("EyeSocket".into(), vec![1])],
-        ..Default::default()
-    };
-    super::subdivide::sink_eye_sockets(&mut m);
-    assert_eq!(m.points[1], [1.0, 0.0, 0.0]);
-    assert_eq!(m.points[2], [1.0, 1.0, 0.0]);
-    let n = super::subdivide::vertex_normals(&m.points, &m.face_counts, &m.face_indices)[0][2].signum();
-    assert!((m.points[4][2] + n * super::subdivide::EYE_SOCKET_SINK).abs() < 1e-6, "{:?}", m.points[4]);
-}
