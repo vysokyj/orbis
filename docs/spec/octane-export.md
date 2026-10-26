@@ -15,6 +15,14 @@ Calibration notes cite the reference scenes (*Octane1*: interior, spots +
 HDRI; *Octane2*: outdoor, HDRI-lit) and Lua probe numbers; numbers are
 linear-light unless marked sRGB.
 
+**Goal: the scene as Iray lights it, rendered the way Octane renders.** The
+export matches what the DAZ scene *means* — the amount of light, exposure,
+colours, which surfaces reflect, transmit or glow, the sun and sky balance
+— measured against Iray. Where Octane does something more plausibly than
+Iray (a low sun's warm colour, how a gloss layers over the diffuse, a
+spot's soft edge), its behaviour stays: no Iray quirk is imitated at the
+cost of realism.
+
 ## Inputs
 
 - The `.duf` (nodes, materials, cameras, lights, render settings).
