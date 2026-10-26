@@ -24,15 +24,23 @@ for line in io.lines(docs .. "orbis_jobs.txt") do
         end
         -- A project opened from Lua leaves the imager's tone LUT without
         -- its package and file (opened from File > Open it has them, probe
-        -- 96): point it at the package's assets/tone.cube again.
+        -- 96); pointing it back into the package didn't load it either. The
+        -- runner extracts the package's tone.cube beside it: load that by
+        -- its absolute path, as probe 93 did.
         local im = rt:getInputNode(octane.P_IMAGER)
-        for i = 1, im:getPinCount() do
-            if im:getPinInfoIx(i).name == "lut" then
-                local lut = im:getInputNodeIx(i)
-                if lut then
-                    lut:setAttribute(octane.A_PACKAGE, docs .. file, true)
-                    lut:setAttribute(octane.A_FILENAME, "assets/tone.cube", true)
-                    pcall(function() lut:setAttribute(octane.A_RELOAD, true, true) end)
+        local cube = docs .. file:gsub("%.orbx$", ".cube")
+        local fh = io.open(cube, "r")
+        if fh then
+            fh:close()
+            for i = 1, im:getPinCount() do
+                if im:getPinInfoIx(i).name == "lut" then
+                    local lut = im:getInputNodeIx(i)
+                    if lut then
+                        lut:setAttribute(octane.A_PACKAGE, "", true)
+                        lut:setAttribute(octane.A_FILENAME, cube, true)
+                        pcall(function() lut:evaluate() end)
+                        log(name .. ": tone LUT from " .. cube)
+                    end
                 end
             end
         end

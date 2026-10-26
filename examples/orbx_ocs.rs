@@ -3,6 +3,7 @@
 //!
 //!   cargo run --release --example orbx_ocs -- get <in.orbx> <project.ocs>
 //!   cargo run --release --example orbx_ocs -- set <in.orbx> <project.ocs> <out.orbx>
+//!   cargo run --release --example orbx_ocs -- file <in.orbx> <path in package> <out file>
 
 use anyhow::{bail, Result};
 
@@ -25,7 +26,12 @@ fn main() -> Result<()> {
             let refs: Vec<(&str, &[u8])> = files.iter().map(|(p, d)| (p.as_str(), d.as_slice())).collect();
             orbis::orbx::write_orbx(&mut std::io::BufWriter::new(std::fs::File::create(&a[4])?), &version, &refs)?;
         }
-        _ => bail!("usage: orbx_ocs get <in.orbx> <project.ocs> | set <in.orbx> <project.ocs> <out.orbx>"),
+        Some("file") if a.len() == 5 => {
+            let (_, files) = orbis::orbx::read_orbx(&std::fs::read(&a[2])?)?;
+            let Some((_, data)) = files.iter().find(|(p, _)| *p == a[3]) else { bail!("no {} in the package", a[3]) };
+            std::fs::write(&a[4], data)?;
+        }
+        _ => bail!("usage: orbx_ocs get <in.orbx> <project.ocs> | set <in.orbx> <project.ocs> <out.orbx> | file <in.orbx> <path> <out>"),
     }
     Ok(())
 }

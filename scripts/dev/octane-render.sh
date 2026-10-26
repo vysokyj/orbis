@@ -14,6 +14,9 @@ i=0
 for scene in "$@"; do
     name=$(basename "$scene" .orbx)
     ln -f "$scene" "$docs/orbis_job_$i.orbx"
+    # The tone LUT, if any, beside it (octane-render.lua loads it by path).
+    rm -f "$docs/orbis_job_$i.cube"
+    "$here/../../target/release/examples/orbx_ocs" file "$scene" assets/tone.cube "$docs/orbis_job_$i.cube" 2>/dev/null || true
     printf '%s\t%s\t%s\n' "orbis_job_$i.orbx" "$name" "$samples" >> "$docs/orbis_jobs.txt"
     rm -f "$docs/orbis_job_$name.png"
     i=$((i + 1))
@@ -24,4 +27,4 @@ for scene in "$@"; do
     name=$(basename "$scene" .orbx)
     [ -f "$docs/orbis_job_$name.png" ] && cp "$docs/orbis_job_$name.png" "$out/$name.png"
 done
-rm -f "$docs"/orbis_job_*.orbx
+rm -f "$docs"/orbis_job_*.orbx "$docs"/orbis_job_*.cube
