@@ -1,0 +1,34 @@
+// ORBIS calibration: build a scene in a headless DAZ Studio — open a base
+// scene, load a wearable onto a figure, save. Run by scripts/dev/daz-script.sh
+// with DONE_FILE=<out>.done; script arguments: base .duf, wearable .duf,
+// figure label, out .duf, then the content directories. Aim the camera in
+// the saved file (its node_library entry): setWSPos on the camera here
+// left the saved scene's camera where it was. Calib-Hair: Calib-HDRI +
+// dForce Corporate Hair G8F, camera at (-150, 163, 110) cm.
+// ECMAScript 3 (QtScript): var only, ASCII only.
+(function () {
+    var a = App.scriptArgs;
+    var sBase = a[0], sWear = a[1], sFigure = a[2], sOut = a[3];
+    var oContent = App.getContentMgr();
+    for (var i = 4; i < a.length; i++) oContent.addContentDirectory(a[i], false);
+    var sLog = "";
+    function done(s) {
+        var f = new DzFile(sOut + ".done");
+        f.open(DzFile.WriteOnly | DzFile.Truncate);
+        f.write(s + "\n" + sLog);
+        f.close();
+        App.delayedExit();
+    }
+    if (!oContent.openFile(sBase, false)) { done("base not opened"); return; }
+    var oFigure = null;
+    for (var n = 0; n < Scene.getNumNodes(); n++) {
+        if (Scene.getNode(n).getLabel() == sFigure) oFigure = Scene.getNode(n);
+    }
+    if (!oFigure) { done("no figure " + sFigure); return; }
+    Scene.selectAllNodes(false);
+    oFigure.select(true);
+    Scene.setPrimarySelection(oFigure);
+    sLog += "merge " + oContent.openFile(sWear, true) + "\n";
+    var err = Scene.saveScene(sOut);
+    done("saved " + err);
+})();
