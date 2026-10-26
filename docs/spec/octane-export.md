@@ -513,8 +513,11 @@ emission units keep their ratios (20 000 lm and 50 W against 5000 cd/m² on
   sun 2.2 × its sky where Iray's is 1.2 ×; at 2.7 / 0.55 floor 1.02, shadow
   0.96, ground 0.92 (Calib-L-Mode-SunSky-off; noon: floor 1.01, shadow
   1.14 — Calib-L-Mode-SunSky-noon). `sun_size` = `SS Sun Disk
-  Scale` / 4, `groundColor` = `SS Ground Color`. Iray's sun stays whiter low
-  in the sky (Octane's sunlit floor R : B 1.12 : 0.91 of Iray's). Not read
+  Scale` / 4, `groundColor` = `SS Ground Color`. The colour is Octane's, on
+  purpose: Hosek-Wilkie warms a low sun as the atmosphere does, Iray's
+  stays nearly white (sunlit floor R : B 1.12 : 0.91 of Iray's at 18:00,
+  1.11 : 0.93 at noon) — the export matches the light's amount and the
+  sun / sky balance, not Iray's hue. Not read
   yet: `SS Sun Direction` (a node steering the sun), tint, saturation,
   horizon height / blur, night colour.
 - **Draw Dome** off (the dome lights but isn't seen): Iray shows black
