@@ -154,6 +154,12 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   (Catmull-Clark, as DAZ's SubD 1). Every mesh is written with
   `subdivisionScheme = "none"` and smooth vertex normals — Octane has no
   per-mesh level, and "subdivide all" rounds hard props.
+- **Eye socket**: after refining, a figure's EyeSocket (the inner lids)
+  sinks 0.5 mm along its normals (`sink_eye_sockets`), its rim shared with
+  the lids staying: 0.2 mm behind the sclera in the base mesh, it came out
+  0.1 mm in front once refined (the eyeball shrinks a little more) — dark
+  wedges over the whites of the eyes (Calib-Hair, a ray cast through the
+  export; #20).
 - **Skin-tight lift**: an unrefined mesh conforming to a refined one (hair
   cap, brows) has its vertices within 5 mm of the figure lifted along the
   nearest refined vertex's normal to ≥ 0.5 mm above it (`LIFT_CLEARANCE`).
@@ -375,7 +381,13 @@ Every material input (20007) is filled — Octane doesn't convert
   nothing in Iray. A mostly refractive surface (weight ≥ 0.5) with its own
   roughness gets it on Universal's one `roughness`, squared as usual and
   × 0.3: Iray's 0.3 matched Octane's 0.02 – 0.03, Octane frosted at 0.09.
-  **Thin Walled** → `transmissionType` 2 (Thin wall), no volume. Iray shows
+  **Thin Walled** → `transmissionType` 2 (Thin wall), no volume. The tear
+  film over a figure's eye (a thin refractive surface named …Moisture or
+  …Tear, `is_eye_moisture`) gets `opacity` 0.3: Iray shows it only by its
+  gloss, Octane's thin wall 0.1 mm over the sclera darkened the whites to
+  0.31 × Iray whatever its IOR or specular; now 0.57 – 1.33 across the
+  sclera, the irises 1.00 – 1.04 (Calib-Hair). The cornea stays a thin wall
+  (at 0.25 opacity the irises fell to 0.71 – 0.78). Iray shows
   a thin-walled glass sphere without any reflection — invisible; Octane's
   thin wall keeps its Fresnel reflection, kept as the more plausible.
   **Absorption**: `Transmitted Color` T (linear) after `Transmitted
