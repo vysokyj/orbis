@@ -15,6 +15,8 @@ Hypotheses (by the Iray channels the variants stand for):
   (r = 0.5 → 1.5, 0 → 1: no reflection), as Iray's reflectivity reads.
 - `gloss-uncapped`: specular 2·r without the cap at 1 (r 1 → 2), to see
   whether Universal takes a specular above 1.
+- `gloss-coat`: the reflectivity above 0.5 (specular capped at 1) as a
+  clear coating of weight 2·r − 1 at the glossy roughness.
 - `dl-ior`: the same for PBRSkin's Dual Lobe Specular Reflectivity.
 - `twosided-x1`: two-sided emitters at the one-sided power (the export
   doubles it, `TWO_SIDED_POWER`, assuming Octane splits it over both faces).
@@ -34,6 +36,8 @@ REFLECTIVITY = {
     'P2_dual_lobe_0_25': 0.25, 'P3_dual_lobe_0_5': 0.5, 'P4_dual_lobe_w0_25': 0.25,
     'P6_Gladio_cloth': 0.25, 'P7_metal': 0.25, 'P8_Gladio_armour': 0.25,
 }
+# Calib-Glossy's G4 roughness as the export writes it (its `roughness` pin).
+COAT_ROUGHNESS = os.environ.get('COAT_ROUGHNESS', '0.09')
 next_id = [990000]
 
 
@@ -90,6 +94,9 @@ def apply(ocs, hyp):
         if hyp in ('gloss-2r', 'gloss-uncapped') and not dual:
             share = 2 * r if hyp == 'gloss-uncapped' else min(2 * r, 1)
             ocs = set_pin(ocs, mat, 'specular', value_node(33, 8, ' '.join([f'{share:.4f}'] * 3)))
+        elif hyp == 'gloss-coat' and not dual and r > 0.5:
+            ocs = set_pin(ocs, mat, 'coating', value_node(33, 8, ' '.join([f'{2 * r - 1:.4f}'] * 3)))
+            ocs = set_pin(ocs, mat, 'coatingRoughness', value_node(6, 8, f'{COAT_ROUGHNESS} 0 0'))
         elif (hyp == 'gloss-ior' and not dual) or (hyp == 'dl-ior' and dual):
             ocs = set_pin(ocs, mat, 'specular', value_node(33, 8, '1 1 1'))
             ocs = set_pin(ocs, mat, 'index4', value_node(6, 8, f'{ior_from(r):.4f} 0 0'))

@@ -577,7 +577,7 @@ impl Ocs<'_> {
             // the default, Universal's full specular); Octane matched it at
             // specular × min(2r, 1) — Calib-Glossy, r 0 / 0.25: 2.42 / 1.54
             // × Iray at Universal's default, 1.21 / 1.14 so, like the matte
-            // sphere's 1.13 (r 1 stays 0.74: specular caps at 1).
+            // sphere's 1.13 (r 1: see `glossy_excess`).
             let refl = if specular_mode { 1.0 } else { reflectivity_share(mat.float("Glossy Reflectivity")) };
             let weight = glossy.min(1.0) * refl;
             // A coloured gloss map tints the reflection: the HS CB braids'
@@ -620,6 +620,15 @@ impl Ocs<'_> {
 
         // Iray's Top Coat: a clear dielectric layer over everything.
         let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
+        // A Glossy Reflectivity above 0.5 reflects more than Universal's full
+        // specular, which caps at 1 (Calib-Glossy, r 1: 0.74 × Iray, also
+        // at specular 2); the excess 2r − 1 as a clear coating at the gloss's
+        // roughness brought it to 1.08, like its neighbours' 1.11 – 1.16.
+        let excess = if mirror || specular_mode || glossy <= 0.0 || weighted.is_some() { 0.0 } else { glossy.min(1.0) * glossy_excess(mat.float("Glossy Reflectivity")) };
+        if coat <= 0.0 && excess > 0.0 {
+            self.rgb_pin(i, "coating", gloss_color.map(|c| c * excess));
+            self.float_pin(i, "coatingRoughness", rough.clamp(0.0, 1.0));
+        }
         if coat > 0.0 {
             let colour = mat.color("Top Coat Color").unwrap_or([1.0; 3]);
             self.rgb_pin(i, "coating", colour.map(|c| c * coat));
@@ -663,6 +672,11 @@ impl Ocs<'_> {
 /// min(2r, 1). See the glossy layer in `universal`.
 fn reflectivity_share(r: Option<f32>) -> f32 {
     (2.0 * r.unwrap_or(0.5)).clamp(0.0, 1.0)
+}
+
+/// The reflectivity beyond Universal's full specular: 2r − 1 for r > 0.5.
+fn glossy_excess(r: Option<f32>) -> f32 {
+    (2.0 * r.unwrap_or(0.5) - 1.0).clamp(0.0, 1.0)
 }
 
 /// The scalar a map is scaled by for a grey Iray colour tint: its mean
@@ -1177,6 +1191,16 @@ mod tests {
         let spec = &lx[lx.find("<pin name='specular'>").expect("gloss weight map")..];
         assert!(spec.contains("type='36'") && spec[..900].contains("<attr name='value' type='6'>0.33</attr>"), "{spec}");
         assert!(!lx.contains("<pin name='metallic'>"), "a trace of metallicity is left out: {lx}");
+        // Glossy Reflectivity 1: full specular plus the excess as a coating.
+        let shiny = mat(json!([
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 1}},
+            {"channel": {"id": "Glossy Reflectivity", "current_value": 1}},
+            {"channel": {"id": "Glossy Roughness", "current_value": 0.3}},
+        ]));
+        let (sx, _) = material_inputs(&[("Shiny".into(), shiny, 1.0)], &dirs, HashMap::new(), 8900, SkinShader::None);
+        let coat = &sx[sx.find("<pin name='coating'>").expect("excess gloss as a coating")..];
+        assert!(coat[..300].contains("1 1 1"), "{coat}");
+        assert!(sx.contains("<pin name='coatingRoughness'>"), "{sx}");
         let wall = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}},
             {"channel": {"id": "Horizontal Tiles", "current_value": 6}},

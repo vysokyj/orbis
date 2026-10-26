@@ -306,6 +306,14 @@ Every material input (20007) is filled — Octane doesn't convert
   Layered Weight` map × the weight, else glossy colour × weight when below 1
   — Universal's full white default made the GSOV4 leather (gloss 0.33 through
   a seam mask) 3.4× Iray's sheen; now 1.13–1.16 (Fetroom).
+- **Glossy Reflectivity** r (0.5 = Universal's full specular) scales the
+  glossy weight by min(2r, 1) (PBRSkin's Dual Lobe Specular Reflectivity
+  likewise); above 0.5 the excess 2r − 1 (× glossy weight, × glossy colour)
+  becomes a clear `coating` at the gloss's roughness, unless a Top Coat
+  takes that layer. Universal caps `specular` at 1 (2 renders as 1). Why:
+  Calib-Glossy, r 0 / 0.25 at the full default 2.42 / 1.54 × Iray, scaled
+  1.21 / 1.14; r 1 0.74 at specular 1 or 2, 1.08 with the coating — the
+  neighbours sit at 1.11 – 1.16.
 - **Roughness** by Base Mixing: 0 → `Glossy Roughness`, 1 and 2 →
   1 − `Glossiness` (both channels are always saved; Calib-Materials:
   Glossiness 0.8 beside Glossy Roughness 0.5 rendered Iray's sharp
