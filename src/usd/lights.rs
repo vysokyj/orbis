@@ -35,6 +35,8 @@ pub struct SceneLight {
     pub euler_deg: [f64; 3],
     pub rotation_order: String,
     pub translation: [f64; 3],
+    /// A rect or disc that shines from both faces (Iray "Two Sided").
+    pub two_sided: bool,
 }
 
 /// Radius used for DAZ point lights (they have no size; UsdLux treats the
@@ -113,6 +115,7 @@ pub(super) fn scene_lights(lib: &mut Library) -> Vec<SceneLight> {
         } else {
             LEGACY_LUMENS * num("Intensity").unwrap_or(1.0)
         };
+        let two_sided = matches!(shape, LightShape::Rect { .. } | LightShape::Disk { .. }) && flag("Two Sided") == Some(true);
         out.push(SceneLight {
             label,
             transform,
@@ -125,6 +128,7 @@ pub(super) fn scene_lights(lib: &mut Library) -> Vec<SceneLight> {
             euler_deg,
             rotation_order: order.to_string(),
             translation: t,
+            two_sided,
         });
     }
     out
@@ -169,7 +173,7 @@ pub(super) fn light_emitters(lights: &[SceneLight]) -> Vec<crate::material::Ligh
         .iter()
         .zip(light_prim_names(lights))
         .filter(|(l, _)| l.cone_deg.is_none())
-        .map(|(l, prim)| crate::material::LightEmitter { prim, watts: light_watts(l), kelvin: l.kelvin, color: l.color })
+        .map(|(l, prim)| crate::material::LightEmitter { prim, watts: light_watts(l), kelvin: l.kelvin, color: l.color, two_sided: l.two_sided })
         .collect()
 }
 

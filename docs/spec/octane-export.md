@@ -423,8 +423,12 @@ at the default scale 1000).
 f-number / ISO, a floor patch): flux is linear (point 5k → 20k: 3.999×,
 distant 1.5k → 5k: 3.337×); a rect or disc of the same flux lights the floor
 alike at 25 / 50 / 100 cm (1.009 / 1 / 0.965, disc 1.003); a two-sided rect
-sends its full flux down (1.000) — the export's one-sided light matches the
-side it faces; a distant light lights the floor by the sine of its
+sends its full flux down (1.000), as does a two-sided emissive plane — so a
+two-sided rect / disc light (`Two Sided`) and emitter (`Two Sided Light`)
+get Octane's `doubleSided` emission at **twice** the power
+(`TWO_SIDED_POWER`), on the assumption that Octane spreads an emitter's power
+over both faces — to confirm with Calib-L-Rect-50-2sided and
+-Emit-cd-2sided; a distant light lights the floor by the sine of its
 elevation (30° / 60°: 0.717 / 1.232 of 45°, sine 0.707 / 1.225); the
 emission units keep their ratios (20 000 lm and 50 W against 5000 cd/m² on
 50 × 50 cm: 16.000 and 0.600 in Iray, the export's formula gives 16 and

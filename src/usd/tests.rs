@@ -767,6 +767,7 @@ fn iray_light_flux_rules() {
         euler_deg: [0.0; 3],
         rotation_order: "XYZ".into(),
         translation: [0.0; 3],
+        two_sided: false,
     };
     // A sphere light gives a quarter of a point light of the same flux.
     let point = light_watts(&light(LightShape::Point, 5000.0));

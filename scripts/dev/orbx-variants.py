@@ -14,6 +14,8 @@ Hypotheses (by the Iray channels the variants stand for):
 - `gloss-ior`: specular 1 and the dielectric IOR from F0 = 0.08·r
   (r = 0.5 → 1.5, 0 → 1: no reflection), as Iray's reflectivity reads.
 - `dl-ior`: the same for PBRSkin's Dual Lobe Specular Reflectivity.
+- `twosided-x1`: two-sided emitters at the one-sided power (the export
+  doubles it, `TWO_SIDED_POWER`, assuming Octane splits it over both faces).
 The channel values come from the scene materials' names (Calib-Glossy /
 Calib-PBRSkin label their spheres with them) via HYPOTHESES below.
 """
@@ -70,7 +72,17 @@ def ior_from(r):
     return (1 + s) / (1 - s) if f0 > 0 else 1.0
 
 
+def halve_double_sided(ocs):
+    """Undo TWO_SIDED_POWER: halve the power of every emission that has
+    doubleSided on (its power pin comes before doubleSided in the node)."""
+    pat = re.compile(r"(<pin name='power'>\s*<node[^>]*>\s*<attr name='value' type='8'>)([0-9.eE+-]+)( 0 0</attr>"
+                     r"(?:(?!<pin name='power'>).)*?<pin name='doubleSided'>\s*<node[^>]*>\s*<attr name='value' type='1'>1)", re.S)
+    return pat.sub(lambda m: m.group(1) + f'{float(m.group(2)) / 2:.6g}' + m.group(3), ocs)
+
+
 def apply(ocs, hyp):
+    if hyp == 'twosided-x1':
+        return halve_double_sided(ocs)
     for mat, r in REFLECTIVITY.items():
         dual = mat.startswith(('P', 'G8'))
         if hyp == 'gloss-2r' and not dual:
@@ -93,5 +105,5 @@ for hyp in sys.argv[3:]:
     open(p, 'w').write(v)
     subprocess.run([tool, 'set', src, p, os.path.join(out, f'{scene}__{hyp}.orbx')], check=True)
     os.remove(p)
-    print(f'{scene}__{hyp}: {sum(1 for _ in re.finditer("990[0-9]{3}", v))} pins set')
+    print(f'{scene}__{hyp}: {sum(1 for _ in re.finditer("990[0-9]{3}", v))} pins set, {"changed" if v != ocs else "unchanged"}')
 os.remove(tmp)

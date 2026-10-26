@@ -25,6 +25,13 @@ const COLOUR_SPACE_LINEAR_SRGB: u32 = 2;
 /// of DAZ scenes confirm.
 pub const DAZ_LUMENS_PER_WATT: f64 = 15_000.0;
 
+/// Power for an emitter that shines from both sides: Iray sends each side
+/// the full flux (Calib-L-Rect-50-2sided, -Emit-cd-2sided: the floor below
+/// lit 1.000× the one-sided); Octane's `doubleSided` emission is taken to
+/// spread its power over both. To confirm in Octane (the calibration batch
+/// renders both scenes).
+pub const TWO_SIDED_POWER: f64 = 2.0;
+
 /// Octane's emission against Iray's: a one-sided 50 × 50 cm plane at
 /// 5000 cd/m² lit every surface 3.4× Iray without it (#6).
 const EMISSION_POWER_FACTOR: f64 = 1.0 / 3.4;
@@ -306,7 +313,7 @@ impl Ocs<'_> {
             return;
         }
         let two_sided = mat.float("Two Sided Light").unwrap_or(0.0) > 0.0;
-        let watts = iray_emission_watts(mat, area_m2);
+        let watts = iray_emission_watts(mat, area_m2) * if two_sided { TWO_SIDED_POWER } else { 1.0 };
         if watts <= 0.0 {
             return;
         }
@@ -726,6 +733,8 @@ pub struct LightEmitter {
     pub watts: f64,
     pub kelvin: Option<f64>,
     pub color: [f64; 3],
+    /// A rect / disc light that shines from both faces ("Two Sided").
+    pub two_sided: bool,
 }
 
 /// Material inputs that make Octane's light emitters glow: a black diffuse
@@ -758,8 +767,12 @@ pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
         } else {
             w.rgb_pin(8, "efficiency or texture", l.color.map(|c| c as f32));
         }
-        w.value_pin(8, "power", 6, 8, &format!("{} 0 0", num(l.watts as f32)));
+        let watts = l.watts * if l.two_sided { TWO_SIDED_POWER } else { 1.0 };
+        w.value_pin(8, "power", 6, 8, &format!("{} 0 0", num(watts as f32)));
         w.value_pin(8, "surfaceBrightness", 11, 1, "0");
+        if l.two_sided {
+            w.value_pin(8, "doubleSided", 11, 1, "1");
+        }
         w.out.push_str("       </node>\n");
         w.pin_close(6);
         w.out.push_str("     </node>\n");
@@ -1109,8 +1122,9 @@ mod tests {
         // 50 000 lm / 2 / 15 000 lm·W⁻¹ / 3.4.
         assert!(ex.contains("<attr name='value' type='8'>0.490196 0 0</attr>"), "50 000 lm → 0.49 W");
         assert!(ex.contains("<attr name='value' type='8'>7000 0 0</attr>"));
-        // 100 cd/m² over 2 m²: 100 / 2 / 15 000 · 2 / 3.4 ≈ 0.002 W, red.
-        assert!(ex.contains("type='54'") && ex.contains("<attr name='value' type='8'>0.001961 0 0</attr>"), "{ex}");
+        // 100 cd/m² over 2 m²: 100 / 2 / 15 000 · 2 / 3.4 ≈ 0.002 W, red,
+        // doubled for its two sides (`TWO_SIDED_POWER`).
+        assert!(ex.contains("type='54'") && ex.contains("<attr name='value' type='8'>0.003922 0 0</attr>"), "{ex}");
         // A coloured blackbody: Iray multiplies by the colour (sRGB 0.1 →
         // linear 0.010023).
         let trim = mat(json!([
