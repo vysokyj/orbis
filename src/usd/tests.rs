@@ -592,6 +592,18 @@ fn exports_an_orbx_with_the_scene_and_project() {
     assert!(ocs.contains("type='56' name='My Scene'") && ocs.contains("-3.391028 0"));
     let mut usdz = zip::ZipArchive::new(std::io::Cursor::new(files[0].1.clone())).unwrap();
     assert_eq!(usdz.by_index(0).unwrap().name().unwrap(), "scene.usda");
+
+    // Off the calibrated tone mapping: the LUT the imager names is packed.
+    let ch = |id: &str, v: Value| json!({"channel": {"id": id, "current_value": v}});
+    duf["node_library"].as_array_mut().unwrap().push(json!({"id": "Tonemapper Options", "extra": [{"type": "studio_node_channels",
+        "channels": [ch("Burn Highlights", json!(0.0))]}]}));
+    duf["scene"]["nodes"].as_array_mut().unwrap().push(json!({"id": "Tonemapper Options-1", "url": "#Tonemapper%20Options"}));
+    std::fs::write(&scene_path, duf.to_string()).unwrap();
+    export_scene_orbx(&scene_path, &dump_path, &out, &ExportOptions::default()).unwrap();
+    let (_, files) = crate::orbx::read_orbx(&std::fs::read(&out).unwrap()).unwrap();
+    let names: Vec<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
+    assert_eq!(names, ["assets/scene.usdz", TONE_LUT_ASSET, "project.ocs"]);
+    assert!(String::from_utf8_lossy(&files[2].1).contains(TONE_LUT_ASSET));
 }
 
 #[test]

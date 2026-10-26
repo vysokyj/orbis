@@ -241,6 +241,10 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
                 _ => w.add(asset, data)?,
             }
         }
+        // Iray's tone curve, which the imager's LUT node names (project.ocs).
+        if !tone.is_plain() {
+            w.add(TONE_LUT_ASSET, tone.cube_lut().as_bytes())?;
+        }
         w.add("project.ocs", ocs.as_bytes())?;
         w.finish()
     })?;
