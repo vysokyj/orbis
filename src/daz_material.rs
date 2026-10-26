@@ -110,12 +110,12 @@ impl Material {
         }
     }
 
-    /// A colour channel, linear: DAZ keeps colours as entered (sRGB) and
-    /// Iray decodes them — passed on as-is, a 0.73 grey floor rendered 1.5×
-    /// too bright in Octane (Calib-HDRI).
+    /// A colour channel, linear: DAZ keeps colours as entered and Iray
+    /// decodes them (`colour_to_linear`) — passed on as-is, a 0.73 grey floor
+    /// rendered 1.5× too bright in Octane (Calib-HDRI).
     pub fn color(&self, id: &str) -> Option<[f32; 3]> {
         let a = self.channel(id)?.value.as_array()?;
-        Some([0, 1, 2].map(|i| srgb_to_linear(a.get(i).and_then(Value::as_f64).unwrap_or(0.0) as f32)))
+        Some([0, 1, 2].map(|i| colour_to_linear(a.get(i).and_then(Value::as_f64).unwrap_or(0.0) as f32)))
     }
 
     pub fn image(&self, id: &str) -> Option<&str> {
@@ -183,13 +183,12 @@ impl Material {
     }
 }
 
-/// sRGB-encoded → linear (values above 1 by the same power curve).
-pub fn srgb_to_linear(c: f32) -> f32 {
-    if c <= 0.04045 {
-        c / 12.92
-    } else {
-        ((c + 0.055) / 1.055).powf(2.4)
-    }
+/// A DAZ colour → linear as Iray reads it: a pure gamma 2.2, not the sRGB
+/// curve. Calib-Glossy's red (0.45, 0.05, 0.04): decoded as sRGB, Octane
+/// rendered the green 2.77 × Iray (sRGB's linear toe: 0.0039 against
+/// 0.05^2.2 = 0.0014), with gamma 2.2 0.99 ×; its matte sphere 1.13 → 1.08.
+pub fn colour_to_linear(c: f32) -> f32 {
+    c.max(0.0).powf(2.2)
 }
 
 /// `image_library` id → the image a channel uses: the file of a single-map
@@ -249,9 +248,9 @@ mod tests {
         let images = image_library(&json!({"image_library": [{"id": "mask", "map": [{"url": "/Runtime/Textures/m.png"}]}]}));
         let mut m = Material::from_dson(&def, &images);
         m.merge(&scene, &images);
-        // Linear: DAZ's colours are sRGB.
+        // Linear: DAZ's colours at gamma 2.2.
         let c = m.base_color();
-        assert!((c[0] - 1.0).abs() < 1e-6 && (c[1] - 0.214041).abs() < 1e-5 && (c[2] - 0.050876).abs() < 1e-5, "{c:?}");
+        assert!((c[0] - 1.0).abs() < 1e-6 && (c[1] - 0.217638).abs() < 1e-5 && (c[2] - 0.047366).abs() < 1e-5, "{c:?}");
         assert_eq!(m.image("diffuse"), Some("/Runtime/Textures/A B/skin.jpg"));
         assert_eq!(m.image("Cutout Opacity"), Some("/Runtime/Textures/m.png"));
         assert_eq!((m.roughness(), m.metallic(), m.opacity()), (0.4, 1.0, 1.0));

@@ -360,10 +360,14 @@ Every material input (20007) is filled — Octane doesn't convert
   (probes 55–57); with it the lenses tint like Iray's, brightness unchanged
   (Octane2 moved 0.28 / 255).
 - **Colour channels** (Base / Glossy / Translucency / Transmitted / Emission
-  Color, light colours) are **sRGB as DAZ stores them** and decoded to
-  linear, as Iray does. Passed on raw, surfaces rendered 1.5× too bright
+  Color, light colours) are gamma-encoded as DAZ stores them and decoded to
+  linear by a **pure gamma 2.2** (`colour_to_linear`), as Iray does — not
+  the sRGB curve. Passed on raw, surfaces rendered 1.5× too bright
   (Calib-HDRI: floor 1.53 → 1.03, cubes 1.77 → 1.00 of Iray; the HDRI
-  background 1.04 either way).
+  background 1.04 either way). Decoded as sRGB, dark channels came out too
+  bright — the curve's linear toe: Calib-Glossy's red (0.45, 0.05, 0.04)
+  rendered its green 2.77 × Iray, 0.99 × at gamma 2.2 (its matte sphere
+  1.13 → 1.08 in luminance; mid greys move ≤ 2 %).
 - **Layered images** are flattened into one PNG per stack.
 
 ### Skin — Standard Surface (277), Final only

@@ -25,6 +25,8 @@ Hypotheses (by the Iray channels the variants stand for):
 - `transl-dark`: no transmission, albedo × (1 − 0.67 w) (the measured loss).
 - `transm-x2`: the export's transmission of non-thin-walled translucency
   doubled (≤ 1): Tc · min(2w, 1).
+- `ior=<n>`: Universal's Dielectric IOR (`ior`) n on every material but
+  the floor (Plane).
 - `dl-ior`: the same for PBRSkin's Dual Lobe Specular Reflectivity.
 - `twosided-x1`: two-sided emitters at the one-sided power (the export
   doubles it, `TWO_SIDED_POWER`, assuming Octane splits it over both faces).
@@ -112,6 +114,11 @@ def halve_double_sided(ocs):
 def apply(ocs, hyp):
     if hyp == 'twosided-x1':
         return halve_double_sided(ocs)
+    if hyp.startswith('ior='):
+        for mat in sorted(set(re.findall(r"name='/Scene/Materials/([^']*)'", ocs))):
+            if not mat.startswith('Plane'):
+                ocs = set_pin(ocs, mat, 'ior', value_node(6, 8, f"{hyp[4:]} 0 0"))
+        return ocs
     if hyp == 'transm-x2':
         for mat, (w, thin) in TRANSLUCENT.items():
             t = None if thin else albedo_of(ocs, mat, 'transmission')

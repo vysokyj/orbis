@@ -105,7 +105,7 @@ pub(super) fn scene_lights(lib: &mut Library) -> Vec<SceneLight> {
             .get("Color")
             .or_else(|| def.get("color"))
             .and_then(Value::as_array)
-            .map(|a| [0, 1, 2].map(|i| crate::daz_material::srgb_to_linear(a.get(i).and_then(Value::as_f64).unwrap_or(1.0) as f32) as f64))
+            .map(|a| [0, 1, 2].map(|i| crate::daz_material::colour_to_linear(a.get(i).and_then(Value::as_f64).unwrap_or(1.0) as f32) as f64))
             .unwrap_or([1.0; 3]);
         // Photometric (Iray) lights emit their Flux; Intensity and its scale
         // belong to the non-photometric mode.

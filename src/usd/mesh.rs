@@ -411,7 +411,7 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
         let prop = !fig.class.contains("Figure");
         let open = open_subsets(&mesh);
         for (m, open) in mesh.materials.iter_mut().zip(open) {
-            if let Some(m) = m.as_mut().filter(|m| prop || open) {
+            if let Some(m) = m.as_mut().filter(|_| prop || open) {
                 *m = Rc::new(crate::daz_material::Material { prop: m.prop || prop, open, ..(**m).clone() });
             }
         }

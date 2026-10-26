@@ -1188,15 +1188,15 @@ mod tests {
         // 100 cd/m² over 2 m²: 100 / 2 / 15 000 · 2 / 3.4 ≈ 0.002 W, red;
         // its second side gets as much without more power (`TWO_SIDED_POWER`).
         assert!(ex.contains("type='54'") && ex.contains("<attr name='value' type='8'>0.001961 0 0</attr>"), "{ex}");
-        // A coloured blackbody: Iray multiplies by the colour (sRGB 0.1 →
-        // linear 0.010023).
+        // A coloured blackbody: Iray multiplies by the colour (0.1 → linear
+        // 0.00631).
         let trim = mat(json!([
             {"channel": {"id": "Emission Color", "current_value": [0.1, 0, 0.1]}},
             {"channel": {"id": "Luminance", "current_value": 1500}},
             {"channel": {"id": "Emission Temperature", "current_value": 6500}},
         ]));
         let (trimx, _) = material_inputs(&[("Trim".into(), trim, 1.0)], &dirs, HashMap::new(), 9100, SkinShader::None);
-        assert!(trimx.contains("type='53'") && trimx.contains("<attr name='value' type='8'>0.010023 0 0.010023</attr>"), "{trimx}");
+        assert!(trimx.contains("type='53'") && trimx.contains("<attr name='value' type='8'>0.00631 0 0.00631</attr>"), "{trimx}");
         let mirror = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [0, 0, 0]}},
             {"channel": {"id": "Base Mixing", "current_value": 1}},
@@ -1254,15 +1254,15 @@ mod tests {
             {"channel": {"id": "diffuse", "current_value": [0.49, 0.49, 0.49], "image_file": "/Runtime/Textures/skin.jpg"}},
         ]));
         let (dx, _) = material_inputs(&[("Drawer".into(), drawer, 1.0)], &dirs, HashMap::new(), 6000, SkinShader::None);
-        // sRGB 0.49 grey = linear 0.205.
-        assert!(dx.contains("<attr name='value' type='6'>0.204902</attr>") && !dx.contains("type='39'"), "map × grey tint: {dx}");
+        // A 0.49 grey = linear 0.208.
+        assert!(dx.contains("<attr name='value' type='6'>0.208176</attr>") && !dx.contains("type='39'"), "map × grey tint: {dx}");
         let pubic = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [0.447, 0.294, 0.145], "image_file": "/Runtime/Textures/skin.jpg"}},
         ]));
         let (px, _) = material_inputs(&[("Pubic".into(), pubic, 1.0)], &dirs, HashMap::new(), 6100, SkinShader::None);
         let albedo = &px[px.find("<pin name='albedo'>").unwrap()..];
         assert!(albedo.contains("type='39'") && albedo.contains("<pin name='texture1'>"), "map × coloured tint: {albedo}");
-        assert!(albedo.contains("<pin name='texture2'>") && albedo.contains("<attr name='value' type='8'>0.168222 0.070303 0.018478</attr>"), "{albedo}");
+        assert!(albedo.contains("<pin name='texture2'>") && albedo.contains("<attr name='value' type='8'>0.170089 0.067665 0.014289</attr>"), "{albedo}");
         // DAZ Default shader: "Opacity Strength" 0 hides the group.
         let hiding = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},
@@ -1347,9 +1347,9 @@ mod tests {
         ]));
         let (hx, tex) = material_inputs(&[("Curls".into(), hair, 0.0)], &[dir.path().to_path_buf()], HashMap::new(), 4000, SkinShader::None);
         assert!(hx.contains("type='147' name='Curls'"), "{hx}");
-        // Root 0.5 × (1, 0.214, 0.214) (the colour linear) and tip 0.5,
+        // Root 0.5 × (1, 0.218, 0.218) (the colour linear) and tip 0.5,
         // averaged and squared.
-        assert!(hx.contains("<attr name='value' type='8'>0.252914 0.093192 0.093192</attr>"), "{hx}");
+        assert!(hx.contains("<attr name='value' type='8'>0.252914 0.093745 0.093745</attr>"), "{hx}");
         assert!(hx.contains("<pin name='specular'>") && hx.contains("<attr name='value' type='8'>0.22 0.22 0.22</attr>"));
         assert!(hx.contains("<attr name='value' type='6'>0.35</attr>"));
         assert!(tex.files.is_empty(), "the map is averaged, not packed");
