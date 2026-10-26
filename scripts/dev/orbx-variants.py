@@ -117,7 +117,7 @@ def apply(ocs, hyp):
     if hyp.startswith('ior='):
         for mat in sorted(set(re.findall(r"name='/Scene/Materials/([^']*)'", ocs))):
             if not mat.startswith('Plane'):
-                ocs = set_pin(ocs, mat, 'ior', value_node(6, 8, f"{hyp[4:]} 0 0"))
+                ocs = set_pin(ocs, mat, 'ior', value_node(31, 6, hyp[4:]))
         return ocs
     if hyp == 'transm-x2':
         for mat, (w, thin) in TRANSLUCENT.items():

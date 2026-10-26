@@ -668,7 +668,7 @@ impl Ocs<'_> {
         if refraction > 0.0 {
             self.float_pin(i, "transmission", refraction);
             let ior = mat.float("Refraction Index").unwrap_or(1.5);
-            self.value_pin(i, "index4", 6, 8, &format!("{} 0 0", num(ior)));
+            self.float_pin(i, "ior", ior);
             // Let light through for shadows (the iris behind a cornea).
             self.value_pin(i, "fake_shadows", 11, 1, "1");
         }
@@ -1293,7 +1293,7 @@ mod tests {
         // IOR, transparent shadows, half opacity.
         assert!(xml.contains("<attr name='value' type='8'>0 0 0</attr>"));
         assert!(xml.contains("<pin name='fake_shadows'>"));
-        assert!(xml.contains("<pin name='transmission'>") && xml.contains("<attr name='value' type='8'>1.38 0 0</attr>"));
+        assert!(xml.contains("<pin name='transmission'>") && xml.contains("<pin name='ior'>") && xml.contains("<attr name='value' type='6'>1.38</attr>"));
         assert!(xml.contains("<pin name='opacity'>"));
         // Ids are unique.
         let ids: Vec<&str> = xml.match_indices("id='").map(|(i, _)| &xml[i + 4..i + 8]).collect();

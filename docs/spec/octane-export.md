@@ -350,7 +350,9 @@ Every material input (20007) is filled — Octane doesn't convert
   same leather's trousers.
 - Base Mixing 1 ignores Metallic Weight; a black base under a strong white
   gloss becomes a gloss-coloured metal (mirrors).
-- refraction → `transmission` + IOR (`index4`), transparent shadows.
+- refraction → `transmission` + IOR (`ior`, Dielectric IOR — Universal
+  has no `index4`, probe 82; `ior` 2.0 brightened Calib-Materials' gloss
+  1.08 → 1.15), transparent shadows.
 - Iray UV tiling → each texture's transform (scale 1/N); textures **wrap**
   (UDIM tiles).
 - **Colour space**: colour maps sRGB, data maps (roughness, opacity,
