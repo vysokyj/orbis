@@ -6,7 +6,11 @@
 use super::*;
 
 /// The dump format this build reads (`format_version`).
-pub const DUMP_FORMAT_VERSION: u32 = 2;
+pub const DUMP_FORMAT_VERSION: u32 = 3;
+
+/// The oldest dump format still read: 2 differs from 3 only in writing every
+/// strand's indices (3 may give their lengths, `polyline_counts`).
+const DUMP_FORMAT_OLDEST: u32 = 2;
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
@@ -57,6 +61,10 @@ pub(super) struct DumpNode {
     pub(super) vertices: Vec<[f32; 3]>,
     /// Strand hair (dForce): each strand's vertex indices, posed as rendered.
     pub(super) polylines: Vec<Vec<u32>>,
+    /// Strand hair as runs of consecutive vertices: each strand's length
+    /// (the dump writes these when it can; `parse` turns them into
+    /// `polylines`).
+    pub(super) polyline_counts: Vec<u32>,
     /// Each strand's index into `material_groups`.
     pub(super) polyline_materials: Vec<u32>,
     pub(super) material_groups: Vec<String>,
@@ -80,11 +88,25 @@ impl SceneDump {
         if dump.format != "orbis-scene-dump" {
             bail!("not an ORBIS scene dump");
         }
-        if dump.format_version != DUMP_FORMAT_VERSION {
+        if !(DUMP_FORMAT_OLDEST..=DUMP_FORMAT_VERSION).contains(&dump.format_version) {
             bail!(
                 "scene dump format {} — this orbis reads {DUMP_FORMAT_VERSION}; install the matching DAZ Studio script (orbis install)",
                 dump.format_version
             );
+        }
+        let mut dump = dump;
+        for n in &mut dump.nodes {
+            if n.polylines.is_empty() && !n.polyline_counts.is_empty() {
+                let mut at = 0u32;
+                n.polylines = std::mem::take(&mut n.polyline_counts)
+                    .into_iter()
+                    .map(|c| {
+                        let s = (at..at + c).collect();
+                        at += c;
+                        s
+                    })
+                    .collect();
+            }
         }
         Ok(dump)
     }

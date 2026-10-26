@@ -16,13 +16,32 @@
     var sTitle = "ORBIS";
     var sActionText = "Export to Octane...";
     // Must match orbis's DUMP_FORMAT_VERSION (src/usd/dump.rs).
-    var nDumpFormatVersion = 2;
+    var nDumpFormatVersion = 3;
 
     var sBin = "@ORBIS_BIN@";
     var sDefaultOutputDir = "@DEFAULT_OUTPUT_DIR@";
 
     var sScriptPath = getScriptFileName();
     var sPluginDir = new DzFileInfo(sScriptPath).path();
+
+    // ── Headless dump ─────────────────────────────────────────────────────
+    // scripts/dev/daz-script.sh <this script> --dump <scene.duf> <dump.json>
+    // (then the content directories): open the scene, write its dump, quit.
+    var aScriptArgs = App.scriptArgs;
+    if (aScriptArgs.length >= 3 && aScriptArgs[0] == "--dump") {
+        var oContentMgr = App.getContentMgr();
+        for (var c = 3; c < aScriptArgs.length; c++) {
+            oContentMgr.addContentDirectory(aScriptArgs[c], false);
+        }
+        oContentMgr.openFile(aScriptArgs[1], false);
+        var sScene = Scene.getFilename();
+        var nProgress = 0;
+        startProgress(sTitle + ": reading the scene...", 300, false, false);
+        print("ORBIS dump: " + (writeDump(aScriptArgs[2]) || "ok"));
+        finishProgress();
+        App.delayedExit();
+        return;
+    }
 
     addMenuAction();
 
@@ -301,6 +320,10 @@
         // Every mesh at its base resolution at once: a geometry shell copies
         // its host's cached geometry, so the host has to stay at LOD 0 while
         // the shell is read. Our export refines the base meshes as DAZ does.
+        // dForce hair renders its render generator's strands ("PR hairs");
+        // the viewport shows the guides unless "Preview Pre Render Hairs"
+        // is on (Cute Braids: 3374 guides, 51473 rendered strands).
+        var aHairs = renderHairs();
         var aLods = baseResolution();
         for (var n = 0; n < nNodes; n++) {
             progressTo(Math.round(200 * (n + 1) / nNodes));
@@ -313,14 +336,15 @@
                 dumpInstances(oNode, aInstances);
                 continue;
             }
-            var sNode = dumpNode(oNode, lodOf(aLods, oNode));
-            if (sNode) {
-                oFile.write((bFirst ? "" : ",") + sNode);
+            if (dumpNode(oNode, lodOf(aLods, oNode), oFile, bFirst)) {
                 bFirst = false;
             }
         }
         for (var r = 0; r < aLods.length; r++) {
             aLods[r].control.setValue(aLods[r].value);
+        }
+        for (var h = 0; h < aHairs.length; h++) {
+            aHairs[h].setValue(false);
         }
         oFile.write("],\"instances\":[" + aInstances.join(",") + "]}");
         oFile.close();
@@ -353,6 +377,27 @@
         return aLods;
     }
 
+    // Switch on every dForce render hair generator's "Preview Pre Render
+    // Hairs" that is off; returns the properties to switch off again (the
+    // caches are rebuilt by baseResolution()).
+    function renderHairs() {
+        var aOut = [];
+        for (var n = 0; n < Scene.getNumNodes(); n++) {
+            var oNode = Scene.getNode(n);
+            var oObject = oNode.inherits("DzBone") ? null : oNode.getObject();
+            if (!oObject) continue;
+            for (var m = 0; m < oObject.getNumModifiers(); m++) {
+                var oMod = oObject.getModifier(m);
+                var oProp = oMod.findProperty ? oMod.findProperty("Preview Pre Render Hairs") : null;
+                if (oProp && !oProp.getValue()) {
+                    oProp.setValue(true);
+                    aOut.push(oProp);
+                }
+            }
+        }
+        return aOut;
+    }
+
     // The resolution level oNode renders at (before baseResolution()).
     function lodOf(aLods, oNode) {
         for (var i = 0; i < aLods.length; i++) {
@@ -361,14 +406,17 @@
         return 0;
     }
 
-    // One node as JSON, or "" when it has no geometry: the base mesh with
-    // morphs and pose applied, world space; strand hair as polylines.
-    function dumpNode(oNode, nLod) {
-        if (oNode.inherits("DzBone")) return "";
+    // One node as JSON onto oFile (after a comma unless bFirst); false when
+    // it has no geometry: the base mesh with morphs and pose applied, world
+    // space, cm to 0.01 mm; strand hair as polylines. Written in chunks —
+    // a render hair generator's millions of points built as one string
+    // took DAZ 20 minutes and 10 GB.
+    function dumpNode(oNode, nLod, oFile, bFirst) {
+        if (oNode.inherits("DzBone")) return false;
         var oObject = oNode.getObject();
-        if (!oObject || !oObject.getCurrentShape()) return "";
+        if (!oObject || !oObject.getCurrentShape()) return false;
         var oGeom = oObject.getCachedGeom();
-        if (!oGeom || oGeom.getNumVertices() == 0) return "";
+        if (!oGeom || oGeom.getNumVertices() == 0) return false;
         var aParts = [
             "{\"name\":" + jsonString(oNode.name),
             "\"label\":" + jsonString(oNode.getLabel()),
@@ -381,25 +429,47 @@
             aGroups.push(jsonString(oGeom.getMaterialGroup(g).name));
         }
         aParts.push("\"material_groups\":[" + aGroups.join(",") + "]");
+        oFile.write((bFirst ? "" : ",") + aParts.join(",") + ",\"vertices\":[");
         var nVerts = oGeom.getNumVertices();
-        var aVerts = new Array(nVerts);
-        for (var v = 0; v < nVerts; v++) {
-            var p = oGeom.getVertex(v);
-            aVerts[v] = p.x + "," + p.y + "," + p.z;
+        var nChunk = 20000;
+        for (var v0 = 0; v0 < nVerts; v0 += nChunk) {
+            var nEnd = Math.min(v0 + nChunk, nVerts);
+            var aVerts = new Array(nEnd - v0);
+            for (var v = v0; v < nEnd; v++) {
+                var p = oGeom.getVertex(v);
+                aVerts[v - v0] = p.x.toFixed(3) + "," + p.y.toFixed(3) + "," + p.z.toFixed(3);
+            }
+            oFile.write((v0 > 0 ? "," : "") + aVerts.join(","));
         }
-        aParts.push("\"vertices\":[" + aVerts.join(",") + "]");
+        oFile.write("]");
         if (oGeom.getNumFacets() == 0 && oGeom.getNumPolylines) {
+            // Strands are runs of consecutive vertices: their lengths do,
+            // else every strand's indices.
             var nLines = oGeom.getNumPolylines();
-            var aLines = new Array(nLines);
+            var aCounts = new Array(nLines);
             var aLineMats = new Array(nLines);
+            var nNext = 0;
+            var bRuns = true;
             for (var l = 0; l < nLines; l++) {
-                aLines[l] = "[" + oGeom.getPolylineVertexIndices(l).join(",") + "]";
+                var aIdx = oGeom.getPolylineVertexIndices(l);
+                aCounts[l] = aIdx.length;
+                if (bRuns && (aIdx[0] != nNext || aIdx[aIdx.length - 1] != nNext + aIdx.length - 1)) bRuns = false;
+                nNext += aIdx.length;
                 aLineMats[l] = oGeom.getPolylineMaterialGroupIndex(l);
             }
-            aParts.push("\"polylines\":[" + aLines.join(",") + "]");
-            aParts.push("\"polyline_materials\":[" + aLineMats.join(",") + "]");
+            if (bRuns) {
+                oFile.write(",\"polyline_counts\":[" + aCounts.join(",") + "]");
+            } else {
+                oFile.write(",\"polylines\":[");
+                for (var q = 0; q < nLines; q++) {
+                    oFile.write((q ? "," : "") + "[" + oGeom.getPolylineVertexIndices(q).join(",") + "]");
+                }
+                oFile.write("]");
+            }
+            oFile.write(",\"polyline_materials\":[" + aLineMats.join(",") + "]");
         }
-        return aParts.join(",") + "}";
+        oFile.write("}");
+        return true;
     }
 
     // The instances an instance node renders, as JSON onto aOut: its target

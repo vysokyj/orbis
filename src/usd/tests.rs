@@ -615,6 +615,10 @@ fn dump_format_is_checked() {
     let err = |json: &str| SceneDump::parse(json).unwrap_err().to_string();
     assert!(err(r#"{"figures": []}"#).contains("not an ORBIS scene dump"));
     assert!(err(r#"{"format": "orbis-scene-dump", "format_version": 99}"#).contains("format 99"));
+    // Format 3: strands as runs of consecutive vertices.
+    let d = SceneDump::parse(r#"{"format": "orbis-scene-dump", "format_version": 3, "nodes": [{"label": "Hair",
+        "vertices": [0,0,0, 1,0,0, 2,0,0, 0,1,0, 1,1,0], "polyline_counts": [3, 2], "polyline_materials": [0, 0]}]}"#).unwrap();
+    assert_eq!(d.nodes[0].polylines, vec![vec![0, 1, 2], vec![3, 4]]);
     assert!(SceneDump::parse(r#"{"format": "orbis-scene-dump", "format_version": 2, "nodes": [{"vertices": [1, 2]}]}"#).is_err());
 }
 

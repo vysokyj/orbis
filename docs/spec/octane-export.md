@@ -34,7 +34,7 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
 `orbis export <scene.duf> --dump <file> --out-dir <dir>`:
 
 ```json
-{ "format": "orbis-scene-dump", "format_version": 2,
+{ "format": "orbis-scene-dump", "format_version": 3,
   "daz_version": "6.x.y.z", "scene": "/…/scene.duf",
   "content_dirs": ["…"], "builtin_mdl_dirs": ["…"],
   "nodes": [ { "name": "Genesis9", "label": "Noemi", "class": "DzFigure",
@@ -71,7 +71,18 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   nodes. UltraScatter's `[S] … Proxies` groups have no target and drop out.
 - `polylines` / `polyline_materials`: only for geometry without facets
   (strand hair) — the rendered strands as vertex indices, and each strand's
-  index into `material_groups`.
+  index into `material_groups`. Format 3 writes `polyline_counts` instead
+  (each strand's length) when the strands are runs of consecutive vertices,
+  as DAZ's are; format 2 (every strand's indices) is still read.
+- **dForce hair renders its render hair generator's strands** ("PR
+  hairs"); the viewport — and the cached geometry — shows the guides
+  unless that generator's *Preview Pre Render Hairs* is on. The dump
+  switches it on for every generator where it's off and back after.
+  Why: Cute Braids' base dumped 3374 guide strands where Iray renders
+  51473 (3.1 M points), its braids 308 where it renders 12628; hairs with
+  the preview already on (dForce Corporate, Military Cut) were complete.
+- Coordinates are written to 0.001 cm, vertices in chunks: built as one
+  string, a scene with 4 M strand points took DAZ 20 minutes and 10 GB.
 - `format_version` changes with any incompatible change; `orbis` refuses
   other versions (the script and binary are installed together).
 - `orbis` keeps the dump as `<cache>/orbis/dumps/<scene stem>-<FNV-1a of the
