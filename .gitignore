@@ -29,3 +29,7 @@ rustc-ice-*.txt
 # Mirrored OctaneRender manual — OTOY's copyrighted text, not redistributable;
 # fetch locally with scripts/dev/fetch-octane-docs.py
 /docs/octane/manual/
+
+# Python bytecode (scripts/dev)
+__pycache__/
+*.pyc
