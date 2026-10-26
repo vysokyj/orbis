@@ -241,14 +241,18 @@ another gamma — its highlight compression is far weaker (probe 91: 0.70×
 at 0.84 where Iray's Burn 0 gives 0.54×). A scene off the calibrated
 defaults gets Iray's curve as a custom LUT (`assets/tone.cube`, 1D, 4096
 entries; LUT node 103 on the imager's `lut`, `order` 0 = response, gamma,
-LUT): c · (1 + c · b) / (1 + c), then ^(1 + crush), then ^(1 / gamma),
-sampled on the Gamma 2.2 response of c / 16 — the exposure is divided by
-16 so highlights to 16× white survive the response's clip. Why: Gladiator
-(Burn 0, Crush 0.07, Gamma 1.857) mapped through this from its Burn 1 /
-Crush 0 / Gamma 2.2 Iray render matches its own Iray render within
-1.7 / 255 (Reinhard and gamma alone 5.9; the crush as ^(1 + crush) is a fit
-to that one scene); Octane's LUT render matches the curve applied to its
-linear render within +0.5 / 255 (+4 in the deepest shadows).
+LUT): c · (1 + c · b) / (1 + c), then per channel x² / (x + 0.3 · crush),
+then ^(1 / gamma), sampled on the Gamma 2.2 response of c / 16 — the
+exposure is divided by 16 so highlights to 16× white survive the response's
+clip. Why: **Calib-Tone-*** (Calib-Materials with one tone setting changed,
+rendered at a sample cap so every variant has the same noise) mapped from
+its Burn 1 / Crush 0 / Gamma 2.2 render: Burn 0.5 and 0, Gamma 1.8 and 2.6
+within 0.5 / 255 of Iray's pixels — the photographic tone mapper's own
+formula; the crush is a fit (`CRUSH_KNEE`): Crush 0.1 / 0.3 1.4 / 2.4 / 255,
+Gladiator's mix (Burn 0, Crush 0.07, Gamma 1.857) 1.2 (Reinhard and gamma
+alone 5.9; `^(1 + crush)` 2.3 / 4.2 / 1.7). Octane's LUT render matches the
+curve applied to its linear render within +0.5 / 255 (+4 in the deepest
+shadows).
 
 ## Materials
 

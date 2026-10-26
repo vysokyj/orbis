@@ -109,14 +109,17 @@ impl ToneMapping {
     }
 
     /// Iray's tone curve on a linear value (after exposure): burn,
-    /// crush, gamma — c (1 + c b) / (1 + c), then ^(1 + crush), then
-    /// ^(1 / gamma). The burn is the photographic tone mapper's; the crush
-    /// a fit (Gladiator, crush 0.07: within 1.7 / 255 of Iray's pixels).
+    /// crush, gamma — c (1 + c b) / (1 + c), then x² / (x + 0.3 crush),
+    /// then ^(1 / gamma). Burn and gamma are the photographic tone mapper's
+    /// (Calib-Tone: within 0.5 / 255 of Iray's pixels); the crush is a fit
+    /// (`CRUSH_KNEE`).
     pub fn iray_curve(&self, c: f64) -> f64 {
         let b = self.burn_highlights.clamp(0.0, 1.0);
         let c = c.max(0.0);
         let burnt = c * (1.0 + c * b) / (1.0 + c);
-        burnt.powf(1.0 + self.crush_blacks.max(0.0)).powf(1.0 / self.gamma.max(0.1))
+        let crush = self.crush_blacks.max(0.0);
+        let crushed = if crush > 0.0 { burnt * burnt / (burnt + CRUSH_KNEE * crush) } else { burnt };
+        crushed.powf(1.0 / self.gamma.max(0.1))
     }
 
     /// Whether Octane's own imager reproduces this: the calibrated defaults
@@ -139,6 +142,12 @@ impl ToneMapping {
         out
     }
 }
+
+/// Iray's Crush Blacks pulls each channel down as x² / (x + k · crush):
+/// fitted on Calib-Tone's Crush 0.1 / 0.3 against its Crush 0 render (same
+/// samples, so the same noise) — 1.4 / 2.4 / 255, Gladiator's mix 1.2;
+/// `^(1 + crush)` gave 2.3 / 4.2 / 1.7, a luminance-based crush 1.7 / 2.9.
+const CRUSH_KNEE: f64 = 0.3;
 
 /// Entries of the tone LUT.
 const LUT_SIZE: usize = 4096;

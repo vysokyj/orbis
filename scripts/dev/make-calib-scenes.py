@@ -123,6 +123,11 @@ for fstop in (4, 8, 16):
     d = copy.deepcopy(base)
     cam = next(l for l in d['node_library'] if l['id'] == 'Camera')
     cam['perspective'].update({'depth_of_field': True, 'focal_distance': 150.0, 'fstop': fstop})
+    # DAZ renders by the camera's channels ("Aperature" is DAZ's spelling).
+    ch = next(e for e in cam['extra'] if e['type'] == 'studio_node_channels')['channels']
+    set_channel(ch, 'DOF', True, 'bool')
+    set_channel(ch, 'Depth of Field', 150.0, 'float')
+    set_channel(ch, 'Aperature', float(fstop), 'float')
     made.append((save(d, f'Calib-DOF-f{fstop}'), None))
 
 # --- Scene dumps (format 2) for `orbis export`

@@ -718,7 +718,10 @@ fn iray_tone_curve() {
     // then the gamma.
     let t = ToneMapping { burn_highlights: 0.0, crush_blacks: 0.06985294, gamma: 1.856618, ..ToneMapping::default() };
     assert!(!t.is_plain() && ToneMapping::default().is_plain());
-    let want = |c: f64| (c / (1.0 + c)).powf(1.06985294).powf(1.0 / 1.856618);
+    let want = |c: f64| {
+        let r = c / (1.0 + c);
+        (r * r / (r + 0.3 * 0.06985294)).powf(1.0 / 1.856618)
+    };
     for c in [0.01, 0.2, 1.0, 5.0] {
         assert!((t.iray_curve(c) - want(c)).abs() < 1e-12);
     }

@@ -140,10 +140,16 @@ pub(super) fn camera_from_node(lib: &Library, node: &Value, def: Option<&Value>)
         .and_then(Value::as_f64)
         .or_else(|| persp.get("focal_length").and_then(Value::as_f64))
         .unwrap_or(65.0);
-    let focal_depth = persp.get("focal_distance").and_then(Value::as_f64).unwrap_or(300.0) * CM as f64;
+    // The camera's channels rule (DAZ renders by them); `perspective`
+    // mirrors them in a saved scene.
+    let num = |ch: &str, key: &str, default: f64| {
+        def_channels.get(ch).and_then(Value::as_f64).or_else(|| persp.get(key).and_then(Value::as_f64)).unwrap_or(default)
+    };
+    let focal_depth = num("Depth of Field", "focal_distance", 300.0) * CM as f64;
     let fwd = mat_vec(&rot, [0.0, 0.0, -1.0]);
-    let dof = persp.get("depth_of_field").and_then(Value::as_bool).unwrap_or(false);
-    let fstop = persp.get("fstop").and_then(Value::as_f64).unwrap_or(22.0).max(0.1);
+    let dof = def_channels.get("DOF").and_then(Value::as_bool).or_else(|| persp.get("depth_of_field").and_then(Value::as_bool)).unwrap_or(false);
+    // DAZ spells the f-stop channel "Aperature".
+    let fstop = num("Aperature", "fstop", 22.0).max(0.1);
     Some(SceneCamera {
         pos,
         target: [0, 1, 2].map(|i| pos[i] + fwd[i] * focal_depth),
