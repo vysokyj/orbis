@@ -535,8 +535,9 @@ impl Ocs<'_> {
             }
         };
         let (root, tip) = (colour("Hair Root Color"), colour("Hair Tip Color"));
+        let (root_t, tip_t) = (colour("Root Transmission Color"), colour("Tip Transmission Color"));
         self.value_pin(i, "hairMode", 57, 2, "0"); // albedo
-        self.rgb_pin(i, "albedo", [0, 1, 2].map(|k| ((root[k] + tip[k]) / 2.0).powi(2)));
+        self.rgb_pin(i, "albedo", [0, 1, 2].map(|k| HAIR_COLOUR_SHARE * (root[k] + tip[k]) / 2.0 + HAIR_TRANSMISSION_SHARE * (root_t[k] + tip_t[k]) / 2.0));
         let gloss = mat.float("Glossy Layer Weight").unwrap_or(1.0).clamp(0.0, 1.0);
         self.rgb_pin(i, "specular", [gloss; 3]);
         let rough = mat.float("base_roughness").unwrap_or(0.2).clamp(0.0, 1.0);
@@ -831,6 +832,15 @@ fn absorption(mat: &Material) -> Option<[f32; 3]> {
 
 /// See the roughness in `universal`.
 const REFRACTION_ROUGHNESS_SCALE: f32 = 0.3;
+
+/// Octane Hair albedo from Iray's Blended Dual Lobe hair: its hair colour
+/// and, more, its transmission colour (root / tip means, linear) — Calib-Hair
+/// (blond) and two copies with dark brown hair or transmission colours:
+/// Iray's hair luminance ≈ 0.013 × hair + 0.023 × transmission, Octane's ≈
+/// 0.13 × albedo; the earlier (mean hair colour)² rendered the blond 3.1 ×
+/// Iray and the brown 0.07 ×.
+const HAIR_COLOUR_SHARE: f32 = 0.09;
+const HAIR_TRANSMISSION_SHARE: f32 = 0.16;
 
 /// Meters per centimeter.
 const CM_PER_M_INV: f32 = 0.01;
@@ -1522,8 +1532,8 @@ mod tests {
         let (hx, tex) = material_inputs(&[("Curls".into(), hair, 0.0)], &[dir.path().to_path_buf()], HashMap::new(), 4000, SkinShader::None);
         assert!(hx.contains("type='147' name='Curls'"), "{hx}");
         // Root 0.5 × (1, 0.218, 0.218) (the colour linear) and tip 0.5,
-        // averaged and squared.
-        assert!(hx.contains("<attr name='value' type='8'>0.252914 0.093745 0.093745</attr>"), "{hx}");
+        // averaged, × 0.09, + 0.16 × the (default white) transmission colour.
+        assert!(hx.contains("<attr name='value' type='8'>0.205261 0.187556 0.187556</attr>"), "{hx}");
         assert!(hx.contains("<pin name='specular'>") && hx.contains("<attr name='value' type='8'>0.22 0.22 0.22</attr>"));
         assert!(hx.contains("<attr name='value' type='6'>0.35</attr>"));
         assert!(tex.files.is_empty(), "the map is averaged, not packed");

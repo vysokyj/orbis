@@ -443,10 +443,17 @@ in red. Looks grittier; the hue offset is the same as Standard Surface's.
 
 ### dForce hair — Hair material (147)
 
-albedo = (mean of root and tip colour, each its map's linear mean × tint)²;
-roughness both ways from `base_roughness`; specular = `Glossy Layer Weight`.
-Why squared: as-is a brunette rendered 3–5× too light; squared (with the 4×
-widths) Octane2's hair matches Iray (0.16/0.14/0.06 vs 0.16/0.12/0.07).
+albedo = 0.09 × the hair colour + 0.16 × the transmission colour
+(`HAIR_COLOUR_SHARE`, `HAIR_TRANSMISSION_SHARE`; each the mean of its root
+and tip colour, each its map's linear mean × tint); roughness both ways from
+`base_roughness`; specular = `Glossy Layer Weight`. Why: Iray's Blended
+Dual Lobe hair follows its transmission colour more than its hair colour —
+Calib-Hair (blond) and two copies with dark brown hair or transmission
+colours (render strands, 4× widths): Iray's hair ≈ 0.013 × hair + 0.023 ×
+transmission in luminance, Octane's Hair roughly linear in its albedo.
+Now 0.99 / 0.93 / 1.02 × Iray; the earlier (mean hair colour)², fitted on
+guide strands with sRGB-decoded colours, rendered the blond 3.1 × and the
+brown 0.07 ×.
 
 ### Emission
 
