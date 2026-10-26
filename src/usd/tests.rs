@@ -832,3 +832,18 @@ fn hidden_in_the_scenes_own_node_definition() {
     assert_eq!(nodes.len(), 1);
     assert!(!nodes[0].visible);
 }
+
+#[test]
+fn open_sheets_and_closed_volumes() {
+    // A tetrahedron split into two material groups (closed: its seam is no
+    // edge), beside a lone quad card (open).
+    let tet = Mesh {
+        face_counts: vec![3; 4],
+        face_indices: vec![0, 1, 2, 0, 3, 1, 1, 3, 2, 2, 3, 0],
+        subsets: vec![("a".into(), vec![0, 1]), ("b".into(), vec![2, 3])],
+        ..Default::default()
+    };
+    assert_eq!(super::mesh::open_subsets(&tet), [false, false]);
+    let card = Mesh { face_counts: vec![4], face_indices: vec![0, 1, 2, 3], subsets: vec![("leaf".into(), vec![0])], ..Default::default() };
+    assert_eq!(super::mesh::open_subsets(&card), [true]);
+}

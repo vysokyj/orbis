@@ -572,9 +572,14 @@ impl Ocs<'_> {
 
         if transmit > 0.0 {
             let tc = mat.color("Translucency Color").unwrap_or([1.0; 3]);
+            // An open sheet that isn't thin-walled (a leaf or grass card)
+            // passes twice as much in Iray: Calib-Leaf's card 0.48 × Iray at
+            // w, 0.81 at min(2w, 1); a closed sphere stays at w (1.25 – 1.38
+            // at 2w).
+            let share = if mat.open && !thin { (2.0 * transmit).min(1.0) } else { transmit };
             match mat.image("Translucency Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-                Some(asset) => self.tinted_image_pin(i, "transmission", &asset, transmit, tc),
-                None => self.rgb_pin(i, "transmission", tc.map(|c| c * transmit)),
+                Some(asset) => self.tinted_image_pin(i, "transmission", &asset, share, tc),
+                None => self.rgb_pin(i, "transmission", tc.map(|c| c * share)),
             }
             // Diffuse (1), or Thin Wall (Diffuse) (3) for a thin-walled sheet:
             // Calib-SSS rendered the two alike on closed spheres.
@@ -1230,6 +1235,16 @@ mod tests {
         assert!(wx.contains("<pin name='transmission'>") && wx.contains("<pin name='transmissionType'>"), "{wx}");
         let albedo = &wx[wx.find("<pin name='albedo'>").unwrap()..];
         assert!(albedo[..200].contains("0.5 0.5 0.5"), "{albedo}");
+        // On an open card it passes twice the share.
+        let leaf = mat(json!([
+            {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},
+            {"channel": {"id": "Translucency Weight", "current_value": 0.25}},
+            {"channel": {"id": "Translucency Color", "current_value": [1, 1, 1]}},
+        ]));
+        let leaf = Rc::new(crate::daz_material::Material { open: true, ..(*leaf).clone() });
+        let (fx, _) = material_inputs(&[("Leaf".into(), leaf, 1.0)], &dirs, HashMap::new(), 8970, SkinShader::None);
+        let tr = &fx[fx.find("<pin name='transmission'>").unwrap()..];
+        assert!(tr[..200].contains("0.5 0.5 0.5"), "{tr}");
         let wall = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}},
             {"channel": {"id": "Horizontal Tiles", "current_value": 6}},

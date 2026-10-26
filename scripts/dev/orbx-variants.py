@@ -23,6 +23,8 @@ Hypotheses (by the Iray channels the variants stand for):
   (Diffuse; 3, Thin Wall (Diffuse), when thin-walled).
 - `transl-thin`: the same, `transmissionType` 3 for all.
 - `transl-dark`: no transmission, albedo × (1 − 0.67 w) (the measured loss).
+- `transm-x2`: the export's transmission of non-thin-walled translucency
+  doubled (≤ 1): Tc · min(2w, 1).
 - `dl-ior`: the same for PBRSkin's Dual Lobe Specular Reflectivity.
 - `twosided-x1`: two-sided emitters at the one-sided power (the export
   doubles it, `TWO_SIDED_POWER`, assuming Octane splits it over both faces).
@@ -49,6 +51,7 @@ TRANSLUCENT = {
     'S2_transl_0_5': (0.5, False), 'S3_transl_1': (1.0, False), 'S4_thin_walled': (0.5, True),
     'S5_red_transmit': (0.5, False), 'S6_sss_amount': (0.5, False), 'S7_chromatic': (0.5, False),
     'S8_short_scatter': (0.5, False), 'P6_Gladio_cloth': (0.5, False), 'P8_Gladio_armour': (0.85, False),
+    'Leaf_2': (0.5, False), 'Leaf_3': (0.5, True),
 }
 next_id = [990000]
 
@@ -84,11 +87,11 @@ def set_pin(ocs, material, pin, node_xml):
     return ocs[:start] + block + ocs[end:]
 
 
-def albedo_of(ocs, material):
+def albedo_of(ocs, material, pin='albedo'):
     m = re.search(rf"name='/Scene/Materials/{re.escape(material)}[^']*'", ocs)
     if not m:
         return None
-    a = re.search(r"<pin name='albedo'>\s*<node[^>]*>\s*<attr name='value' type='8'>([^<]*)</attr>", ocs[m.end():])
+    a = re.search(rf"<pin name='{pin}'>\s*<node[^>]*>\s*<attr name='value' type='8'>([^<]*)</attr>", ocs[m.end():])
     return [float(x) for x in a.group(1).split()] if a else None
 
 
@@ -109,6 +112,12 @@ def halve_double_sided(ocs):
 def apply(ocs, hyp):
     if hyp == 'twosided-x1':
         return halve_double_sided(ocs)
+    if hyp == 'transm-x2':
+        for mat, (w, thin) in TRANSLUCENT.items():
+            t = None if thin else albedo_of(ocs, mat, 'transmission')
+            if t:
+                ocs = set_pin(ocs, mat, 'transmission', value_node(33, 8, ' '.join(f'{min(2 * c, 1):.6f}' for c in t)))
+        return ocs
     if hyp.startswith('transl-'):
         for mat, (w, thin) in TRANSLUCENT.items():
             a = albedo_of(ocs, mat)

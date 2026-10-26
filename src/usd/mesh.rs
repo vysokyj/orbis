@@ -408,9 +408,11 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
         // skin in creases, where random-walk skin lit it white (Octane4).
         let visible = if is_shell { n.shell_groups.as_ref() } else { None };
         let mut mesh = assemble(lib, &parts, if refined { None } else { visible });
-        if !fig.class.contains("Figure") {
-            for m in mesh.materials.iter_mut().flatten() {
-                *m = Rc::new(crate::daz_material::Material { prop: true, ..(**m).clone() });
+        let prop = !fig.class.contains("Figure");
+        let open = open_subsets(&mesh);
+        for (m, open) in mesh.materials.iter_mut().zip(open) {
+            if let Some(m) = m.as_mut().filter(|m| prop || open) {
+                *m = Rc::new(crate::daz_material::Material { prop: m.prop || prop, open, ..(**m).clone() });
             }
         }
         mesh.label = n.label.clone();
@@ -453,6 +455,31 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
         tracing::info!(reason = %s, "USD export: node skipped");
     }
     Ok((meshes, report))
+}
+
+/// Per subset: whether any of its faces has an edge no other face of the
+/// mesh shares — an open sheet rather than (part of) a closed volume.
+pub(super) fn open_subsets(mesh: &Mesh) -> Vec<bool> {
+    let mut starts = Vec::with_capacity(mesh.face_counts.len());
+    let mut at = 0usize;
+    for &c in &mesh.face_counts {
+        starts.push(at);
+        at += c as usize;
+    }
+    let edges = |f: usize| {
+        let (s, n) = (starts[f], mesh.face_counts[f] as usize);
+        (0..n).map(move |k| {
+            let (a, b) = (mesh.face_indices[s + k], mesh.face_indices[s + (k + 1) % n]);
+            (a.min(b), a.max(b))
+        })
+    };
+    let mut uses: HashMap<(u32, u32), u32> = HashMap::new();
+    for f in 0..mesh.face_counts.len() {
+        for e in edges(f) {
+            *uses.entry(e).or_default() += 1;
+        }
+    }
+    mesh.subsets.iter().map(|(_, faces)| faces.iter().any(|&f| edges(f as usize).any(|e| uses[&e] == 1))).collect()
 }
 
 /// Merge `parts` into one mesh; `visible` (a shell's switched-on material

@@ -27,6 +27,9 @@ pub struct Material {
     /// On a prop, not a figure: no random-walk skin (grass blades and leaves
     /// are open cards).
     pub prop: bool,
+    /// Its surface has an open edge (a card, a leaf, a cloak's hem), not a
+    /// closed volume.
+    pub open: bool,
 }
 
 impl Material {
