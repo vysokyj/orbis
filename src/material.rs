@@ -27,10 +27,15 @@ pub const DAZ_LUMENS_PER_WATT: f64 = 15_000.0;
 
 /// Power for an emitter that shines from both sides: Iray sends each side
 /// the full flux (Calib-L-Rect-50-2sided, -Emit-cd-2sided: the floor below
-/// lit 1.000× the one-sided); Octane's `doubleSided` emission is taken to
-/// spread its power over both. To confirm in Octane (the calibration batch
-/// renders both scenes).
-pub const TWO_SIDED_POWER: f64 = 2.0;
+/// lit 1.000× the one-sided), and so does Octane's `doubleSided` emission —
+/// at twice the power the floor came out 1.97–2.03× Iray, at the same 0.99–
+/// 1.01×.
+pub const TWO_SIDED_POWER: f64 = 1.0;
+
+/// Octane's colour (texture) emission against its blackbody at the same
+/// power: a non-photometric light (white, no temperature) lit the floor
+/// 0.69× Iray where the photometric ones (blackbody 6500 K) matched.
+pub const COLOUR_EMISSION_POWER: f64 = 1.0 / 0.69;
 
 /// Octane's emission against Iray's: a one-sided 50 × 50 cm plane at
 /// 5000 cd/m² lit every surface 3.4× Iray without it (#6).
@@ -568,18 +573,32 @@ impl Ocs<'_> {
         } else if !mirror && refraction == 0.0 && glossy <= 0.0 && dual_lobe <= 0.0 && mat.image("Glossy Layered Weight").is_none() {
             self.rgb_pin(i, "specular", [0.0; 3]);
         } else if !mirror && glossy > 0.0 {
+            // Iray's Glossy Reflectivity r scales the reflection (r 0.5 is
+            // the default, Universal's full specular); Octane matched it at
+            // specular × min(2r, 1) — Calib-Glossy, r 0 / 0.25: 2.42 / 1.54
+            // × Iray at Universal's default, 1.21 / 1.14 so, like the matte
+            // sphere's 1.13 (r 1 stays 0.74: specular caps at 1).
+            let refl = if specular_mode { 1.0 } else { reflectivity_share(mat.float("Glossy Reflectivity")) };
+            let weight = glossy.min(1.0) * refl;
             // A coloured gloss map tints the reflection: the HS CB braids'
             // brown gloss rendered as a grey sheen with Universal's white
             // default (Octane1, probe 60).
             if let Some(asset) = mat.image("Glossy Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-                self.tinted_image_pin(i, "specular", &asset, glossy.min(1.0), gloss_color);
+                self.tinted_image_pin(i, "specular", &asset, weight, gloss_color);
             } else if let Some(asset) = mat.image("Glossy Layered Weight").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
                 // The glossy layer's weight map (data) × its weight: the
                 // GSOV4 leather's 0.33 gloss with a seam mask rendered 3.4×
                 // Iray's sheen with Universal's full white one (Fetroom).
-                self.image_pin(i, "specular", &asset, true, 1.0, glossy.min(1.0));
-            } else if glossy < 1.0 || gloss_color != [1.0; 3] {
-                self.rgb_pin(i, "specular", gloss_color.map(|c| c * glossy.min(1.0)));
+                self.image_pin(i, "specular", &asset, true, 1.0, weight);
+            } else if weight < 1.0 || gloss_color != [1.0; 3] {
+                self.rgb_pin(i, "specular", gloss_color.map(|c| c * weight));
+            }
+        } else if !mirror && refraction == 0.0 && dual_lobe > 0.0 {
+            // The dual lobe specular alone: its reflectivity as the glossy
+            // layer's, × its weight.
+            let weight = dual_lobe.min(1.0) * reflectivity_share(mat.float("Dual Lobe Specular Reflectivity"));
+            if weight < 1.0 {
+                self.rgb_pin(i, "specular", [weight; 3]);
             }
         }
 
@@ -638,6 +657,12 @@ impl Ocs<'_> {
         }
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
+}
+
+/// Universal's specular share for an Iray reflectivity r (default 0.5 → 1):
+/// min(2r, 1). See the glossy layer in `universal`.
+fn reflectivity_share(r: Option<f32>) -> f32 {
+    (2.0 * r.unwrap_or(0.5)).clamp(0.0, 1.0)
 }
 
 /// The scalar a map is scaled by for a grey Iray colour tint: its mean
@@ -767,7 +792,7 @@ pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
         } else {
             w.rgb_pin(8, "efficiency or texture", l.color.map(|c| c as f32));
         }
-        let watts = l.watts * if l.two_sided { TWO_SIDED_POWER } else { 1.0 };
+        let watts = l.watts * if l.two_sided { TWO_SIDED_POWER } else { 1.0 } * if blackbody { 1.0 } else { COLOUR_EMISSION_POWER };
         w.value_pin(8, "power", 6, 8, &format!("{} 0 0", num(watts as f32)));
         w.value_pin(8, "surfaceBrightness", 11, 1, "0");
         if l.two_sided {
@@ -1122,9 +1147,9 @@ mod tests {
         // 50 000 lm / 2 / 15 000 lm·W⁻¹ / 3.4.
         assert!(ex.contains("<attr name='value' type='8'>0.490196 0 0</attr>"), "50 000 lm → 0.49 W");
         assert!(ex.contains("<attr name='value' type='8'>7000 0 0</attr>"));
-        // 100 cd/m² over 2 m²: 100 / 2 / 15 000 · 2 / 3.4 ≈ 0.002 W, red,
-        // doubled for its two sides (`TWO_SIDED_POWER`).
-        assert!(ex.contains("type='54'") && ex.contains("<attr name='value' type='8'>0.003922 0 0</attr>"), "{ex}");
+        // 100 cd/m² over 2 m²: 100 / 2 / 15 000 · 2 / 3.4 ≈ 0.002 W, red;
+        // its second side gets as much without more power (`TWO_SIDED_POWER`).
+        assert!(ex.contains("type='54'") && ex.contains("<attr name='value' type='8'>0.001961 0 0</attr>"), "{ex}");
         // A coloured blackbody: Iray multiplies by the colour (sRGB 0.1 →
         // linear 0.010023).
         let trim = mat(json!([

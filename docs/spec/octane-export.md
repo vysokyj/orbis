@@ -467,10 +467,9 @@ emission units keep their ratios (20 000 lm and 50 W against 5000 cd/m² on
 - **Draw Dome** off (the dome lights but isn't seen): Iray shows black
   behind the scene, the HDRI still lighting it (Calib-Dome-Off; the
   Calib-L scenes are "Scene Only", black anyway). The render target gets a
-  black texture environment on its `visibleEnvironment` pin with
-  `visibleEnvironmentBackplate` on — the camera sees it, lighting and
-  reflections keep the HDRI. *Pin name to confirm in Octane* (the batch
-  renders Calib-Dome-Off). DAZ's backdrop (`backdrop_visible`) isn't
+  black texture environment on its `cameraEnvironment` pin (probe 96; the
+  manual calls it "Visible Environment") with `visibleEnvironmentBackplate`
+  on — the camera sees it, lighting and reflections keep the HDRI. DAZ's backdrop (`backdrop_visible`) isn't
   followed; no scene in My Library shows one.
 
 - The HDRI as a linear image texture environment, power = intensity (0 for

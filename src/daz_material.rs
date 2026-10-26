@@ -75,7 +75,31 @@ impl Material {
         self.channels.get(id)
     }
 
+    /// Whether a feature switch turns this channel off: PBRSkin gates each
+    /// layer with an "… Enable" channel, every one but Diffuse off by
+    /// default — a weight set under a disabled layer does nothing in Iray
+    /// (Calib-PBRSkin's matte sphere, its dual lobe off, rendered a full
+    /// white gloss at the lobe's default weight 1).
+    fn gated_off(&self, id: &str) -> bool {
+        let gate = match id {
+            "Metallic Weight" => "Metallicity Enable",
+            "Translucency Weight" | "Translucency Color" => "Translucency Enable",
+            "Dual Lobe Specular Weight" => "Dual Lobe Specular Enable",
+            "Top Coat Weight" => "Top Coat Enable",
+            "Bump Strength" | "Normal Map" => "Bump Enable",
+            "Metallic Flakes Weight" => "Metallic Flakes Enable",
+            "Detail Weight" => "Detail Enable",
+            "Makeup Weight" => "Makeup Enable",
+            "SSS Amount" => "Sub Surface Enable",
+            _ => return false,
+        };
+        matches!(self.channel(gate).map(|c| &c.value), Some(Value::Bool(false)))
+    }
+
     pub fn float(&self, id: &str) -> Option<f32> {
+        if self.gated_off(id) {
+            return Some(0.0);
+        }
         match &self.channel(id)?.value {
             Value::Number(n) => n.as_f64().map(|f| f as f32),
             Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
@@ -92,6 +116,9 @@ impl Material {
     }
 
     pub fn image(&self, id: &str) -> Option<&str> {
+        if self.gated_off(id) {
+            return None;
+        }
         self.channel(id)?.image.as_deref()
     }
 

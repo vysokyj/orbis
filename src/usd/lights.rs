@@ -247,7 +247,13 @@ pub(super) fn write_lights(o: &mut String, lights: &[SceneLight]) {
                 ("SphereLight", 4.0 * PI * r * r, format!("float inputs:radius = {r}\n            bool treatAsPoint = 1\n"))
             }
             LightShape::Sphere { radius } => ("SphereLight", 4.0 * PI * radius * radius, format!("float inputs:radius = {radius}\n")),
-            LightShape::Disk { radius } => ("DiskLight", PI * radius * radius, format!("float inputs:radius = {radius}\n")),
+            // Octane's USD import renders a DiskLight as nothing (Calib-L-
+            // Disc-50: black): a square of the same area instead — the
+            // floor lit as by the disc in Iray within a few %.
+            LightShape::Disk { radius } => {
+                let side = radius * PI.sqrt();
+                ("RectLight", PI * radius * radius, format!("float inputs:width = {side}\n            float inputs:height = {side}\n"))
+            }
             LightShape::Rect { width, height } => (
                 "RectLight",
                 width * height,

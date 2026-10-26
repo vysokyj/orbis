@@ -22,6 +22,20 @@ for line in io.lines(docs .. "orbis_jobs.txt") do
             local p = item:getProperties()
             if p.type == octane.NT_RENDERTARGET and p.name ~= "Preview Render Target" and not rt then rt = item end
         end
+        -- A project opened from Lua leaves the imager's tone LUT without
+        -- its package and file (opened from File > Open it has them, probe
+        -- 96): point it at the package's assets/tone.cube again.
+        local im = rt:getInputNode(octane.P_IMAGER)
+        for i = 1, im:getPinCount() do
+            if im:getPinInfoIx(i).name == "lut" then
+                local lut = im:getInputNodeIx(i)
+                if lut then
+                    lut:setAttribute(octane.A_PACKAGE, docs .. file, true)
+                    lut:setAttribute(octane.A_FILENAME, "assets/tone.cube", true)
+                    pcall(function() lut:setAttribute(octane.A_RELOAD, true, true) end)
+                end
+            end
+        end
         local kernel = rt:getInputNode(octane.P_KERNEL)
         for i = 1, kernel:getPinCount() do
             if kernel:getPinInfoIx(i).name == "maxsamples" then

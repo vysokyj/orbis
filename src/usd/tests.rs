@@ -781,10 +781,10 @@ fn iray_light_flux_rules() {
 fn hidden_dome_gets_a_black_backplate() {
     let cams = vec![("Camera".to_string(), framing_camera(&[])), ("Other".to_string(), framing_camera(&[]))];
     let shown = project_ocs("Shot", "scene.usdz", &cams, (640, 480), "", OctaneMode::Final, &ToneMapping::default(), false);
-    assert!(!shown.contains("visibleEnvironment'") && !shown.contains("@VISIBLE_ENVIRONMENT@"));
+    assert!(!shown.contains("cameraEnvironment'") && !shown.contains("@VISIBLE_ENVIRONMENT@"));
     let hidden = project_ocs("Shot", "scene.usdz", &cams, (640, 480), "", OctaneMode::Final, &ToneMapping::default(), true);
     // One per render target, each with its own ids.
-    assert_eq!(hidden.matches("<pin name='visibleEnvironment'>").count(), 2);
+    assert_eq!(hidden.matches("<pin name='cameraEnvironment'>").count(), 2);
     assert!(hidden.contains("id='100195'") && hidden.contains("id='1100195'"));
 }
 

@@ -115,10 +115,11 @@ fn lens_fstop(aperture_cm: f64) -> f64 {
     if aperture_cm > 0.0 { LENS_FOCAL_MM / (20.0 * aperture_cm) } else { 1000.0 }
 }
 
-/// The render target's visible environment when DAZ's dome isn't drawn: a
-/// black texture environment as the backplate — the camera sees black, the
+/// The render target's camera ("visible") environment when DAZ's dome isn't
+/// drawn — the pin is `cameraEnvironment` (probe 96) — a black texture
+/// environment as the backplate — the camera sees black, the
 /// HDRI still lights the scene and shows in reflections, as in Iray.
-const BLACK_BACKPLATE: &str = "     <pin name='visibleEnvironment'>
+const BLACK_BACKPLATE: &str = "     <pin name='cameraEnvironment'>
       <node id='100195' type='37'>
        <pin name='texture'>
         <node id='100196' type='33'>
