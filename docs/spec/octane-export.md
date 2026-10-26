@@ -269,7 +269,11 @@ Every material input (20007) is filled — Octane doesn't convert
 ### Skin — Standard Surface (277), Final only
 
 A material with Iray `Translucency Weight` > 0 that is opaque (no cutout),
-not `Thin Walled`, non-refractive, non-emissive and has a diffuse map:
+not `Thin Walled`, non-refractive, non-emissive, not metallic (`Metallic
+Weight` under 0.05 and no map) and has a diffuse map. Why not metallic: the
+Gladio outfit is PBRSkin with translucency 0.5 and a metallic map on every
+surface — as skin its metal was lost and the open cloak rendered grey
+instead of red (Gladiator).
 
 - `baseColor` and `subsurfaceColor` = the diffuse map (Iray's translucency
   map is pale and bleached skin and make-up) × **½ · ((1 − w) + w · Tc)**

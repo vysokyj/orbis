@@ -489,7 +489,11 @@ impl Ocs<'_> {
         let cutout = mat.opacity() < 1.0 || mat.image(mat.opacity_channel()).is_some();
         // Iray "Thin Walled": clothing — a single-sided sheet, no volume.
         let thin = mat.float("Thin Walled").unwrap_or(0.0) > 0.0;
-        if skin != SkinShader::None && translucency > 0.0 && !refractive && !emissive && !cutout && !thin && mat.image("diffuse").is_some() {
+        // Skin isn't metallic: the Gladio outfit is PBRSkin with translucency
+        // and a metallic map throughout — as skin its metal was lost and the
+        // open cloak rendered grey instead of red (Gladiator).
+        let metal = mat.metallic() >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some();
+        if skin != SkinShader::None && translucency > 0.0 && !refractive && !emissive && !cutout && !thin && !metal && mat.image("diffuse").is_some() {
             return self.standard_surface(indent, name, mat, translucency, skin == SkinShader::OpenPbr);
         }
         let id = self.id();
@@ -1075,6 +1079,13 @@ mod tests {
         ]));
         let (tx, _) = material_inputs(&[("Shirt".into(), shirt, 1.0)], &dirs, HashMap::new(), 8700, SkinShader::StandardSurface);
         assert!(tx.contains("type='130'"), "thin-walled fabric stays Universal");
+        let cloak = mat(json!([
+            {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}},
+            {"channel": {"id": "Translucency Weight", "current_value": 0.5}},
+            {"channel": {"id": "Metallic Weight", "current_value": 0.9, "image_file": "/Runtime/Textures/rough.png"}},
+        ]));
+        let (kx, _) = material_inputs(&[("Cloak".into(), cloak, 1.0)], &dirs, HashMap::new(), 8750, SkinShader::StandardSurface);
+        assert!(kx.contains("type='130'") && kx.contains("<pin name='metallic'>"), "metallic PBRSkin stays Universal: {kx}");
         let bulbs = mat(json!([
             {"channel": {"id": "Emission Color", "current_value": [1, 1, 1]}},
             {"channel": {"id": "Luminance", "current_value": 50000}},
