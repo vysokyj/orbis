@@ -216,6 +216,10 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     let asset = format!("assets/{USDZ_ASSET}");
     let mut files: Vec<(&str, &[u8])> = vec![(&asset, &usdz)];
     files.extend(images.iter().map(|(a, d)| (a.as_str(), d.as_slice())));
+    let lut = (!tone.is_plain()).then(|| tone.cube_lut());
+    if let Some(lut) = &lut {
+        files.push((TONE_LUT_ASSET, lut.as_bytes()));
+    }
     files.push(("project.ocs", ocs.as_bytes()));
     progress.report(95, "writing the .orbx");
     write_atomically(out, |f| write_orbx(f, OCTANE_VERSION, &files))?;

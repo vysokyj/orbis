@@ -218,7 +218,7 @@ Group pins carry `dynamicType='12'`.
 | skin | Universal | Standard Surface + random-walk SSS |
 | imager exposure | 1 × 2^(13 − EV) × cm² | **1.4** × 2^(13 − EV) × cm² |
 | imager response | **Gamma 2.2** (403) | same |
-| highlight compression | 1 − Burn Highlights | same |
+| highlight compression | 0; Burn < 1, Crush > 0 or Gamma ≠ 2.2 → a tone LUT (below) | same |
 | white balance / saturation | DAZ White Point × Scale / Saturation | same |
 | denoiser | off | **on**, during the render (`denoiserOnce` off, `maxDenoiserInterval` 20) |
 
@@ -236,7 +236,19 @@ default sRGB curve rendered equal light darker in the shadows (Calib-Point
 floor 17 vs Iray's 24 / 255); with 403 every region matches Iray's pixels
 within 1 / 255 (probe 76). The linear match is unchanged, so the exposure
 stays.
-`Crush Blacks` has no counterpart and is left out.
+**Tone LUT** (#14): Octane's imager has no curve for Iray's burn, crush or
+another gamma — its highlight compression is far weaker (probe 91: 0.70×
+at 0.84 where Iray's Burn 0 gives 0.54×). A scene off the calibrated
+defaults gets Iray's curve as a custom LUT (`assets/tone.cube`, 1D, 4096
+entries; LUT node 103 on the imager's `lut`, `order` 0 = response, gamma,
+LUT): c · (1 + c · b) / (1 + c), then ^(1 + crush), then ^(1 / gamma),
+sampled on the Gamma 2.2 response of c / 16 — the exposure is divided by
+16 so highlights to 16× white survive the response's clip. Why: Gladiator
+(Burn 0, Crush 0.07, Gamma 1.857) mapped through this from its Burn 1 /
+Crush 0 / Gamma 2.2 Iray render matches its own Iray render within
+1.7 / 255 (Reinhard and gamma alone 5.9; the crush as ^(1 + crush) is a fit
+to that one scene); Octane's LUT render matches the curve applied to its
+linear render within +0.5 / 255 (+4 in the deepest shadows).
 
 ## Materials
 

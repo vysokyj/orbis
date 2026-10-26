@@ -41,10 +41,23 @@ pub(super) fn project_ocs(
         OctaneMode::Final => (include_str!("../../assets/octane/kernel_path_tracing.ocs"), 1.4, "1"),
     };
     let [wr, wg, wb] = tone.white_point;
+    // Iray's curve beyond the calibrated defaults (burn, crush, gamma) as a
+    // custom LUT after the Gamma 2.2 response, the exposure lowered by its
+    // headroom; Octane's highlight compression is far weaker than Iray's
+    // burn (probe 91: 0.70× at 0.84 where Iray's burn 0 gives 0.54×).
+    let (exposure, compression, lut) = if tone.is_plain() {
+        (tone.octane_exposure(base_exposure), 0.0, String::new())
+    } else {
+        let lut = format!(
+            "       <pin name='lut'>\n        <node id='100190' type='103'>\n         <attr name='filename' type='11'>{TONE_LUT_ASSET}</attr>\n        </node>\n       </pin>\n"
+        );
+        (tone.octane_exposure(base_exposure) / LUT_HEADROOM, 0.0, lut)
+    };
     let template = template
         .replace("@KERNEL@\n", kernel)
-        .replace("@EXPOSURE@", &format!("{:.6} 0 0 0", tone.octane_exposure(base_exposure)))
-        .replace("@HIGHLIGHT_COMPRESSION@", &format!("{:.6} 0 0 0", (1.0 - tone.burn_highlights).clamp(0.0, 1.0)))
+        .replace("@EXPOSURE@", &format!("{:.6} 0 0 0", exposure))
+        .replace("@HIGHLIGHT_COMPRESSION@", &format!("{:.6} 0 0 0", compression))
+        .replace("@TONE_LUT@", &lut)
         .replace("@WHITE_BALANCE@", &format!("{wr:.6} {wg:.6} {wb:.6}"))
         .replace("@SATURATION@", &format!("{:.6} 0 0 0", tone.saturation))
         .replace("@DENOISER@", denoiser);

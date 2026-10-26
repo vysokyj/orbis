@@ -89,12 +89,15 @@ pub struct ToneMapping {
     pub white_point: [f64; 3],
     /// 1 = highlights left alone, 0 = fully compressed.
     pub burn_highlights: f64,
+    /// Darkens the shadows (0 = off).
+    pub crush_blacks: f64,
     pub saturation: f64,
+    pub gamma: f64,
 }
 
 impl Default for ToneMapping {
     fn default() -> Self {
-        ToneMapping { exposure_value: 13.0, cm2_factor: 1.0, white_point: [1.0; 3], burn_highlights: 1.0, saturation: 1.0 }
+        ToneMapping { exposure_value: 13.0, cm2_factor: 1.0, white_point: [1.0; 3], burn_highlights: 1.0, crush_blacks: 0.0, saturation: 1.0, gamma: 2.2 }
     }
 }
 
@@ -104,7 +107,47 @@ impl ToneMapping {
     pub fn octane_exposure(&self, base: f64) -> f64 {
         base * (13.0 - self.exposure_value).exp2() * self.cm2_factor
     }
+
+    /// Iray's tone curve on a linear value (after exposure): burn,
+    /// crush, gamma — c (1 + c b) / (1 + c), then ^(1 + crush), then
+    /// ^(1 / gamma). The burn is the photographic tone mapper's; the crush
+    /// a fit (Gladiator, crush 0.07: within 1.7 / 255 of Iray's pixels).
+    pub fn iray_curve(&self, c: f64) -> f64 {
+        let b = self.burn_highlights.clamp(0.0, 1.0);
+        let c = c.max(0.0);
+        let burnt = c * (1.0 + c * b) / (1.0 + c);
+        burnt.powf(1.0 + self.crush_blacks.max(0.0)).powf(1.0 / self.gamma.max(0.1))
+    }
+
+    /// Whether Octane's own imager reproduces this: the calibrated defaults
+    /// (Burn 1, Crush 0, Gamma 2.2 — the Gamma 2.2 response).
+    pub fn is_plain(&self) -> bool {
+        self.burn_highlights >= 1.0 && self.crush_blacks <= 0.0 && (self.gamma - 2.2).abs() < 1e-3
+    }
+
+    /// Iray's curve as a 1D `.cube` LUT for Octane's imager: its input is
+    /// the Gamma 2.2 response of c / `LUT_HEADROOM` (the exposure is
+    /// divided by it, so highlights up to 16× white survive the response's
+    /// clip at 1). Octane applies response, gamma, then LUT (`order` 0).
+    pub fn cube_lut(&self) -> String {
+        let mut out = format!("TITLE \"ORBIS Iray tone mapping\"\nLUT_1D_SIZE {LUT_SIZE}\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n");
+        for i in 0..LUT_SIZE {
+            let x = i as f64 / (LUT_SIZE - 1) as f64;
+            let v = self.iray_curve(x.powf(2.2) * LUT_HEADROOM).clamp(0.0, 1.0);
+            let _ = writeln!(out, "{v:.6} {v:.6} {v:.6}");
+        }
+        out
+    }
 }
+
+/// Entries of the tone LUT.
+const LUT_SIZE: usize = 4096;
+
+/// How far above white the tone LUT reaches (see [`ToneMapping::cube_lut`]).
+pub const LUT_HEADROOM: f64 = 16.0;
+
+/// Where the tone LUT goes in an `.orbx`.
+pub const TONE_LUT_ASSET: &str = "assets/tone.cube";
 
 /// The scene's Iray tone mapping; DAZ's defaults when it saved none or
 /// tone mapping is off.
@@ -133,7 +176,9 @@ pub(super) fn scene_tone_mapping(lib: &mut Library) -> ToneMapping {
             cm2_factor: num("cm2 Factor", 1.0),
             white_point,
             burn_highlights: num("Burn Highlights", 1.0),
+            crush_blacks: num("Crush Blacks", 0.0),
             saturation: num("Saturation", 1.0),
+            gamma: num("Gamma", 2.2),
         };
     }
     ToneMapping::default()

@@ -424,9 +424,15 @@ fn iray_tone_mapping_drives_the_imager() {
     assert_eq!(tone.white_point, [0.8, 0.9, 1.0]);
     assert_eq!(tone.octane_exposure(1.4), 2.8, "EV 12 is one stop brighter than DAZ's 13");
     let cams = vec![("Camera".to_string(), framing_camera(&[]))];
+    // Burn 0.25 is beyond Octane's imager: Iray's curve as a LUT, the
+    // exposure lowered by its headroom, no highlight compression.
     let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Final, &tone);
-    assert!(ocs.contains("2.800000 0 0 0") && ocs.contains("0.750000 0 0 0") && ocs.contains("1.200000 0 0 0"));
+    assert!(ocs.contains("0.175000 0 0 0") && ocs.contains("1.200000 0 0 0"), "exposure 2.8 / 16, saturation");
+    assert!(ocs.contains("type='103'") && ocs.contains(&format!("<attr name='filename' type='11'>{TONE_LUT_ASSET}</attr>")));
     assert!(ocs.contains("0.800000 0.900000 1.000000"));
+    let plain = ToneMapping { burn_highlights: 1.0, ..tone.clone() };
+    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Final, &plain);
+    assert!(ocs.contains("2.800000 0 0 0") && !ocs.contains("type='103'") && !ocs.contains("@TONE_LUT@"));
     assert_eq!(scene_tone_mapping(&mut Library::new(vec![], json!({"scene": {"nodes": []}}))), ToneMapping::default());
 }
 
@@ -704,4 +710,25 @@ fn instances_of_a_hidden_source() {
     assert!(usda.contains("quath[] orientations = [(0, 0, 1, 0)]"));
     // Balanced braces: the prototype is closed inside its instancer.
     assert_eq!(usda.matches('{').count(), usda.matches('}').count());
+}
+
+#[test]
+fn iray_tone_curve() {
+    // Gladiator: Burn 0, Crush 0.07, Gamma 1.857 — Reinhard, then the crush,
+    // then the gamma.
+    let t = ToneMapping { burn_highlights: 0.0, crush_blacks: 0.06985294, gamma: 1.856618, ..ToneMapping::default() };
+    assert!(!t.is_plain() && ToneMapping::default().is_plain());
+    let want = |c: f64| (c / (1.0 + c)).powf(1.06985294).powf(1.0 / 1.856618);
+    for c in [0.01, 0.2, 1.0, 5.0] {
+        assert!((t.iray_curve(c) - want(c)).abs() < 1e-12);
+    }
+    // The defaults are Octane's Gamma 2.2 response.
+    assert!((ToneMapping::default().iray_curve(0.25) - 0.25f64.powf(1.0 / 2.2)).abs() < 1e-12);
+    // The LUT's entry k holds the curve at (k / 4095)^2.2 · 16.
+    let lut = t.cube_lut();
+    let rows: Vec<&str> = lut.lines().filter(|l| l.starts_with(|c: char| c.is_ascii_digit())).collect();
+    assert_eq!(rows.len(), 4096);
+    let mid: f64 = rows[2048].split(' ').next().unwrap().parse().unwrap();
+    assert!((mid - want((2048.0f64 / 4095.0).powf(2.2) * 16.0)).abs() < 1e-6, "{mid}");
+    assert!(lut.contains("LUT_1D_SIZE 4096"));
 }

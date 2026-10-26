@@ -1390,7 +1390,7 @@
          <attr name='value' type='9'>1 0 0 0</attr>
         </node>
        </pin>
-       <pin name='denoiser'>
+@TONE_LUT@       <pin name='denoiser'>
         <node id='100137' type='11'>
          <attr name='value' type='1'>@DENOISER@</attr>
         </node>
