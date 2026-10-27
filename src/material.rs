@@ -273,6 +273,8 @@ struct Ocs<'a> {
     in_mix: bool,
     /// Thin-walled glass at IOR 1 (`Tuning::thin_glass_ior_one`).
     thin_glass_ior_one: bool,
+    /// `Tuning::max_transmission`.
+    max_transmission: f32,
 }
 
 fn esc(s: &str) -> String {
@@ -766,7 +768,7 @@ impl Ocs<'_> {
         // Nor on a figure's thin-walled skin (the Genesis EyeSocket): with
         // the head behind it nothing comes through, and the corners of the
         // eyes went dark (Calib-Hair, #20).
-        let transmit = if metal || refractive || (thin && !mat.prop) || mat.float("Base Mixing").unwrap_or(0.0) as i32 == 2 { 0.0 } else { translucency };
+        let transmit = if metal || refractive || (thin && !mat.prop) || mat.float("Base Mixing").unwrap_or(0.0) as i32 == 2 { 0.0 } else { translucency.min(self.max_transmission) };
         let diffuse_weight = (1.0 - refraction) * (1.0 - transmit);
 
         // Iray "Base Mixing" 1 (specular/glossiness) ignores Metallic Weight;
@@ -1103,7 +1105,7 @@ pub struct LightEmitter {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, thin_glass_ior_one: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, thin_glass_ior_one: false, max_transmission: 1.0 };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -1165,21 +1167,28 @@ const GROUND_DROP: f64 = 0.001;
 
 /// How the materials translate: the variant's material fields of
 /// `crate::tuning::Tuning`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shading {
     pub skin: SkinShader,
     pub thin_glass_ior_one: bool,
+    pub max_transmission: f32,
+}
+
+impl Default for Shading {
+    fn default() -> Self {
+        SkinShader::None.into()
+    }
 }
 
 impl From<SkinShader> for Shading {
     fn from(skin: SkinShader) -> Self {
-        Shading { skin, thin_glass_ior_one: false }
+        Shading { skin, thin_glass_ior_one: false, max_transmission: 1.0 }
     }
 }
 
 impl From<&crate::tuning::Tuning> for Shading {
     fn from(t: &crate::tuning::Tuning) -> Self {
-        Shading { skin: t.skin, thin_glass_ior_one: t.thin_glass_ior_one }
+        Shading { skin: t.skin, thin_glass_ior_one: t.thin_glass_ior_one, max_transmission: t.max_transmission }
     }
 }
 
@@ -1234,7 +1243,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, first_id: 
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, thin_glass_ior_one: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, thin_glass_ior_one: false, max_transmission: 1.0 };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -1328,7 +1337,7 @@ pub fn environment_texture(
     textures: &mut Textures,
     first_id: u32,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, thin_glass_ior_one: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, thin_glass_ior_one: false, max_transmission: 1.0 };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -1368,9 +1377,9 @@ pub fn material_inputs(
     first_id: u32,
     shading: impl Into<Shading>,
 ) -> (String, Textures) {
-    let Shading { skin, thin_glass_ior_one } = shading.into();
+    let Shading { skin, thin_glass_ior_one, max_transmission } = shading.into();
     let mut textures = Textures { layered, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, thin_glass_ior_one };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, thin_glass_ior_one, max_transmission };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(

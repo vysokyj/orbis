@@ -26,6 +26,7 @@ DONE_FILE=<out>.done scripts/dev/daz-script.sh scripts/dev/daz-build-leaf-scene.
 DONE_FILE=<out>.done scripts/dev/daz-script.sh scripts/dev/daz-build-sundir-scene.dsa <Calib-L-Mode-SunSky-off.duf> <out>   # Calib-L-Mode-SunSky-dir (sun steered by a node)
 scripts/dev/daz-dump.sh <out dir> <scene.duf>...   # headless DAZ dump (the ORBIS script's --dump) + orbis export
 python3 scripts/dev/orbx-variants.py <in.orbx> <out dir> <hypothesis>...   # material-pin variants of an export (gloss-2r, gloss-ior, dl-ior)
+scripts/dev/calib-variants.sh all -- <scene>...   # export (cached dumps) + render + report per variant (Look × mode)
 scripts/dev/calib-octane-batch.sh   # Octane side of the calibration: render all exports + variants, report vs Iray
 python3 scripts/dev/channel-audit.py > audit.md   # DAZ channels set in My Library's scenes vs. read by the export (#15)
 python3 scripts/dev/shader-coverage.py > coverage.md   # every Iray Uber / PBRSkin / DAZ Default channel: default, read or not (#15)

@@ -43,7 +43,7 @@ default) keeps Octane's take: skin on **OpenPBR Surface** (OTOY's material
 for skin), the Hosek-Wilkie daylight that warms a low sun, thin-walled
 glass with its Fresnel reflection. *Faithful* stays with Iray's: skin on
 Standard Surface tinted to Iray's, Octane's daylight model with a white
-sunset colour (power × 2.27 / 2.7 — the white sunset still to calibrate),
+sunset colour, dimmed by the sun's air mass as Iray dims it (Variants),
 thin-walled glass at IOR 1 (Iray's showed none of its own reflection).
 **Denoise** (`--no-denoise` off; the dialog's Denoise) is separate: Octane's
 AI denoiser on the Final render — it changes no light or colour, it may
@@ -61,15 +61,42 @@ field of `Tuning`, set per variant in one table (`Variant::tuning`,
 | `Tuning` field | Enhanced + Final | Faithful + Final | Enhanced + Preview | Faithful + Preview |
 |---|---|---|---|---|
 | `kernel` | path tracing | path tracing | direct lighting | direct lighting |
-| `base_exposure` | 1.4 (Octane2, HDRI) | 1.4 ¹ | 1 (Octane1's lights) | 1 ¹ |
+| `base_exposure` | 1.4 | 1.4 | 1.4 | 1.4 |
 | `denoiser` | on | on | off | off |
 | `skin` | OpenPBR Surface | Standard Surface | Universal (no SSS) | Universal (no SSS) |
-| `thin_glass_ior_one` | no (Fresnel) | yes (Calib-Glass) | no | yes ¹ |
-| `daylight_model` | 3 Hosek-Wilkie | 1 Octane, white sunset | 3 ¹ | 1 ¹ |
-| `daylight_power` | 2.7 (Calib-L-Mode) | 2.27 (Calib-L-Mode) | 2.7 ¹ | 2.27 ¹ |
+| `thin_glass_ior_one` | no (Fresnel) | yes | no | yes |
+| `daylight_model` | 3 Hosek-Wilkie | 1 Octane, white sunset | 3 Hosek-Wilkie | 1 Octane, white sunset |
+| `daylight_power` | 2.7 | 2.864 | 2.7 | 2.864 |
+| `daylight_extinction` | 0 | 0.200 | 0 | 0.200 |
+| `max_transmission` | 1 | 1 | 0.75 | 0.75 |
 
-¹ Not calibrated in this variant yet: taken over from the same look's
-other mode, or the same mode's other look.
+Calibrated on the same 17 scenes in each variant (lights, Sun-Sky at
+18:00, noon and steered, HDRI, tone, PBRSkin, Glossy, SSS, Glass, Mixing,
+Leaf, Hair; `scripts/dev/calib-variants.sh all`), Octane / Iray:
+
+- **Lights, HDRI, Sun-Sky** (floor): 0.98 – 1.04 in all four.
+- **`base_exposure`**: Preview at the old 1 lit every floor 0.71 – 0.74 ×
+  Iray; at 1.4, as Final, 0.99 – 1.04. Spheres under direct lighting stay
+  ~10 % darker than under path tracing (Calib-Tone-Default 0.82 – 0.94 vs
+  0.98 – 1.15): two bounces, not a light amount.
+- **Faithful daylight**: Octane's model hardly dims a low sun — at one
+  power (2.27) Calib-L-Mode-SunSky-off (18:00, 15.5°) came out 1.86 × and
+  -noon (40°) 1.08 ×; a grey sunset colour (0.5 – 0.15) left 18:00 as it
+  was. `power` × exp(−`daylight_extinction` / sin(elevation)) — the sun's
+  air mass — through both: 18:00 0.95, noon 1.00, SunSky-dir (43°) 0.98.
+  The floor isn't linear in Octane's power there (18:00 at 1.22 / 1.32 /
+  1.34 / 1.39: 0.85 / 0.92 / 0.94 / 1.12 ×). Enhanced's Hosek-Wilkie does
+  the dimming itself: 0.99 / 0.98.
+- **`max_transmission`**: direct lighting renders a surface that passes
+  all of its diffuse on as transmission black (Calib-SSS's Translucency
+  Weight 1 sphere: 0.00); capped at 0.75 it is 0.66, with its neighbours
+  (0.57 – 0.74; Final 0.93 – 1.04). Without transmission (albedo × (1 −
+  0.67 w)) the weight-0.5 spheres fell to 0.38 – 0.49.
+- **Skin** in Preview (Universal): Calib-PBRSkin 0.86 – 1.16, Final's
+  OpenPBR 1.06 – 1.29. **Hair** 1.04 (Final) / 1.06 (Preview).
+- Shared misses, not variant-bound: Calib-Glass sphere 4 2.8 × in all
+  four; Preview's Glass sphere 7 0.81 and Mixing sphere 8 0.76 (Final
+  0.95 / 1.04).
 
 ## Inputs
 
@@ -292,7 +319,7 @@ Group pins carry `dynamicType='12'`.
 | kernel | direct lighting (24), GI diffuse, depth 2 | path tracing (25): diffuse 8, glossy 24, **scatter 128**, **GI clamp 20** |
 | ray epsilon | **1 µm** (`rayepsilon` 1e-6) | same |
 | skin | Universal | Standard Surface + random-walk SSS |
-| imager exposure | 1 × 2^(13 − EV) × cm² | **1.4** × 2^(13 − EV) × cm² |
+| imager exposure | **1.4** × 2^(13 − EV) × cm² (Variants) | **1.4** × 2^(13 − EV) × cm² |
 | imager response | **Gamma 2.2** (403) | same |
 | highlight compression | 0; Burn < 1, Crush > 0 or Gamma ≠ 2.2 → a tone LUT (below) | same |
 | white balance / saturation | DAZ White Point × Scale / Saturation | same |

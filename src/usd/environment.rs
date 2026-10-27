@@ -57,10 +57,12 @@ pub struct SunSky {
 
 impl SunSky {
     /// The variant's daylight model and power (`Tuning::daylight_model`,
-    /// `daylight_power`); read from the scene at Hosek-Wilkie's.
+    /// `daylight_power`, `daylight_extinction`); read from the scene at
+    /// Hosek-Wilkie's.
     pub fn tune(&mut self, t: &crate::tuning::Tuning) {
         self.model = t.daylight_model;
-        self.power *= t.daylight_power / SUN_SKY_POWER;
+        let air_mass = 1.0 / self.sun_dir[1].max(0.05);
+        self.power *= t.daylight_power / SUN_SKY_POWER * (-t.daylight_extinction * air_mass).exp();
     }
 }
 

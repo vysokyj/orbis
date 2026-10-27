@@ -86,6 +86,11 @@ user's own scenes.
 5. **Compare** — `scripts/dev/calib-compare-all.py <octane dir>`: Octane /
    Iray in linear luminance per sphere, light region or frame, plus side-by-
    side images. 1.00 = equal.
+   **Per variant** — `scripts/dev/calib-variants.sh [-s samples]
+   <variant>… -- <scene>…` (`enhanced-final`, `faithful-final`,
+   `enhanced-preview`, `faithful-preview` or `all`) re-exports the scenes
+   from their cached dumps in that variant, renders and compares them into
+   `octane/<variant>/report.md`.
 6. **Hypotheses** — `scripts/dev/orbx-variants.py <in.orbx> <dir>
    <hypothesis>…` rewrites pins of an export (IOR, specular, coating,
    turbidity, …) to test a rule before coding it; render and compare the

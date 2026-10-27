@@ -36,6 +36,15 @@ pub enum OctaneMode {
     Final,
 }
 
+/// Octane's daylight model as Faithful lights with it: at 2.27 the 18:00
+/// sun (Calib-L-Mode-SunSky-off, 15.5°) came out 1.86 × Iray, noon (40°)
+/// 1.08 ×. The floor doesn't follow the power linearly (18:00 at power
+/// 1.22 / 1.32 / 1.34 / 1.39: 0.85 / 0.92 / 0.94 / 1.12 ×), so P · exp(−τ /
+/// sin e) went through noon at 2.10 and 18:00 at 1.36: 18:00 0.95, noon
+/// 1.00, Calib-L-Mode-SunSky-dir (43°) 0.98 × Iray.
+const FAITHFUL_DAYLIGHT_POWER: f64 = 2.864;
+const FAITHFUL_DAYLIGHT_EXTINCTION: f64 = 0.2001;
+
 /// One of the four exports.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Variant {
@@ -58,9 +67,10 @@ pub enum Kernel {
 pub struct Tuning {
     /// Render modes.
     pub kernel: Kernel,
-    /// Imager exposure at DAZ's default EV 13 (Render modes): 1 calibrated
-    /// on Octane1's lights under direct lighting, 1.4 against Octane2's
-    /// Iray render (HDRI only) under path tracing.
+    /// Imager exposure at DAZ's default EV 13 (Render modes): 1.4 under
+    /// path tracing (Octane2's Iray render, HDRI only) and under direct
+    /// lighting too — at the old 1 every Preview floor came out 0.71 –
+    /// 0.74 × Iray (lights, Sun-Sky, HDRI); at 1.4 0.99 – 1.04.
     pub base_exposure: f64,
     /// Octane's AI denoiser on the render (Render modes); `--no-denoise`
     /// turns it off in any variant.
@@ -74,10 +84,17 @@ pub struct Tuning {
     /// Daylight (Sun-Sky) model: 3 Hosek-Wilkie, which warms a low sun; 1
     /// Octane's, with a white sunset colour like Iray's (Environment).
     pub daylight_model: u8,
-    /// Daylight `power` at DAZ's default `SS Multiplier` (Environment):
-    /// 2.7 Hosek-Wilkie, 2.27 Octane's model (floor 1.03 ×, shadow 0.96 ×
-    /// Iray on Calib-L-Mode-SunSky-off; the white sunset still to fit).
+    /// Daylight `power` at DAZ's default `SS Multiplier` (Environment),
+    /// × exp(−`daylight_extinction` / sin(sun elevation)).
     pub daylight_power: f64,
+    /// Dims a low sun by its air mass: Hosek-Wilkie does that itself (0);
+    /// Octane's model hardly does — at one power Calib-L-Mode-SunSky-off
+    /// (18:00, 15.5°) came out 1.86 × Iray and -noon (40°) 1.08 ×.
+    pub daylight_extinction: f64,
+    /// The most of a surface's diffuse that Iray translucency may pass on as
+    /// Universal's diffuse transmission (Universal): direct lighting renders
+    /// a fully transmitting surface black (Calib-SSS's weight-1 sphere).
+    pub max_transmission: f32,
 }
 
 impl Variant {
@@ -101,6 +118,8 @@ impl Variant {
                 thin_glass_ior_one: false,
                 daylight_model: 3,
                 daylight_power: SUN_SKY_POWER,
+                daylight_extinction: 0.0,
+                max_transmission: 1.0,
             },
             (Faithful, Final) => Tuning {
                 kernel: Kernel::PathTracing,
@@ -109,25 +128,31 @@ impl Variant {
                 skin: SkinShader::StandardSurface,
                 thin_glass_ior_one: true,
                 daylight_model: 1,
-                daylight_power: 2.27,
+                daylight_power: FAITHFUL_DAYLIGHT_POWER,
+                daylight_extinction: FAITHFUL_DAYLIGHT_EXTINCTION,
+                max_transmission: 1.0,
             },
             (Enhanced, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
-                base_exposure: 1.0,
+                base_exposure: 1.4,
                 denoiser: false,
                 skin: SkinShader::None,
                 thin_glass_ior_one: false,
                 daylight_model: 3,
                 daylight_power: SUN_SKY_POWER,
+                daylight_extinction: 0.0,
+                max_transmission: 0.75,
             },
             (Faithful, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
-                base_exposure: 1.0,
+                base_exposure: 1.4,
                 denoiser: false,
                 skin: SkinShader::None,
                 thin_glass_ior_one: true,
                 daylight_model: 1,
-                daylight_power: 2.27,
+                daylight_power: FAITHFUL_DAYLIGHT_POWER,
+                daylight_extinction: FAITHFUL_DAYLIGHT_EXTINCTION,
+                max_transmission: 0.75,
             },
         }
     }
@@ -144,6 +169,21 @@ mod tests {
         assert_eq!(Look::default(), Look::Enhanced);
         let t = Variant::new(Look::Enhanced, OctaneMode::Final).tuning();
         assert_eq!((t.kernel, t.skin, t.daylight_model), (Kernel::PathTracing, SkinShader::OpenPbr, 3));
+    }
+
+    #[test]
+    fn faithful_daylight_dims_a_low_sun() {
+        let at = |elevation: f64, look| {
+            let e = elevation.to_radians();
+            let mut s = crate::usd::SunSky { sun_dir: [e.cos(), e.sin(), 0.0], turbidity: 2.0, power: SUN_SKY_POWER, sun_intensity: 0.55, sun_size: 1.0, ground: [0.4; 3], model: 3 };
+            s.tune(&Variant::new(look, OctaneMode::Final).tuning());
+            (s.model, s.power)
+        };
+        // The two points it was fitted through: noon (40°) and 18:00 (15.5°).
+        let ((model, noon), (_, low)) = (at(40.0, Look::Faithful), at(15.5, Look::Faithful));
+        assert_eq!(model, 1);
+        assert!((noon - 2.10).abs() < 0.01 && (low - 1.36).abs() < 0.01, "{noon} {low}");
+        assert_eq!(at(15.5, Look::Enhanced), (3, SUN_SKY_POWER));
     }
 
     #[test]

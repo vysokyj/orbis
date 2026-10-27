@@ -35,6 +35,8 @@ Hypotheses (by the Iray channels the variants stand for):
 - `absorb-x<k>`: every absorption medium's scale × k.
 - `thin-ior1`: thin-walled glass (transmissionType 2) at IOR 1.
 - `dl-ior`: the same for PBRSkin's Dual Lobe Specular Reflectivity.
+- `sunset=<g>`: the Daylight environment's sunset colour grey g (the
+  Octane model's; Faithful sets it).
 - `hair=<k>,<s>`: every Hair material (147) at albedo × k and specular s.
 - `twosided-x1`: two-sided emitters at the one-sided power (the export
   doubles it, `TWO_SIDED_POWER`, assuming Octane splits it over both faces).
@@ -137,6 +139,9 @@ def halve_double_sided(ocs):
 def apply(ocs, hyp):
     if hyp == 'twosided-x1':
         return halve_double_sided(ocs)
+    if hyp.startswith('sunset='):
+        g = hyp.split('=')[1]
+        return re.sub(r"(<node id='100219' type='33'>\s*<attr name='value' type='8'>)[^<]*", lambda m: m.group(1) + f'{g} {g} {g}', ocs)
     if hyp.startswith('hair='):
         k, s = (float(x) for x in hyp[5:].split(','))
         for mat in re.findall(r"<node id='\d+' type='147' name='([^']*)'", ocs):
