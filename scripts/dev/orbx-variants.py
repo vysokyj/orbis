@@ -37,6 +37,10 @@ Hypotheses (by the Iray channels the variants stand for):
 - `dl-ior`: the same for PBRSkin's Dual Lobe Specular Reflectivity.
 - `sunset=<g>`: the Daylight environment's sunset colour grey g (the
   Octane model's; Faithful sets it).
+- `set=<material>.<pin>=<f|c|p><value>[+…]`: any Universal pin of the
+  material named /Scene/Materials/<material>… — `f` a float, `c` a grey
+  colour, `p` the texture on that pin at power × value (e.g.
+  `set=Genesis_8_Female_Cornea.coating=c0+Genesis_8_Female_Cornea.roughness=f0.07`).
 - `hair=<k>,<s>`: every Hair material (147) at albedo × k and specular s.
 - `twosided-x1`: two-sided emitters at the one-sided power (the export
   doubles it, `TWO_SIDED_POWER`, assuming Octane splits it over both faces).
@@ -89,10 +93,16 @@ def set_pin(ocs, material, pin, node_xml):
             end = start + t.end()
             break
     block = ocs[start:end]
-    pin_re = re.compile(rf"(<pin name='{pin}'>\s*)<node\b.*?</node>(\s*</pin>)", re.S)
-    if pin_re.search(block):
-        # Only the pin's own node (no nested nodes inside the value nodes we set).
-        block = pin_re.sub(lambda mm: mm.group(1) + node_xml + mm.group(2), block, count=1)
+    pm = re.search(rf"<pin name='{pin}'>\s*", block)
+    if pm:
+        # The pin's node up to its matching </node> (a texture nests nodes).
+        a, depth = pm.end(), 0
+        for t in re.finditer(r"<node\b|</node>", block[a:]):
+            depth += 1 if t.group() == '<node' else -1
+            if depth == 0:
+                b = a + t.end()
+                break
+        block = block[:a] + node_xml + block[b:]
     else:
         at = block.index('\n', block.index("compatibilityVersion")) + 1
         block = block[:at] + f"       <pin name='{pin}'>\n        {node_xml}\n       </pin>\n" + block[at:]
@@ -139,6 +149,22 @@ def halve_double_sided(ocs):
 def apply(ocs, hyp):
     if hyp == 'twosided-x1':
         return halve_double_sided(ocs)
+    if hyp.startswith('set='):
+        for item in hyp[4:].split('+'):
+            target, value = item.split('=', 1)
+            mat, pin = target.rsplit('.', 1)
+            kind, v = value[0], value[1:]
+            if kind == 'f':
+                ocs = set_pin(ocs, mat, pin, value_node(31, 6, v))
+            elif kind == 'c':
+                ocs = set_pin(ocs, mat, pin, value_node(33, 8, f'{v} {v} {v}'))
+            elif kind == 'p':
+                m = re.search(rf"name='/Scene/Materials/{re.escape(mat)}[^']*'", ocs)
+                at = ocs.index(f"<pin name='{pin}'>", m.end())
+                pw = re.compile(r"(<pin name='power'>\s*<node[^>]*>\s*<attr name='value' type='6'>)([0-9.eE+-]+)")
+                pm = pw.search(ocs, at)
+                ocs = ocs[:pm.start()] + pm.group(1) + f'{float(pm.group(2)) * float(v):.6g}' + ocs[pm.end():]
+        return ocs
     if hyp.startswith('sunset='):
         g = hyp.split('=')[1]
         return re.sub(r"(<node id='100219' type='33'>\s*<attr name='value' type='8'>)[^<]*", lambda m: m.group(1) + f'{g} {g} {g}', ocs)

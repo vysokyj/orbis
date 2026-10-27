@@ -29,35 +29,53 @@ if [ -n "$scene" ]; then
 fi
 cp "$probe" "$scripts/ORBIS probe.lua"
 rm -f "$docs/orbis_probe.done"
-pgrep -q -f "$bin" || open -a "Octane X"
-menu() {
-    osascript -e "tell application \"System Events\" to tell process \"Octane X\" to $1" 2>/dev/null
-}
-# Behind a locked screen it stayed in the simple mode for 5+ minutes
-# (2026-10-26): give up after 2.
-waited=0
-until menu 'get name of every menu item of menu 1 of menu bar item "Script" of menu bar 1' | grep -q "ORBIS probe"; do
+# Octane X now and then crashes on its own (a timer at start-up,
+# 2026-10-27): launch it again, at most twice, when it is gone before the
+# probe is done.
+attempt() {
+    pgrep -q -f "$bin" || open -a "Octane X"
+    menu() {
+        osascript -e "tell application \"System Events\" to tell process \"Octane X\" to $1" 2>/dev/null
+    }
+    # Behind a locked screen it stayed in the simple mode for 5+ minutes
+    # (2026-10-26): give up after 2.
+    waited=0
+    until menu 'get name of every menu item of menu 1 of menu bar item "Script" of menu bar 1' | grep -q "ORBIS probe"; do
+        sleep 2
+        waited=$((waited + 2))
+        [ $waited -lt 10 ] || pgrep -q -f "$bin" || { echo "Octane X quit while starting" >&2; return 2; }
+        if [ $waited -ge 120 ]; then
+            echo "no Script menu after 2 minutes (a locked screen keeps Octane X in its simple mode)" >&2
+            pkill -f "$bin" || true
+            return 1
+        fi
+    done
+    # It switches modes within a second of the menu first showing: let it
+    # settle, then click, and again if the probe hasn't started its log within 30 s.
     sleep 2
-    waited=$((waited + 2))
-    if [ $waited -ge 120 ]; then
-        echo "no Script menu after 2 minutes (a locked screen keeps Octane X in its simple mode)" >&2
-        pkill -f "$bin" || true
-        exit 1
-    fi
+    started() { [ -n "$(find "$docs" -maxdepth 1 -name 'orbis_probe*.txt' -newer "$scripts/ORBIS probe.lua" 2>/dev/null)" ]; }
+    tries=0
+    until started; do
+        menu 'click menu item "ORBIS probe" of menu 1 of menu bar item "Script" of menu bar 1' >/dev/null || true
+        i=0
+        while ! started && [ $i -lt 15 ]; do sleep 2; i=$((i + 1)); done
+        tries=$((tries + 1))
+        [ $tries -lt 3 ] || { echo "the probe didn't start" >&2; return 1; }
+    done
+    until [ -f "$docs/orbis_probe.done" ]; do
+        sleep 2
+        pgrep -q -f "$bin" || { echo "Octane X quit before the probe was done" >&2; return 2; }
+    done
+}
+runs=0
+while :; do
+    status=0
+    attempt || status=$?
+    [ $status -eq 2 ] && [ $runs -lt 2 ] || break
+    runs=$((runs + 1))
+    rm -f "$docs"/orbis_probe*.txt
 done
-# It switches modes within a second of the menu first showing: let it
-# settle, then click, and again if the probe hasn't started its log within 30 s.
-sleep 2
-started() { [ -n "$(find "$docs" -maxdepth 1 -name 'orbis_probe*.txt' -newer "$scripts/ORBIS probe.lua" 2>/dev/null)" ]; }
-tries=0
-until started; do
-    menu 'click menu item "ORBIS probe" of menu 1 of menu bar item "Script" of menu bar 1' >/dev/null || true
-    i=0
-    while ! started && [ $i -lt 15 ]; do sleep 2; i=$((i + 1)); done
-    tries=$((tries + 1))
-    [ $tries -lt 3 ] || { echo "the probe didn't start" >&2; exit 1; }
-done
-until [ -f "$docs/orbis_probe.done" ]; do sleep 2; done
+[ $status -eq 0 ] || exit $status
 osascript -e 'tell application "Octane X" to quit' >/dev/null 2>&1 || true
 i=0
 while pgrep -q -f "$bin" && [ $i -lt 15 ]; do sleep 2; i=$((i + 1)); done

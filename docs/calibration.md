@@ -105,6 +105,9 @@ user's own scenes.
   whole CPU; the scripts refuse.
 - **Octane X needs an unlocked screen**: behind a lock it never leaves its
   simple mode and has no Script menu. Keep the Mac awake (`caffeinate`).
+- Octane X now and then crashes on its own at start-up: `octane-run.sh`
+  launches it again (twice at most) when it is gone before the probe is
+  done.
 - Octane X is sandboxed: probes and renders read and write its container's
   Documents; `octane-run.sh` links the scene there.
 - A DAZ render can take hours at full quality — cap it (`daz-render.sh
