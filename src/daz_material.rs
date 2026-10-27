@@ -74,8 +74,13 @@ impl Material {
         }
     }
 
+    /// A channel by its Iray Uber id — or the counterpart a custom (DAZ
+    /// brick) shader names it by, which wins when present: HFGG's terrain
+    /// keeps its tiled ground in "Diffuse Texture Map" (20 × 20 by "Map
+    /// Horizontal / Vertical Tiles") and only a small preview in `diffuse`,
+    /// which rendered the Gladiator's sandy path as a blurred stain.
     pub fn channel(&self, id: &str) -> Option<&Channel> {
-        self.channels.get(id)
+        CHANNEL_ALIASES.iter().filter(|(uber, _)| *uber == id).find_map(|(_, alias)| self.channels.get(*alias)).or_else(|| self.channels.get(id))
     }
 
     /// Whether a feature switch turns this channel off: PBRSkin gates each
@@ -106,6 +111,9 @@ impl Material {
         match &self.channel(id)?.value {
             Value::Number(n) => n.as_f64().map(|f| f as f32),
             Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
+            // A custom shader's colour-typed map strength (HFGG's "Roughness
+            // Map" [1, 1, 1]) read as a scalar: its mean.
+            Value::Array(a) if !a.is_empty() => Some(a.iter().filter_map(Value::as_f64).sum::<f64>() as f32 / a.len() as f32),
             _ => None,
         }
     }
@@ -191,6 +199,15 @@ pub fn colour_to_linear(c: f32) -> f32 {
     c.max(0.0).powf(2.2)
 }
 
+/// Iray Uber channel → the channel a custom shader keeps the same input in.
+const CHANNEL_ALIASES: &[(&str, &str)] = &[
+    ("diffuse", "Diffuse Texture Map"),
+    ("Horizontal Tiles", "Map Horizontal Tiles"),
+    ("Vertical Tiles", "Map Vertical Tiles"),
+    ("Bump Strength", "Bump Map"),
+    ("Glossy Roughness", "Roughness Map"),
+];
+
 /// `image_library` id → the image a channel uses: the file of a single-map
 /// entry, or `lie:<id>` for a layered stack (see `crate::layered_image`) that
 /// the exporter has to flatten.
@@ -231,6 +248,25 @@ pub fn layered_images(doc: &Value) -> HashMap<String, crate::layered_image::Laye
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn custom_shader_channels_stand_in_for_uber_ones() {
+        // A DAZ brick terrain shader: its tiled map wins over the preview
+        // in `diffuse`, its tiles and roughness map count as Uber's.
+        let def = json!({
+            "id": "Terrain",
+            "diffuse": {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/preview.png"}},
+            "extra": [{"type": "studio_material_channels", "channels": [
+                {"channel": {"id": "Diffuse Texture Map", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/sand.png"}},
+                {"channel": {"id": "Map Horizontal Tiles", "current_value": 20}},
+                {"channel": {"id": "Roughness Map", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/rough.png"}}
+            ]}],
+        });
+        let m = Material::from_dson(&def, &HashMap::new());
+        assert_eq!(m.image("diffuse"), Some("/Runtime/Textures/sand.png"));
+        assert_eq!(m.float("Horizontal Tiles"), Some(20.0));
+        assert_eq!((m.image("Glossy Roughness"), m.float("Glossy Roughness")), (Some("/Runtime/Textures/rough.png"), Some(1.0)));
+    }
 
     #[test]
     fn merges_definition_and_scene_overrides() {

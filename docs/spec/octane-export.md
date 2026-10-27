@@ -386,6 +386,13 @@ Every material input (20007) is filled — Octane doesn't convert
   water, green, thin, rough, half, glossy 0.95 – 1.09; the absorbing blue
   sphere's core 0.59 in blue (Octane's spectral upsampling of a deep
   colour absorbs more), its surface keeps reflections Iray drops.
+- **Custom (DAZ brick) shaders** name some inputs their own way; those
+  stand in for the Uber channel and win when present (`CHANNEL_ALIASES`):
+  `Diffuse Texture Map` → `diffuse`, `Map Horizontal / Vertical Tiles` →
+  the tiles, `Bump Map` → bump, `Roughness Map` → roughness (a colour-typed
+  strength read as its mean). HFGG's terrain keeps only a small untiled
+  preview in `diffuse`: the Gladiator's sandy path rendered as a blurred
+  stain where Iray showed sand and pebbles (its map tiled 20 × 20).
 - Iray UV tiling → each texture's transform (scale 1/N); textures **wrap**
   (UDIM tiles).
 - **Colour space**: colour maps sRGB, data maps (roughness, opacity,
