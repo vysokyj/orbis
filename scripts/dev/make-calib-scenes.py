@@ -300,6 +300,174 @@ d.setdefault('image_library', []).append({'id': 'calib-tiles.png', 'name': 'cali
                                           'map': [{'url': TILES, 'label': 'calib-tiles.png'}]})
 made.append((save(d, 'Calib-Mixing'), mixing_labels))
 
+# --- Feature spheres for the coverage issues (#22–#43): eight Uber spheres
+# each, one channel family varied, everything else plain (no translucency,
+# refraction, top coat, dual lobe); the base colour and gloss per scene.
+def uber_spheres(name, colour, plain, variants):
+    d = copy.deepcopy(base)
+    d_nodes = {n['id']: n for n in d['scene']['nodes']}
+    mlib = {m['id']: m for m in d['material_library']}
+    first = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[spheres[0]['id']])
+    base_extra = copy.deepcopy(mlib[first['url'].lstrip('#')]['extra'])
+    labels = []
+    for s0, (label, over) in zip(spheres, variants):
+        n = d_nodes[s0['id']]
+        n['label'] = label
+        lib = next(l for l in d['node_library'] if '#' + l['id'].replace('(', '%28').replace(')', '%29') == n['url'])
+        lib['label'] = label
+        labels.append(label)
+        m = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[n['id']])
+        m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': colour}}
+        lm = mlib[m['url'].lstrip('#')]
+        lm['extra'] = copy.deepcopy(base_extra)
+        lm.setdefault('diffuse', {'channel': {'id': 'diffuse', 'type': 'float_color'}})['channel']['current_value'] = colour
+        ch = next(e for e in lm['extra'] if e['type'] == 'studio_material_channels')['channels']
+        for k, v in {'Base Mixing': 0, 'Metallic Weight': 0.0, 'Dual Lobe Specular Weight': 0.0, 'Top Coat Weight': 0.0,
+                     'Translucency Weight': 0.0, 'Refraction Weight': 0.0, **plain, **over}.items():
+            set_channel(ch, k, v, TYPES.get(type(v), 'float'))
+    made.append((save(d, name), labels))
+
+
+GREY_SPHERE = [0.5, 0.5, 0.5]
+GLOSS = {'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.3}
+# Glossy anisotropy (#23)
+uber_spheres('Calib-Aniso', GREY_SPHERE, {**GLOSS, 'Glossy Roughness': 0.4}, [
+    ('A1 iso', {}),
+    ('A2 aniso 0.5', {'Glossy Anisotropy': 0.5}),
+    ('A3 aniso 1', {'Glossy Anisotropy': 1.0}),
+    ('A4 aniso 0.5 rot 0.25', {'Glossy Anisotropy': 0.5, 'Glossy Anisotropy Rotations': 0.25}),
+    ('A5 aniso 1 rot 0.25', {'Glossy Anisotropy': 1.0, 'Glossy Anisotropy Rotations': 0.25}),
+    ('A6 metal aniso 0.8', {'Metallic Weight': 1.0, 'Glossy Anisotropy': 0.8}),
+    ('A7 top coat aniso 1', {'Glossy Layered Weight': 0.0, 'Top Coat Weight': 1.0, 'Top Coat Roughness': 0.3, 'Top Coat Anisotropy': 1.0}),
+    ('A8 rough 0.1 aniso 1', {'Glossy Roughness': 0.1, 'Glossy Anisotropy': 1.0}),
+])
+# Top Coat layering modes (#25): 0 Reflectivity, 1 Weighted, 2 Fresnel, 3 Custom Curve
+TC = {'Top Coat Weight': 1.0, 'Top Coat Roughness': 0.1, 'Top Coat Glossiness': 0.9}
+uber_spheres('Calib-TopCoat', [0.45, 0.05, 0.04], TC, [
+    ('T1 refl 0.5', {'Top Coat Layering Mode': 0, 'Reflectivity': 0.5}),
+    ('T2 refl 1', {'Top Coat Layering Mode': 0, 'Reflectivity': 1.0}),
+    ('T3 weighted', {'Top Coat Layering Mode': 1}),
+    ('T4 weighted w0.4', {'Top Coat Layering Mode': 1, 'Top Coat Weight': 0.4}),
+    ('T5 fresnel 1.5', {'Top Coat Layering Mode': 2, 'Top Coat IOR': 1.5}),
+    ('T6 fresnel 2', {'Top Coat Layering Mode': 2, 'Top Coat IOR': 2.0}),
+    ('T7 curve', {'Top Coat Layering Mode': 3, 'Top Coat Curve Normal': 0.04, 'Top Coat Curve Grazing': 1.0, 'Top Coat Curve Exponent': 5.0}),
+    ('T8 curve flat', {'Top Coat Layering Mode': 3, 'Top Coat Curve Normal': 0.3, 'Top Coat Curve Grazing': 0.3, 'Top Coat Curve Exponent': 5.0}),
+])
+# Dual lobe details (#26)
+DL = {'Dual Lobe Specular Weight': 1.0, 'Dual Lobe Specular Reflectivity': 0.5, 'Specular Lobe 1 Roughness': 0.3}
+uber_spheres('Calib-DualLobe', [0.45, 0.05, 0.04], DL, [
+    ('D1 lobe 1 only', {'Dual Lobe Specular Ratio': 1.0}),
+    ('D2 ratio 0.5 r2 0.6', {'Dual Lobe Specular Ratio': 0.5, 'Specular Lobe 2 Roughness': 0.6}),
+    ('D3 ratio 0.15 r2 0.6', {'Dual Lobe Specular Ratio': 0.15, 'Specular Lobe 2 Roughness': 0.6}),
+    ('D4 ratio 0.5 r2 0.1', {'Dual Lobe Specular Ratio': 0.5, 'Specular Lobe 2 Roughness': 0.1}),
+    ('D5 lobe 2 only r 0.6', {'Dual Lobe Specular Ratio': 0.0, 'Specular Lobe 2 Roughness': 0.6}),
+    ('D6 refl 0.25', {'Dual Lobe Specular Reflectivity': 0.25, 'Dual Lobe Specular Ratio': 0.5, 'Specular Lobe 2 Roughness': 0.6}),
+    ('D7 refl 1', {'Dual Lobe Specular Reflectivity': 1.0, 'Dual Lobe Specular Ratio': 0.5, 'Specular Lobe 2 Roughness': 0.6}),
+    ('D8 weight 0.5', {'Dual Lobe Specular Weight': 0.5, 'Dual Lobe Specular Ratio': 0.5, 'Specular Lobe 2 Roughness': 0.6}),
+])
+# Colour effects (#27): 0 Scatter Only, 1 Scatter & Transmit, 2 Scatter & Transmit Intensity
+TR = {'Translucency Weight': 0.5, 'Translucency Color': [0.9, 0.6, 0.4], 'Thin Walled': True}
+uber_spheres('Calib-ColorEffect', [0.3, 0.5, 0.8], TR, [
+    ('C1 base 0', {'Base Color Effect': 0}),
+    ('C2 base 1', {'Base Color Effect': 1}),
+    ('C3 base 2', {'Base Color Effect': 2}),
+    ('C4 glass glossy 0', {'Translucency Weight': 0.0, 'Refraction Weight': 1.0, 'Glossy Layered Weight': 1.0, 'Glossy Color': [0.9, 0.3, 0.2], 'Glossy Color Effect': 0}),
+    ('C5 glass glossy 1', {'Translucency Weight': 0.0, 'Refraction Weight': 1.0, 'Glossy Layered Weight': 1.0, 'Glossy Color': [0.9, 0.3, 0.2], 'Glossy Color Effect': 1}),
+    ('C6 coat 0', {'Top Coat Weight': 1.0, 'Top Coat Color': [0.9, 0.3, 0.2], 'Top Coat Color Effect': 0}),
+    ('C7 coat 1', {'Top Coat Weight': 1.0, 'Top Coat Color': [0.9, 0.3, 0.2], 'Top Coat Color Effect': 1}),
+    ('C8 mode1 specular', {'Translucency Weight': 0.0, 'Base Mixing': 1, 'Glossy Layered Weight': 1.0, 'Glossy Specular': [0.9, 0.3, 0.2], 'Glossiness': 0.8}),
+])
+# Backscattering (#29)
+uber_spheres('Calib-Backscatter', [0.45, 0.05, 0.04], {}, [
+    ('B1 none', {}),
+    ('B2 w0.25', {'Backscattering Weight': 0.25, 'Backscattering Roughness': 0.3}),
+    ('B3 w0.5', {'Backscattering Weight': 0.5, 'Backscattering Roughness': 0.3}),
+    ('B4 w1', {'Backscattering Weight': 1.0, 'Backscattering Roughness': 0.3}),
+    ('B5 w1 rough 0.7', {'Backscattering Weight': 1.0, 'Backscattering Roughness': 0.7}),
+    ('B6 w1 white', {'Backscattering Weight': 1.0, 'Backscattering Roughness': 0.3, 'Backscattering Color': [1.0, 1.0, 1.0]}),
+    ('B7 w1 blue', {'Backscattering Weight': 1.0, 'Backscattering Roughness': 0.3, 'Backscattering Color': [0.2, 0.4, 1.0]}),
+    ('B8 w1 aniso', {'Backscattering Weight': 1.0, 'Backscattering Roughness': 0.3, 'Backscattering Anisotropy': 0.8}),
+])
+# Metallic flakes (#30)
+FL = {'Metallic Flakes Weight': 1.0, 'Metallic Flakes Color': [1.0, 1.0, 1.0], 'Metallic Flakes Size': 0.001, 'Metallic Flakes Density': 1.0,
+      'Metallic Flakes Roughness': 0.2, 'Metallic Flakes Strength': 1.0, 'Top Coat Weight': 1.0, 'Top Coat Roughness': 0.05}
+uber_spheres('Calib-Flakes', [0.05, 0.1, 0.4], FL, [
+    ('F1 none', {'Metallic Flakes Weight': 0.0}),
+    ('F2 default', {}),
+    ('F3 size 0.005', {'Metallic Flakes Size': 0.005}),
+    ('F4 density 0.3', {'Metallic Flakes Density': 0.3}),
+    ('F5 rough 0.6', {'Metallic Flakes Roughness': 0.6}),
+    ('F6 gold', {'Metallic Flakes Color': [1.0, 0.75, 0.3]}),
+    ('F7 weight 0.5', {'Metallic Flakes Weight': 0.5}),
+    ('F8 strength 0.3', {'Metallic Flakes Strength': 0.3}),
+])
+# Thin film (#31)
+uber_spheres('Calib-ThinFilm', [0.05, 0.05, 0.05], {**GLOSS, 'Glossy Roughness': 0.1}, [
+    ('H1 none', {}),
+    ('H2 base 300', {'Base Thin Film': 300.0, 'Base Thin Film IOR': 1.5}),
+    ('H3 base 500', {'Base Thin Film': 500.0, 'Base Thin Film IOR': 1.5}),
+    ('H4 base 800', {'Base Thin Film': 800.0, 'Base Thin Film IOR': 1.5}),
+    ('H5 base 500 ior 1.3', {'Base Thin Film': 500.0, 'Base Thin Film IOR': 1.3}),
+    ('H6 coat 500', {'Top Coat Weight': 1.0, 'Top Coat Roughness': 0.05, 'Top Coat Thin Film': 500.0, 'Top Coat Thin Film IOR': 1.5}),
+    ('H7 metal 500', {'Metallic Weight': 1.0, 'Base Thin Film': 500.0, 'Base Thin Film IOR': 1.5}),
+    ('H8 base 1200', {'Base Thin Film': 1200.0, 'Base Thin Film IOR': 1.5}),
+])
+# Diffuse overlay, roughness, strength (#32)
+uber_spheres('Calib-Diffuse', [0.45, 0.05, 0.04], {}, [
+    ('O1 plain', {}),
+    ('O2 roughness 0.5', {'Diffuse Roughness': 0.5}),
+    ('O3 roughness 1', {'Diffuse Roughness': 1.0}),
+    ('O4 strength 0.5', {'Diffuse Strength': 0.5}),
+    ('O5 overlay 0.5 white', {'Diffuse Overlay Weight': 0.5, 'Diffuse Overlay Color': [1.0, 1.0, 1.0]}),
+    ('O6 overlay 1 blue', {'Diffuse Overlay Weight': 1.0, 'Diffuse Overlay Color': [0.1, 0.3, 0.9]}),
+    ('O7 overlay squared', {'Diffuse Overlay Weight': 0.5, 'Diffuse Overlay Weight Squared': True, 'Diffuse Overlay Color': [1.0, 1.0, 1.0]}),
+    ('O8 overlay rough 1', {'Diffuse Overlay Weight': 0.5, 'Diffuse Overlay Color': [1.0, 1.0, 1.0], 'Diffuse Overlay Roughness': 1.0}),
+])
+# Dispersion (#33)
+GL = {'Refraction Weight': 1.0, 'Refraction Index': 1.5, 'Thin Walled': False}
+uber_spheres('Calib-Dispersion', [0.6, 0.6, 0.6], GL, [
+    ('X1 abbe 0', {}),
+    ('X2 abbe 60', {'Abbe': 60.0}),
+    ('X3 abbe 40', {'Abbe': 40.0}),
+    ('X4 abbe 20', {'Abbe': 20.0}),
+    ('X5 abbe 10', {'Abbe': 10.0}),
+    ('X6 ior 1.8 abbe 20', {'Refraction Index': 1.8, 'Abbe': 20.0}),
+    ('X7 ior 2.4 abbe 30', {'Refraction Index': 2.4, 'Abbe': 30.0}),
+    ('X8 ior 1.33 abbe 55', {'Refraction Index': 1.33, 'Abbe': 55.0}),
+])
+
+# --- Camera headlamp (#22): Calib-Glossy has no light node, only its dome.
+# HeadlampMode (camera: 0 Auto, 1 On, 2 Off) × the render setting Auto
+# Headlamp (0, 1, 2 — labels unknown), with the dome and without (Scene
+# Only, the headlamp alone). Same exposure as Calib-Glossy throughout.
+glossy = load(os.path.join(out_dir, 'Calib-Glossy.duf'))
+def headlamp(mode, auto, scene_only):
+    d = copy.deepcopy(glossy)
+    cam = next(l for l in d['node_library'] if l.get('type') == 'camera')
+    for e in cam.get('extra', []):
+        for c in e.get('channels', []):
+            if c['channel']['id'] == 'HeadlampMode':
+                c['channel']['current_value'] = mode
+    def walk(v):
+        if isinstance(v, dict):
+            if v.get('id') == 'Auto Headlamp':
+                v['current_value'] = auto
+            for x in v.values():
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+    walk(d['scene'].get('extra', []))
+    if scene_only:
+        env = next(l for l in d['node_library'] if l['id'].startswith('Environment Options'))
+        set_channel(next(e for e in env['extra'] if e.get('channels') is not None)['channels'], 'Environment Mode', 3, 'enum')
+    return d
+for mode, mname in ((0, 'auto'), (1, 'on'), (2, 'off')):
+    for auto in (0, 1, 2):
+        for scene_only in (False, True):
+            name = f"Calib-Headlamp-{mname}-a{auto}{'-noenv' if scene_only else ''}"
+            made.append((save(headlamp(mode, auto, scene_only), name), []))
+
 # --- Leaf cards (Calib-Leaf, built headless by daz-build-leaf-scene.dsa):
 # its cards come with DAZ's default shader; give them an Iray Uber material
 # (a copy of the sphere's) and the variants. Done once, on the built scene.
