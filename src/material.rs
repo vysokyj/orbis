@@ -769,7 +769,12 @@ impl Ocs<'_> {
         // the head behind it nothing comes through, and the corners of the
         // eyes went dark (Calib-Hair, #20).
         let transmit = if metal || refractive || (thin && !mat.prop) || mat.float("Base Mixing").unwrap_or(0.0) as i32 == 2 { 0.0 } else { translucency.min(self.max_transmission) };
-        let diffuse_weight = (1.0 - refraction) * (1.0 - transmit);
+        // The Genesis EyeSocket still reflects less of its diffuse: Iray
+        // keeps (1 − w) × 0.41 of it at any translucency w (the caruncle:
+        // 0.287 at w 0.3, 0.143 at 0.65; Calib-Eye, #20) — at the full
+        // diffuse it rendered 4.6 × Iray. Measured on the socket only.
+        let thin_skin = thin && !mat.prop && !metal && !refractive && translucency > 0.0 && is_eye_socket(name);
+        let diffuse_weight = (1.0 - refraction) * (1.0 - transmit) * if thin_skin { (1.0 - translucency) * THIN_SKIN_DIFFUSE } else { 1.0 };
 
         // Iray "Base Mixing" 1 (specular/glossiness) ignores Metallic Weight;
         // a black base under a strong white gloss there is a mirror —
@@ -994,8 +999,17 @@ fn is_eye(name: &str) -> bool {
     ["iris", "irises", "pupil", "sclera"].iter().any(|e| n.ends_with(e) || n.ends_with(&format!("{e}s")) || n.contains(&format!("_{e}")))
 }
 
+/// A figure's eye socket by its material name (Genesis 3 / 8 / 9: EyeSocket).
+fn is_eye_socket(name: &str) -> bool {
+    name.to_ascii_lowercase().ends_with("eyesocket")
+}
+
 /// See the roughness in `universal`.
 const REFRACTION_ROUGHNESS_SCALE: f32 = 0.3;
+
+/// The diffuse that a figure's thin-walled translucent skin (the EyeSocket)
+/// reflects in Iray beyond its 1 − Translucency Weight. See `universal`.
+const THIN_SKIN_DIFFUSE: f32 = 0.41;
 
 /// Universal's `coatingIor` for Iray's Top Coat. Layering Mode 0
 /// (Reflectivity, the most common: the cornea, 2128 materials in My
@@ -1512,8 +1526,13 @@ mod tests {
             {"channel": {"id": "Translucency Weight", "current_value": 0.3}},
             {"channel": {"id": "Thin Walled", "current_value": true}},
         ]));
-        let (tx, _) = material_inputs(&[("Shirt".into(), shirt, 1.0)], &dirs, HashMap::new(), 8700, SkinShader::StandardSurface);
+        let (tx, _) = material_inputs(&[("Shirt".into(), shirt.clone(), 1.0)], &dirs, HashMap::new(), 8700, SkinShader::StandardSurface);
         assert!(tx.contains("type='130'"), "thin-walled fabric stays Universal");
+        // The same as a figure's eye socket reflects (1 − 0.3) × 0.41 of its
+        // diffuse map; the shirt all of it.
+        let (ex, _) = material_inputs(&[("Genesis_8_Female_EyeSocket".into(), shirt, 1.0)], &dirs, HashMap::new(), 8720, SkinShader::StandardSurface);
+        let power = |x: &str| x[x.find("<pin name='albedo'>").unwrap()..].split("<pin name='power'>").nth(1).unwrap().split("</attr>").next().unwrap().rsplit('>').next().unwrap().to_string();
+        assert_eq!((power(&tx), power(&ex)), ("1".to_string(), "0.287".to_string()), "{ex}");
         let cloak = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}},
             {"channel": {"id": "Translucency Weight", "current_value": 0.5}},

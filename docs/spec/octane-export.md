@@ -410,8 +410,13 @@ Every material input (20007) is filled — Octane doesn't convert
   w 0.5 / 1 rendered 1.6 – 1.7 / 3.2 × Iray and Calib-PBRSkin's Gladio cloth
   1.72; with it 0.91 – 0.96 and 1.23 (its neighbours 1.14 – 1.26), the two
   types alike on closed spheres. On P8 (metallic 0.75) the transmission
-  swallowed the metal (0.23 × Iray). Nor on a figure's thin-walled skin
-  (the Genesis EyeSocket: the head behind it, nothing comes through). An **open sheet** that isn't
+  swallowed the metal (0.23 × Iray). Nor on a figure's thin-walled
+  surfaces (the Genesis EyeSocket: the head behind it, nothing comes
+  through; clothing alike, unmeasured — #45). The **EyeSocket** keeps
+  `albedo` × (1 − w) × 0.41 (`THIN_SKIN_DIFFUSE`): Iray reflects that share
+  of its diffuse at any w — the caruncle at w 0.3 / 0.65 0.287 / 0.143 of
+  its w 0 render — and at the full diffuse it rendered 4.6 × Iray; now
+  0.94 (Calib-Eye, #20). An **open sheet** that isn't
   thin-walled (a material whose faces have an edge no other face of the mesh
   shares: cards, leaves, a cloak) passes Tc × min(2w, 1): Iray lit
   Calib-Leaf's backlit card 1.9 × its thin-walled twin, Octane rendered them
