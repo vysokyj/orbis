@@ -549,6 +549,8 @@ fn octane_modes_set_kernel_and_imager() {
         for ph in ["@KERNEL@", "@EXPOSURE@", "@HIGHLIGHT_COMPRESSION@", "@WHITE_BALANCE@", "@SATURATION@", "@DENOISER@"] {
             assert!(!ocs.contains(ph), "{ph} left");
         }
+        // Every render target's kernel: 1 µm, below the eye's 0.05 mm tear film gap.
+        assert_eq!(ocs.matches("<attr name='value' type='9'>1e-06 0 0 0</attr>").count(), 2, "ray epsilon");
         let mut ids: Vec<_> = ocs.split(" id='").skip(1).map(|s| s.split('\'').next().unwrap()).collect();
         let n = ids.len();
         ids.sort();

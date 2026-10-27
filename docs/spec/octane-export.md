@@ -238,6 +238,7 @@ Group pins carry `dynamicType='12'`.
 | | Preview | Final (default) |
 |---|---|---|
 | kernel | direct lighting (24), GI diffuse, depth 2 | path tracing (25): diffuse 8, glossy 24, **scatter 128**, **GI clamp 20** |
+| ray epsilon | **1 µm** (`rayepsilon` 1e-6) | same |
 | skin | Universal | Standard Surface + random-walk SSS |
 | imager exposure | 1 × 2^(13 − EV) × cm² | **1.4** × 2^(13 − EV) × cm² |
 | imager response | **Gamma 2.2** (403) | same |
@@ -247,6 +248,14 @@ Group pins carry `dynamicType='12'`.
 
 Why path tracing for final: direct lighting renders random-walk SSS grey and
 isn't photorealistic; Cycles (the Blender reference) path-traces too.
+
+**Ray epsilon 1 µm** (Calib-Eye, #20): refined, a Genesis 8 EyeMoisture lies
+0.05–0.19 mm in front of the sclera. At Octane's default 0.1 mm, rays leaving
+the tear film skipped the sclera wherever the gap was smaller (median 0.08 mm
+in the black patches, 0.11 mm in the lit parts): the whites rendered almost
+black outside the cornea, 0.3 × Iray. At 1e-5 a hairline stayed at the inner
+corner; at 1e-6 the sclera is 1.00–1.02 × Iray, and Calib-NVIDIA's ground
+plane shows no self-shadowing.
 
 **Imager calibration** (Octane2 vs Iray, 2026-10-21): a sweep of exposure
 0.7–2 × highlight compression × ACES, compared on the HDRI background:

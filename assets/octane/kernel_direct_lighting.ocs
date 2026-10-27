@@ -33,7 +33,7 @@
        </pin>
        <pin name='rayepsilon'>
         <node id='100067' type='6'>
-         <attr name='value' type='9'>9.9999997e-05 0 0 0</attr>
+         <attr name='value' type='9'>1e-06 0 0 0</attr>
         </node>
        </pin>
        <pin name='filtersize'>

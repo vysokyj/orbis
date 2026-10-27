@@ -31,6 +31,11 @@
          <attr name='value' type='1'>1</attr>
         </node>
        </pin>
+       <pin name='rayepsilon'>
+        <node id='100068' type='6'>
+         <attr name='value' type='9'>1e-06 0 0 0</attr>
+        </node>
+       </pin>
        <pin name='nestedDielectrics'>
         <node id='100067' type='11'>
          <attr name='value' type='1'>1</attr>
