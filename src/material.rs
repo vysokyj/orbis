@@ -166,6 +166,100 @@ impl Textures {
     }
 }
 
+impl Textures {
+    /// An image derived from a map's luminance: each texel's luminance `l`
+    /// (decoded at gamma 2.2) → `f(l)` (linear RGB), written as a PNG
+    /// encoded at `gamma` — MDL's `file_texture` offsets and scales baked in.
+    fn derived(&mut self, dirs: &[PathBuf], src: &str, key: &str, gamma: f32, f: impl Fn(f32) -> [f32; 3]) -> Option<String> {
+        if let Some(a) = self.by_source.get(key) {
+            return Some(a.clone());
+        }
+        let rel = src.trim_start_matches('/');
+        let Some(file) = dirs.iter().map(|d| d.join(rel)).find(|p| p.is_file()) else {
+            if !self.missing.iter().any(|m| m == src) {
+                self.missing.push(src.to_string());
+            }
+            return None;
+        };
+        let img = image::open(&file).ok()?.to_rgb8();
+        let decode = |c: u8| crate::daz_material::colour_to_linear(f32::from(c) / 255.0);
+        let out = image::RgbImage::from_fn(img.width(), img.height(), |x, y| {
+            let p = img.get_pixel(x, y).0;
+            let l = 0.2126 * decode(p[0]) + 0.7152 * decode(p[1]) + 0.0722 * decode(p[2]);
+            image::Rgb(f(l).map(|v| (v.clamp(0.0, 1.0).powf(1.0 / gamma) * 255.0 + 0.5) as u8))
+        });
+        let mut png = Vec::new();
+        out.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+        let base = Path::new(rel).file_stem().and_then(|n| n.to_str()).unwrap_or("map");
+        let safe: String = base.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect();
+        let asset = format!("assets/tex/{:04}_{safe}_derived.png", self.files.len() + self.generated.len());
+        self.generated.push((asset.clone(), png));
+        self.by_source.insert(key.to_string(), asset.clone());
+        Some(asset)
+    }
+}
+
+/// NVIDIA's textured MDL metals (`nvidia::metal_examples`, DAZ's "NVIDIA MDL
+/// Examples" shaders): a glossy metal layer over black whose weight and
+/// roughness come from grey maps as offset + scale · luminance
+/// (`metal_textured`, `metal_textured_anisotropic_uv`).
+struct MdlMetal {
+    /// Linear, as MDL writes it.
+    colour: [f32; 3],
+    /// (map, offset, scale) of the reflection weight.
+    weight: (String, f32, f32),
+    /// (map, offset, scale) of the roughness along u, and along v.
+    rough_u: (String, f32, f32),
+    rough_v: (String, f32, f32),
+    /// Bump map and amount.
+    bump: (String, f32),
+    tiles: [f32; 2],
+}
+
+/// The MDL metal a brick shader renders with, its parameters from the
+/// shader's channels and the MDL defaults (`nvidia/metal_examples.mdl`).
+fn mdl_metal(mat: &Material) -> Option<MdlMetal> {
+    // A texture channel the shader leaves out takes the MDL default; one it
+    // sets empty is no texture — Iray then reads 0 (the Metal Brushed
+    // preset, its brush textures empty, renders black). Scenes keep the
+    // maps as "/resources/…" under DAZ's shader directory.
+    let map = |ch: &str, default: &str| match mat.channel(ch) {
+        Some(c) => c.image.clone().unwrap_or_default(),
+        None => format!("resources/{default}"),
+    };
+    let tiles = [mat.float("Horizontal Tiles"), mat.float("Vertical Tiles")];
+    if mat.uses_mdl("nvidia::metal_examples::metal_brushed") {
+        let brushing = mat.float("brushing_strength").unwrap_or(0.5);
+        let stretch = mat.float("reflection_stretch").unwrap_or(0.75);
+        return Some(MdlMetal {
+            colour: [0.65; 3],
+            weight: (map("brush_texture", "brushed_full_contrast.jpg"), 0.5, 0.5),
+            rough_u: (map("roughness_texture_u", "brushed_full_contrast.jpg"), 0.02, brushing * 0.8),
+            rough_v: (map("roughness_texture_v", "brushed_full_contrast.jpg"), stretch * 0.4 + 0.05, stretch * 0.3 + 0.1),
+            bump: (bump_map(mat, "brushed_a.jpg"), mat.float("Bump Strength").unwrap_or(0.4)),
+            tiles: tiles.map(|t| t.unwrap_or(3.0)),
+        });
+    }
+    if mat.uses_mdl("nvidia::metal_examples::cast_iron") {
+        let rough = (map("roughness_texture", "grunge_d.jpg"), 0.06, 0.4);
+        return Some(MdlMetal {
+            colour: [0.543, 0.53, 0.53],
+            weight: ("resources/grunge_b.jpg".into(), 0.5, 3.0),
+            rough_u: rough.clone(),
+            rough_v: rough,
+            bump: (bump_map(mat, "grunge_d.jpg"), mat.float("Bump Strength").unwrap_or(1.5)),
+            tiles: tiles.map(|t| t.unwrap_or(1.0)),
+        });
+    }
+    None
+}
+
+/// The MDL metal's bump map: DAZ hangs it on "Bump Strength" (the
+/// amount), else `bump_texture`, else the MDL default.
+fn bump_map(mat: &Material, default: &str) -> String {
+    mat.image("Bump Strength").or(mat.image("bump_texture")).map(str::to_string).unwrap_or_else(|| format!("resources/{default}"))
+}
+
 /// Builds node XML with unique ids.
 struct Ocs<'a> {
     out: String,
@@ -177,6 +271,8 @@ struct Ocs<'a> {
     tiling: Option<[f32; 4]>,
     /// Writing the diffuse part of Iray's weighted mixing (`weighted_mix_material`).
     in_mix: bool,
+    /// Iray's look over Octane's where they differ (`Shading`).
+    faithful: bool,
 }
 
 fn esc(s: &str) -> String {
@@ -288,6 +384,46 @@ impl Ocs<'_> {
         self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
         self.in_mix = false;
         self.pin_close(i);
+        let _ = writeln!(self.out, "{:indent$}</node>", "");
+    }
+
+    /// An NVIDIA MDL metal (`mdl_metal`) as a Universal metal: albedo =
+    /// colour × weight map, roughness = √(u · v) per texel, anisotropy from
+    /// the two at a mid-grey texel, the bump map — all at the shader's tiles.
+    fn mdl_metal(&mut self, indent: usize, name: &str, m: &MdlMetal) {
+        self.tiling = (m.tiles != [1.0, 1.0]).then_some([m.tiles[0], m.tiles[1], 0.0, 0.0]);
+        let id = self.id();
+        let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='130' name='{}'>", "", esc(name));
+        let i = indent + 1;
+        let _ = writeln!(self.out, "{:i$}<attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
+        let (wmap, woff, wscale) = &m.weight;
+        let colour = m.colour;
+        let key = format!("mdl-metal-albedo|{wmap}|{woff}|{wscale}|{colour:?}");
+        let derived = if wmap.is_empty() { None } else { self.textures.derived(self.dirs, wmap, &key, 2.2, |l| colour.map(|c| c * (woff + wscale * l).clamp(0.0, 1.0))) };
+        match derived {
+            Some(asset) => self.image_pin(i, "albedo", &asset, false, 2.2, 1.0),
+            // No texture: Iray's lookup reads 0 and the metal comes out black.
+            None => self.rgb_pin(i, "albedo", [0.0; 3]),
+        }
+        self.float_pin(i, "metallic", 1.0);
+        let ((umap, uoff, uscale), (_, voff, vscale)) = (&m.rough_u, &m.rough_v);
+        let rough = |l: f32| ((uoff + uscale * l).max(0.0) * (voff + vscale * l).max(0.0)).sqrt();
+        let key = format!("mdl-metal-rough|{umap}|{uoff}|{uscale}|{voff}|{vscale}");
+        let derived = if umap.is_empty() { None } else { self.textures.derived(self.dirs, umap, &key, 1.0, |l| [rough(l); 3]) };
+        match derived {
+            Some(asset) => self.image_pin(i, "roughness", &asset, true, 1.0, 1.0),
+            None => self.float_pin(i, "roughness", rough(0.5)),
+        }
+        let (ru, rv) = (uoff + uscale * 0.5, voff + vscale * 0.5);
+        if (ru - rv).abs() > 1e-3 {
+            self.float_pin(i, "anisotropyTexture", ((rv - ru) / (rv + ru)).clamp(-1.0, 1.0));
+        }
+        let (bmap, amount) = &m.bump;
+        if *amount > 0.0 {
+            if let Some(asset) = self.textures.asset(self.dirs, bmap) {
+                self.image_pin(i, "bump", &asset, true, 1.0, *amount);
+            }
+        }
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
@@ -578,6 +714,9 @@ impl Ocs<'_> {
         if mat.channel("Hair Root Color").is_some() {
             return self.hair(indent, name, mat);
         }
+        if let Some(metal) = mdl_metal(mat) {
+            return self.mdl_metal(indent, name, &metal);
+        }
         let tiles = [mat.float("Horizontal Tiles"), mat.float("Vertical Tiles")].map(|t| t.filter(|t| *t > 0.0).unwrap_or(1.0));
         let offsets = [mat.float("Horizontal Offset"), mat.float("Vertical Offset")].map(|o| o.unwrap_or(0.0));
         self.tiling = (tiles != [1.0, 1.0] || offsets != [0.0, 0.0]).then_some([tiles[0], tiles[1], offsets[0], offsets[1]]);
@@ -785,7 +924,10 @@ impl Ocs<'_> {
             let colour = mat.color(if own_refraction { "Refraction Color" } else { "Glossy Color" }).unwrap_or([1.0; 3]);
             self.rgb_pin(i, "transmission", colour.map(|c| c * refraction));
             let ior = mat.float("Refraction Index").unwrap_or(1.5);
-            self.float_pin(i, "ior", ior);
+            // Faithful: Iray's thin-walled refraction reflects nothing of
+            // its own — Calib-Glass's thin sphere was invisible; only a
+            // glossy layer shows. IOR 1 takes Octane's Fresnel reflection away.
+            self.float_pin(i, "ior", if thin && self.faithful { 1.0 } else { ior });
             if thin {
                 // Thin Wall (2): no bending — Iray's thin-walled glass sphere
                 // showed the background straight through (Calib-Glass).
@@ -961,7 +1103,7 @@ pub struct LightEmitter {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, faithful: false };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -1021,6 +1163,21 @@ const GROUND_SHADOW_OPACITY: f64 = 0.89;
 /// floor's height it z-fought and smeared shadows over it — Octane1).
 const GROUND_DROP: f64 = 0.001;
 
+/// How the materials translate: the skin shader, and whether to stay as
+/// close to Iray's look as the export can (`faithful`) or keep Octane's more
+/// plausible take where the two differ (see `crate::usd::Look`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Shading {
+    pub skin: SkinShader,
+    pub faithful: bool,
+}
+
+impl From<SkinShader> for Shading {
+    fn from(skin: SkinShader) -> Self {
+        Shading { skin, faithful: false }
+    }
+}
+
 /// How skin (Iray translucency) renders.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum SkinShader {
@@ -1072,7 +1229,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, first_id: 
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, faithful: false };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -1166,7 +1323,7 @@ pub fn environment_texture(
     textures: &mut Textures,
     first_id: u32,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, faithful: false };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -1204,10 +1361,11 @@ pub fn material_inputs(
     dirs: &[PathBuf],
     layered: HashMap<String, crate::layered_image::LayeredImage>,
     first_id: u32,
-    skin: SkinShader,
+    shading: impl Into<Shading>,
 ) -> (String, Textures) {
+    let Shading { skin, faithful } = shading.into();
     let mut textures = Textures { layered, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, faithful };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(

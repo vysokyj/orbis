@@ -426,12 +426,12 @@ fn iray_tone_mapping_drives_the_imager() {
     let cams = vec![("Camera".to_string(), framing_camera(&[]))];
     // Burn 0.25 is beyond Octane's imager: Iray's curve as a LUT, the
     // exposure lowered by its headroom, no highlight compression.
-    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Final, &tone, false, None);
+    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Final, &tone, false, None, true);
     assert!(ocs.contains("0.175000 0 0 0") && ocs.contains("1.200000 0 0 0"), "exposure 2.8 / 16, saturation");
     assert!(ocs.contains("type='103'") && ocs.contains(&format!("<attr name='filename' type='11'>{TONE_LUT_ASSET}</attr>")));
     assert!(ocs.contains("0.800000 0.900000 1.000000"));
     let plain = ToneMapping { burn_highlights: 1.0, ..tone.clone() };
-    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Final, &plain, false, None);
+    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Final, &plain, false, None, true);
     assert!(ocs.contains("2.800000 0 0 0") && !ocs.contains("type='103'") && !ocs.contains("@TONE_LUT@"));
     assert_eq!(scene_tone_mapping(&mut Library::new(vec![], json!({"scene": {"nodes": []}}))), ToneMapping::default());
     // Iray exposes by shutter, f-number and ISO; DAZ's EV is only shown.
@@ -489,7 +489,7 @@ fn iray_environment_becomes_an_hdri_texture_environment() {
 #[test]
 fn project_ocs_fills_every_placeholder() {
     let cam = vec![("Camera".to_string(), framing_camera(&[]))];
-    let ocs = project_ocs("Bob's <scene>", "scene.usdz", &cam, (1280, 720), "", OctaneMode::Preview, &ToneMapping::default(), false, None)
+    let ocs = project_ocs("Bob's <scene>", "scene.usdz", &cam, (1280, 720), "", OctaneMode::Preview, &ToneMapping::default(), false, None, true)
         .replace("@MATERIAL_INPUTS@", "")
         .replace("@SCENE_NODES@", "")
         .replace("@MESH_CONNECT@", "1439")
@@ -524,7 +524,7 @@ fn every_daz_camera_gets_its_own_render_target() {
     assert!((cams[0].1.pos[2] + 1.0).abs() < 0.01);
 
     let env = "        <node id='190001' type='33'>\n        </node>\n";
-    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), env, OctaneMode::Final, &ToneMapping::default(), false, None);
+    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), env, OctaneMode::Final, &ToneMapping::default(), false, None, true);
     assert!(ocs.contains("type='56' name='Shot – Close'") && ocs.contains("type='56' name='Shot – Wide'"));
     assert_eq!(ocs.matches("connect='@MESH_CONNECT@'").count(), 2, "both wired to the geometry");
     // Node ids stay unique across the copies.
@@ -539,11 +539,11 @@ fn every_daz_camera_gets_its_own_render_target() {
 #[test]
 fn octane_modes_set_kernel_and_imager() {
     let cams = vec![("A".to_string(), framing_camera(&[])), ("B".to_string(), framing_camera(&[]))];
-    let fin = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Final, &ToneMapping::default(), false, None);
+    let fin = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Final, &ToneMapping::default(), false, None, true);
     assert!(fin.contains("<node id='100060' type='25'>") && fin.contains("<node id='1100060' type='25'>"), "path tracing");
     assert_eq!(fin.matches("<pin name='maxScatterDepth'>").count(), 2);
     assert!(fin.contains("<attr name='value' type='9'>1.400000 0 0 0</attr>"), "Final exposure at EV 13");
-    let pre = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Preview, &ToneMapping::default(), false, None);
+    let pre = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", OctaneMode::Preview, &ToneMapping::default(), false, None, true);
     assert!(pre.contains("<node id='100060' type='24'>") && pre.contains("<node id='1100060' type='24'>"), "direct lighting");
     for ocs in [&fin, &pre] {
         for ph in ["@KERNEL@", "@EXPOSURE@", "@HIGHLIGHT_COMPRESSION@", "@WHITE_BALANCE@", "@SATURATION@", "@DENOISER@"] {
@@ -794,9 +794,9 @@ fn iray_light_flux_rules() {
 #[test]
 fn hidden_dome_gets_a_black_backplate() {
     let cams = vec![("Camera".to_string(), framing_camera(&[])), ("Other".to_string(), framing_camera(&[]))];
-    let shown = project_ocs("Shot", "scene.usdz", &cams, (640, 480), "", OctaneMode::Final, &ToneMapping::default(), false, None);
+    let shown = project_ocs("Shot", "scene.usdz", &cams, (640, 480), "", OctaneMode::Final, &ToneMapping::default(), false, None, true);
     assert!(!shown.contains("cameraEnvironment'") && !shown.contains("@VISIBLE_ENVIRONMENT@"));
-    let hidden = project_ocs("Shot", "scene.usdz", &cams, (640, 480), "", OctaneMode::Final, &ToneMapping::default(), true, None);
+    let hidden = project_ocs("Shot", "scene.usdz", &cams, (640, 480), "", OctaneMode::Final, &ToneMapping::default(), true, None, true);
     // One per render target, each with its own ids.
     assert_eq!(hidden.matches("<pin name='cameraEnvironment'>").count(), 2);
     assert!(hidden.contains("id='100195'") && hidden.contains("id='1100195'"));
@@ -862,9 +862,9 @@ fn iray_sun_sky_becomes_octane_daylight() {
     let noon = sun_direction(23.44, 0.0, 2_460_483.0, 43_200.0, 0.0);
     assert!(noon[1] > 0.99, "{noon:?}");
 
-    let sky = SunSky { sun_dir: d, turbidity: 2.0, power: 1.0, sun_intensity: 1.0, sun_size: 1.0, ground: [0.13; 3] };
+    let sky = SunSky { sun_dir: d, turbidity: 2.0, power: 1.0, sun_intensity: 1.0, sun_size: 1.0, ground: [0.13; 3], model: 3 };
     let cam = [("Camera".to_string(), framing_camera(&[]))];
-    let ocs = project_ocs("Sun", "scene.usdz", &cam, (640, 480), "", OctaneMode::Final, &ToneMapping::default(), false, Some(&sky));
+    let ocs = project_ocs("Sun", "scene.usdz", &cam, (640, 480), "", OctaneMode::Final, &ToneMapping::default(), false, Some(&sky), true);
     assert!(ocs.contains("<node id='100210' type='14'>") && ocs.contains("<pin name='sundir'>"), "daylight environment");
     assert!(!ocs.contains("<node id='100035' type='37'>"), "no texture environment on the render target");
 }
@@ -889,4 +889,30 @@ fn sun_sky_steered_by_a_node() {
     let mut lib = Library::new(vec![], duf);
     let sky = scene_environment(&mut lib).unwrap().sun_sky.unwrap();
     assert!((sky.sun_dir[1] - 1.0).abs() < 1e-9, "{:?}", sky.sun_dir);
+}
+
+#[test]
+fn camera_headlamp_when_iray_lights_with_it() {
+    // A camera at the origin looking down −Z with its headlamp on, 30 cm to
+    // the left and 20 cm up; then Auto with the render setting at 1 (no
+    // lights in the scene) and 0.
+    let scene = |mode: i64, auto: i64| {
+        json!({
+            "node_library": [{"id": "Camera", "type": "camera", "extra": [{"type": "studio_node_channels", "channels": [
+                {"channel": {"id": "HeadlampMode", "current_value": mode}},
+                {"channel": {"id": "XHeadlampOffset", "current_value": -30}},
+                {"channel": {"id": "YHeadlamp", "current_value": 20}}]}]}],
+            "scene": {"nodes": [{"id": "Camera-1", "url": "#Camera", "label": "Camera"}],
+                      "extra": [{"type": "studio_render_settings", "render_options": {"render_elements": [
+                          {"id": "General Render", "channels": [{"channel": {"id": "Auto Headlamp", "current_value": auto}}]}]}}]},
+        })
+    };
+    let cam = SceneCamera { pos: [0.0; 3], target: [0.0, 0.0, -1.0], up: [0.0, 1.0, 0.0], fov_deg: 40.0, focal_depth: 1.0, aperture_cm: 0.0 };
+    let h = headlamp(&mut Library::new(vec![], scene(1, 0)), "Camera", &cam, true).expect("on");
+    assert!((h.translation[0] + 0.3).abs() < 1e-6 && (h.translation[1] - 0.2).abs() < 1e-6, "{:?}", h.translation);
+    assert_eq!(h.lumens, HEADLAMP_LUMENS);
+    assert!(headlamp(&mut Library::new(vec![], scene(0, 1)), "Camera", &cam, false).is_some(), "auto, no lights");
+    assert!(headlamp(&mut Library::new(vec![], scene(0, 1)), "Camera", &cam, true).is_none(), "auto 1 with lights");
+    assert!(headlamp(&mut Library::new(vec![], scene(0, 0)), "Camera", &cam, false).is_none(), "auto 0");
+    assert!(headlamp(&mut Library::new(vec![], scene(2, 2)), "Camera", &cam, false).is_none(), "off");
 }

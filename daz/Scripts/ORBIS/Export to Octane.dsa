@@ -64,7 +64,8 @@
         outputDir: oSettings.getStringValue("outputDir", sDefaultOutputDir),
         preview: oSettings.getBoolValue("preview", false),
         ground: oSettings.getBoolValue("ground", true),
-        skinOpenPbr: oSettings.getBoolValue("skinOpenPbr", false)
+        faithful: oSettings.getBoolValue("faithful", false),
+        denoise: oSettings.getBoolValue("denoise", true)
     };
     if (!optionsDialog(oOptions)) {
         return;
@@ -73,7 +74,8 @@
     oSettings.setStringValue("outputDir", oOptions.outputDir);
     oSettings.setBoolValue("preview", oOptions.preview);
     oSettings.setBoolValue("ground", oOptions.ground);
-    oSettings.setBoolValue("skinOpenPbr", oOptions.skinOpenPbr);
+    oSettings.setBoolValue("faithful", oOptions.faithful);
+    oSettings.setBoolValue("denoise", oOptions.denoise);
 
     // ── The scene ─────────────────────────────────────────────────────────
     // The export reads the saved .duf (materials, cameras, lights), so save
@@ -113,7 +115,9 @@
     var aArgs = [sBin, "export", sScene, "--dump", sDump, "--out-dir", sOutDir];
     if (oOptions.preview) aArgs.push("--preview");
     if (!oOptions.ground) aArgs.push("--no-ground");
-    if (oOptions.skinOpenPbr) aArgs.push("--skin-openpbr");
+    aArgs.push("--look");
+    aArgs.push(oOptions.faithful ? "faithful" : "enhanced");
+    if (!oOptions.denoise) aArgs.push("--no-denoise");
 
     aArgs.push("--progress");
 
@@ -234,10 +238,26 @@
         wGround.text = "Shadow-catching ground (when Iray draws one)";
         wGround.checked = oOpt.ground;
         wDlg.addWidget(wGround);
-        var wOpenPbr = new DzCheckBox(wDlg);
-        wOpenPbr.text = "Skin as OpenPBR (grittier; off = closest to Iray)";
-        wOpenPbr.checked = oOpt.skinOpenPbr;
-        wDlg.addWidget(wOpenPbr);
+        var wDenoise = new DzCheckBox(wDlg);
+        wDenoise.text = "Denoise (Octane's AI denoiser)";
+        wDenoise.checked = oOpt.denoise;
+        wDlg.addWidget(wDenoise);
+
+        wDlg.addSpacing(8);
+        wDlg.addWidget(heading(wDlg, "Look"));
+        // Radio buttons sharing a parent are exclusive.
+        var wLook = new DzWidget(wDlg);
+        var lLook = new DzVBoxLayout(wLook);
+        lLook.margin = 0;
+        var wEnhanced = new DzRadioButton(wLook);
+        wEnhanced.text = "Enhanced: Octane's take where it is more natural (OpenPBR skin, warm low sun)";
+        lLook.addWidget(wEnhanced);
+        var wFaithful = new DzRadioButton(wLook);
+        wFaithful.text = "Faithful: as close to Iray as possible";
+        lLook.addWidget(wFaithful);
+        wDlg.addWidget(wLook);
+        wEnhanced.checked = !oOpt.faithful;
+        wFaithful.checked = oOpt.faithful;
 
         centerOnMainWindow(wDlg);
         if (!wDlg.exec()) {
@@ -247,7 +267,8 @@
         oOpt.outputDir = wPath.text;
         oOpt.preview = wPreview.checked;
         oOpt.ground = wGround.checked;
-        oOpt.skinOpenPbr = wOpenPbr.checked;
+        oOpt.faithful = wFaithful.checked;
+        oOpt.denoise = wDenoise.checked;
         return true;
     }
 

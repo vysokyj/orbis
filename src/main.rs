@@ -22,6 +22,12 @@ struct Cli {
     command: Command,
 }
 
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum LookArg {
+    Faithful,
+    Enhanced,
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Export a saved scene (`.duf` and its scene dump) to `.orbx` or `.usdz`.
@@ -45,10 +51,14 @@ enum Command {
         /// Leave out the shadow-catching ground even when Iray draws one.
         #[arg(long)]
         no_ground: bool,
-        /// Skin as Octane's OpenPBR Surface (grittier) instead of Standard
-        /// Surface (closest to Iray).
+        /// Where Iray and Octane differ: `enhanced` keeps Octane's more
+        /// plausible take (OpenPBR skin, a warm low sun, glass reflections),
+        /// `faithful` stays as close to Iray's look as it can.
+        #[arg(long, value_enum, default_value_t = LookArg::Enhanced)]
+        look: LookArg,
+        /// Leave Octane's AI denoiser off.
         #[arg(long)]
-        skin_openpbr: bool,
+        no_denoise: bool,
         /// DAZ content directory, in DAZ Studio's order (repeatable). Default:
         /// the dump's, else read from DAZ Studio's preferences.
         #[arg(long = "content-dir")]
@@ -84,7 +94,7 @@ fn main() -> Result<()> {
             );
             Ok(())
         }
-        Command::Export { scene, dump, out, out_dir, preview, no_ground, skin_openpbr, content_dirs, progress } => {
+        Command::Export { scene, dump, out, out_dir, preview, no_ground, look, no_denoise, content_dirs, progress } => {
             if !scene.is_file() {
                 bail!("scene not found: {}", scene.display());
             }
@@ -109,7 +119,11 @@ fn main() -> Result<()> {
                 content_dirs,
                 octane_mode: if preview { OctaneMode::Preview } else { OctaneMode::Final },
                 no_ground,
-                skin_openpbr,
+                look: match look {
+                    LookArg::Faithful => usd::Look::Faithful,
+                    LookArg::Enhanced => usd::Look::Enhanced,
+                },
+                no_denoise,
                 progress: if progress {
                     usd::Progress::new(|percent, what| println!("progress: {percent} {what}"))
                 } else {

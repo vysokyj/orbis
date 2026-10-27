@@ -9,9 +9,9 @@ scene, painted by Octane.
 
 Octane X (OctaneRender for macOS) has no DAZ Studio plugin. ORBIS converts a
 saved DAZ Studio scene into an Octane package (`.orbx`) — geometry, Iray
-materials translated to Octane's, lights, the HDRI environment, every DAZ
-camera as its own render target and DAZ's tone mapping — and opens Octane X
-with it.
+materials translated to Octane's, lights, the environment, every DAZ camera
+as its own render target and DAZ's tone mapping — ready to open in
+Octane X.
 
 > **Status: experimental.** Not yet verified end to end in DAZ Studio
 > ([#1](https://github.com/vysokyj/orbis/issues/1)).
@@ -37,20 +37,49 @@ From a checkout: `scripts/install.sh` builds and installs.
 
 ## Use
 
-1. In DAZ Studio, run *Content Library → Scripts → ORBIS → Export to Octane* (after the
-   first run also *File → Export to Octane...*). Pick where the `.orbx` goes
-   (beside the scene or a folder, `~/Documents/ORBIS` by default) and the
-   options (final path tracing or fast preview, shadow-catching ground);
-   they are remembered. The script saves the scene first (asking for a
-   file if it has none) — the export reads the saved `.duf`.
+1. In DAZ Studio, run *Content Library → Scripts → ORBIS → Export to Octane*
+   (after the first run also *File → Export to Octane...*). The script saves
+   the scene first (asking for a file if it has none) — the export reads the
+   saved `.duf` — then asks for the options, remembered for next time:
+   - **Save the .orbx** beside the scene or in a folder
+     (`~/Documents/ORBIS` by default);
+   - **Fast preview** — Octane's direct-lighting kernel instead of the path
+     tracer; **Shadow-catching ground** when Iray draws one; **Denoise** —
+     Octane's AI denoiser on the final render;
+   - **Look** — *Enhanced* (default) keeps Octane's take where it is more
+     natural: OpenPBR skin, a warm low sun, glass reflections; *Faithful*
+     stays as close to Iray as it can
+     ([details](docs/spec/octane-export.md#look)).
 2. Open the `.orbx` in Octane X with *File → Open* (Octane X only opens
    files from its own panel) and select the render target named after the
    scene.
 
+## What it translates
+
+- **Geometry** — figures as posed and morphed, subdivided like DAZ renders
+  them, geografts and shells, strand hair (dForce), instances (UltraScatter
+  and the like).
+- **Materials** — Iray Uber (diffuse, gloss, metal, top coat, translucency,
+  refraction, absorption, emission, maps and tiling), PBRSkin, dForce hair,
+  skin with subsurface scattering, layered images, the NVIDIA metal shaders.
+- **Lights** — point, spot, distant, area (rect, disc, sphere), emissive
+  surfaces; photometric and legacy units.
+- **Environment** — HDRI dome (rotation, intensity, hidden dome), Iray
+  Sun-Sky as Octane daylight, the shadow-catching ground.
+- **Camera and image** — every DAZ camera as a render target, depth of
+  field, Iray's exposure and tone curve.
+
+Each rule is calibrated against Iray — see the
+[spec](docs/spec/octane-export.md). What's still missing is tracked in the
+[issues](https://github.com/vysokyj/orbis/issues)
+([overview](docs/spec/octane-export.md#open-work)).
+
 ## Command line
 
 ```sh
-orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz | --out-dir DIR] [--preview] [--no-ground] [--content-dir DIR]… [--progress]
+orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz | --out-dir DIR]
+             [--preview] [--no-ground] [--look enhanced|faithful] [--no-denoise]
+             [--content-dir DIR]… [--progress]
 orbis install [--library DIR]
 ```
 
@@ -69,9 +98,13 @@ scripts/install.sh             # build + install into your DAZ library
 
 ## Documentation
 
-- [docs/spec/octane-export.md](docs/spec/octane-export.md) — what the export does and why
-- [docs/octane/](docs/octane/) — Octane X, the ORBX container, USD
-- [docs/daz/](docs/daz/) — DAZ files, Iray, content layout
+- [docs/](docs/README.md) — map of all documents
+- [Export spec](docs/spec/octane-export.md) — what the export does with each
+  part of a scene, and why
+- [Calibration](docs/calibration.md) — how it is checked against Iray: test
+  scenes, references, scripts
+- Background: [Iray in DAZ Studio](docs/daz/iray.md),
+  [DAZ files](docs/daz/files.md), [Octane X](docs/octane/octane-x.md)
 
 ## License
 

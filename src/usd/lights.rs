@@ -39,6 +39,77 @@ pub struct SceneLight {
     pub two_sided: bool,
 }
 
+/// Flux of DAZ's camera headlamp at Headlamp Intensity 1: Iray lit
+/// Calib-Glossy (no dome) with it 1.65 – 1.80 × as bright as a 1 Mlm point
+/// light at the headlamp's place, evenly over the floor — a point light
+/// (#22).
+pub(super) const HEADLAMP_LUMENS: f64 = 1.7e6;
+
+/// The camera headlamp DAZ adds, as a point light, when Iray lights with it:
+/// HeadlampMode On, or Auto when the render setting "Auto Headlamp" asks
+/// for it (1: when the scene has no lights, 2: always — Calib-Headlamp-*:
+/// 0 never lit, 1 and 2 lit a scene without lights alike; Off never). At
+/// the camera, moved by X / Y / Z Headlamp Offset (cm, camera axes: right,
+/// up, back).
+pub(super) fn headlamp(lib: &mut Library, label: &str, cam: &SceneCamera, has_lights: bool) -> Option<SceneLight> {
+    let nodes = lib.duf.pointer("/scene/nodes").and_then(Value::as_array).cloned().unwrap_or_default();
+    let (node, def) = nodes.iter().find_map(|n| {
+        let def = n.get("url").and_then(Value::as_str).and_then(|u| lib.entry(u, "node_library"))?;
+        let name = n.get("label").or_else(|| def.get("label")).and_then(Value::as_str)?;
+        (def.get("type").and_then(Value::as_str) == Some("camera") && name == label).then(|| (n.clone(), def))
+    })?;
+    let mut ch = node_channels(&def);
+    ch.extend(node_channels(&node));
+    let num = |k: &str| ch.get(k).and_then(Value::as_f64);
+    let auto = render_setting(&lib.duf, "Auto Headlamp").unwrap_or(0.0) as i64;
+    let lit = match num("HeadlampMode").unwrap_or(0.0) as i64 {
+        1 => true,
+        2 => false,
+        _ => auto == 2 || (auto == 1 && !has_lights),
+    };
+    if !lit {
+        return None;
+    }
+    let f = (0..3).map(|k| cam.target[k] - cam.pos[k]).collect::<Vec<_>>();
+    let len = (f[0] * f[0] + f[1] * f[1] + f[2] * f[2]).sqrt().max(1e-9);
+    let fwd = [f[0] / len, f[1] / len, f[2] / len];
+    let up = cam.up;
+    let right = [fwd[1] * up[2] - fwd[2] * up[1], fwd[2] * up[0] - fwd[0] * up[2], fwd[0] * up[1] - fwd[1] * up[0]];
+    let cm = f64::from(CM);
+    let (x, y, z) = (num("XHeadlampOffset").unwrap_or(0.0) * cm, num("YHeadlamp").unwrap_or(0.0) * cm, num("ZHeadlampOffset").unwrap_or(0.0) * cm);
+    let p = [0, 1, 2].map(|k| cam.pos[k] + right[k] * x + up[k] * y - fwd[k] * z);
+    let mut transform = [[0.0; 4]; 4];
+    (0..4).for_each(|k| transform[k][k] = 1.0);
+    transform[3][..3].copy_from_slice(&p);
+    Some(SceneLight {
+        label: "Headlamp".into(),
+        transform,
+        shape: LightShape::Point,
+        cone_deg: None,
+        beam_exponent: 1.0,
+        color: [1.0; 3],
+        kelvin: None,
+        lumens: HEADLAMP_LUMENS * num("Headlamp Intensity").unwrap_or(1.0),
+        euler_deg: [0.0; 3],
+        rotation_order: "XYZ".into(),
+        translation: p,
+        two_sided: false,
+    })
+}
+
+/// A render setting's value (`scene.extra[studio_render_settings]
+/// .render_options.render_elements[].channels[]`).
+fn render_setting(duf: &Value, id: &str) -> Option<f64> {
+    duf.pointer("/scene/extra")?.as_array()?.iter().flat_map(|e| {
+        e.pointer("/render_options/render_elements").or_else(|| e.get("render_elements")).and_then(Value::as_array).into_iter().flatten()
+    })
+    .flat_map(|r| r.get("channels").and_then(Value::as_array).into_iter().flatten())
+    .filter_map(|c| c.get("channel"))
+    .find(|c| c.get("id").and_then(Value::as_str) == Some(id))
+    .and_then(|c| c.get("current_value").or_else(|| c.get("value")))
+    .and_then(Value::as_f64)
+}
+
 /// Radius used for DAZ point lights (they have no size; UsdLux treats the
 /// sphere as a point but needs it for the intensity).
 pub(super) const POINT_RADIUS_M: f64 = 0.01;

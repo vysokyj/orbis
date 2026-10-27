@@ -61,10 +61,27 @@ pub struct ExportOptions {
     /// Leave out the shadow-catching ground even when Iray draws one — it
     /// shows through holes or dips in a floor or terrain at its height.
     pub no_ground: bool,
-    /// Skin as OpenPBR Surface instead of Standard Surface (Final only).
-    pub skin_openpbr: bool,
+    /// Iray's look as closely as the export can, or Octane's more plausible
+    /// take where the two differ (`Look`).
+    pub look: Look,
+    /// Leave Octane's AI denoiser off (Final turns it on).
+    pub no_denoise: bool,
     /// Told how far the export got.
     pub progress: Progress,
+}
+
+/// Where Iray and Octane differ in a way the export can choose: stay with
+/// Iray's look (`Faithful`) or keep Octane's more plausible one
+/// (`Enhanced`, the default — docs/spec/octane-export.md, Goal). Enhanced:
+/// skin as OpenPBR Surface (OTOY's material for skin), the Hosek-Wilkie
+/// daylight's warm low sun, thin-walled glass with its Fresnel reflection.
+/// Faithful: skin as Standard Surface tinted to Iray's, a neutral daylight
+/// (Octane's model, sunset colour white), thin-walled glass at IOR 1.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Look {
+    Faithful,
+    #[default]
+    Enhanced,
 }
 
 /// Export progress: a callback taking the percentage done (0–100) and what
@@ -111,10 +128,10 @@ impl OctaneMode {
 
 fn skin_shader(opts: &ExportOptions) -> crate::material::SkinShader {
     use crate::material::SkinShader;
-    match (opts.octane_mode.skin_sss(), opts.skin_openpbr) {
+    match (opts.octane_mode.skin_sss(), opts.look) {
         (false, _) => SkinShader::None,
-        (true, false) => SkinShader::StandardSurface,
-        (true, true) => SkinShader::OpenPbr,
+        (true, Look::Faithful) => SkinShader::StandardSurface,
+        (true, Look::Enhanced) => SkinShader::OpenPbr,
     }
 }
 
@@ -158,18 +175,34 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     let progress = &opts.progress;
     let (meshes, mut report, mut lib) = build_scene(scene, dump, opts)?;
     progress.report(35, "writing the USD scene");
-    let lights = lights_iray_uses(&mut lib);
-    let (layer, materials) = write_usda(&meshes, &lights);
+    let mut lights = lights_iray_uses(&mut lib);
     let mut cameras = scene_cameras(&mut lib);
     if cameras.is_empty() {
         tracing::info!("USD export: no camera in the scene, framing all meshes");
         cameras.push(("Camera".to_string(), framing_camera(&meshes)));
     }
+    // The camera's headlamp, when Iray lights with it (the render camera's).
+    let has_lights = !lights.is_empty();
+    if let Some(h) = cameras.first().and_then(|(label, cam)| headlamp(&mut lib, label, cam, has_lights)) {
+        lights.push(h);
+    }
+    let (layer, materials) = write_usda(&meshes, &lights);
     let name = scene.file_stem().and_then(|s| s.to_str()).unwrap_or("scene");
     progress.report(60, "translating the materials");
     let layered = crate::daz_material::layered_images(&lib.duf);
-    let (inputs, mut textures) = crate::material::material_inputs(&materials, &lib.dirs, layered, 200_000, skin_shader(opts));
-    let environment = scene_environment(&mut lib);
+    let (inputs, mut textures) = crate::material::material_inputs(
+        &materials,
+        &lib.dirs,
+        layered,
+        200_000,
+        crate::material::Shading { skin: skin_shader(opts), faithful: opts.look == Look::Faithful },
+    );
+    let mut environment = scene_environment(&mut lib);
+    if opts.look == Look::Faithful {
+        if let Some(s) = environment.as_mut().and_then(|e| e.sun_sky.as_mut()) {
+            s.faithful();
+        }
+    }
     let env_texture = crate::material::environment_texture(environment.as_ref(), &lib.dirs, &mut textures, 190_000);
     let env_power = environment.as_ref().map(|e| if e.scene_only { 0.0 } else { e.intensity }).unwrap_or(1.0);
     let emitters = light_emitters(&lights);
@@ -188,7 +221,7 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     // Iray lights with a hidden dome (Draw Dome off) but shows black there;
     // "Scene Only" has no dome light to begin with (power 0, black anyway).
     let hide_dome = environment.as_ref().is_some_and(|e| !e.draw_dome && !e.scene_only);
-    let ocs = project_ocs(name, USDZ_ASSET, &cameras, render_size(&lib.duf), &env_texture, opts.octane_mode, &tone, hide_dome, environment.as_ref().and_then(|e| e.sun_sky.as_ref()))
+    let ocs = project_ocs(name, USDZ_ASSET, &cameras, render_size(&lib.duf), &env_texture, opts.octane_mode, &tone, hide_dome, environment.as_ref().and_then(|e| e.sun_sky.as_ref()), !opts.no_denoise)
         .replace("@MATERIAL_INPUTS@", &(inputs + &light_inputs))
         .replace("@SCENE_NODES@", &scene_nodes)
         .replace("@MESH_CONNECT@", &mesh_connect.to_string())

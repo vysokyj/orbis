@@ -1,27 +1,53 @@
 # Octane export — DAZ scene → `.orbx` for Octane X
 
-The normative description of what ORBIS exports and why; the project
-overview is in [CLAUDE.md](../../CLAUDE.md). Background:
-DAZ files [daz/files.md](../daz/files.md), Iray semantics
-[daz/iray.md](../daz/iray.md), Octane behaviour
-[octane/octane-x.md](../octane/octane-x.md), container
-[octane/orbx.md](../octane/orbx.md), USD [octane/usd.md](../octane/usd.md).
+The normative description of what ORBIS exports and why — every rule with
+the measurement behind it. Code that disagrees is a bug, or this page is
+wrong and changes in the same commit. Background on the other tools:
+[DAZ files](../daz/files.md), [Iray](../daz/iray.md),
+[Octane X](../octane/octane-x.md), [ORBX](../octane/orbx.md),
+[USD](../octane/usd.md); how the numbers are measured:
+[calibration](../calibration.md); all documents: [docs](../README.md).
 
-Code: `src/`. Dev runner:
-`cargo run --release -- export <scene.duf> -o <out.usdz|out.orbx>`
-(`--preview`, `--no-ground`).
+**Contents** — [Goal](#goal) · [Look](#look) · [Inputs](#inputs) ·
+[Plugin](#plugin) · [Geometry](#geometry) · [Package](#package) ·
+[Render targets and cameras](#render-targets-and-cameras) ·
+[Render modes](#render-modes) (tone mapping) · [Materials](#materials)
+([Universal](#universal-130--default), [Skin](#skin--standard-surface-277-final-only),
+[Hair](#dforce-hair--hair-material-147), [Emission](#emission)) ·
+[Lights](#lights) · [Environment](#environment) (Sun-Sky,
+[ground shadow](#ground-shadow)) · [Textures](#textures) ·
+[Opening](#opening) · [Open work](#open-work)
 
-Calibration notes cite the reference scenes (*Octane1*: interior, spots +
-HDRI; *Octane2*: outdoor, HDRI-lit) and Lua probe numbers; numbers are
-linear-light unless marked sRGB.
+Code: `src/`. Run: `cargo run --release -- export <scene.duf> -o
+<out.orbx|out.usdz>` (options in the [README](../../README.md#command-line)).
+Calibration notes cite their scenes (`Calib-*`, see
+[calibration](../calibration.md#the-scenes); *Octane1*–*4*, *Fetroom*,
+*Gladiator*: the developer's production scenes) and Lua probe numbers;
+numbers are linear light unless marked sRGB.
 
-**Goal: the scene as Iray lights it, rendered the way Octane renders.** The
+## Goal
+
+**The scene as Iray lights it, rendered the way Octane renders.** The
 export matches what the DAZ scene *means* — the amount of light, exposure,
 colours, which surfaces reflect, transmit or glow, the sun and sky balance
 — measured against Iray. Where Octane does something more plausibly than
 Iray (a low sun's warm colour, how a gloss layers over the diffuse, a
 spot's soft edge), its behaviour stays: no Iray quirk is imitated at the
 cost of realism.
+
+## Look
+
+`--look enhanced|faithful` (the dialog's Look; `Look` in the code): where
+Iray and Octane differ in a way the export can choose. *Enhanced* (the
+default) keeps Octane's take: skin on **OpenPBR Surface** (OTOY's material
+for skin), the Hosek-Wilkie daylight that warms a low sun, thin-walled
+glass with its Fresnel reflection. *Faithful* stays with Iray's: skin on
+Standard Surface tinted to Iray's, Octane's daylight model with a white
+sunset colour (power × 2.27 / 2.7 — the white sunset still to calibrate),
+thin-walled glass at IOR 1 (Iray's showed none of its own reflection).
+**Denoise** (`--no-denoise` off; the dialog's Denoise) is separate: Octane's
+AI denoiser on the Final render — it changes no light or colour, it may
+soften fine detail.
 
 ## Inputs
 
@@ -455,8 +481,7 @@ reddened) turned blue irises dark green (Calib-Hair, #20).
   meters, clamped 0.5 mm – 2 cm. Why the root: Noemi's 1 / 0.18 / 0.15
   threw coloured fireflies, and Iray's look is softer.
 
-**OpenPBR option** (`--skin-openpbr`, the dialog's "Skin as OpenPBR"):
-the same skin on OpenPBR Surface (505; its `radius` is the distance and
+**OpenPBR** (the Enhanced look, see Look): the same skin on OpenPBR Surface (505; its `radius` is the distance and
 `scale` the per-channel colour — the other way round from Standard
 Surface). It renders the colour darker, evenly per channel and more so with
 the translucency weight (G8F 0.78 at w 0.5, Fleur 0.70 at 0.62 of Standard
@@ -635,16 +660,37 @@ it any file (`.usdz`, even its own `.orbx`), so ORBIS doesn't launch it. The
 report ends with the `.orbx` path; the user opens it via File → Open and
 selects the render target named after the scene.
 
-## Calibration workflow
+## Open work
 
-One numbered Lua probe per run (`orbis_probeN.txt` + `orbis_pN_*.png`),
-results never overwritten; compare crops of the same pixel boxes against the
-DAZ render in linear medians (`scripts/dev/octane-light-fit.py`); judge noise on
-the denoised pass. The last probe lives in `scripts/dev/octane-probe.lua`,
-light decomposition in `scripts/dev/octane-probe-decompose.lua`. Record each
-confirmed finding here (behaviour) or in
-[octane/octane-x.md](../octane/octane-x.md) (Octane facts) right away.
+What the export doesn't do yet is tracked as issues, each with a test scene
+to calibrate on ([calibration](../calibration.md#the-scenes)):
 
-## Known gaps
-
-Tracked as GitHub issues (light power, fidelity vs Iray).
+- Materials: anisotropy [#23](https://github.com/vysokyj/orbis/issues/23),
+  displacement [#24](https://github.com/vysokyj/orbis/issues/24), top coat
+  modes [#25](https://github.com/vysokyj/orbis/issues/25), dual lobe
+  [#26](https://github.com/vysokyj/orbis/issues/26), colour effects
+  [#27](https://github.com/vysokyj/orbis/issues/27), volume / SSS
+  [#28](https://github.com/vysokyj/orbis/issues/28), backscattering
+  [#29](https://github.com/vysokyj/orbis/issues/29), flakes
+  [#30](https://github.com/vysokyj/orbis/issues/30), thin film
+  [#31](https://github.com/vysokyj/orbis/issues/31), diffuse overlay
+  [#32](https://github.com/vysokyj/orbis/issues/32), dispersion
+  [#33](https://github.com/vysokyj/orbis/issues/33), DAZ Default shader
+  [#41](https://github.com/vysokyj/orbis/issues/41), brick / MDL shaders
+  [#21](https://github.com/vysokyj/orbis/issues/21), skin hue
+  [#19](https://github.com/vysokyj/orbis/issues/19), eyes
+  [#20](https://github.com/vysokyj/orbis/issues/20), hair
+  [#16](https://github.com/vysokyj/orbis/issues/16),
+  [#42](https://github.com/vysokyj/orbis/issues/42).
+- Lights and camera: headlamp [#22](https://github.com/vysokyj/orbis/issues/22),
+  IES profiles [#34](https://github.com/vysokyj/orbis/issues/34), light
+  options [#35](https://github.com/vysokyj/orbis/issues/35), lens
+  [#39](https://github.com/vysokyj/orbis/issues/39), spots
+  [#7](https://github.com/vysokyj/orbis/issues/7).
+- Scene: hidden surfaces and render flags
+  [#36](https://github.com/vysokyj/orbis/issues/36), fog and finite dome
+  [#37](https://github.com/vysokyj/orbis/issues/37), vignetting
+  [#38](https://github.com/vysokyj/orbis/issues/38), smoothing and round
+  corners [#40](https://github.com/vysokyj/orbis/issues/40), Iray render
+  settings [#43](https://github.com/vysokyj/orbis/issues/43), Sun-Sky
+  channels [#18](https://github.com/vysokyj/orbis/issues/18).

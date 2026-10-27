@@ -50,6 +50,20 @@ pub struct SunSky {
     pub sun_size: f64,
     /// `SS Ground Color`, linear.
     pub ground: [f64; 3],
+    /// Octane's daylight model: 3 Hosek-Wilkie (warms a low sun), 1 Octane
+    /// with a white sunset colour (`Look::Faithful`: Iray's whiter sun).
+    pub model: u8,
+}
+
+impl SunSky {
+    /// Iray's whiter low sun (`Look::Faithful`): Octane's daylight model,
+    /// whose sunset colour can be set white — at power 2.27 / sun share 0.55
+    /// it lit Calib-L-Mode-SunSky-off's floor 1.03 × and the shadow 0.96 ×
+    /// Iray with the default sunset colour; the white one is to calibrate.
+    pub fn faithful(&mut self) {
+        self.model = 1;
+        self.power *= 2.27 / SUN_SKY_POWER;
+    }
 }
 
 /// Octane Daylight (Hosek-Wilkie) `power` at DAZ's default `SS Multiplier`
@@ -165,6 +179,7 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
                     power: SUN_SKY_POWER * num("SS Multiplier").unwrap_or(0.10132) / 0.10132 * haze_dimming(num("SS Haze").unwrap_or(0.0)),
                     sun_intensity: SUN_SKY_SUN_SHARE * num("SS Sun Disk Intensity").unwrap_or(1.0),
                     sun_size: num("SS Sun Disk Scale").unwrap_or(4.0) / 4.0,
+                    model: 3,
                     ground: [0, 1, 2].map(|i| {
                         f64::from(crate::daz_material::colour_to_linear(ground.and_then(|g| g.get(i)).and_then(Value::as_f64).unwrap_or(0.4) as f32))
                     }),

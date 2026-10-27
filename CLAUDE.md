@@ -11,7 +11,7 @@ sensualium pictus* (1658).
 ```sh
 cargo test                                     # unit tests (no DAZ content needed)
 cargo build --release                          # target/release/orbis
-cargo run --release -- export <scene.duf> -o <out.orbx|out.usdz> [--preview] [--no-ground]   # needs a cached dump
+cargo run --release -- export <scene.duf> -o <out.orbx|out.usdz> [--preview] [--no-ground] [--look enhanced|faithful] [--no-denoise]   # needs a cached dump
 scripts/install.sh                             # build + `orbis install` into "My Library"
 scripts/package.sh                             # plugin zip → dist/ (git-ignored)
 scripts/dev/render-icons.sh                    # assets/icon/*.svg → committed thumbnails
@@ -54,6 +54,8 @@ attaches the zip to a GitHub release.
 | `calib/scenes/` | Calibration scenes the scripts generated (Calib-PBRSkin, -Glossy, -Tone-*, -DOF-*, -L-*): copies of `My Library/Scenes`, exposure as tuned; DAZ built-ins and primitives only |
 
 ## Documentation
+Map of all docs: `docs/README.md`. Calibration (principle, test scenes,
+the loop, references in `calib/references`): `docs/calibration.md`.
 - `docs/spec/octane-export.md` — **normative**: what the export does and why
   (calibration numbers included). Code that disagrees is a bug, or fix the spec
   in the same commit. Record confirmed calibration findings right away.

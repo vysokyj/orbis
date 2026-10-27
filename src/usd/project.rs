@@ -24,6 +24,7 @@ pub(super) fn project_ocs(
     tone: &ToneMapping,
     hide_dome: bool,
     sun_sky: Option<&SunSky>,
+    denoise: bool,
 ) -> String {
     let v3 = |v: [f64; 3]| format!("{:.6} {:.6} {:.6} 0", v[0], v[1], v[2]);
     // The render target carries the scene's name — Octane offers it as the
@@ -73,7 +74,7 @@ pub(super) fn project_ocs(
         .replace("@TONE_LUT@", &lut)
         .replace("@WHITE_BALANCE@", &format!("{wr:.6} {wg:.6} {wb:.6}"))
         .replace("@SATURATION@", &format!("{:.6} 0 0 0", tone.saturation))
-        .replace("@DENOISER@", denoiser);
+        .replace("@DENOISER@", if denoise { denoiser } else { "0" });
     let start = template.find("@SCENE_NODES@").expect("template has @SCENE_NODES@") + "@SCENE_NODES@".len();
     let end = template.rfind(" </graph>").expect("template ends with the Scene graph");
     let (head, rt, tail) = (&template[..start], &template[start..end], &template[end..]);
@@ -142,7 +143,12 @@ fn daylight_environment(s: &SunSky) -> String {
     out += &float(100212, "turbidity", format!("{:.6} 0 0 0", s.turbidity));
     out += &float(100213, "power", format!("{:.6} 0 0 0", s.power));
     out += &float(100214, "sunIntensity", format!("{:.6} 0 0 0", s.sun_intensity));
-    out += "       <pin name='model'>\n        <node id='100215' type='57'>\n         <attr name='value' type='2'>3</attr>\n        </node>\n       </pin>\n";
+    out += &format!("       <pin name='model'>\n        <node id='100215' type='57'>\n         <attr name='value' type='2'>{}</attr>\n        </node>\n       </pin>\n", s.model);
+    if s.model == 1 {
+        // Octane's model: a white sunset colour keeps a low sun as white
+        // as Iray's (`SunSky::faithful`).
+        out += "       <pin name='sunset_color'>\n        <node id='100219' type='33'>\n         <attr name='value' type='8'>1 1 1</attr>\n        </node>\n       </pin>\n";
+    }
     out += &float(100218, "groundStartAngle", "0 0 0 0".into());
     out += &float(100216, "sun_size", format!("{:.6} 0 0 0", s.sun_size));
     out += &float(100217, "groundColor", format!("{r:.6} {g:.6} {b:.6} 0"));

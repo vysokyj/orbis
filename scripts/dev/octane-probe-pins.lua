@@ -63,7 +63,7 @@ local function describe(label, typ)
     end)
 end
 
-local which = { "NT_MAT_MIX", "NT_MED_ABSORPTION" }
+local which = { "NT_MAT_UNIVERSAL" }
 for _, k in ipairs(which) do
     if octane[k] then describe(k, octane[k]) end
 end

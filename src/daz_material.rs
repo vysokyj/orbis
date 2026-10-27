@@ -30,6 +30,9 @@ pub struct Material {
     /// Its surface has an open edge (a card, a leaf, a cloak's hem), not a
     /// closed volume.
     pub open: bool,
+    /// A DAZ brick shader's MDL materials, as `module::name` (e.g.
+    /// `nvidia::metal_examples::cast_iron`): what its graph renders with.
+    pub mdl: Vec<String>,
 }
 
 impl Material {
@@ -71,7 +74,21 @@ impl Material {
                     add(c);
                 }
             }
+            if e.get("type").and_then(Value::as_str) == Some("studio/material/daz_brick") {
+                let mut found = Vec::new();
+                mdl_callables(e, &mut found);
+                for f in found {
+                    if !self.mdl.contains(&f) {
+                        self.mdl.push(f);
+                    }
+                }
+            }
         }
+    }
+
+    /// Whether the shader renders with the MDL material `callable`.
+    pub fn uses_mdl(&self, callable: &str) -> bool {
+        self.mdl.iter().any(|m| m == callable)
     }
 
     /// A channel by its Iray Uber id — or the counterpart a custom (DAZ
@@ -197,6 +214,28 @@ impl Material {
 /// 0.05^2.2 = 0.0014), with gamma 2.2 0.99 ×; its matte sphere 1.13 → 1.08.
 pub fn colour_to_linear(c: f32) -> f32 {
     c.max(0.0).powf(2.2)
+}
+
+/// The MDL materials a brick graph names: an "MDL Callable" property
+/// (`nvidia::metal_examples::cast_iron`) or a module path with a fragment
+/// (`nvidia/metal_examples.mdl#metal_brushed`), as `module::name`.
+fn mdl_callables(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::String(s) => {
+            let s = s.split('(').next().unwrap_or(s);
+            let callable = if let Some((path, name)) = s.split_once(".mdl#") {
+                Some(format!("{}::{name}", path.trim_start_matches('/').replace('/', "::")))
+            } else if s.contains("::") && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == ':') {
+                Some(s.trim_start_matches("::").to_string())
+            } else {
+                None
+            };
+            out.extend(callable);
+        }
+        Value::Array(a) => a.iter().for_each(|x| mdl_callables(x, out)),
+        Value::Object(o) => o.values().for_each(|x| mdl_callables(x, out)),
+        _ => {}
+    }
 }
 
 /// Iray Uber channel → the channel a custom shader keeps the same input in.

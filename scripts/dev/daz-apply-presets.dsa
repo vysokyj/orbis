@@ -1,0 +1,37 @@
+// ORBIS calibration: shader presets on a scene's spheres, in order — e.g.
+// Calib-NVIDIA (the NVIDIA MDL examples, #21) from Calib-Glossy. Headless
+// via scripts/dev/daz-script.sh with DONE_FILE=<out>.done.
+// Arguments: base .duf, out .duf, then "<node label>|<preset .duf>" pairs,
+// then the content directories. ECMAScript 3, ASCII only.
+(function () {
+    var a = App.scriptArgs;
+    var sBase = a[0], sOut = a[1];
+    var oContent = App.getContentMgr();
+    var aPairs = [];
+    for (var i = 2; i < a.length; i++) {
+        if (a[i].indexOf("|") >= 0) aPairs.push(a[i].split("|"));
+        else oContent.addContentDirectory(a[i], false);
+    }
+    var sLog = "";
+    function done(s) {
+        var f = new DzFile(sOut + ".done");
+        f.open(DzFile.WriteOnly | DzFile.Truncate);
+        f.write(s + "\n" + sLog);
+        f.close();
+        App.delayedExit();
+    }
+    if (!oContent.openFile(sBase, false)) { done("base not opened"); return; }
+    for (var p = 0; p < aPairs.length; p++) {
+        var oNode = Scene.findNodeByLabel(aPairs[p][0]);
+        if (!oNode) { sLog += "no node " + aPairs[p][0] + "\n"; continue; }
+        Scene.selectAllNodes(false);
+        oNode.select(true);
+        Scene.setPrimarySelection(oNode);
+        // Select the node's materials: a shader preset applies to the
+        // selected surfaces.
+        var oShape = oNode.getObject().getCurrentShape();
+        for (var m = 0; m < oShape.getNumMaterials(); m++) oShape.getMaterial(m).select(true);
+        sLog += aPairs[p][0] + " <- " + aPairs[p][1] + ": " + oContent.openFile(aPairs[p][1], true) + "\n";
+    }
+    done("saved " + Scene.saveScene(sOut));
+})();
