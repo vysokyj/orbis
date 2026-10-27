@@ -373,7 +373,7 @@ impl Ocs<'_> {
         // Iray's top coat lies over both parts: on the base alone a dark
         // weighted surface under a 0.8 coat lost half its sheen (Calib-Mixing
         // jamb 0.55 × Iray).
-        self.top_coat(j + 1, mat);
+        self.top_coat(j + 1, mat, 0.0);
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
             self.float_or_map(j + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
@@ -431,7 +431,7 @@ impl Ocs<'_> {
 
     /// Iray's Top Coat: a clear dielectric layer over everything, as
     /// Universal's coating.
-    fn top_coat(&mut self, i: usize, mat: &Material) {
+    fn top_coat(&mut self, i: usize, mat: &Material, min_roughness: f32) {
         let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
         if coat <= 0.0 {
             return;
@@ -442,8 +442,8 @@ impl Ocs<'_> {
             (1 | 2, Some(g)) => (1.0 - g, true),
             _ => (mat.float("Top Coat Roughness").unwrap_or(0.0), false),
         };
-        self.float_pin(i, "coatingRoughness", iray_roughness(mat, r, inv).clamp(0.0, 1.0));
-        self.float_pin(i, "coatingIor", mat.float("Top Coat IOR").unwrap_or(1.5));
+        self.float_pin(i, "coatingRoughness", iray_roughness(mat, r, inv).max(min_roughness).clamp(0.0, 1.0));
+        self.float_pin(i, "coatingIor", top_coat_ior(mat));
     }
 
     /// An absorption medium (58) on `medium`: `sigma` (1/m per channel) as
@@ -883,9 +883,13 @@ impl Ocs<'_> {
         // "Share Glossy Inputs" is off, then its own (Calib-Glass: Refraction
         // Color and Roughness did nothing while shared; unshared, roughness
         // 0.3 frosted the sphere). Universal has one roughness: a mostly
-        // refractive surface gets the refraction's.
+        // refractive surface gets the refraction's — unless thin-walled,
+        // whose straight-through transmission the roughness doesn't blur: it
+        // keeps the glossy layer's (the cornea and tear film: their sharp
+        // refraction's 0 mirrored the room over the iris, Calib-Eye #20).
         let own_refraction = refraction > 0.0 && mat.float("Share Glossy Inputs").unwrap_or(1.0) == 0.0;
-        let (rough_ch, rough, inverted) = if own_refraction && refraction >= 0.5 {
+        let refraction_rough = own_refraction && refraction >= 0.5 && !thin;
+        let (rough_ch, rough, inverted) = if refraction_rough {
             match (mat.float("Base Mixing").unwrap_or(0.0) as i32, mat.float("Refraction Glossiness")) {
                 (1 | 2, Some(g)) => (Some("Refraction Glossiness"), 1.0 - g, true),
                 _ => (Some("Refraction Roughness"), mat.float("Refraction Roughness").unwrap_or(0.0), false),
@@ -899,7 +903,7 @@ impl Ocs<'_> {
         // Octane blurs a refraction ~3× more at the same roughness: Iray's
         // Refraction Roughness 0.3 (0.09 squared) matched Octane's 0.02 –
         // 0.03, not 0.09 (frosted) (Calib-Glass R6).
-        let rough_ch = if own_refraction && refraction >= 0.5 {
+        let rough_ch = if refraction_rough {
             rough *= REFRACTION_ROUGHNESS_SCALE;
             None
         } else {
@@ -918,7 +922,12 @@ impl Ocs<'_> {
             self.rgb_pin(i, "coating", gloss_color.map(|c| c * excess));
             self.float_pin(i, "coatingRoughness", rough.clamp(0.0, 1.0));
         }
-        self.top_coat(i, mat);
+        // On a thin-walled refractive surface at least the glossy layer's
+        // roughness: the cornea's sharp coat (0.0016) mirrored the room over
+        // the iris even at its own reflectivity (IOR 1.37), and left out the
+        // pupil came out 0.43 × Iray; blurred like its gloss it is Iray's
+        // veil over the iris (pupil 0.89, iris 0.77 – 0.83; Calib-Eye, #20).
+        self.top_coat(i, mat, if thin && refraction >= 0.5 { rough } else { 0.0 });
 
         // Glass-like surfaces (cornea, windows): Iray refraction → transmission,
         // tinted by the refraction's colour (see `own_refraction`).
@@ -987,6 +996,25 @@ fn is_eye(name: &str) -> bool {
 
 /// See the roughness in `universal`.
 const REFRACTION_ROUGHNESS_SCALE: f32 = 0.3;
+
+/// Universal's `coatingIor` for Iray's Top Coat. Layering Mode 0
+/// (Reflectivity, the most common: the cornea, 2128 materials in My
+/// Library) reflects F0 = 0.08 × Reflectivity head-on (0.5 → 0.04, IOR
+/// 1.5): Calib-TopCoat's Reflectivity 1 sphere 0.75 → 1.09 × Iray (0.5:
+/// 1.11), and the cornea's 0.3 no longer mirrors the room over the iris
+/// (Calib-Eye, #20). The other modes keep Top Coat IOR (#25).
+fn top_coat_ior(mat: &Material) -> f32 {
+    match mat.float("Top Coat Layering Mode").unwrap_or(0.0) as i32 {
+        0 => ior_from_f0(0.08 * mat.float("Reflectivity").unwrap_or(0.5)),
+        _ => mat.float("Top Coat IOR").unwrap_or(1.5),
+    }
+}
+
+/// The dielectric IOR that reflects `f0` head-on: (1 + √F0) / (1 − √F0).
+fn ior_from_f0(f0: f32) -> f32 {
+    let s = f0.clamp(0.0, 0.9).sqrt();
+    (1.0 + s) / (1.0 - s)
+}
 
 /// Octane Hair albedo from Iray's Blended Dual Lobe hair: its hair colour
 /// and, more, its transmission colour (root / tip means, linear) — fitted on
@@ -1601,6 +1629,23 @@ mod tests {
         ]));
         let (px, _) = material_inputs(&[("Pane".into(), pane, 1.0)], &dirs, HashMap::new(), 8990, SkinShader::None);
         assert!(px.contains("<pin name='transmissionType'>") && !px.contains("<pin name='medium'>"), "{px}");
+        // A cornea: thin-walled, its own sharp refraction, a rough gloss and
+        // a sharp Top Coat at Reflectivity 0.3 — the gloss's roughness for
+        // both, the coat's IOR from its reflectivity.
+        let thin_cornea = mat(json!([
+            {"channel": {"id": "Refraction Weight", "current_value": 1}},
+            {"channel": {"id": "Thin Walled", "current_value": true}},
+            {"channel": {"id": "Share Glossy Inputs", "current_value": false}},
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 1}},
+            {"channel": {"id": "Glossy Roughness", "current_value": 0.3}},
+            {"channel": {"id": "Top Coat Weight", "current_value": 1}},
+            {"channel": {"id": "Top Coat Roughness", "current_value": 0.04}},
+            {"channel": {"id": "Reflectivity", "current_value": 0.3}},
+        ]));
+        let (cx, _) = material_inputs(&[("Cornea".into(), thin_cornea, 1.0)], &dirs, HashMap::new(), 8995, SkinShader::None);
+        let pin = |p: &str| cx[cx.find(&format!("<pin name='{p}'>")).unwrap()..].split("</attr>").next().unwrap().rsplit('>').next().unwrap().to_string();
+        assert_eq!((pin("roughness"), pin("coatingRoughness")), ("0.09".to_string(), "0.09".to_string()), "{cx}");
+        assert!(pin("coatingIor").starts_with("1.36"), "{cx}");
         // On an open card it passes twice the share.
         let leaf = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},

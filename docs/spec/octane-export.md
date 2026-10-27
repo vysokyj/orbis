@@ -434,8 +434,22 @@ Every material input (20007) is filled — Octane doesn't convert
   56 / 26 / 20 (#10).
 - **Top Coat** → Universal `coating` = Top Coat Color × weight,
   `coatingRoughness` (Top Coat Roughness, or 1 − Top Coat Glossiness in
-  modes 1 / 2, squared likewise), `coatingIor` = Top Coat IOR: the
-  top-coated sphere's highlight 0 → 19 px (Iray 17).
+  modes 1 / 2, squared likewise), `coatingIor`: the top-coated sphere's
+  highlight 0 → 19 px (Iray 17). `coatingIor` by Top Coat Layering Mode:
+  0 Reflectivity (the cornea; 2128 materials in My Library) reflects F0 =
+  0.08 × Reflectivity head-on (0.5 → 0.04, IOR 1.5) — Calib-TopCoat's
+  Reflectivity 1 sphere 0.75 → 1.09 × Iray (0.5: 1.11); the other modes
+  Top Coat IOR, which Iray doesn't follow (#25: Weighted renders a mirror
+  blended by the weight, Octane 0.10 – 0.15; Fresnel 1.5 / 2 and both
+  Custom Curves hardly show a coat in Iray, Octane 2.2 – 4.2).
+- **Thin-walled refraction with its own inputs** (Share Glossy Inputs off:
+  the cornea, the tear film) takes the glossy layer's roughness, not the
+  refraction's — a thin wall's straight-through transmission doesn't blur
+  — and its Top Coat at least that roughness. Why: at the refraction's 0
+  and the coat's 0.0016 the cornea mirrored the room over the iris (a dark
+  band across it, a hard highlight); at the gloss's 0.07 the iris shows
+  Iray's veil and soft highlight — Calib-Eye pupil 0.43 → 0.89, iris
+  0.57 – 0.74 → 0.79 – 0.83 × Iray, sclera 0.97 / 1.13 (#20).
 - **Weighted mixing** (Base Mixing 2) without translucency → a **Mix
   material** (19): `material1` a metal (metallic 1) in the Glossy Color (or
   its map) at the surface's roughness, `material2` the surface without its
