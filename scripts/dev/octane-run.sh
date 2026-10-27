@@ -45,9 +45,9 @@ until menu 'get name of every menu item of menu 1 of menu bar item "Script" of m
         exit 1
     fi
 done
-# It switches modes a few seconds after the menu first shows: let it settle,
-# then click, and again if the probe hasn't started its log within 30 s.
-sleep 10
+# It switches modes within a second of the menu first showing: let it
+# settle, then click, and again if the probe hasn't started its log within 30 s.
+sleep 2
 started() { [ -n "$(find "$docs" -maxdepth 1 -name 'orbis_probe*.txt' -newer "$scripts/ORBIS probe.lua" 2>/dev/null)" ]; }
 tries=0
 until started; do
