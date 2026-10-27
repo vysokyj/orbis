@@ -39,6 +39,7 @@ attaches the zip to a GitHub release.
 | `src/main.rs` | `orbis` CLI (`export`, `install`); stdout = progress/report read by the DAZ script, logs on stderr |
 | `src/install.rs` | `orbis install`: binary → `~/Library/Application Support/ORBIS/bin/`, script (paths filled in) + thumbnails → `<library>/Scripts/ORBIS/` |
 | `src/usd/` | Scene → meshes (`.duf` + library `.dsf` + the scene dump, `dump.rs`), SubD, hair, cameras, lights, environment, USDA/USDZ, `project.ocs`; `export_scene_orbx` / `export_scene_usdz` |
+| `src/tuning.rs` | The four export variants (Look × render mode) and every value that differs between them, one table |
 | `src/material.rs` | Iray Uber → Octane material/light/scene nodes in `project.ocs` |
 | `src/daz_material.rs` | DSON materials: merged Iray channels |
 | `src/layered_image.rs` | DAZ Layered Image Editor stacks → flattened images |

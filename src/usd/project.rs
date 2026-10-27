@@ -1,6 +1,7 @@
 //! Octane `project.ocs` from the bundled template.
 
 use super::*;
+use crate::tuning::{Kernel, Tuning};
 
 /// Escape text for an XML attribute or element.
 pub(super) fn xml_escape(s: &str) -> String {
@@ -20,7 +21,7 @@ pub(super) fn project_ocs(
     cams: &[(String, SceneCamera)],
     (w, h): (u32, u32),
     env_texture: &str,
-    mode: OctaneMode,
+    tuning: &Tuning,
     tone: &ToneMapping,
     hide_dome: bool,
     sun_sky: Option<&SunSky>,
@@ -46,14 +47,13 @@ pub(super) fn project_ocs(
         }
         None => template,
     };
-    // Kernel per mode; the imager follows DAZ's Iray tone mapping. Exposure
-    // at DAZ's default EV 13: 1.4 under path tracing — measured against the
-    // Iray render of Octane2 (HDRI only) with a Lua sweep, 2026-10-21 —
-    // and 1 for direct lighting (calibrated on Octane1's lights).
-    let (kernel, base_exposure, denoiser) = match mode {
-        OctaneMode::Preview => (include_str!("../../assets/octane/kernel_direct_lighting.ocs"), 1.0, "0"),
-        OctaneMode::Final => (include_str!("../../assets/octane/kernel_path_tracing.ocs"), 1.4, "1"),
+    // Kernel, exposure and denoiser per variant (`Tuning`); the imager
+    // follows DAZ's Iray tone mapping.
+    let kernel = match tuning.kernel {
+        Kernel::DirectLighting => include_str!("../../assets/octane/kernel_direct_lighting.ocs"),
+        Kernel::PathTracing => include_str!("../../assets/octane/kernel_path_tracing.ocs"),
     };
+    let base_exposure = tuning.base_exposure;
     let [wr, wg, wb] = tone.white_point;
     // Iray's curve beyond the calibrated defaults (burn, crush, gamma) as a
     // custom LUT after the Gamma 2.2 response, the exposure lowered by its
@@ -74,7 +74,7 @@ pub(super) fn project_ocs(
         .replace("@TONE_LUT@", &lut)
         .replace("@WHITE_BALANCE@", &format!("{wr:.6} {wg:.6} {wb:.6}"))
         .replace("@SATURATION@", &format!("{:.6} 0 0 0", tone.saturation))
-        .replace("@DENOISER@", if denoise { denoiser } else { "0" });
+        .replace("@DENOISER@", if denoise && tuning.denoiser { "1" } else { "0" });
     let start = template.find("@SCENE_NODES@").expect("template has @SCENE_NODES@") + "@SCENE_NODES@".len();
     let end = template.rfind(" </graph>").expect("template ends with the Scene graph");
     let (head, rt, tail) = (&template[..start], &template[start..end], &template[end..]);
@@ -146,7 +146,7 @@ fn daylight_environment(s: &SunSky) -> String {
     out += &format!("       <pin name='model'>\n        <node id='100215' type='57'>\n         <attr name='value' type='2'>{}</attr>\n        </node>\n       </pin>\n", s.model);
     if s.model == 1 {
         // Octane's model: a white sunset colour keeps a low sun as white
-        // as Iray's (`SunSky::faithful`).
+        // as Iray's (`Tuning::daylight_model`).
         out += "       <pin name='sunset_color'>\n        <node id='100219' type='33'>\n         <attr name='value' type='8'>1 1 1</attr>\n        </node>\n       </pin>\n";
     }
     out += &float(100218, "groundStartAngle", "0 0 0 0".into());

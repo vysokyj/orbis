@@ -49,6 +49,28 @@ thin-walled glass at IOR 1 (Iray's showed none of its own reflection).
 AI denoiser on the Final render — it changes no light or colour, it may
 soften fine detail.
 
+### Variants
+
+An export is one of four variants: Look × render mode
+([Render modes](#render-modes)). Everything that differs between them is a
+field of `Tuning`, set per variant in one table (`Variant::tuning`,
+`src/tuning.rs`) — this one. Everything not listed is shared and fitted on
+**Enhanced + Final**; each variant gets the same calibration scenes in turn
+(docs/calibration.md, [#44](https://github.com/vysokyj/orbis/issues/44)).
+
+| `Tuning` field | Enhanced + Final | Faithful + Final | Enhanced + Preview | Faithful + Preview |
+|---|---|---|---|---|
+| `kernel` | path tracing | path tracing | direct lighting | direct lighting |
+| `base_exposure` | 1.4 (Octane2, HDRI) | 1.4 ¹ | 1 (Octane1's lights) | 1 ¹ |
+| `denoiser` | on | on | off | off |
+| `skin` | OpenPBR Surface | Standard Surface | Universal (no SSS) | Universal (no SSS) |
+| `thin_glass_ior_one` | no (Fresnel) | yes (Calib-Glass) | no | yes ¹ |
+| `daylight_model` | 3 Hosek-Wilkie | 1 Octane, white sunset | 3 ¹ | 1 ¹ |
+| `daylight_power` | 2.7 (Calib-L-Mode) | 2.27 (Calib-L-Mode) | 2.7 ¹ | 2.27 ¹ |
+
+¹ Not calibrated in this variant yet: taken over from the same look's
+other mode, or the same mode's other look.
+
 ## Inputs
 
 - The `.duf` (nodes, materials, cameras, lights, render settings).

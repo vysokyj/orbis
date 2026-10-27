@@ -51,18 +51,16 @@ pub struct SunSky {
     /// `SS Ground Color`, linear.
     pub ground: [f64; 3],
     /// Octane's daylight model: 3 Hosek-Wilkie (warms a low sun), 1 Octane
-    /// with a white sunset colour (`Look::Faithful`: Iray's whiter sun).
+    /// with a white sunset colour (`Tuning::daylight_model`).
     pub model: u8,
 }
 
 impl SunSky {
-    /// Iray's whiter low sun (`Look::Faithful`): Octane's daylight model,
-    /// whose sunset colour can be set white — at power 2.27 / sun share 0.55
-    /// it lit Calib-L-Mode-SunSky-off's floor 1.03 × and the shadow 0.96 ×
-    /// Iray with the default sunset colour; the white one is to calibrate.
-    pub fn faithful(&mut self) {
-        self.model = 1;
-        self.power *= 2.27 / SUN_SKY_POWER;
+    /// The variant's daylight model and power (`Tuning::daylight_model`,
+    /// `daylight_power`); read from the scene at Hosek-Wilkie's.
+    pub fn tune(&mut self, t: &crate::tuning::Tuning) {
+        self.model = t.daylight_model;
+        self.power *= t.daylight_power / SUN_SKY_POWER;
     }
 }
 

@@ -49,6 +49,7 @@ use project::*;
 use subdivide::*;
 pub use usda::*;
 pub use usdz::*;
+pub use crate::tuning::{Look, OctaneMode, Variant};
 
 /// Where to look for library assets.
 #[derive(Debug, Clone, Default)]
@@ -70,18 +71,11 @@ pub struct ExportOptions {
     pub progress: Progress,
 }
 
-/// Where Iray and Octane differ in a way the export can choose: stay with
-/// Iray's look (`Faithful`) or keep Octane's more plausible one
-/// (`Enhanced`, the default — docs/spec/octane-export.md, Goal). Enhanced:
-/// skin as OpenPBR Surface (OTOY's material for skin), the Hosek-Wilkie
-/// daylight's warm low sun, thin-walled glass with its Fresnel reflection.
-/// Faithful: skin as Standard Surface tinted to Iray's, a neutral daylight
-/// (Octane's model, sunset colour white), thin-walled glass at IOR 1.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Look {
-    Faithful,
-    #[default]
-    Enhanced,
+impl ExportOptions {
+    /// Which of the four variants this export is (`crate::tuning`).
+    pub fn variant(&self) -> Variant {
+        Variant::new(self.look, self.octane_mode)
+    }
 }
 
 /// Export progress: a callback taking the percentage done (0–100) and what
@@ -104,34 +98,6 @@ impl Progress {
 impl std::fmt::Debug for Progress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(if self.0.is_some() { "Progress(..)" } else { "Progress(none)" })
-    }
-}
-
-/// How the Octane project renders.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum OctaneMode {
-    /// Direct lighting (Octane's fast, biased preview kernel), Universal
-    /// skin — what the lights were first calibrated on.
-    #[default]
-    Preview,
-    /// Path tracing, skin with random-walk subsurface scattering (direct
-    /// lighting renders that grey) and the denoiser on. Both modes take the
-    /// imager from DAZ's tone mapping ([`ToneMapping`]).
-    Final,
-}
-
-impl OctaneMode {
-    pub fn skin_sss(self) -> bool {
-        self == OctaneMode::Final
-    }
-}
-
-fn skin_shader(opts: &ExportOptions) -> crate::material::SkinShader {
-    use crate::material::SkinShader;
-    match (opts.octane_mode.skin_sss(), opts.look) {
-        (false, _) => SkinShader::None,
-        (true, Look::Faithful) => SkinShader::StandardSurface,
-        (true, Look::Enhanced) => SkinShader::OpenPbr,
     }
 }
 
@@ -190,18 +156,11 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     let name = scene.file_stem().and_then(|s| s.to_str()).unwrap_or("scene");
     progress.report(60, "translating the materials");
     let layered = crate::daz_material::layered_images(&lib.duf);
-    let (inputs, mut textures) = crate::material::material_inputs(
-        &materials,
-        &lib.dirs,
-        layered,
-        200_000,
-        crate::material::Shading { skin: skin_shader(opts), faithful: opts.look == Look::Faithful },
-    );
+    let tuning = opts.variant().tuning();
+    let (inputs, mut textures) = crate::material::material_inputs(&materials, &lib.dirs, layered, 200_000, &tuning);
     let mut environment = scene_environment(&mut lib);
-    if opts.look == Look::Faithful {
-        if let Some(s) = environment.as_mut().and_then(|e| e.sun_sky.as_mut()) {
-            s.faithful();
-        }
+    if let Some(s) = environment.as_mut().and_then(|e| e.sun_sky.as_mut()) {
+        s.tune(&tuning);
     }
     let env_texture = crate::material::environment_texture(environment.as_ref(), &lib.dirs, &mut textures, 190_000);
     let env_power = environment.as_ref().map(|e| if e.scene_only { 0.0 } else { e.intensity }).unwrap_or(1.0);
@@ -221,7 +180,7 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     // Iray lights with a hidden dome (Draw Dome off) but shows black there;
     // "Scene Only" has no dome light to begin with (power 0, black anyway).
     let hide_dome = environment.as_ref().is_some_and(|e| !e.draw_dome && !e.scene_only);
-    let ocs = project_ocs(name, USDZ_ASSET, &cameras, render_size(&lib.duf), &env_texture, opts.octane_mode, &tone, hide_dome, environment.as_ref().and_then(|e| e.sun_sky.as_ref()), !opts.no_denoise)
+    let ocs = project_ocs(name, USDZ_ASSET, &cameras, render_size(&lib.duf), &env_texture, &tuning, &tone, hide_dome, environment.as_ref().and_then(|e| e.sun_sky.as_ref()), !opts.no_denoise)
         .replace("@MATERIAL_INPUTS@", &(inputs + &light_inputs))
         .replace("@SCENE_NODES@", &scene_nodes)
         .replace("@MESH_CONNECT@", &mesh_connect.to_string())

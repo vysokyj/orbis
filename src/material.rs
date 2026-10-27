@@ -271,8 +271,8 @@ struct Ocs<'a> {
     tiling: Option<[f32; 4]>,
     /// Writing the diffuse part of Iray's weighted mixing (`weighted_mix_material`).
     in_mix: bool,
-    /// Iray's look over Octane's where they differ (`Shading`).
-    faithful: bool,
+    /// Thin-walled glass at IOR 1 (`Tuning::thin_glass_ior_one`).
+    thin_glass_ior_one: bool,
 }
 
 fn esc(s: &str) -> String {
@@ -586,7 +586,7 @@ impl Ocs<'_> {
     /// diffusion length 1/√(3·σa·σs(1−g)) per channel gives the radius colour
     /// (normalised) and the scale (its maximum, in meters).
     ///
-    /// Only in `OctaneMode::Final`: it needs the path-tracing kernel —
+    /// Only under path tracing (`Tuning::skin`): it needs that kernel —
     /// direct lighting renders random walk grey.
     fn standard_surface(&mut self, indent: usize, name: &str, mat: &Material, translucency: f32, openpbr: bool) {
         let id = self.id();
@@ -924,10 +924,10 @@ impl Ocs<'_> {
             let colour = mat.color(if own_refraction { "Refraction Color" } else { "Glossy Color" }).unwrap_or([1.0; 3]);
             self.rgb_pin(i, "transmission", colour.map(|c| c * refraction));
             let ior = mat.float("Refraction Index").unwrap_or(1.5);
-            // Faithful: Iray's thin-walled refraction reflects nothing of
+            // Iray's thin-walled refraction reflects nothing of
             // its own — Calib-Glass's thin sphere was invisible; only a
             // glossy layer shows. IOR 1 takes Octane's Fresnel reflection away.
-            self.float_pin(i, "ior", if thin && self.faithful { 1.0 } else { ior });
+            self.float_pin(i, "ior", if thin && self.thin_glass_ior_one { 1.0 } else { ior });
             if thin {
                 // Thin Wall (2): no bending — Iray's thin-walled glass sphere
                 // showed the background straight through (Calib-Glass).
@@ -1103,7 +1103,7 @@ pub struct LightEmitter {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, faithful: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, thin_glass_ior_one: false };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -1163,18 +1163,23 @@ const GROUND_SHADOW_OPACITY: f64 = 0.89;
 /// floor's height it z-fought and smeared shadows over it — Octane1).
 const GROUND_DROP: f64 = 0.001;
 
-/// How the materials translate: the skin shader, and whether to stay as
-/// close to Iray's look as the export can (`faithful`) or keep Octane's more
-/// plausible take where the two differ (see `crate::usd::Look`).
+/// How the materials translate: the variant's material fields of
+/// `crate::tuning::Tuning`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Shading {
     pub skin: SkinShader,
-    pub faithful: bool,
+    pub thin_glass_ior_one: bool,
 }
 
 impl From<SkinShader> for Shading {
     fn from(skin: SkinShader) -> Self {
-        Shading { skin, faithful: false }
+        Shading { skin, thin_glass_ior_one: false }
+    }
+}
+
+impl From<&crate::tuning::Tuning> for Shading {
+    fn from(t: &crate::tuning::Tuning) -> Self {
+        Shading { skin: t.skin, thin_glass_ior_one: t.thin_glass_ior_one }
     }
 }
 
@@ -1229,7 +1234,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, first_id: 
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, faithful: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, thin_glass_ior_one: false };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -1323,7 +1328,7 @@ pub fn environment_texture(
     textures: &mut Textures,
     first_id: u32,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, faithful: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, thin_glass_ior_one: false };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -1363,9 +1368,9 @@ pub fn material_inputs(
     first_id: u32,
     shading: impl Into<Shading>,
 ) -> (String, Textures) {
-    let Shading { skin, faithful } = shading.into();
+    let Shading { skin, thin_glass_ior_one } = shading.into();
     let mut textures = Textures { layered, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, faithful };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, thin_glass_ior_one };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
