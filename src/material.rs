@@ -514,12 +514,10 @@ impl Ocs<'_> {
 
     /// DAZ's dForce hair shader (Blended Dual Lobe Hair, on strands) → an
     /// Octane Hair material (type 147) in albedo mode: the mean of root and
-    /// tip colour, each its map's mean × its tint (strands have no UVs),
-    /// squared — Octane's albedo is the colour after many bounces through
-    /// the hair volume, DAZ's tints each lobe: as-is, a brunette rendered
-    /// blonde, 3–5× too light (Octane2); squared matched its Iray hair;
-    /// longitudinal and azimuthal roughness from `base_roughness`; the
-    /// specular tinted down to the glossy layer's weight.
+    /// tip colour and transmission colour, each its map's mean × its tint
+    /// (strands have no UVs), mixed by `HAIR_COLOUR_SHARE` /
+    /// `HAIR_TRANSMISSION_SHARE`; longitudinal and azimuthal roughness from
+    /// `base_roughness`; the specular tinted down to the glossy layer's weight.
     fn hair(&mut self, indent: usize, name: &str, mat: &Material) {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='147' name='{}'>", "", esc(name));
@@ -847,13 +845,12 @@ fn is_eye(name: &str) -> bool {
 const REFRACTION_ROUGHNESS_SCALE: f32 = 0.3;
 
 /// Octane Hair albedo from Iray's Blended Dual Lobe hair: its hair colour
-/// and, more, its transmission colour (root / tip means, linear) — Calib-Hair
-/// (blond) and two copies with dark brown hair or transmission colours:
-/// Iray's hair luminance ≈ 0.013 × hair + 0.023 × transmission, Octane's ≈
-/// 0.13 × albedo; the earlier (mean hair colour)² rendered the blond 3.1 ×
-/// Iray and the brown 0.07 ×.
-const HAIR_COLOUR_SHARE: f32 = 0.09;
-const HAIR_TRANSMISSION_SHARE: f32 = 0.16;
+/// and, more, its transmission colour (root / tip means, linear) — fitted on
+/// the crown of Calib-Hair (blond) and two copies with dark brown hair or
+/// transmission colours, strands at `LINE_WIDTH_SCALE`: 0.97 / 1.03 / 1.07 ×
+/// Iray in luminance; Octane's Hair is linear in its albedo (× 0.6 → × 0.6).
+const HAIR_COLOUR_SHARE: f32 = 0.046;
+const HAIR_TRANSMISSION_SHARE: f32 = 0.110;
 
 /// Meters per centimeter.
 const CM_PER_M_INV: f32 = 0.01;
@@ -1545,8 +1542,8 @@ mod tests {
         let (hx, tex) = material_inputs(&[("Curls".into(), hair, 0.0)], &[dir.path().to_path_buf()], HashMap::new(), 4000, SkinShader::None);
         assert!(hx.contains("type='147' name='Curls'"), "{hx}");
         // Root 0.5 × (1, 0.218, 0.218) (the colour linear) and tip 0.5,
-        // averaged, × 0.09, + 0.16 × the (default white) transmission colour.
-        assert!(hx.contains("<attr name='value' type='8'>0.205261 0.187556 0.187556</attr>"), "{hx}");
+        // averaged, × 0.046, + 0.110 × the (default white) transmission colour.
+        assert!(hx.contains("<attr name='value' type='8'>0.133134 0.124084 0.124084</attr>"), "{hx}");
         assert!(hx.contains("<pin name='specular'>") && hx.contains("<attr name='value' type='8'>0.22 0.22 0.22</attr>"));
         assert!(hx.contains("<attr name='value' type='6'>0.35</attr>"));
         assert!(tex.files.is_empty(), "the map is averaged, not packed");

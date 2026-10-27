@@ -35,6 +35,7 @@ Hypotheses (by the Iray channels the variants stand for):
 - `absorb-x<k>`: every absorption medium's scale × k.
 - `thin-ior1`: thin-walled glass (transmissionType 2) at IOR 1.
 - `dl-ior`: the same for PBRSkin's Dual Lobe Specular Reflectivity.
+- `hair=<k>,<s>`: every Hair material (147) at albedo × k and specular s.
 - `twosided-x1`: two-sided emitters at the one-sided power (the export
   doubles it, `TWO_SIDED_POWER`, assuming Octane splits it over both faces).
 The channel values come from the scene materials' names (Calib-Glossy /
@@ -104,6 +105,21 @@ def albedo_of(ocs, material, pin='albedo'):
     return [float(x) for x in a.group(1).split()] if a else None
 
 
+def hair_pin_re(material, pin):
+    """A colour pin of the Hair material node named `material` (the node,
+    not a /Scene/Materials path: strands carry it inline)."""
+    return re.compile(rf"(<node id='\d+' type='147' name='{re.escape(material)}'>(?:(?!</node>\s*</pin>\s*</node>).)*?"
+                      rf"<pin name='{pin}'>\s*<node[^>]*>\s*<attr name='value' type='8'>)([^<]*)", re.S)
+
+
+def albedo_of_node(ocs, material):
+    return [float(x) for x in hair_pin_re(material, 'albedo').search(ocs).group(2).split()]
+
+
+def set_hair_pin(ocs, material, pin, value):
+    return hair_pin_re(material, pin).sub(lambda m: m.group(1) + value, ocs, count=1)
+
+
 def ior_from(r):
     f0 = 0.08 * r
     s = math.sqrt(f0)
@@ -121,6 +137,13 @@ def halve_double_sided(ocs):
 def apply(ocs, hyp):
     if hyp == 'twosided-x1':
         return halve_double_sided(ocs)
+    if hyp.startswith('hair='):
+        k, s = (float(x) for x in hyp[5:].split(','))
+        for mat in re.findall(r"<node id='\d+' type='147' name='([^']*)'", ocs):
+            a = albedo_of_node(ocs, mat)
+            ocs = set_hair_pin(ocs, mat, 'albedo', ' '.join(f'{c * k:.6f}' for c in a))
+            ocs = set_hair_pin(ocs, mat, 'specular', ' '.join([f'{s:.6f}'] * 3))
+        return ocs
     if hyp.startswith('absorb-x'):
         k = float(hyp[len('absorb-x'):])
         pat = r"(<node id='\d+' type='58'>\s*<pin name='scale'>\s*<node[^>]*>\s*<attr name='value' type='9'>)([0-9.eE+-]+)"

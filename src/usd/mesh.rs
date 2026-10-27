@@ -172,10 +172,11 @@ pub(super) struct Mesh {
 }
 
 /// Meters per unit of DAZ's hair line widths (`Line Start Width` /
-/// `Line End Width`). Read as millimeters the strands came out sparse and
-/// see-through; 4× that matched the fullness and colour of Octane2's Iray
-/// hair (a 1×/2×/4×/10× sweep) — a calibration, not a known unit.
-pub(super) const LINE_WIDTH_SCALE: f32 = 0.004;
+/// `Line End Width`, which DAZ labels in mm) — 2× that: Calib-Eye's
+/// close-up covers the background as Iray's at 2× (0.47 vs 0.43; 1× 0.28,
+/// 4× 0.63), and Calib-Hair's fringe and sides match Iray's fullness. The
+/// earlier 4× was fitted on guide-only strands (the missing PR hairs).
+pub(super) const LINE_WIDTH_SCALE: f32 = 0.002;
 
 /// One `Mesh` (curves) per material group of a strand-hair figure, its
 /// strands' widths tapering from root to tip as DAZ's hair shader sets them.

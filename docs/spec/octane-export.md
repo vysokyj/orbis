@@ -162,9 +162,13 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   Clothing refines with the figure and isn't touched.
 - **Strand hair** from the dump's `polylines` as one `BasisCurves` per
   material group, per-vertex `widths` tapering `Line Start Width` →
-  `Line End Width`, at **0.4 mm per unit** (`LINE_WIDTH_SCALE` = 0.004 m).
-  Why: read as mm the strands were sparse and see-through; a 1/2/4/10× sweep
-  put 4× on Iray's fullness and colour (Octane2).
+  `Line End Width` (DAZ labels them mm), at **2× that** (`LINE_WIDTH_SCALE`
+  = 0.002 m per unit). Why: on Calib-Eye's close-up the strands cover the
+  background as Iray's at 2× (0.47 vs Iray's 0.43; 1×: 0.28, 4×: 0.63), and
+  Calib-Hair's fringe and sides match Iray's fullness (0.98 / 1.13 before
+  the albedo refit below, 0.65–0.93 after it); at 1× the sky shows through
+  (grey-blue hair). The earlier 4× was fitted on
+  guide-only strands — it made the strands visibly thick close up (#16).
 - A `Material` per (mesh, group) under `/Scene/Materials/<mesh>_<group>` (a
   constant `UsdPreviewSurface`) — overridden by the Octane material inputs
   below.
@@ -462,17 +466,20 @@ in red. Looks grittier; the hue offset is the same as Standard Surface's.
 
 ### dForce hair — Hair material (147)
 
-albedo = 0.09 × the hair colour + 0.16 × the transmission colour
+albedo = 0.046 × the hair colour + 0.110 × the transmission colour
 (`HAIR_COLOUR_SHARE`, `HAIR_TRANSMISSION_SHARE`; each the mean of its root
 and tip colour, each its map's linear mean × tint); roughness both ways from
 `base_roughness`; specular = `Glossy Layer Weight`. Why: Iray's Blended
 Dual Lobe hair follows its transmission colour more than its hair colour —
 Calib-Hair (blond) and two copies with dark brown hair or transmission
-colours (render strands, 4× widths): Iray's hair ≈ 0.013 × hair + 0.023 ×
-transmission in luminance, Octane's Hair roughly linear in its albedo.
-Now 0.99 / 0.93 / 1.02 × Iray; the earlier (mean hair colour)², fitted on
-guide strands with sRGB-decoded colours, rendered the blond 3.1 × and the
-brown 0.07 ×.
+colours (render strands, 2× widths), fitted on the front-lit crown:
+0.97 / 1.03 / 1.07 × Iray in luminance; Octane's Hair is linear in its
+albedo (× 0.6 → × 0.60). Its `specular` barely shows (0.25 → 0.03: crown
+−3 %). The hue is less saturated than Iray's on the blonds (crown r/g 1.16
+vs 1.47) and more on the dark-transmission copy (1.18 vs 1.08) — no single
+saturation curve fits both; open in #42. Backlit strands glow through
+(Octane's TT lobe) where Iray's stay dark: kept, it is Octane's more
+plausible take (the Enhanced look).
 
 ### Emission
 
