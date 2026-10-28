@@ -307,7 +307,7 @@ fn mdl_metal(mat: &Material) -> Option<MdlMetal> {
         let brushing = mat.float("brushing_strength").unwrap_or(0.5);
         let stretch = mat.float("reflection_stretch").unwrap_or(0.75);
         return Some(MdlMetal {
-            colour: [0.65; 3],
+            colour: mat.color("diffuse").unwrap_or([0.65; 3]),
             weight: (map("brush_texture", "brushed_full_contrast.jpg"), 0.5, 0.5),
             rough_u: (map("roughness_texture_u", "brushed_full_contrast.jpg"), 0.02, brushing * 0.8),
             rough_v: (map("roughness_texture_v", "brushed_full_contrast.jpg"), stretch * 0.4 + 0.05, stretch * 0.3 + 0.1),
@@ -318,7 +318,7 @@ fn mdl_metal(mat: &Material) -> Option<MdlMetal> {
     if mat.uses_mdl("nvidia::metal_examples::cast_iron") {
         let rough = (map("roughness_texture", "grunge_d.jpg"), 0.06, 0.4);
         return Some(MdlMetal {
-            colour: [0.543, 0.53, 0.53],
+            colour: mat.color("diffuse").unwrap_or([0.543, 0.53, 0.53]),
             weight: ("resources/grunge_b.jpg".into(), 0.5, 3.0),
             rough_u: rough.clone(),
             rough_v: rough,
@@ -333,6 +333,141 @@ fn mdl_metal(mat: &Material) -> Option<MdlMetal> {
 /// amount), else `bump_texture`, else the MDL default.
 fn bump_map(mat: &Material, default: &str) -> String {
     mat.image("Bump Strength").or(mat.image("bump_texture")).map(str::to_string).unwrap_or_else(|| format!("resources/{default}"))
+}
+
+/// The diffuse part of an NVIDIA MDL dielectric.
+enum MdlAlbedo {
+    Colour([f32; 3]),
+    /// A colour map × a factor.
+    Map(String, f32),
+}
+
+/// The reflection weight of an NVIDIA MDL dielectric's Fresnel layer.
+enum MdlGloss {
+    Weight(f32),
+    /// A grey map (sRGB-decoded, as MDL reads an 8-bit PNG) × a factor.
+    Map(String, f32),
+    /// A colour map's luminance × a factor (`mono_average`).
+    Luma(String, f32),
+}
+
+/// NVIDIA's dielectric MDL examples (DAZ's "NVIDIA MDL Examples" concrete,
+/// porcelain, granite, …): `df::fresnel_layer(ior, weight, glossy, diffuse)`
+/// — a gloss of that weight × Fresnel at `ior` over a diffuse base, as
+/// Universal's specular and IOR. MDL roughness is used as is (Uber's is
+/// squared first).
+struct MdlDielectric {
+    albedo: MdlAlbedo,
+    gloss: MdlGloss,
+    /// The gloss's tint.
+    tint: [f32; 3],
+    roughness: f32,
+    ior: f32,
+    bump: Option<(String, f32)>,
+    tiles: [f32; 2],
+    /// Resin's base: a tinted glossy reflect + transmit (rough coloured
+    /// glass) under the clear coat.
+    transmission: Option<[f32; 3]>,
+    metallic: bool,
+    opacity: f32,
+}
+
+/// Resin's tinted base as Universal transmission: its colour × this.
+const RESIN_TRANSMISSION: f32 = 0.8;
+
+/// The NVIDIA dielectric a brick shader renders with, its parameters from
+/// the shader's channels and the MDL defaults (`nvidia/<module>.mdl`).
+fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
+    const MODULES: [&str; 8] = ["concrete", "concrete_polished", "asphalt", "ceramic_tiles_small", "granite_black", "porcelain", "resin_polyurethane_matte", "architectural"];
+    let module = MODULES.into_iter().find(|m| mat.uses_mdl(&format!("nvidia::{m}::{m}")))?;
+    // As for the metals: a map channel the shader leaves out takes the
+    // MDL default, one it sets empty is no texture.
+    let map = |ch: &str, default: &str| match mat.channel(ch) {
+        Some(c) => c.image.clone(),
+        None => Some(format!("resources/{default}")),
+    };
+    let (default_tiles, diffuse, bump_default, bump_amount, rough, weight) = match module {
+        "concrete" => (1.0, "concrete_plain.png", "concrete_plain_bump.png", 6.0, 0.35, 0.2),
+        "concrete_polished" => (1.0, "concrete_fine_polished.png", "concrete_fine_polished_bump.png", 2.5, 0.15, 0.8),
+        "asphalt" => (1.0, "asphalt.png", "asphalt_bump.png", 1.5, 0.25, 0.8),
+        "ceramic_tiles_small" => (1.0, "ceramic_tiles_small.png", "ceramic_tiles_small_bump.png", 4.0, 0.0, 1.0),
+        "granite_black" => (1.0, "granite_black.png", "", 0.0, 0.0, 1.0),
+        "porcelain" => (1.0, "", "", 0.0, 0.1, 1.0),
+        "resin_polyurethane_matte" => (1.0, "", "", 0.0, 0.25, 0.95),
+        _ => (1.0, "", "", 0.0, 0.0, 0.6),
+    };
+    let tiles = [mat.float("Horizontal Tiles"), mat.float("Vertical Tiles")].map(|t| t.filter(|t| *t > 0.0).unwrap_or(default_tiles));
+    let roughness = mat.float("roughness").unwrap_or(rough);
+    let weight = mat.float("glossy_weight").or(mat.float("specular_weight")).unwrap_or(weight);
+    let ior = mat.float("Index of Refraction").or(mat.float("coating_ior")).unwrap_or(if module == "ceramic_tiles_small" { 1.4 } else { 1.5 });
+    let diffuse_map = map("Diffuse Color", diffuse);
+    let colour_map = |scale: f32| diffuse_map.clone().map_or(MdlAlbedo::Colour([0.0; 3]), |m| MdlAlbedo::Map(m, scale));
+    let bump_map = (!bump_default.is_empty()).then(|| bump_map(mat, bump_default));
+    let bump = bump_map.clone().map(|m| (m, mat.float("Bump Strength").unwrap_or(bump_amount)));
+    let mut d = MdlDielectric {
+        albedo: colour_map(1.0),
+        gloss: MdlGloss::Weight(weight),
+        tint: [1.0; 3],
+        roughness,
+        ior,
+        bump,
+        tiles,
+        transmission: None,
+        metallic: false,
+        opacity: 1.0,
+    };
+    match module {
+        // The bump map tints the gloss.
+        "concrete" => d.gloss = bump_map.map_or(MdlGloss::Weight(weight), |m| MdlGloss::Map(m, weight)),
+        // The colour map, scaled by the reflectivity, is both the diffuse
+        // tint and (its luminance) the gloss weight.
+        "concrete_polished" => {
+            d.albedo = colour_map(weight);
+            d.gloss = diffuse_map.map_or(MdlGloss::Weight(0.0), |m| MdlGloss::Luma(m, weight));
+        }
+        "asphalt" | "ceramic_tiles_small" => d.gloss = bump_map.map_or(MdlGloss::Weight(weight), |m| MdlGloss::Map(m, weight)),
+        // A perfect mirror varnish.
+        "granite_black" => d.roughness = 0.0,
+        "porcelain" => d.albedo = MdlAlbedo::Colour(mat.color("diffuse").unwrap_or([0.85; 3])),
+        "resin_polyurethane_matte" => {
+            d.albedo = MdlAlbedo::Colour([0.0; 3]);
+            // At the full colour Octane's sphere came out 1.36 × Iray and
+            // redder (g/r 0.30 v 0.37); × 0.85 matched the hue, × 0.6 let
+            // too much background through (g/r 0.50) — Calib-NVIDIA.
+            d.transmission = Some(mat.color("diffuse").unwrap_or([0.8, 0.104, 0.144]).map(|c| c * RESIN_TRANSMISSION));
+        }
+        _ => {
+            // mental ray's mia_material: diffuse × weight; a reflection of
+            // reflectivity × the colour's maximum, tinted by it; without
+            // "Use Fresnel Term" Schlick's curve from the 0° reflectivity
+            // (grazing 1, exponent 5 — the defaults) = Fresnel at the IOR
+            // whose F0 that is.
+            let diffuse = mat.color("diffuse").unwrap_or([0.5; 3]).map(|c| c * mat.float("Diffuse Weight").unwrap_or(1.0));
+            let refl = mat.color("refl_color").unwrap_or([1.0; 3]);
+            let peak = refl.iter().copied().fold(0.0f32, f32::max);
+            d.albedo = MdlAlbedo::Colour(diffuse);
+            d.gloss = MdlGloss::Weight(mat.float("reflectivity").unwrap_or(0.6) * peak);
+            d.tint = refl.map(|c| if peak > 0.0 { c / peak } else { 1.0 });
+            // base::architectural_gloss_to_rough is compiled into Iray;
+            // glossiness 1 is a mirror, (1 − g)² is a guess for the rest.
+            d.roughness = (1.0 - mat.float("refl_gloss").unwrap_or(1.0)).clamp(0.0, 1.0).powi(2);
+            d.ior = if mat.float("brdf_fresnel").unwrap_or(0.0) > 0.0 {
+                mat.float("Index of Refraction").unwrap_or(1.4)
+            } else {
+                let f0 = mat.float("brdf_0_degree_refl2").unwrap_or(0.2).clamp(0.0, 0.95).sqrt();
+                (1.0 + f0) / (1.0 - f0)
+            };
+            d.metallic = mat.float("refl_is_metal").unwrap_or(0.0) > 0.0;
+            let transparency = mat.float("transparency").unwrap_or(0.0);
+            if transparency > 0.0 {
+                d.transmission = Some(mat.color("refr_color").unwrap_or([1.0; 3]).map(|c| c * transparency));
+            }
+            d.opacity = mat.float("Cutout Opacity").unwrap_or(1.0);
+            d.bump = mat.image("Bump Strength").map(|m| (m.to_string(), mat.float("Bump Strength").unwrap_or(1.0))).filter(|(_, a)| *a > 0.0);
+            d.tiles = tiles;
+        }
+    }
+    Some(d)
 }
 
 /// Builds node XML with unique ids.
@@ -500,6 +635,63 @@ impl Ocs<'_> {
             if let Some(asset) = self.textures.asset(self.dirs, bmap) {
                 self.image_pin(i, "bump", &asset, true, 1.0, *amount);
             }
+        }
+        let _ = writeln!(self.out, "{:indent$}</node>", "");
+    }
+
+    /// An NVIDIA MDL dielectric (`mdl_dielectric`) as Universal: albedo,
+    /// specular = the gloss weight (map) × tint at the layer's IOR, its
+    /// roughness and bump, all at the shader's tiles. Resin's red base is
+    /// transmission with the clear gloss as the coating.
+    fn mdl_dielectric(&mut self, indent: usize, name: &str, m: &MdlDielectric) {
+        self.tiling = (m.tiles != [1.0, 1.0]).then_some([m.tiles[0], m.tiles[1], 0.0, 0.0]);
+        let id = self.id();
+        let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='130' name='{}'>", "", esc(name));
+        let i = indent + 1;
+        let _ = writeln!(self.out, "{:i$}<attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
+        match &m.albedo {
+            MdlAlbedo::Map(map, scale) => match self.textures.asset(self.dirs, map) {
+                Some(asset) => self.image_pin(i, "albedo", &asset, false, 2.2, *scale),
+                None => self.rgb_pin(i, "albedo", [0.0; 3]),
+            },
+            MdlAlbedo::Colour(c) => self.rgb_pin(i, "albedo", *c),
+        }
+        if m.metallic {
+            self.float_pin(i, "metallic", 1.0);
+        }
+        let (gloss_pin, roughness_pin) = if m.transmission.is_some() { ("coating", "coatingRoughness") } else { ("specular", "roughness") };
+        match &m.gloss {
+            MdlGloss::Weight(w) => self.rgb_pin(i, gloss_pin, m.tint.map(|c| c * w)),
+            MdlGloss::Map(map, w) => match self.textures.asset(self.dirs, map) {
+                Some(asset) => self.image_pin(i, gloss_pin, &asset, true, 2.2, *w),
+                None => self.rgb_pin(i, gloss_pin, [0.0; 3]),
+            },
+            MdlGloss::Luma(map, w) => {
+                let w = *w;
+                match self.textures.derived(self.dirs, map, &format!("mdl-luma|{map}|{w}"), 1.0, |l| [(l * w).clamp(0.0, 1.0); 3]) {
+                    Some(asset) => self.image_pin(i, gloss_pin, &asset, true, 1.0, 1.0),
+                    None => self.rgb_pin(i, gloss_pin, [0.0; 3]),
+                }
+            }
+        }
+        self.float_pin(i, roughness_pin, m.roughness.clamp(0.0, 1.0));
+        if let Some(t) = m.transmission {
+            // The base reflects its tint and lets it through (rough glass).
+            self.rgb_pin(i, "specular", t);
+            self.float_pin(i, "roughness", m.roughness.clamp(0.0, 1.0));
+            self.rgb_pin(i, "transmission", t);
+            self.float_pin(i, "coatingIor", m.ior);
+        }
+        self.float_pin(i, "ior", m.ior);
+        if let Some((map, amount)) = &m.bump {
+            if *amount > 0.0 {
+                if let Some(asset) = self.textures.asset(self.dirs, map) {
+                    self.image_pin(i, "bump", &asset, true, 1.0, *amount);
+                }
+            }
+        }
+        if m.opacity < 1.0 {
+            self.float_pin(i, "opacity", m.opacity.max(0.0));
         }
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
@@ -942,6 +1134,9 @@ impl Ocs<'_> {
         }
         if let Some(metal) = mdl_metal(mat) {
             return self.mdl_metal(indent, name, &metal);
+        }
+        if let Some(d) = mdl_dielectric(mat) {
+            return self.mdl_dielectric(indent, name, &d);
         }
         let tiles = [mat.float("Horizontal Tiles"), mat.float("Vertical Tiles")].map(|t| t.filter(|t| *t > 0.0).unwrap_or(1.0));
         let offsets = [mat.float("Horizontal Offset"), mat.float("Vertical Offset")].map(|o| o.unwrap_or(0.0));
@@ -1699,6 +1894,41 @@ mod tests {
 
     fn mat(chs: serde_json::Value) -> Rc<Material> {
         Rc::new(Material::from_dson(&json!({"extra": [{"channels": chs}]}), &HashMap::new()))
+    }
+
+    #[test]
+    fn nvidia_dielectrics_gloss_by_weight_at_their_ior() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("resources")).unwrap();
+        for f in ["concrete_plain.png", "concrete_plain_bump.png"] {
+            std::fs::write(dir.path().join("resources").join(f), b"x").unwrap();
+        }
+        let dirs = vec![dir.path().to_path_buf()];
+        let nvidia = |module: &str, chs: serde_json::Value| {
+            let mut m = Material::from_dson(&json!({"extra": [{"channels": chs}]}), &HashMap::new());
+            m.mdl = vec![format!("nvidia::{module}::{module}")];
+            Rc::new(m)
+        };
+        // Concrete: the bump map tints a 0.141 gloss, at IOR 1.46 and 10 tiles.
+        let concrete = nvidia("concrete", json!([
+            {"channel": {"id": "Diffuse Color", "image_file": "/resources/concrete_plain.png"}},
+            {"channel": {"id": "Bump Strength", "current_value": 3, "image_file": "/resources/concrete_plain_bump.png"}},
+            {"channel": {"id": "glossy_weight", "current_value": 0.141}},
+            {"channel": {"id": "roughness", "current_value": 0.4356}},
+            {"channel": {"id": "Index of Refraction", "current_value": 1.46}},
+            {"channel": {"id": "Horizontal Tiles", "current_value": 10}},
+        ]));
+        let (x, _) = material_inputs(&[("Concrete".into(), concrete, 1.0)], &dirs, HashMap::new(), 9300, SkinShader::None);
+        let specular = &x[x.find("<pin name='specular'>").unwrap()..];
+        assert!(specular[..specular.find("<pin name='roughness'>").unwrap()].contains("concrete_plain_bump"), "{x}");
+        assert!(x.contains("0.141") && x.contains("1.46") && x.contains("0.4356") && x.contains("<pin name='bump'>"), "{x}");
+        // Porcelain: its colour, a full gloss; resin: its colour let through.
+        let porcelain = nvidia("porcelain", json!([{"channel": {"id": "diffuse", "current_value": [1, 1, 1]}}]));
+        let (y, _) = material_inputs(&[("Porcelain".into(), porcelain, 1.0)], &dirs, HashMap::new(), 9400, SkinShader::None);
+        assert!(y.contains("<pin name='specular'>") && !y.contains("transmission"), "{y}");
+        let resin = nvidia("resin_polyurethane_matte", json!([{"channel": {"id": "diffuse", "current_value": [1, 1, 1]}}]));
+        let (z, _) = material_inputs(&[("Resin".into(), resin, 1.0)], &dirs, HashMap::new(), 9500, SkinShader::None);
+        assert!(z.contains("<pin name='transmission'>") && z.contains("<pin name='coating'>"), "{z}");
     }
 
     #[test]

@@ -543,6 +543,38 @@ Every material input (20007) is filled — Octane doesn't convert
   it spans the terrain once (`damp_ao_albedo`). Its large wet patches are
   the ground's texture in Iray: left out, Gladiator's ground showed only the
   tiled detail (before the tiling was read, only the untiled diffuse map).
+- **NVIDIA MDL examples** (DAZ's "NVIDIA MDL Examples" brick shaders; the
+  MDL sources ship in DAZ's `shaders/iray/nvidia/`, their maps in
+  `shaders/iray/resources/`). Parameters come from the shader's channels,
+  else the MDL defaults; a map channel set empty is no texture.
+  - Metals (`metal_examples`: Metal Brushed, Cast Iron): a Universal metal,
+    albedo = Metal Color (`diffuse`) × (offset + scale · reflection map),
+    roughness √(u · v) per texel, anisotropy from u / v, bump, the shader's
+    tiles (`mdl_metal`). Open: Iray renders Calib-NVIDIA's Metal Brushed
+    black and its Cast Iron darker and sharper than Octane's (#21).
+  - Dielectrics (concrete, concrete polished, asphalt, ceramic tiles small,
+    granite black, porcelain, resin polyurethane matte, architectural):
+    `df::fresnel_layer(ior, weight, glossy, diffuse)` → Universal albedo,
+    specular = the weight (a map where the MDL weights or tints the gloss
+    with one: concrete's bump map tints it, asphalt's and the tiles' bump
+    map weights it, polished concrete's colour map does — its diffuse is
+    that map × the weight too), `ior` = the layer's IOR, the MDL roughness
+    as is (not squared), bump × its amount (`mdl_dielectric`). Granite's
+    varnish is a mirror (roughness 0). Resin's base is a tinted glossy
+    reflect + transmit: specular and transmission its colour, the clear
+    gloss as the coating; transmission × 0.8 (`RESIN_TRANSMISSION`) — at
+    the full colour 1.36 × Iray and redder (g/r 0.30 v 0.37), × 0.85
+    matched the hue (1.23), × 0.6 showed too much background (g/r 0.50).
+    Architectural (mental ray's mia_material): diffuse × weight,
+    reflectivity × the reflection colour's maximum tinted by it, without
+    "Use Fresnel Term" Schlick's curve from the 0° reflectivity as the IOR
+    with that F0 (0.2 → 2.62), metal, transparency and cutout opacity;
+    glossiness → roughness (1 − g)² is a guess (Iray's
+    `architectural_gloss_to_rough` is compiled in), only g = 1 calibrated.
+    Calib-NVIDIA (Octane / Iray, sphere luminance): concrete 1.04,
+    polished 0.98, porcelain 1.11, granite 1.12, architectural 1.07 — the
+    level of the matte spheres elsewhere; before, all were plain diffuse
+    without gloss, bump or tiling.
 - **Layered images** are flattened into one PNG per stack.
 
 ### Skin — Standard Surface (277), Final only

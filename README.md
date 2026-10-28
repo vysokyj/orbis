@@ -61,7 +61,7 @@ From a checkout: `scripts/install.sh` builds and installs.
   and the like).
 - **Materials** — Iray Uber (diffuse, gloss, metal, top coat, translucency,
   refraction, absorption, emission, maps and tiling), PBRSkin, dForce hair,
-  skin with subsurface scattering, layered images, the NVIDIA metal shaders.
+  skin with subsurface scattering, layered images, the NVIDIA MDL example shaders (metals, concrete, porcelain, granite, resin, …).
 - **Lights** — point, spot, distant, area (rect, disc, sphere), emissive
   surfaces; photometric and legacy units.
 - **Environment** — HDRI dome (rotation, intensity, hidden dome), Iray
