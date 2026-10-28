@@ -93,7 +93,8 @@ Leaf, Hair; `scripts/dev/calib-variants.sh all`), Octane / Iray:
   (0.57 – 0.74; Final 0.93 – 1.04). Without transmission (albedo × (1 −
   0.67 w)) the weight-0.5 spheres fell to 0.38 – 0.49.
 - **Skin** in Preview (Universal): Calib-PBRSkin 0.86 – 1.16, Final's
-  OpenPBR 1.06 – 1.29. **Hair** 1.04 (Final) / 1.06 (Preview).
+  OpenPBR 1.06 – 1.29 (before #19's rule). Faithful's Standard Surface skin
+  keeps the older `skin_tint` rule, not refitted on Calib-Skin. **Hair** 1.04 (Final) / 1.06 (Preview).
 - Shared misses, not variant-bound: Calib-Glass sphere 4 2.8 × in all
   four; Preview's Glass sphere 7 0.81 and Mixing sphere 8 0.76 (Final
   0.95 / 1.04).
@@ -557,13 +558,53 @@ reddened) turned blue irises dark green (Calib-Hair, #20).
   meters, clamped 0.5 mm – 2 cm. Why the root: Noemi's 1 / 0.18 / 0.15
   threw coloured fireflies, and Iray's look is softer.
 
-**OpenPBR** (the Enhanced look, see Look): the same skin on OpenPBR Surface (505; its `radius` is the distance and
-`scale` the per-channel colour — the other way round from Standard
-Surface). It renders the colour darker, evenly per channel and more so with
-the translucency weight (G8F 0.78 at w 0.5, Fleur 0.70 at 0.62 of Standard
-Surface), so the tint is lifted by 1 / (1 − 0.46 · w)
-(`OPENPBR_SKIN_DARKENING`): G8F 1.00 / 1.17 / 1.70 of Iray, Fleur 0.81–0.92
-in red. Looks grittier; the hue offset is the same as Standard Surface's.
+**OpenPBR** (the Enhanced look, see Look; #19): OpenPBR Surface (505; its
+`radius` is the distance and `scale` the per-channel colour — the other way
+round from Standard Surface). On Iray's **chromatic SSS** (`SSS Mode` 1,
+the modern skins) its own colour rule, fitted on Calib-Skin (eight Genesis
+8 skins from pale to dark on one body, Iray probes; see
+docs/notes/2026-10-28-skin-tones.md). A mono-SSS skin (`SSS Mode` 0, like
+the Genesis 8 base skin) keeps the Standard Surface tint lifted by
+1 / (1 − 0.46 · w) (`OPENPBR_SKIN_DARKENING`; G8F 1.00 / 1.17 / 1.70 of
+Iray): none was in the fit, and under the rule Calib-Eye came out 1.76 ×
+Iray (1.17 so).
+
+- **Colour, baked per texel** into one map for `baseColor` and
+  `subsurfaceColor` (`Textures::derived_skin`, `skin_albedo`):
+  `(1 − w)^1.3 · D + w · 0.55 · Tc · Tc_low` per channel (D the diffuse map
+  × its colour, Tc the translucency map × its colour, `_low` low-passed).
+  Why: Iray's probes put the diffuse layer at (1 − w)^1.3 (w 0.9 and 0.5
+  within 0.94 – 1.03) and its subsurface part at ≈ 0.55 · Tc², not tied to
+  D (a white diffuse map left it as it was); Tc · Tc_low keeps the map's
+  texture at its contrast (Tc² doubled it).
+- × **`SKIN_HUE_OPENPBR` (1.16, 0.83, 0.68)** to the power of the smooth
+  colour's saturation ÷ 0.75: the eight figures came out 0.86 / 1.20 /
+  1.48 × Iray per channel without it; at full strength the pale grey Zurie
+  turned orange.
+- × (smooth colour / 0.3)^**0.2** (`SKIN_DARK_GAIN`): the random walk
+  brightens dark colours against mid ones (Monique 1.15 × her colour as a
+  plain diffuse, Victoria 0.91). From the smooth colour so pores and
+  wrinkles keep their contrast — per texel they turned grainy (#47 keeps
+  that as an Enhanced idea).
+- `subsurface` = the diffuse map's **detail mask**: D / D_low through a
+  smoothstep 0.35 → 0.70 (1 on skin, 0 on brows and liner). Why: the random
+  walk bled the skin's light under dark brows into blue-grey smudges;
+  Universal at w 0 kept them dark. Elsewhere all of the colour goes through
+  the random walk: at `subsurface` 0.5 Octane rendered 0.67 – 0.73 of the
+  colour whatever it was (Calib-SSS's spheres).
+- **Gloss** as Universal's (`skin_gloss`): Iray's squared roughness, the
+  dual lobe's weight × min(2r, 1) of its reflectivity — with the
+  reflectivity's **map** (dark under brows and make-up; a uniform gloss
+  shone blue-grey there on dark skins), the Top Coat as the coating with
+  its weight map and **`coatingDarkening` 0** (OpenPBR's coat took the base
+  to 0.58 – 0.80 of Universal's; Gabriela's skin 0.66 → 1.01).
+- Result, front light, face and chest medians: Angel 1.10, Victoria 1.00,
+  Kayo 0.99, Gabriela 0.98, Nishi 0.88, Twosret 0.92, Monique 1.17,
+  Zurie 0.80 × Iray (export before: 0.68 – 1.85); hue within ±15 % but
+  Monique's blue (b/g 1.30). Dark skins show more pore texture than Iray's.
+- Not a cause: Iray doesn't dim the gloss of translucent skin (highlight
+  contrast on the dark foreheads is higher in Iray); the gloss alone ~0
+  made faces flat.
 
 ### dForce hair — Hair material (147)
 

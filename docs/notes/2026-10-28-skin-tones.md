@@ -252,7 +252,53 @@ Eight figures, front light; Octane / Iray, median of the face regions.
   dark.
 - **Left:** Monique 1.42; Zurie 0.85, too red (r/g 1.25).
 
-## 6. Next
+## 6. Rounds 9–12, the rule
+
+**Rounds**
+
+| round | change | front-light Y (Victoria / Kayo / Twosret / Monique) | notes |
+|---|---|---|---|
+| 9 | random-walk gain compensation v · (v / 0.3)^0.11 | 0.99 / 1.06 / 1.02 / 1.25 | |
+| 10 | gain 0.2 | 0.99 / 1.00 / 0.94 / 1.12 | grainy dark skins (compensation per texel), Zurie orange |
+| 11 | gain from the smooth colour, hue correction scaled by saturation | 0.99 / 1.00 / 0.94 / 1.11 | Zurie r/g 1.40 → 1.18 |
+| 12 | detail mask through a smoothstep; Tc · Tc_low | 1.00 / 0.99 / 0.92 / 1.17 | the dark skins' texture still stronger than Iray's: not the mask, not Tc² (gloss on the normal map? next) |
+
+The per-texel gain's stronger wrinkles looked *more* realistic to the user
+than Iray's: an Enhanced idea, #47.
+
+**The rule** (commit after this note). On OpenPBR with chromatic SSS:
+- colour = `(1 − w)^1.3 · D + w · 0.55 · Tc · Tc_low`;
+- × hue (1.16, 0.83, 0.68)^(saturation / 0.75);
+- × (smooth colour / 0.3)^0.2;
+- subsurface = the detail mask;
+- gloss as Universal's with the reflectivity map;
+- coat darkening 0.
+
+**Verification**, Octane / Iray, face and chest medians:
+
+| light | Y | export before | hue |
+|---|---|---|---|
+| front | 0.80–1.17 | 0.68–1.85 | |
+| HDRI | 0.89–1.31 | 0.77–2.39 | Kayo r/g 1.28, Twosret b/g 1.41 |
+
+- Ears, backlit, front scenes: 0.79–1.87 (export 0.64–2.36).
+- **Calib-Eye (Genesis 8 base skin: mono SSS, w 0.5, Base Color Effect
+  1, glossy layer) went 1.17 → 1.76** under the rule. None of the eight
+  had mono SSS, so the rule applies to `SSS Mode` 1 only; mono skins keep
+  the older tint with the OpenPBR lift (Calib-Eye 1.17 again).
+- Calib-HDRI's dump is format 1 (old): not re-exported.
+
+## 7. Next (series for a night)
+
+- Dark skins' texture stronger than Iray's: variants without the normal
+  map, without bump, without gloss.
+- Mono-SSS skins (G8F base): Iray probes like Calib-Skin's on a mono skin
+  (the server), then a rule.
+- HDRI hue (Kayo too red, Twosret too blue); Zurie 0.80.
+- Faithful (Standard Surface) on Calib-Skin.
+- Baking speed: about 30–60 s a figure for 4K maps.
+
+## 8. Earlier list
 
 - One hue correction on the baked albedo (≈ 1/0.86, 1/1.20, 1/1.48).
 - Top Coat: its weight map. Then OpenPBR's coat darkening, against
