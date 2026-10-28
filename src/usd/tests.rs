@@ -913,6 +913,8 @@ fn camera_headlamp_when_iray_lights_with_it() {
     assert_eq!(h.lumens, HEADLAMP_LUMENS);
     assert!(headlamp(&mut Library::new(vec![], scene(0, 1)), "Camera", &cam, false).is_some(), "auto, no lights");
     assert!(headlamp(&mut Library::new(vec![], scene(0, 1)), "Camera", &cam, true).is_none(), "auto 1 with lights");
+    assert!(headlamp(&mut Library::new(vec![], scene(0, 2)), "Camera", &cam, true).is_none(), "auto 2 with lights");
+    assert!(headlamp(&mut Library::new(vec![], scene(1, 0)), "Camera", &cam, true).is_some(), "on, with lights");
     assert!(headlamp(&mut Library::new(vec![], scene(0, 0)), "Camera", &cam, false).is_none(), "auto 0");
     assert!(headlamp(&mut Library::new(vec![], scene(2, 2)), "Camera", &cam, false).is_none(), "off");
 }

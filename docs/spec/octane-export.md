@@ -694,6 +694,25 @@ emission units keep their ratios (20 000 lm and 50 W against 5000 cd/m² on
   Transform: DAZ rotation order mapped, scale `1 1 -1` (the disk shines +Z,
   a DAZ spot −Z).
 
+
+**Camera headlamp** (#22, `lights::headlamp`): the point light DAZ puts at
+the render camera, moved by X / Y / Z Headlamp Offset (camera axes), at
+1.7 Mlm × Headlamp Intensity (`HEADLAMP_LUMENS`: Iray lit Calib-Glossy
+without its dome 1.65 – 1.80 × as bright as a 1 Mlm point light there;
+with the dome it adds 10.8 %). When:
+
+| HeadlampMode | Auto Headlamp (render setting) | lit |
+|---|---|---|
+| On | any | always (Calib-L-Point-5k with it 2.67 × as bright) |
+| Auto | 1 or 2 | only in a scene without lights |
+| Auto | 0 | never |
+| Off | any | never |
+
+Auto Headlamp 2 added nothing to Calib-L-Point-5k's point light either
+(Calib-Headlamp-light-a2 = its render without one). Octane / Iray on
+Calib-Headlamp-*: 1.04 – 1.05 with the dome, 1.05 without, 1.00 in the
+scene with a light.
+
 ## Environment
 
 - **Environment Mode** "Dome Only" (1) and "Sun-Sky Only" (2): Iray
@@ -799,8 +818,7 @@ to calibrate on ([calibration](../calibration.md#the-scenes)):
   [#20](https://github.com/vysokyj/orbis/issues/20), hair
   [#16](https://github.com/vysokyj/orbis/issues/16),
   [#42](https://github.com/vysokyj/orbis/issues/42).
-- Lights and camera: headlamp [#22](https://github.com/vysokyj/orbis/issues/22),
-  IES profiles [#34](https://github.com/vysokyj/orbis/issues/34), light
+- Lights and camera: IES profiles [#34](https://github.com/vysokyj/orbis/issues/34), light
   options [#35](https://github.com/vysokyj/orbis/issues/35), lens
   [#39](https://github.com/vysokyj/orbis/issues/39), spots
   [#7](https://github.com/vysokyj/orbis/issues/7).

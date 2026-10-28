@@ -468,6 +468,16 @@ for mode, mname in ((0, 'auto'), (1, 'on'), (2, 'off')):
             name = f"Calib-Headlamp-{mname}-a{auto}{'-noenv' if scene_only else ''}"
             made.append((save(headlamp(mode, auto, scene_only), name), []))
 
+# The headlamp in a scene with lights (Calib-L-Point-5k, from
+# make-light-scenes.py): Auto Headlamp 1 / 2 with HeadlampMode Auto (neither
+# lit in Iray), and HeadlampMode On (lit).
+point = os.path.join(out_dir, 'Calib-L-Point-5k.duf')
+if os.path.exists(point):
+    for mode, auto, name in ((0, 1, 'a1'), (0, 2, 'a2'), (1, 2, 'on')):
+        glossy_was, glossy = glossy, load(point)
+        made.append((save(headlamp(mode, auto, False), f'Calib-Headlamp-light-{name}'), []))
+        glossy = glossy_was
+
 # --- Leaf cards (Calib-Leaf, built headless by daz-build-leaf-scene.dsa):
 # its cards come with DAZ's default shader; give them an Iray Uber material
 # (a copy of the sphere's) and the variants. Done once, on the built scene.

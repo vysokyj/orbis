@@ -46,11 +46,12 @@ pub struct SceneLight {
 pub(super) const HEADLAMP_LUMENS: f64 = 1.7e6;
 
 /// The camera headlamp DAZ adds, as a point light, when Iray lights with it:
-/// HeadlampMode On, or Auto when the render setting "Auto Headlamp" asks
-/// for it (1: when the scene has no lights, 2: always — Calib-Headlamp-*:
-/// 0 never lit, 1 and 2 lit a scene without lights alike; Off never). At
-/// the camera, moved by X / Y / Z Headlamp Offset (cm, camera axes: right,
-/// up, back).
+/// HeadlampMode On always (a scene with a point light 2.67 × as bright),
+/// Auto when the render setting "Auto Headlamp" is 1 or 2 and the scene has
+/// no lights (Calib-Headlamp-*: 0 never lit, 1 and 2 lit a scene without
+/// lights alike, and neither added anything to Calib-L-Point-5k's point
+/// light), Off never. At the camera, moved by X / Y / Z Headlamp Offset (cm,
+/// camera axes: right, up, back).
 pub(super) fn headlamp(lib: &mut Library, label: &str, cam: &SceneCamera, has_lights: bool) -> Option<SceneLight> {
     let nodes = lib.duf.pointer("/scene/nodes").and_then(Value::as_array).cloned().unwrap_or_default();
     let (node, def) = nodes.iter().find_map(|n| {
@@ -65,7 +66,7 @@ pub(super) fn headlamp(lib: &mut Library, label: &str, cam: &SceneCamera, has_li
     let lit = match num("HeadlampMode").unwrap_or(0.0) as i64 {
         1 => true,
         2 => false,
-        _ => auto == 2 || (auto == 1 && !has_lights),
+        _ => (auto == 1 || auto == 2) && !has_lights,
     };
     if !lit {
         return None;
