@@ -1,0 +1,20 @@
+// ORBIS calibration: add Render > ORBIS Iray Queue (daz-render-queue.dsa)
+// to DAZ Studio's menus, once; run in the DAZ Studio instance that should
+// have it, which saves it on quit. Argument: the queue script's path.
+// ECMAScript 3, ASCII only.
+(function () {
+    var sScript = App.scriptArgs[0];
+    var sText = "ORBIS Iray Queue";
+    var oMgr = MainWindow.getActionMgr();
+    for (var i = 0; i < oMgr.getNumCustomActions(); i++) {
+        if (oMgr.getCustomActionText(i) == sText) {
+            oMgr.setCustomActionScript(i, sScript, true);
+            App.delayedExit();
+            return;
+        }
+    }
+    var sGuid = oMgr.addCustomAction(sText, "Render the scenes queued by scripts/dev/iray-queue.sh (ORBIS)", sScript, true, "", "");
+    var oRender = oMgr.getMenu().findSubMenu("&Render");
+    if (oRender) oRender.insertCustomAction(sGuid, -1);
+    App.delayedExit();
+})();

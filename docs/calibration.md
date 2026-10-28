@@ -89,8 +89,10 @@ user's own scenes.
    DAZ Studio launch with a script starts its own instance rather than
    handing the script over. So: start the session, open DAZ Studio, Render
    Settings > Advanced > Bridge — server, username, password from the
-   session, Secure off, Connect, Rendering Enabled — then File > Open
-   `scripts/dev/daz-render-queue.dsa` there (it replaces the open scene).
+   session, Secure off, Connect, Rendering Enabled — then Render > ORBIS
+   Iray Queue (`scripts/dev/daz-render-queue.dsa`; it replaces the open
+   scene). The menu item is added once by `daz-add-queue-menu.dsa` (run
+   in a DAZ Studio instance with the queue script's path as argument).
    `scripts/dev/iray-queue.sh [-s samples] [-o out dir] <scene.duf>…`
    queues capped copies (Max Time 0, as Boost asks) and collects the
    renders into the Iray references; `iray-queue.sh --stop` ends the queue.
