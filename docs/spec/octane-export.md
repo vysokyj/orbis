@@ -526,6 +526,16 @@ Every material input (20007) is filled — Octane doesn't convert
   bright — the curve's linear toe: Calib-Glossy's red (0.45, 0.05, 0.04)
   rendered its green 2.77 × Iray, 0.99 × at gamma 2.2 (its matte sphere
   1.13 → 1.08 in luminance; mid greys move ≤ 2 %).
+- **OOT Hairblending 2** (Outoftouch's hair, a brick graph on Iray Uber's
+  weighted base): the brick without a "Base Mixing" channel reads as Base
+  Mixing 2 (`DzMdlIrayUberWeighted`); its diffuse, translucency and glossy
+  colours each blend in their `… Overlay Color` where `Overlay Alpha Mask`
+  is light (Blend Colors, normal mode) — a Mix texture (`overlaid_pin`).
+  Calib-OOT (Rose Hair, local: DAZ Store content): the crown's hue went
+  from orange (r/g 1.25, b/g 0.59 × Iray: the base layer alone) to
+  1.03 / 0.96; its brightness 2.24 → 0.62 × Iray — Iray's glints (glossy
+  and Top Coat anisotropy 1, the Top Coat's colour maps) are not exported
+  yet (#23, #25).
 - **Howie Farkes's terrain shader** (Grassy Grove's HFGG Terrain, a brick
   graph): the albedo is its diffuse map × its AO map (both tiled with the
   material's Map Tiles) darkened toward `Damp Color` by `Damp Map` (Blend

@@ -589,6 +589,37 @@ impl Ocs<'_> {
         self.pin_close(indent);
     }
 
+    /// A colour map (`tinted_image_pin`) under OOT Hairblending's overlay:
+    /// its `<channel> Overlay Color` blended in where `Overlay Alpha Mask`
+    /// is light (Blend Colors, normal mode — the hair's second colour, tips
+    /// or streaks), as a Mix texture (38). Without an overlay the map alone.
+    /// Only with the mask: Iray Uber's own "Diffuse Overlay Color" is
+    /// another layer (#32).
+    fn overlaid_pin(&mut self, i: usize, pin: &str, mat: &Material, channel: &str, asset: &str, power: f32, tint: [f32; 3]) {
+        let overlay_name = match channel {
+            "diffuse" => "Diffuse Overlay Color",
+            "Translucency Color" => "Translucency Overlay Color",
+            "Glossy Color" => "Glossy Overlay Color",
+            _ => "",
+        };
+        let normal_mode = mat.float("Overlay Mode").unwrap_or(0.0) as i32 == 0;
+        let mask = mat.image("Overlay Alpha Mask").filter(|_| normal_mode && !overlay_name.is_empty()).map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t));
+        let overlay = mat.image(overlay_name).map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t));
+        let (Some(mask), Some(overlay)) = (mask, overlay) else {
+            return self.tinted_image_pin(i, pin, asset, power, tint);
+        };
+        let overlay_tint = mat.color(overlay_name).unwrap_or([1.0; 3]);
+        let id = self.id();
+        self.pin_open(i, pin);
+        let j = i + 1;
+        let _ = writeln!(self.out, "{:j$}<node id='{id}' type='38'>", "");
+        self.image_pin(j + 1, "amount", &mask, true, 2.2, 1.0);
+        self.tinted_image_pin(j + 1, "texture1", asset, power, tint);
+        self.tinted_image_pin(j + 1, "texture2", &overlay, power, overlay_tint);
+        let _ = writeln!(self.out, "{:j$}</node>", "");
+        self.pin_close(i);
+    }
+
     /// Whether a custom terrain shader darkens its diffuse map by an AO map
     /// or wet patches (`damp_ao_albedo`).
     fn has_damp_or_ao(&self, mat: &Material) -> bool {
@@ -1005,7 +1036,7 @@ impl Ocs<'_> {
         } else {
             match diffuse.and_then(|t| self.textures.asset(self.dirs, &t)) {
                 Some(asset) if self.has_damp_or_ao(mat) => self.damp_ao_albedo(i, mat, &asset, diffuse_weight * mix, tint),
-                Some(asset) => self.tinted_image_pin(i, "albedo", &asset, diffuse_weight * mix, tint),
+                Some(asset) => self.overlaid_pin(i, "albedo", mat, "diffuse", &asset, diffuse_weight * mix, tint),
                 None => self.rgb_pin(i, "albedo", mat.base_color().map(|c| c * diffuse_weight)),
             }
         }
@@ -1018,7 +1049,7 @@ impl Ocs<'_> {
             // at 2w).
             let share = if mat.open && !thin { (2.0 * transmit).min(1.0) } else { transmit } * if scatter_transmit { SCATTER_TRANSMIT_TRANSMISSION } else { 1.0 };
             match mat.image("Translucency Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-                Some(asset) => self.tinted_image_pin(i, "transmission", &asset, share, tc),
+                Some(asset) => self.overlaid_pin(i, "transmission", mat, "Translucency Color", &asset, share, tc),
                 None => self.rgb_pin(i, "transmission", tc.map(|c| c * share)),
             }
             // Diffuse (1), or Thin Wall (Diffuse) (3) for a thin-walled sheet:
@@ -1048,7 +1079,7 @@ impl Ocs<'_> {
             // brown gloss rendered as a grey sheen with Universal's white
             // default (Octane1, probe 60).
             if let Some(asset) = mat.image("Glossy Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-                self.tinted_image_pin(i, "specular", &asset, weight, gloss_color);
+                self.overlaid_pin(i, "specular", mat, "Glossy Color", &asset, weight, gloss_color);
             } else if let Some(asset) = mat.image("Glossy Layered Weight").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
                 // The glossy layer's weight map (data) × its weight: the
                 // GSOV4 leather's 0.33 gloss with a seam mask rendered 3.4×
@@ -1668,6 +1699,32 @@ mod tests {
 
     fn mat(chs: serde_json::Value) -> Rc<Material> {
         Rc::new(Material::from_dson(&json!({"extra": [{"channels": chs}]}), &HashMap::new()))
+    }
+
+    #[test]
+    fn oot_overlay_blends_the_second_colour_by_its_mask() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("Runtime/Textures")).unwrap();
+        for f in ["base.png", "over.png", "mask.png"] {
+            std::fs::write(dir.path().join("Runtime/Textures").join(f), b"x").unwrap();
+        }
+        let dirs = vec![dir.path().to_path_buf()];
+        let hair = mat(json!([
+            {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/base.png"}},
+            {"channel": {"id": "Diffuse Overlay Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/over.png"}},
+            {"channel": {"id": "Overlay Alpha Mask", "current_value": [0, 0, 0], "image_file": "/Runtime/Textures/mask.png"}},
+        ]));
+        let (x, _) = material_inputs(&[("Hair".into(), hair, 1.0)], &dirs, HashMap::new(), 9100, SkinShader::None);
+        let albedo = &x[x.find("<pin name='albedo'>").unwrap()..];
+        let albedo = &albedo[..albedo.find("<pin name='specular'>").unwrap_or(albedo.len())];
+        assert!(albedo.contains("type='38'") && albedo.contains("mask.png") && albedo.contains("over.png") && albedo.contains("base.png"), "{albedo}");
+        // Without the mask: Iray Uber's own Diffuse Overlay, not this.
+        let plain = mat(json!([
+            {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/base.png"}},
+            {"channel": {"id": "Diffuse Overlay Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/over.png"}},
+        ]));
+        let (y, _) = material_inputs(&[("Plain".into(), plain, 1.0)], &dirs, HashMap::new(), 9200, SkinShader::None);
+        assert!(!y.contains("type='38'"), "{y}");
     }
 
     #[test]

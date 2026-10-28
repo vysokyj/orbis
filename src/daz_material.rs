@@ -68,6 +68,7 @@ impl Material {
                 }
             }
         }
+        let mut weighted_brick = false;
         for e in m.get("extra").and_then(Value::as_array).into_iter().flatten() {
             for c in e.get("channels").and_then(Value::as_array).into_iter().flatten() {
                 if let Some(c) = c.get("channel") {
@@ -82,7 +83,14 @@ impl Material {
                         self.mdl.push(f);
                     }
                 }
+                // A brick graph on Iray Uber's weighted base (OOT
+                // Hairblending's hair) has no "Base Mixing" channel: the
+                // brick is the mixing mode.
+                weighted_brick |= json_contains(e, "DzMdlIrayUberWeighted");
             }
+        }
+        if weighted_brick && !self.channels.contains_key("Base Mixing") {
+            self.channels.insert("Base Mixing".into(), Channel { value: Value::from(2), image: None });
         }
     }
 
@@ -216,6 +224,16 @@ pub fn colour_to_linear(c: f32) -> f32 {
     c.max(0.0).powf(2.2)
 }
 
+/// Whether any string in `v` is `needle`.
+fn json_contains(v: &Value, needle: &str) -> bool {
+    match v {
+        Value::String(s) => s == needle,
+        Value::Array(a) => a.iter().any(|x| json_contains(x, needle)),
+        Value::Object(o) => o.values().any(|x| json_contains(x, needle)),
+        _ => false,
+    }
+}
+
 /// The MDL materials a brick graph names: an "MDL Callable" property
 /// (`nvidia::metal_examples::cast_iron`) or a module path with a fragment
 /// (`nvidia/metal_examples.mdl#metal_brushed`), as `module::name`.
@@ -285,6 +303,15 @@ pub fn layered_images(doc: &Value) -> HashMap<String, crate::layered_image::Laye
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_weighted_uber_brick_means_weighted_base_mixing() {
+        let def = serde_json::json!({"extra": [{"type": "studio/material/daz_brick", "brick_settings": {"Bricks": {"Brick_3": {"DAZStudioClassName": "DzMdlIrayUberWeighted"}}}}]});
+        let m = Material::from_dson(&def, &HashMap::new());
+        assert_eq!(m.float("Base Mixing"), Some(2.0));
+        let plain = Material::from_dson(&serde_json::json!({"extra": [{"type": "studio/material/daz_brick"}]}), &HashMap::new());
+        assert_eq!(plain.float("Base Mixing"), None);
+    }
+
     use super::*;
     use serde_json::json;
 
