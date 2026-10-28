@@ -410,13 +410,21 @@ Every material input (20007) is filled — Octane doesn't convert
   w 0.5 / 1 rendered 1.6 – 1.7 / 3.2 × Iray and Calib-PBRSkin's Gladio cloth
   1.72; with it 0.91 – 0.96 and 1.23 (its neighbours 1.14 – 1.26), the two
   types alike on closed spheres. On P8 (metallic 0.75) the transmission
-  swallowed the metal (0.23 × Iray). Nor on a figure's thin-walled
-  surfaces (the Genesis EyeSocket: the head behind it, nothing comes
-  through; clothing alike, unmeasured — #45). The **EyeSocket** keeps
-  `albedo` × (1 − w) × 0.41 (`THIN_SKIN_DIFFUSE`): Iray reflects that share
-  of its diffuse at any w — the caruncle at w 0.3 / 0.65 0.287 / 0.143 of
-  its w 0 render — and at the full diffuse it rendered 4.6 × Iray; now
-  0.94 (Calib-Eye, #20). An **open sheet** that isn't
+  swallowed the metal (0.23 × Iray). Thin-walled or not, figure or prop
+  alike — Iray knows only the material: Calib-Thin's thin-walled cards (w
+  0 / 0.3 / 0.5 / 0.65, Translucency Color white / the diffuse / dark, lit
+  from the front with the dark behind them or from behind) 0.89 – 1.06 ×
+  Iray; scaling the albedo (× 0.44 – 0.7) or the transmission (× 1.5 – 2)
+  only did worse. **Base Color Effect 1** (Scatter & Transmit) changes
+  it: Iray reflects 0.4 of that diffuse and passes twice the translucency
+  (`SCATTER_TRANSMIT_DIFFUSE` / `_TRANSMISSION`) — the same cards 0.98 –
+  1.02 ×, at the default shares 1.8 – 2.5 ×. The share is a scalar (each
+  channel 0.40 – 0.41), not the base colour again (× D on the
+  transmission: 0.28 – 0.95). The Genesis EyeSocket is such a material: its
+  caruncle rendered 4.6 × Iray, now 1.00 (Calib-Eye, #20). Found by
+  switching the EyeSocket's other channels off one at a time in Iray on the
+  cards (SSS Amount / Direction / Tint, Transmitted Color, its gloss, Top
+  Coat, Invert Transmission Normal: no change). An **open sheet** that isn't
   thin-walled (a material whose faces have an edge no other face of the mesh
   shares: cards, leaves, a cloak) passes Tc × min(2w, 1): Iray lit
   Calib-Leaf's backlit card 1.9 × its thin-walled twin, Octane rendered them

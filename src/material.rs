@@ -765,16 +765,15 @@ impl Ocs<'_> {
         // 0.91 – 0.96 and 1.23 (like its neighbours). Not on metal (the
         // transmission swallowed P8's metallic 0.75: 0.23) nor in weighted
         // mixing, whose weights `weighted_mix` already shares out.
-        // Nor on a figure's thin-walled skin (the Genesis EyeSocket): with
-        // the head behind it nothing comes through, and the corners of the
-        // eyes went dark (Calib-Hair, #20).
-        let transmit = if metal || refractive || (thin && !mat.prop) || mat.float("Base Mixing").unwrap_or(0.0) as i32 == 2 { 0.0 } else { translucency.min(self.max_transmission) };
-        // The Genesis EyeSocket still reflects less of its diffuse: Iray
-        // keeps (1 − w) × 0.41 of it at any translucency w (the caruncle:
-        // 0.287 at w 0.3, 0.143 at 0.65; Calib-Eye, #20) — at the full
-        // diffuse it rendered 4.6 × Iray. Measured on the socket only.
-        let thin_skin = thin && !mat.prop && !metal && !refractive && translucency > 0.0 && is_eye_socket(name);
-        let diffuse_weight = (1.0 - refraction) * (1.0 - transmit) * if thin_skin { (1.0 - translucency) * THIN_SKIN_DIFFUSE } else { 1.0 };
+        let transmit = if metal || refractive || mat.float("Base Mixing").unwrap_or(0.0) as i32 == 2 { 0.0 } else { translucency.min(self.max_transmission) };
+        // Base Color Effect 1 (Scatter & Transmit): Iray reflects 0.4 of
+        // that diffuse and passes twice the translucency — Calib-Thin's
+        // cards (thin-walled, w 0.3 – 0.65, Translucency Color white /
+        // the diffuse / dark, lit from the front or behind) 0.98 – 1.02 ×
+        // Iray; at the default shares 1.8 – 2.5 ×. The Genesis EyeSocket's
+        // caruncle is such a surface (#20, #45).
+        let scatter_transmit = transmit > 0.0 && mat.float("Base Color Effect").unwrap_or(0.0) as i32 == 1;
+        let diffuse_weight = (1.0 - refraction) * (1.0 - transmit) * if scatter_transmit { SCATTER_TRANSMIT_DIFFUSE } else { 1.0 };
 
         // Iray "Base Mixing" 1 (specular/glossiness) ignores Metallic Weight;
         // a black base under a strong white gloss there is a mirror —
@@ -823,7 +822,7 @@ impl Ocs<'_> {
             // passes twice as much in Iray: Calib-Leaf's card 0.48 × Iray at
             // w, 0.81 at min(2w, 1); a closed sphere stays at w (1.25 – 1.38
             // at 2w).
-            let share = if mat.open && !thin { (2.0 * transmit).min(1.0) } else { transmit };
+            let share = if mat.open && !thin { (2.0 * transmit).min(1.0) } else { transmit } * if scatter_transmit { SCATTER_TRANSMIT_TRANSMISSION } else { 1.0 };
             match mat.image("Translucency Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
                 Some(asset) => self.tinted_image_pin(i, "transmission", &asset, share, tc),
                 None => self.rgb_pin(i, "transmission", tc.map(|c| c * share)),
@@ -999,17 +998,14 @@ fn is_eye(name: &str) -> bool {
     ["iris", "irises", "pupil", "sclera"].iter().any(|e| n.ends_with(e) || n.ends_with(&format!("{e}s")) || n.contains(&format!("_{e}")))
 }
 
-/// A figure's eye socket by its material name (Genesis 3 / 8 / 9: EyeSocket).
-fn is_eye_socket(name: &str) -> bool {
-    name.to_ascii_lowercase().ends_with("eyesocket")
-}
-
 /// See the roughness in `universal`.
 const REFRACTION_ROUGHNESS_SCALE: f32 = 0.3;
 
-/// The diffuse that a figure's thin-walled translucent skin (the EyeSocket)
-/// reflects in Iray beyond its 1 − Translucency Weight. See `universal`.
-const THIN_SKIN_DIFFUSE: f32 = 0.41;
+/// Iray's Base Color Effect 1 (Scatter & Transmit) on a translucent
+/// surface: its diffuse and its translucency as Universal's albedo and
+/// transmission shares. See `universal`.
+const SCATTER_TRANSMIT_DIFFUSE: f32 = 0.4;
+const SCATTER_TRANSMIT_TRANSMISSION: f32 = 2.0;
 
 /// Universal's `coatingIor` for Iray's Top Coat. Layering Mode 0
 /// (Reflectivity, the most common: the cornea, 2128 materials in My
@@ -1526,13 +1522,21 @@ mod tests {
             {"channel": {"id": "Translucency Weight", "current_value": 0.3}},
             {"channel": {"id": "Thin Walled", "current_value": true}},
         ]));
-        let (tx, _) = material_inputs(&[("Shirt".into(), shirt.clone(), 1.0)], &dirs, HashMap::new(), 8700, SkinShader::StandardSurface);
+        let (tx, _) = material_inputs(&[("Shirt".into(), shirt, 1.0)], &dirs, HashMap::new(), 8700, SkinShader::StandardSurface);
         assert!(tx.contains("type='130'"), "thin-walled fabric stays Universal");
-        // The same as a figure's eye socket reflects (1 − 0.3) × 0.41 of its
-        // diffuse map; the shirt all of it.
-        let (ex, _) = material_inputs(&[("Genesis_8_Female_EyeSocket".into(), shirt, 1.0)], &dirs, HashMap::new(), 8720, SkinShader::StandardSurface);
+        // With Base Color Effect 1 (Scatter & Transmit) it reflects 0.4 of
+        // its 1 − 0.3 diffuse and passes 2 × 0.3.
+        let scatter = mat(json!([
+            {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}},
+            {"channel": {"id": "Translucency Weight", "current_value": 0.3}},
+            {"channel": {"id": "Thin Walled", "current_value": true}},
+            {"channel": {"id": "Base Color Effect", "current_value": 1}},
+        ]));
+        let (ex, _) = material_inputs(&[("Socket".into(), scatter, 1.0)], &dirs, HashMap::new(), 8720, SkinShader::StandardSurface);
         let power = |x: &str| x[x.find("<pin name='albedo'>").unwrap()..].split("<pin name='power'>").nth(1).unwrap().split("</attr>").next().unwrap().rsplit('>').next().unwrap().to_string();
-        assert_eq!((power(&tx), power(&ex)), ("1".to_string(), "0.287".to_string()), "{ex}");
+        let transmission = |x: &str| x[x.find("<pin name='transmission'>").unwrap()..].split("</attr>").next().unwrap().rsplit('>').next().unwrap().to_string();
+        assert_eq!((power(&tx), power(&ex)), ("0.7".to_string(), "0.28".to_string()), "{ex}");
+        assert_eq!((transmission(&tx), transmission(&ex)), ("0.3 0.3 0.3".to_string(), "0.6 0.6 0.6".to_string()), "{ex}");
         let cloak = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}},
             {"channel": {"id": "Translucency Weight", "current_value": 0.5}},
