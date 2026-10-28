@@ -166,11 +166,71 @@ Results:
 - If the connection drops, DAZ renders on the CPU without a word: watch the
   render times.
 
-## 4. Next
+## 4. Octane's random walk on primitives; the Tc² model
 
-- Measure Octane's random-walk transfer on primitives: OpenPBR SSS spheres
-  over a grid of colours, radii and weights, with no maps. Octane only,
-  minutes a round. Then invert it.
-- Combine that with Iray's model above and the gloss fix, and verify on
-  all 48 scenes.
+**The tool.** `scripts/dev/sss-response.py` replaces Calib-SSS's eight
+sphere materials:
+- greys 0.05–0.8 and two skin tones;
+- as a matte Universal, as OpenPBR without subsurface, and with full
+  subsurface (skin radius, white radius, ×5 radius, weight 0.5);
+- one Octane round takes ~4 min.
+
+**OpenPBR without subsurface** = Universal (1.00).
+
+**Full subsurface at the skin radius** (1.1 mm, scale 1 / 0.43 / 0.39)
+renders a colour a as a · T(a):
+
+| a | 0.05 | 0.1 | 0.2 | 0.4 | 0.6 | 0.8 |
+|---|---|---|---|---|---|---|
+| R (longest radius) | 0.95 | 0.93 | 0.92 | 0.84 | 0.73 | 0.59 |
+| G / B (radius ~0.4) | 0.68 | 0.71 | 0.73 | 0.73 | 0.61 | 0.50 |
+
+- The skin tones fall on the same curves.
+- White radius: 0.90 → 0.55.
+- ×5 radius: 1.0–1.1 → 0.63.
+- Weight 0.5: flat 0.67–0.73 whatever the colour.
+
+**On the faces, the sphere's inverse overshoots.** Inverting T made the
+figures 20–45 % less red than Iray: G and B lose less on a face than on
+the slab.
+
+**Iray: the subsurface part is w · k · Tc², not c · D · Tc.**
+- c had seemed to fall with the material's brightness. Estimated from
+  whole-map means it misled: the padding outside the UV islands puts
+  Monique's maps at lum 0.144, her skin at ~0.03.
+- k = S / Tc² on all eight figures:
+
+  | | R | G | B |
+  |---|---|---|---|
+  | range | 0.45–0.65 | 0.44–0.66 | 0.27–0.63 |
+  | mean | ~0.58 | ~0.54 | ~0.45 |
+
+- It matches Victoria's probe: a white diffuse map left S unchanged.
+
+**Octane with albedo = (1 − w)^1.3 · D + w · 0.55 · Tc²** (baked per
+texel, subsurface 1, gloss as Universal's, no inverse):
+- Y 0.91–1.23 on six figures.
+- Out of line: Gabriela 0.66, Monique 1.64.
+- Hue the same on every figure: Octane / Iray 0.86 / 1.20 / 1.48 per
+  channel, one correction.
+- Gabriela has Top Coat 1 with a weight map. The export ignores the map
+  (coating 1 everywhere), and OpenPBR's coat darkens the base where
+  Universal's doesn't.
+- Monique's very dark skin is mostly gloss: the dual lobe as one OpenPBR
+  lobe.
+
+**State.** The trial code is behind environment variables and
+uncommitted in `src/material.rs`:
+- `ORBIS_TMP_SKIN`: the baked albedo, with `_P` / `_K` / `_NOINV`;
+- `ORBIS_TMP_SPEC`: the gloss as Universal's.
+
+## 5. Next
+
+- One hue correction on the baked albedo (≈ 1/0.86, 1/1.20, 1/1.48).
+- Top Coat: its weight map. Then OpenPBR's coat darkening, against
+  Universal's.
+- The dual lobe as two lobes in OpenPBR (specular + coating?), for dark
+  skins.
+- Then verify on all 48 scenes and Calib-Eye, and replace the trial code
+  with the rule.
 - The skin sphere (Universal translucency on a prop) separately.
