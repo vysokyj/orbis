@@ -526,6 +526,13 @@ Every material input (20007) is filled — Octane doesn't convert
   bright — the curve's linear toe: Calib-Glossy's red (0.45, 0.05, 0.04)
   rendered its green 2.77 × Iray, 0.99 × at gamma 2.2 (its matte sphere
   1.13 → 1.08 in luminance; mid greys move ≤ 2 %).
+- **Howie Farkes's terrain shader** (Grassy Grove's HFGG Terrain, a brick
+  graph): the albedo is its diffuse map × its AO map (both tiled with the
+  material's Map Tiles) darkened toward `Damp Color` by `Damp Map` (Blend
+  Colors, multiply) — the damp map's tiler has no frequency of its own, so
+  it spans the terrain once (`damp_ao_albedo`). Its large wet patches are
+  the ground's texture in Iray: left out, Gladiator's ground showed only the
+  tiled detail (before the tiling was read, only the untiled diffuse map).
 - **Layered images** are flattened into one PNG per stack.
 
 ### Skin — Standard Surface (277), Final only

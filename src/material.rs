@@ -589,6 +589,64 @@ impl Ocs<'_> {
         self.pin_close(indent);
     }
 
+    /// Whether a custom terrain shader darkens its diffuse map by an AO map
+    /// or wet patches (`damp_ao_albedo`).
+    fn has_damp_or_ao(&self, mat: &Material) -> bool {
+        mat.image("AO Texture Map").is_some() || (mat.image("Damp Map").is_some() && mat.color("Damp Color").is_some())
+    }
+
+    /// Howie Farkes's terrain shader (Grassy Grove's HFGG Terrain): the
+    /// diffuse map × its AO map, both tiled with the material, darkened
+    /// toward `Damp Color` by `Damp Map` (Blend Colors, multiply) — whose
+    /// tiler has no frequency of its own, so it spans the terrain once. Its
+    /// large wet patches are the ground's texture in Iray; left out,
+    /// Gladiator's ground showed only the tiled detail.
+    fn damp_ao_albedo(&mut self, i: usize, mat: &Material, diffuse: &str, power: f32, tint: [f32; 3]) {
+        let ao = mat.image("AO Texture Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t));
+        let multiply_mode = mat.float("Damp Blend Mode").unwrap_or(2.0) as i32 == 2;
+        let damp = mat.image("Damp Map").filter(|_| multiply_mode).map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t));
+        let damp_colour = mat.color("Damp Color").unwrap_or([1.0; 3]);
+        // Multiply(diffuse, Multiply(AO, Mix(white, damp colour, damp map))),
+        // the parts left out when missing.
+        let open_multiply = |w: &mut Self, indent: usize, pin: &str| {
+            let id = w.id();
+            w.pin_open(indent, pin);
+            let _ = writeln!(w.out, "{:j$}<node id='{id}' type='39'>", "", j = indent + 1);
+        };
+        let close = |w: &mut Self, indent: usize| {
+            let _ = writeln!(w.out, "{:j$}</node>", "", j = indent + 1);
+            w.pin_close(indent);
+        };
+        let damp_pin = |w: &mut Self, indent: usize, pin: &str, damp: &str| {
+            let id = w.id();
+            w.pin_open(indent, pin);
+            let j = indent + 1;
+            let _ = writeln!(w.out, "{:j$}<node id='{id}' type='38'>", "");
+            let tiling = w.tiling.take();
+            w.image_pin(j + 1, "amount", damp, true, 2.2, 1.0);
+            w.tiling = tiling;
+            w.rgb_pin(j + 1, "texture1", [1.0; 3]);
+            w.rgb_pin(j + 1, "texture2", damp_colour);
+            let _ = writeln!(w.out, "{:j$}</node>", "");
+            w.pin_close(indent);
+        };
+        open_multiply(self, i, "albedo");
+        let j = i + 2;
+        self.tinted_image_pin(j, "texture1", diffuse, power, tint);
+        match (&ao, &damp) {
+            (Some(ao), Some(damp)) => {
+                open_multiply(self, j, "texture2");
+                self.image_pin(j + 2, "texture1", ao, false, 2.2, 1.0);
+                damp_pin(self, j + 2, "texture2", damp);
+                close(self, j);
+            }
+            (Some(ao), None) => self.image_pin(j, "texture2", ao, false, 2.2, 1.0),
+            (None, Some(damp)) => damp_pin(self, j, "texture2", damp),
+            (None, None) => self.rgb_pin(j, "texture2", [1.0; 3]),
+        }
+        close(self, i);
+    }
+
     /// A colour map scaled by `power` and multiplied by Iray's colour `tint`:
     /// a grey tint folds into the image's power, a coloured one goes through
     /// a Multiply texture (39) — as a scalar, a grey strand map × brown
@@ -946,6 +1004,7 @@ impl Ocs<'_> {
             self.rgb_pin(i, "albedo", gloss_color);
         } else {
             match diffuse.and_then(|t| self.textures.asset(self.dirs, &t)) {
+                Some(asset) if self.has_damp_or_ao(mat) => self.damp_ao_albedo(i, mat, &asset, diffuse_weight * mix, tint),
                 Some(asset) => self.tinted_image_pin(i, "albedo", &asset, diffuse_weight * mix, tint),
                 None => self.rgb_pin(i, "albedo", mat.base_color().map(|c| c * diffuse_weight)),
             }
@@ -1609,6 +1668,34 @@ mod tests {
 
     fn mat(chs: serde_json::Value) -> Rc<Material> {
         Rc::new(Material::from_dson(&json!({"extra": [{"channels": chs}]}), &HashMap::new()))
+    }
+
+    #[test]
+    fn terrain_damp_and_ao_darken_the_tiled_diffuse() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("Runtime/Textures")).unwrap();
+        for f in ["d.png", "ao.png", "damp.png"] {
+            std::fs::write(dir.path().join("Runtime/Textures").join(f), b"x").unwrap();
+        }
+        let dirs = vec![dir.path().to_path_buf()];
+        let terrain = mat(json!([
+            {"channel": {"id": "Diffuse Texture Map", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/d.png"}},
+            {"channel": {"id": "AO Texture Map", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/ao.png"}},
+            {"channel": {"id": "Damp Map", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/damp.png"}},
+            {"channel": {"id": "Damp Color", "current_value": [0.45, 0.42, 0.36]}},
+            {"channel": {"id": "Damp Blend Mode", "current_value": 2}},
+            {"channel": {"id": "Map Horizontal Tiles", "current_value": 20}},
+            {"channel": {"id": "Map Vertical Tiles", "current_value": 20}},
+        ]));
+        let (x, _) = material_inputs(&[("Terrain".into(), terrain, 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+        let albedo = &x[x.find("<pin name='albedo'>").unwrap()..x.find("<pin name='specular'>").unwrap_or(x.len())];
+        // Multiply(diffuse, Multiply(AO, Mix(white, damp colour, damp map))).
+        assert_eq!(albedo.matches("type='39'").count(), 2, "{albedo}");
+        assert!(albedo.contains("type='38'"), "{albedo}");
+        // The diffuse and AO maps tiled 20×, the damp map once.
+        let damp = &albedo[albedo.find("damp.png").unwrap()..];
+        assert_eq!(albedo[..albedo.find("damp.png").unwrap()].matches("0.05 0.05 1").count(), 2, "{albedo}");
+        assert!(!damp[..damp.find("</node>").unwrap()].contains("0.05 0.05 1"), "{albedo}");
     }
 
     #[test]
