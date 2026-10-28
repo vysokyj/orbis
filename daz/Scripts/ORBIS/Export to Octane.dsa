@@ -56,9 +56,42 @@
         return;
     }
 
+    // --batch <scene.duf> <out dir> (then the content directories): the
+    // whole export unattended — the saved options instead of the dialog,
+    // <out dir>/orbis-batch.txt instead of the report — then quit
+    // (scripts/dev/daz-export-batch.sh).
+    var bBatch = aScriptArgs.length >= 3 && aScriptArgs[0] == "--batch";
+    var sBatchOut = bBatch ? aScriptArgs[2] : "";
+    if (bBatch) {
+        for (var b = 3; b < aScriptArgs.length; b++) {
+            App.getContentMgr().addContentDirectory(aScriptArgs[b], false);
+        }
+        App.getContentMgr().openFile(aScriptArgs[1], false);
+    }
+    // A message to the user, or in batch mode a line of the result file.
+    var aBatch = [];
+    function tell(sText, bError) {
+        if (bBatch) {
+            aBatch.push((bError ? "error: " : "") + sText);
+        } else if (bError) {
+            MessageBox.critical(sText, sTitle, "&OK");
+        } else {
+            MessageBox.information(sText, sTitle, "&OK");
+        }
+    }
+    function finishBatch() {
+        if (!bBatch) return;
+        var oFile = new DzFile(sBatchOut + "/orbis-batch.txt");
+        oFile.open(DzFile.WriteOnly | DzFile.Truncate);
+        oFile.write(aBatch.join("\n") + "\n");
+        oFile.close();
+        App.delayedExit();
+    }
+
     // ── The binary ────────────────────────────────────────────────────────
     if (!new DzFileInfo(sBin).exists()) {
-        MessageBox.critical("The orbis binary is missing:\n" + sBin + "\n\nReinstall ORBIS (orbis install).", sTitle, "&OK");
+        tell("The orbis binary is missing:\n" + sBin + "\n\nReinstall ORBIS (orbis install).", true);
+        finishBatch();
         return;
     }
 
@@ -72,7 +105,7 @@
         faithful: oSettings.getBoolValue("faithful", false),
         denoise: oSettings.getBoolValue("denoise", true)
     };
-    if (!optionsDialog(oOptions)) {
+    if (!bBatch && !optionsDialog(oOptions)) {
         return;
     }
     oSettings.setBoolValue("besideScene", oOptions.besideScene);
@@ -89,14 +122,17 @@
     // (UltraScatter rebuilds its instances on load). Scene.saveScene()
     // without a name and File > Save's action both ask in DAZ Studio 6, and
     // the action runs only after the script has finished.
-    if (!Scene.getFilename()) {
+    if (bBatch) {
+        // The file as it is on disk: batch mode never writes the scene.
+    } else if (!Scene.getFilename()) {
         Scene.saveScene();
     } else if (Scene.needsSave()) {
         Scene.saveScene(Scene.getFilename());
     }
     var sScene = Scene.getFilename();
-    if (!sScene || Scene.needsSave()) {
-        MessageBox.information("The scene is not saved - the export reads the saved .duf.", sTitle, "&OK");
+    if (!sScene || (!bBatch && Scene.needsSave())) {
+        tell("The scene is not saved - the export reads the saved .duf.", false);
+        finishBatch();
         return;
     }
 
@@ -110,13 +146,14 @@
     if (sError) {
         finishProgress();
         if (sError != "cancelled") {
-            MessageBox.critical("Could not dump the scene:\n" + sError, sTitle, "&OK");
+            tell("Could not dump the scene:\n" + sError, true);
         }
+        finishBatch();
         return;
     }
 
     // ── Export ────────────────────────────────────────────────────────────
-    var sOutDir = oOptions.besideScene ? new DzFileInfo(sScene).path() : oOptions.outputDir;
+    var sOutDir = bBatch ? sBatchOut : oOptions.besideScene ? new DzFileInfo(sScene).path() : oOptions.outputDir;
     var aArgs = [sBin, "export", sScene, "--dump", sDump, "--out-dir", sOutDir];
     if (oOptions.preview) aArgs.push("--preview");
     if (!oOptions.ground) aArgs.push("--no-ground");
@@ -130,14 +167,23 @@
     var oResult = run(aArgs, true);
     finishProgress();
     if (oResult.cancelled) {
+        finishBatch();
         return;
     }
 
-    if (oResult.ok) {
+    if (bBatch) {
+        aBatch.push(oResult.ok ? "ok" : "error: the export failed");
+        aBatch.push(oResult.out);
+        aBatch.push("stderr bytes: " + oResult.err.length);
+        // DzFile writes this file in the local 8-bit codec too: whether the
+        // report came through as Unicode, said in ASCII.
+        aBatch.push("unicode arrow decoded: " + (oResult.out.indexOf("\u2192") >= 0));
+    } else if (oResult.ok) {
         showReport(oResult.out);
     } else {
         MessageBox.critical("The export failed.\n\n" + oResult.out + "\n" + oResult.err, sTitle, "&OK");
     }
+    finishBatch();
 
     // ── Functions ─────────────────────────────────────────────────────────
 
@@ -571,9 +617,22 @@
             return { ok: false, cancelled: false, out: "", err: "Could not start " + aArgs[0] };
         }
         // `progress: <percent> <what>` lines drive the progress bar.
+        // stderr too, while it runs: orbis logs there, and a full pipe would
+        // stall it (a big scene's warnings).
+        var aErr = [];
+        // DzProcess reads stdout in the local 8-bit codec (a path's arrow
+        // came out "?"): orbis --progress writes anything past ASCII as
+        // \uXXXX, decoded here; lines also keep their newline.
+        var utf8 = function (s) {
+            return s.replace(/\\u([0-9a-fA-F]{4})/g, function (m, h) {
+                return String.fromCharCode(parseInt(h, 16));
+            });
+        };
         var drain = function () {
+            var sChunk = String(oProcess.readStderr());
+            if (sChunk) aErr.push(utf8(sChunk));
             while (oProcess.canReadLineStdout()) {
-                var sLine = String(oProcess.readLineStdout());
+                var sLine = utf8(String(oProcess.readLineStdout())).replace(/[\r\n]+$/, "");
                 var aMatch = /^progress: (\d+) (.*)/.exec(sLine);
                 if (aMatch) {
                     progressTo(200 + Number(aMatch[1]));
@@ -599,7 +658,7 @@
             sleep(100);
         }
         drain();
-        var sErr = String(oProcess.readStderr());
+        var sErr = aErr.join("");
         print(sTitle + ": " + aOut.join("\n"));
         if (sErr) print(sTitle + " (stderr): " + sErr);
         return {

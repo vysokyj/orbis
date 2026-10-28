@@ -125,12 +125,16 @@ fn main() -> Result<()> {
                 },
                 no_denoise,
                 progress: if progress {
-                    usd::Progress::new(|percent, what| println!("progress: {percent} {what}"))
+                    usd::Progress::new(|percent, what| println!("progress: {percent} {}", script_safe(what)))
                 } else {
                     usd::Progress::default()
                 },
             };
-            println!("exporting {} → {}", scene.display(), out.display());
+            // For the DAZ script (`--progress`): DzProcess reads stdout in the
+            // local 8-bit codec, so anything past ASCII ("→", accented paths)
+            // goes as \uXXXX, which the script decodes.
+            let say = |line: String| println!("{}", if progress { script_safe(&line) } else { line });
+            say(format!("exporting {} → {}", scene.display(), out.display()));
             let t = Instant::now();
             let orbx = out.extension().is_some_and(|e| e.eq_ignore_ascii_case("orbx"));
             let r = if orbx {
@@ -138,7 +142,7 @@ fn main() -> Result<()> {
             } else {
                 usd::export_scene_usdz(&scene, &dump, &out, &opts)?
             };
-            println!(
+            say(format!(
                 "{} meshes, {} instances, {} points, {} faces, {} textures ({} missing), {} render targets in {:.1?}",
                 r.meshes,
                 r.instances,
@@ -148,18 +152,43 @@ fn main() -> Result<()> {
                 r.missing_textures.len(),
                 r.render_targets,
                 t.elapsed()
-            );
+            ));
             if let Some(limit) = r.texture_limit {
-                println!("textures over the memory budget: {} scaled to {limit} px", r.textures_scaled);
+                say(format!("textures over the memory budget: {} scaled to {limit} px", r.textures_scaled));
             }
             for s in &r.skipped {
-                println!("skipped: {s}");
+                say(format!("skipped: {s}"));
             }
             for t in &r.missing_textures {
-                println!("missing texture: {t}");
+                say(format!("missing texture: {t}"));
             }
-            println!("done: {}", out.display());
+            say(format!("done: {}", out.display()));
             Ok(())
         }
+    }
+}
+
+/// `line` with every non-ASCII character as `\uXXXX` (UTF-16, so a pair
+/// past U+FFFF), for the DAZ script's DzProcess (see `Command::Export`).
+fn script_safe(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    for c in line.chars() {
+        if c.is_ascii() {
+            out.push(c);
+        } else {
+            let mut units = [0u16; 2];
+            for u in c.encode_utf16(&mut units) {
+                out.push_str(&format!("\\u{u:04x}"));
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn script_safe_escapes_past_ascii() {
+        assert_eq!(super::script_safe("a → é 😀"), "a \\u2192 \\u00e9 \\ud83d\\ude00");
     }
 }

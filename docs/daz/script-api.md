@@ -76,6 +76,11 @@ nodes without geometry).
   `start()`, `running` (property; older builds `isRunning()`), `canReadLineStdout()` /
   `readLineStdout()`, `readStderr()`, `normalExit`, `exitStatus`;
   `writeToStdin(str)` / `closeStdin()` (#2).
+- DzProcess reads the child's output in the local 8-bit codec: UTF-8 past
+  ASCII arrives as "?" (unrecoverable), so `orbis --progress` writes it as
+  `\uXXXX` and the script decodes. `readLineStdout()` keeps the newline.
+  Drain `readStderr()` while the process runs too — a full pipe stalls the
+  child. `DzFile.write` writes in the same 8-bit codec.
 
 ## Dialogs and settings
 

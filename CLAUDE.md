@@ -25,6 +25,7 @@ python3 scripts/dev/calib-render.py [--auto-ev] <scene.duf>...   # Iray referenc
 DONE_FILE=<out>.done scripts/dev/daz-script.sh scripts/dev/daz-build-leaf-scene.dsa <Calib-L-Distant-45.duf> <Iray Uber Base.duf> <out>   # Calib-Leaf (then make-calib-scenes.py tunes its cards)
 DONE_FILE=<out>.done scripts/dev/daz-script.sh scripts/dev/daz-build-sundir-scene.dsa <Calib-L-Mode-SunSky-off.duf> <out>   # Calib-L-Mode-SunSky-dir (sun steered by a node)
 scripts/dev/iray-queue.sh [-s samples] <scene.duf>...   # Iray Server renders via daz-render-queue.dsa in the connected DAZ (docs/calibration.md)
+scripts/dev/daz-export-batch.sh <scene.duf> <out dir>   # the installed DAZ script's whole export unattended (--batch: saved options, DzProcess, report to orbis-batch.txt)
 scripts/dev/daz-dump.sh <out dir> <scene.duf>...   # headless DAZ dump (the ORBIS script's --dump) + orbis export
 python3 scripts/dev/orbx-variants.py <in.orbx> <out dir> <hypothesis>...   # material-pin variants of an export (gloss-2r, gloss-ior, dl-ior)
 scripts/dev/calib-variants.sh all -- <scene>...   # export (cached dumps) + render + report per variant (Look × mode)
