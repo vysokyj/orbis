@@ -20,8 +20,15 @@ SPHERES = ['S1_opaque', 'S2_transl_0_5', 'S3_transl_1', 'S4_thin_walled', 'S7_ch
 # Linear colours, one per sphere: greys, then two skin tones (light, dark).
 COLOURS = [(0.05,) * 3, (0.1,) * 3, (0.2,) * 3, (0.4,) * 3, (0.6,) * 3, (0.8,) * 3, (0.6, 0.35, 0.25), (0.15, 0.07, 0.04)]
 SKIN_RADIUS = (0.001092, (1.0, 0.425, 0.389))   # m, per-channel scale (Monique's export)
+GLOSS = dict(specular=0.65, roughness=0.3)
+COAT = dict(coating=1.0, coatingRoughness=0.0016, coatingIor=1.432)
 VARIANTS = {
     'uni': None,                                             # matte Universal
+    'uni-gloss': dict(universal=True, **GLOSS),
+    'pbr-gloss': dict(subsurface=0.0, radius=SKIN_RADIUS, **GLOSS),
+    'uni-coat': dict(universal=True, **GLOSS, **COAT),
+    'pbr-coat': dict(subsurface=0.0, radius=SKIN_RADIUS, **GLOSS, **COAT),
+    'pbr-coat-nodark': dict(subsurface=0.0, radius=SKIN_RADIUS, **GLOSS, **COAT, coatingDarkening=0.0),
     'pbr': dict(subsurface=0.0, radius=SKIN_RADIUS),         # OpenPBR, no subsurface
     'sss': dict(subsurface=1.0, radius=SKIN_RADIUS),         # skin radius
     'sss-white': dict(subsurface=1.0, radius=(0.001092, (1.0, 1.0, 1.0))),
@@ -46,14 +53,16 @@ def flt(x):
 
 def material(name, colour, v):
     nid[0] += 1
-    if v is None:
-        pins = {'albedo': rgb(colour), 'specular': rgb((0, 0, 0)), 'roughness': flt(0)}
+    extra = {k: flt(v[k]) for k in ('coating', 'coatingRoughness', 'coatingIor', 'coatingDarkening') if v and k in v}
+    if v is None or v.get('universal'):
+        spec = v.get('specular', 0) if v else 0
+        pins = {'albedo': rgb(colour), 'specular': rgb((spec,) * 3), 'roughness': flt(v.get('roughness', 0) if v else 0), **extra}
         t = 130
     else:
         r, scale = v['radius']
-        pins = {'base': flt(1), 'baseColor': rgb(colour), 'specular': flt(0), 'roughness': flt(0.3),
+        pins = {'base': flt(1), 'baseColor': rgb(colour), 'specular': flt(v.get('specular', 0)), 'roughness': flt(v.get('roughness', 0.3)),
                 'subsurface': flt(v['subsurface']), 'subsurfaceColor': rgb(colour),
-                'radius': node(6, f'{r:g} 0 0 0', 9), 'scale': rgb(scale), 'subsurfaceAnisotropy': node(6, '0 0 0 0', 9)}
+                'radius': node(6, f'{r:g} 0 0 0', 9), 'scale': rgb(scale), 'subsurfaceAnisotropy': node(6, '0 0 0 0', 9), **extra}
         t = 505
     body = '\n'.join(f"<pin name='{k}'>\n{x}\n</pin>" for k, x in pins.items())
     return f"<node id='{nid[0]}' type='{t}' name='{name}'>\n<attr name='compatibilityVersion' type='2'>15050000</attr>\n{body}\n</node>"

@@ -224,7 +224,35 @@ uncommitted in `src/material.rs`:
 - `ORBIS_TMP_SKIN`: the baked albedo, with `_P` / `_K` / `_NOINV`;
 - `ORBIS_TMP_SPEC`: the gloss as Universal's.
 
-## 5. Next
+## 5. Rounds 3–8: gloss, coat, brows
+
+Eight figures, front light; Octane / Iray, median of the face regions.
+
+| round | change | Y range | notes |
+|---|---|---|---|
+| export | today's rule | 0.68–1.85 | |
+| 3 | albedo (1 − w)^1.3·D + w·0.55·Tc², hue × (1.16, 0.83, 0.68), coat darkening off, Top Coat weight map | 0.85–1.59 | five figures 0.98–1.14, hue ±8 %; Gabriela 0.66 → 1.01 |
+| 4 | skin gloss ~0.03 (meant ×0.5; the variant script's `x` on a float pin wrote 0.034) | 0.88–1.44 | **dead end**: flat, matte faces |
+| 5 | subsurface detail from D / D_low | as round 3 | no effect on the brows |
+| 6 | Dual Lobe Specular Reflectivity's map as the gloss weight | 0.85–1.52 | Twosret 1.31 → 1.16; Gabriela's forehead highlight 2.08 → 1.42 (Iray 1.28) |
+| 7 | detail map as the coating's colour, coating 1 at IOR 1 | — | **dead end**: brows went light, a bright rim round the head |
+| 8 | detail map (D / D_low, ≤ 1) as the subsurface weight | 1.00–1.42 (four figures) | brows dark as in Iray |
+
+**Details**
+- **Coat darkening.** OpenPBR's coat darkens the base to 0.58–0.80 of
+  Universal's; `coatingDarkening` 0 makes them equal (1.00, Calib-SSS).
+- **Gloss.** Highlight contrast (p95 / median luminance) on the dark
+  skins' foreheads is higher in Iray (Monique 1.86, Twosret 1.57) than in
+  Octane (1.49, 1.35). Iray does not dim the gloss of translucent skin.
+  Region medians miss highlights: judge gloss on images and highlight
+  contrast, not medians.
+- **Brows and smudges.** Octane's random walk bleeds the skin's light
+  under dark brows and make-up lines (blue-grey smudges). Universal at w 0
+  keeps them dark. The fix is less subsurface where the detail map is
+  dark.
+- **Left:** Monique 1.42; Zurie 0.85, too red (r/g 1.25).
+
+## 6. Next
 
 - One hue correction on the baked albedo (≈ 1/0.86, 1/1.20, 1/1.48).
 - Top Coat: its weight map. Then OpenPBR's coat darkening, against
