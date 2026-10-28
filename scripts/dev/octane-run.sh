@@ -33,7 +33,8 @@ rm -f "$docs/orbis_probe.done"
 # 2026-10-27): launch it again, at most twice, when it is gone before the
 # probe is done.
 attempt() {
-    pgrep -q -f "$bin" || open -a "Octane X"
+    # In the background (-g), so it doesn't take the focus while it loads.
+    pgrep -q -f "$bin" || open -g -a "Octane X"
     menu() {
         osascript -e "tell application \"System Events\" to tell process \"Octane X\" to $1" 2>/dev/null
     }
@@ -43,6 +44,9 @@ attempt() {
     until menu 'get name of every menu item of menu 1 of menu bar item "Script" of menu bar 1' | grep -q "ORBIS probe"; do
         sleep 2
         waited=$((waited + 2))
+        # Started in the background it never leaves its simple mode (no Script
+        # menu, as behind a locked screen): bring it to the front once.
+        [ $waited -ne 20 ] || osascript -e 'tell application "Octane X" to activate' >/dev/null 2>&1 || true
         [ $waited -lt 10 ] || pgrep -q -f "$bin" || { echo "Octane X quit while starting" >&2; return 2; }
         if [ $waited -ge 120 ]; then
             echo "no Script menu after 2 minutes (a locked screen keeps Octane X in its simple mode)" >&2
@@ -56,6 +60,9 @@ attempt() {
     started() { [ -n "$(find "$docs" -maxdepth 1 -name 'orbis_probe*.txt' -newer "$scripts/ORBIS probe.lua" 2>/dev/null)" ]; }
     tries=0
     until started; do
+        # The menu clicks in the background too; if the first click did
+        # nothing, bring Octane X to the front for the next.
+        [ $tries -eq 0 ] || osascript -e 'tell application "Octane X" to activate' >/dev/null 2>&1 || true
         menu 'click menu item "ORBIS probe" of menu 1 of menu bar item "Script" of menu bar 1' >/dev/null || true
         i=0
         while ! started && [ $i -lt 15 ]; do sleep 2; i=$((i + 1)); done

@@ -24,8 +24,15 @@ if [ -z "${DONE_FILE:-}" ]; then
     exec "$app" -instanceName orbis-render -noPrompt "$@" "$script"
 fi
 rm -f "$DONE_FILE"
-"$app" -instanceName orbis-render -noPrompt "$@" "$script" &
-pid=$!
-while kill -0 $pid 2>/dev/null && [ ! -f "$DONE_FILE" ]; do sleep 1; done
-kill -9 $pid 2>/dev/null || true
-wait $pid 2>/dev/null || true
+# In the background (open -g): a new instance's window would take the focus
+# from whatever the user is doing. open returns at once; follow the instance
+# by its name.
+open -g -n -a "${app%/Contents/MacOS/DAZStudio}" --args -instanceName orbis-render -noPrompt "$@" "$script"
+pid=
+for _ in $(seq 60); do
+    pid=$(pgrep -n -f "DAZStudio -instanceName orbis-render" || true)
+    [ -n "$pid" ] && break
+    sleep 1
+done
+while [ -n "$pid" ] && kill -0 $pid 2>/dev/null && [ ! -f "$DONE_FILE" ]; do sleep 1; done
+[ -n "$pid" ] && kill -9 $pid 2>/dev/null || true

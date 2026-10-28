@@ -82,5 +82,11 @@ for scene in scenes:
         for f in (test, test + '.run.txt', test + '.log'):
             if os.path.exists(f):
                 os.remove(f)
-    ok = render(scene, png, samples)
+    # DAZ Studio now and then crashes on its own mid-render (a segfault
+    # closing a dialog, Calib-Skin-Monique-hdri): try again, twice at most.
+    for attempt in range(3):
+        ok = render(scene, png, samples)
+        if ok:
+            break
+        print(f'{name}: DAZ Studio failed, attempt {attempt + 1}', flush=True)
     print(f'{name}: {"ok" if ok else "FAILED"} (EV {get_ev(scene)})', flush=True)

@@ -1,0 +1,73 @@
+// ORBIS calibration: Calib-Skin-<figure> (#19) - a Genesis 8 Basic Female
+// wearing one character's skin preset (materials only, no shape), beside
+// her head two small spheres (Iray Uber: the skin and a grey reference,
+// tuned in the saved file by scripts/dev/make-skin-scenes.py), the cubes
+// and the big sphere hidden; built headless from Calib-L-Distant-45
+// (scripts/dev/daz-script.sh with DONE_FILE=<out>.done).
+// Arguments: base .duf, figure .duf, Iray Uber Base preset .duf, out .duf,
+// then "mat|<preset .duf>" for each material preset, then the content
+// directories. ECMAScript 3, ASCII only.
+(function () {
+    var a = App.scriptArgs;
+    var sBase = a[0], sFigure = a[1], sUber = a[2], sOut = a[3];
+    var oContent = App.getContentMgr();
+    var aMats = [];
+    for (var i = 4; i < a.length; i++) {
+        if (a[i].indexOf("mat|") == 0) aMats.push(a[i].substring(4));
+        else oContent.addContentDirectory(a[i], false);
+    }
+    var sLog = "";
+    function done(s) {
+        var f = new DzFile(sOut + ".done");
+        f.open(DzFile.WriteOnly | DzFile.Truncate);
+        f.write(s + "\n" + sLog);
+        f.close();
+        App.delayedExit();
+    }
+    // A preset applies to the selected node's selected surfaces.
+    function selectOnly(oNode) {
+        Scene.selectAllNodes(false);
+        oNode.select(true);
+        Scene.setPrimarySelection(oNode);
+        var oShape = oNode.getObject().getCurrentShape();
+        for (var m = 0; m < oShape.getNumMaterials(); m++) oShape.getMaterial(m).select(true);
+    }
+    if (!oContent.openFile(sBase, false)) { done("base not opened"); return; }
+    for (var n = 0; n < Scene.getNumNodes(); n++) {
+        var oNode = Scene.getNode(n);
+        var sLabel = oNode.getLabel();
+        if (sLabel.indexOf("Cube") == 0 || sLabel == "Sphere") oNode.setVisible(false);
+    }
+    var oGeo = (typeof Geometry != "undefined") ? Geometry : null;
+    if (!oGeo) { done("no Geometry global"); return; }
+    var oSettings = new DzSettings();
+    oGeo.getDefaultPrimitiveOptions(oGeo.Sphere, oSettings);
+    oSettings.setStringValue("OuterDiameter", "0.16");
+    for (var k = 0; k < oSettings.getNumValues(); k++) sLog += "option " + oSettings.getKey(k) + " = " + oSettings.getValue(k) + "\n";
+    // Skin sphere on her left (image right), grey on her right, centred at
+    // eye height (the primitive's origin is its bottom).
+    var aBalls = [["Skin Sphere", 26], ["Grey Sphere", -26]];
+    for (var b = 0; b < aBalls.length; b++) {
+        var oBall = oGeo.createPrimitive(oSettings);
+        if (!oBall) { done("no primitive"); return; }
+        oBall.setLabel(aBalls[b][0]);
+        oBall.getXPosControl().setValue(aBalls[b][1]);
+        oBall.getYPosControl().setValue(149);
+        oBall.getZPosControl().setValue(0);
+        selectOnly(oBall);
+        sLog += aBalls[b][0] + " uber " + oContent.openFile(sUber, true) + "\n";
+    }
+    Scene.selectAllNodes(false);
+    sLog += "figure " + oContent.openFile(sFigure, true) + "\n";
+    var oFigure = null;
+    for (var f = 0; f < Scene.getNumNodes(); f++) {
+        if (Scene.getNode(f).inherits("DzFigure") && !oFigure) oFigure = Scene.getNode(f);
+    }
+    if (!oFigure) { done("no figure"); return; }
+    sLog += "figure node " + oFigure.getLabel() + "\n";
+    for (var p = 0; p < aMats.length; p++) {
+        selectOnly(oFigure);
+        sLog += "mat " + aMats[p] + ": " + oContent.openFile(aMats[p], true) + "\n";
+    }
+    done("saved " + Scene.saveScene(sOut));
+})();
