@@ -50,6 +50,11 @@
     }
 
     addMenuAction();
+    // --menu: only the menu item (put it back without exporting), then quit.
+    if (aScriptArgs.length >= 1 && aScriptArgs[0] == "--menu") {
+        App.delayedExit();
+        return;
+    }
 
     // ── The binary ────────────────────────────────────────────────────────
     if (!new DzFileInfo(sBin).exists()) {
@@ -292,27 +297,32 @@
         return wLabel;
     }
 
-    // Add File → Export to Octane... (after File → Export...) unless there
-    // is such an action already; a reinstall elsewhere repoints it.
+    // Add File → Export to Octane... (after File → Export...): the action
+    // once (a reinstall elsewhere repoints it), the menu item whenever it is
+    // missing — a menu reset or edit drops it while the action stays (#46).
     function addMenuAction() {
         var oMgr = MainWindow.getActionMgr();
         if (!oMgr) return; // headless
         var sIcon = sPluginDir + "/Export to Octane.png";
+        var sGuid = "";
         for (var i = 0; i < oMgr.getNumCustomActions(); i++) {
             if (oMgr.getCustomActionText(i) == sActionText) {
                 if (oMgr.getCustomActionFile(i) != sScriptPath) {
                     oMgr.setCustomActionScript(i, sScriptPath, true);
                     oMgr.setCustomActionIcon(i, sIcon);
                 }
-                return;
+                sGuid = oMgr.getCustomActionName(i);
+                break;
             }
         }
-        var sGuid = oMgr.addCustomAction(sActionText, "Export the scene to Octane X (ORBIS)", sScriptPath, true, "", sIcon);
+        if (!sGuid) sGuid = oMgr.addCustomAction(sActionText, "Export the scene to Octane X (ORBIS)", sScriptPath, true, "", sIcon);
         var oFile = oMgr.getMenu().findSubMenu("&File");
         if (!oFile) return;
         var nAt = -1;
         for (var j = 0; j < oFile.getNumItems(); j++) {
-            if (oFile.getItem(j).label == "&Export...") nAt = j + 1;
+            var oItem = oFile.getItem(j);
+            if (oItem.action == sGuid) return;
+            if (oItem.label == "&Export...") nAt = j + 1;
         }
         oFile.insertCustomAction(sGuid, nAt);
     }

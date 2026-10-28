@@ -102,9 +102,16 @@ nodes without geometry).
   `getCustomActionText(i)`, `getCustomActionFile(i)`,
   `addCustomAction(text, desc, scriptPath, isFile, shortcut, iconPath)` →
   GUID, `setCustomActionScript(i, path, isFile)`, `setCustomActionIcon(i,
-  path)`. Custom actions persist in `customactions.dsx`.
+  path)`, `getCustomActionName(i)` → its GUID. Custom actions persist in
+  `customactions.dsx`, the menus that show them in `menus.dsx` — apart: a
+  menu reset or edit drops the item and keeps the action (#46).
 - `getMenu().findSubMenu("&File")` → `DzActionMenu`: `getNumItems()`,
-  `getItem(i).label` (e.g. `"&Export..."`), `insertCustomAction(guid, index)`.
+  `getItem(i).label` (e.g. `"&Export..."`), `getItem(i).action` (the class,
+  e.g. `DzExportAction`, or a custom action's GUID), `insertCustomAction(guid,
+  index)`.
+- A second launch of DAZ Studio with a script, even under the same
+  `-instanceName`, starts its own instance; it doesn't hand the script to the
+  running one.
 
 ## Content Library thumbnails
 
