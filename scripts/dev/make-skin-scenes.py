@@ -158,10 +158,14 @@ for name in wanted:
             c['channel']['image_file'] = crop(name, c['channel']['image_file'])
     lm['extra'].append({'type': 'studio_material_channels', 'channels': chs})
     m['extra'] = [{'type': 'studio/material/uber_iray', 'version': '1.1.0.0'}]
-    m['diffuse'] = lm['diffuse'] = diffuse
+    # Keep the library's channel definition ("mappable": without it DAZ
+    # drops the map and the sphere renders white); set its value and map.
+    lm['diffuse']['channel'].update({k: v for k, v in diffuse['channel'].items() if k in ('current_value', 'image_file')})
+    m['diffuse'] = diffuse
     # Grey sphere: matte, no translucency.
     m, lm = sphere_material('Grey Sphere')
-    m['diffuse'] = lm['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': GREY}}
+    lm['diffuse']['channel']['current_value'] = GREY
+    m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': GREY}}
     for k, v in {'Glossy Layered Weight': 0.0, 'Translucency Weight': 0.0, 'Top Coat Weight': 0.0,
                  'Metallic Weight': 0.0, 'Base Mixing': 0}.items():
         set_channel(channels(lm), k, v, 'int' if k == 'Base Mixing' else 'float')

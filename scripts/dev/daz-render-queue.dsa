@@ -1,0 +1,53 @@
+// ORBIS calibration: a render queue inside a running DAZ Studio — for Iray
+// Server (Boost for Daz), whose Bridge connection lives only in the DAZ
+// Studio that made it: connect there (Render Settings > Advanced > Bridge:
+// Secure off, Connect, Rendering Enabled), then run this script (File >
+// Open...). It renders every scene put into the queue folder, oldest first,
+// to <scene>.png beside it, then waits for more; a file named "stop" in the
+// folder ends it. Each scene replaces the open one. Queue scenes with
+// scripts/dev/iray-queue.sh. ECMAScript 3, ASCII only.
+(function () {
+    // ~/Library/Caches/orbis/calib/queue: DzDir.homePath() fails in DAZ
+    // Studio 6, so from DAZ's documents folder (~/Documents/DAZ 3D/Studio6).
+    var sHome = App.getDocumentsPath().replace(/\/Documents(\/.*)?$/, "");
+    var sQueue = sHome + "/Library/Caches/orbis/calib/queue";
+    var oDir = new DzDir(sQueue);
+    oDir.mkpath(sQueue + "/active");
+    oDir.mkpath(sQueue + "/done");
+    var oContent = App.getContentMgr();
+    var oMgr = App.getRenderMgr();
+    function log(s) {
+        var f = new DzFile(sQueue + "/queue.log");
+        f.open(DzFile.Append);
+        f.write(new Date().toString() + "  " + s + "\n");
+        f.close();
+        print("ORBIS queue: " + s);
+    }
+    function exists(p) { return new DzFile(p).exists(); }
+    log("started, watching " + sQueue);
+    while (!exists(sQueue + "/stop")) {
+        var aJobs = new DzDir(sQueue).entryList(["*.duf"], DzDir.Files, DzDir.Time | DzDir.Reversed);
+        if (aJobs.length == 0) {
+            processEvents();
+            sleep(2000);
+            continue;
+        }
+        // Rendering in active/, then done/: DAZ goes by the .duf extension.
+        var sName = aJobs[0];
+        var sActive = sQueue + "/active/" + sName;
+        var sPng = sQueue + "/" + sName.replace(/\.duf$/, ".png");
+        new DzFile(sQueue + "/" + sName).rename(sActive);
+        log("open " + sName);
+        if (!oContent.openFile(sActive, false)) log("open failed: " + sName);
+        var opts = oMgr.getRenderOptions();
+        opts.renderImgToId = DzRenderOptions.DirectToFile;
+        opts.renderImgFilename = sPng;
+        var t = new Date().getTime();
+        oMgr.doRender(opts);
+        var secs = Math.round((new Date().getTime() - t) / 1000);
+        log("rendered " + sName + " in " + secs + " s" + (exists(sPng) ? "" : " - NO IMAGE"));
+        new DzFile(sActive).rename(sQueue + "/done/" + sName);
+    }
+    new DzFile(sQueue + "/stop").remove();
+    log("stopped");
+})();

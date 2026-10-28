@@ -84,6 +84,17 @@ user's own scenes.
    Calib-Eye 228 s at 100 without its strand hair, 318 s with it, 1280 s
    at 400. Test a material on primitives first (Calib-Thin, -SSS), a
    figure only to confirm.
+   **On an Iray Server** (Boost for Daz, GPUs by the hour): its Bridge
+   connection lives only in the DAZ Studio that made it, and a second
+   DAZ Studio launch with a script starts its own instance rather than
+   handing the script over. So: start the session, open DAZ Studio, Render
+   Settings > Advanced > Bridge — server, username, password from the
+   session, Secure off, Connect, Rendering Enabled — then File > Open
+   `scripts/dev/daz-render-queue.dsa` there (it replaces the open scene).
+   `scripts/dev/iray-queue.sh [-s samples] [-o out dir] <scene.duf>…`
+   queues capped copies (Max Time 0, as Boost asks) and collects the
+   renders into the Iray references; `iray-queue.sh --stop` ends the queue.
+   Worth it for small scenes; a figure's textures take long to upload.
 3. **Dump and export** — `scripts/dev/daz-dump.sh <out dir> <scene.duf>…`
    writes the scene dump (the posed geometry) and the `.orbx`.
 4. **Octane render** — `scripts/dev/octane-render.sh <out dir> [samples]
