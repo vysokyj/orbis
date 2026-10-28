@@ -4,7 +4,8 @@ project.ocs, so one Octane batch tests several hypotheses:
 
   python3 scripts/dev/orbx-variants.py <in.orbx> <out dir> <hypothesis>...
 
-Each hypothesis writes <out dir>/<scene>__<hypothesis>.orbx; render them with
+Each hypothesis writes <out dir>/<scene>__<hypothesis>.orbx (or
+__<label>.orbx for `<label>~<hypothesis>`); render them with
 scripts/dev/octane-render.sh and compare with scripts/dev/calib-compare-all.py
 (the Iray reference of <scene> serves every variant).
 
@@ -39,7 +40,8 @@ Hypotheses (by the Iray channels the variants stand for):
   Octane model's; Faithful sets it).
 - `set=<material>.<pin>=<f|c|p><value>[+…]`: any Universal pin of the
   material named /Scene/Materials/<material>… — `f` a float, `c` a grey
-  colour, `p` the texture on that pin at power × value (e.g.
+  colour, `p` the texture on that pin at power × value, `x` the pin's
+  colour, or its texture's power, × value (e.g.
   `set=Genesis_8_Female_Cornea.coating=c0+Genesis_8_Female_Cornea.roughness=f0.07`).
 - `hair=<k>,<s>`: every Hair material (147) at albedo × k and specular s.
 - `twosided-x1`: two-sided emitters at the one-sided power (the export
@@ -158,7 +160,13 @@ def apply(ocs, hyp):
                 ocs = set_pin(ocs, mat, pin, value_node(31, 6, v))
             elif kind == 'c':
                 ocs = set_pin(ocs, mat, pin, value_node(33, 8, f'{v} {v} {v}'))
-            elif kind == 'p':
+            elif kind == 'x':
+                c = albedo_of(ocs, mat, pin)
+                if c is not None:
+                    ocs = set_pin(ocs, mat, pin, value_node(33, 8, ' '.join(f'{x * float(v):.6f}' for x in c)))
+                    continue
+                kind = 'p'
+            if kind == 'p':
                 m = re.search(rf"name='/Scene/Materials/{re.escape(mat)}[^']*'", ocs)
                 at = ocs.index(f"<pin name='{pin}'>", m.end())
                 pw = re.compile(r"(<pin name='power'>\s*<node[^>]*>\s*<attr name='value' type='6'>)([0-9.eE+-]+)")
@@ -240,11 +248,13 @@ scene = os.path.basename(src)[:-5]
 tmp = os.path.join(out, scene + '.ocs')
 subprocess.run([tool, 'get', src, tmp], check=True)
 ocs = open(tmp).read()
-for hyp in sys.argv[3:]:
+for arg in sys.argv[3:]:
+    # `<label>~<hypothesis>` names the variant <scene>__<label>.
+    label, _, hyp = arg.rpartition('~') if '~' in arg else (arg, '', arg)
     v = apply(ocs, hyp)
-    p = os.path.join(out, f'{scene}__{hyp}.ocs')
+    p = os.path.join(out, f'{scene}__{label}.ocs')
     open(p, 'w').write(v)
-    subprocess.run([tool, 'set', src, p, os.path.join(out, f'{scene}__{hyp}.orbx')], check=True)
+    subprocess.run([tool, 'set', src, p, os.path.join(out, f'{scene}__{label}.orbx')], check=True)
     os.remove(p)
-    print(f'{scene}__{hyp}: {sum(1 for _ in re.finditer("990[0-9]{3}", v))} pins set, {"changed" if v != ocs else "unchanged"}')
+    print(f'{scene}__{label}: {sum(1 for _ in re.finditer("990[0-9]{3}", v))} pins set, {"changed" if v != ocs else "unchanged"}')
 os.remove(tmp)
