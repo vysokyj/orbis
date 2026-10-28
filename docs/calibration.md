@@ -103,7 +103,9 @@ user's own scenes.
    variants like any export.
 7. **Record** — the rule and its numbers go into the
    [spec](spec/octane-export.md) in the same commit as the code; Octane facts
-   into [octane/octane-x.md](octane/octane-x.md).
+   into [octane/octane-x.md](octane/octane-x.md). The whole session — tries,
+   dead ends, numbers, timings — goes into a dated note in
+   [notes/](notes/README.md).
 
 ## Rules for the machines
 

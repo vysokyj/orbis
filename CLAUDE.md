@@ -61,6 +61,8 @@ the loop, references in `calib/references`): `docs/calibration.md`.
 - `docs/spec/octane-export.md` — **normative**: what the export does and why
   (calibration numbers included). Code that disagrees is a bug, or fix the spec
   in the same commit. Record confirmed calibration findings right away.
+- `docs/notes/` — dated lab notebook: each calibration session in detail
+  (tries, dead ends, numbers, timings). Not normative; write one per session.
 - `docs/octane/` (Octane X, ORBX, USD) and `docs/daz/` (files, Iray, content)
   — reference about other tools, no Orbis decisions in them.
 - `docs/octane/manual/` — local mirror of OTOY's manual. **Git-ignored and
