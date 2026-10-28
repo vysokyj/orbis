@@ -68,14 +68,42 @@ before the level drops; × 0.85 is the hue, × 0.6 the level. Took 0.8.
 Visually Iray's resin shows more of the background's structure through
 the sphere; Octane's is smoother.
 
+## The black Metal Brushed: a stale reference
+
+The first Iray reference of Calib-NVIDIA (27 Oct, 13:54) showed Metal
+Brushed black and Cast Iron dark and mirror-sharp, while Octane rendered
+both as brushed / grungy silver. Three Iray probes (29 Oct, local CPU,
+1 min 36 s each):
+
+| probe | Metal Brushed | Cast Iron |
+|---|---|---|
+| old reference | 0.000 | 0.055 |
+| p0: the same scene, re-rendered | 0.166 | 0.163 |
+| p1: N1's brush map channels removed (MDL defaults) | 0.166 | 0.163 |
+| p2: the maps as absolute paths | 0.166 | 0.163 |
+
+(Linear luminance at the sphere's centre.) All three alike, and silver:
+the scene was never the problem, the old render was (MDL resources not yet
+loaded in that DAZ session is the likeliest cause; its log had been
+rotated away). p0 replaced the reference (the old one kept as
+`Calib-NVIDIA.png.stale-2026-10-27` in the cache). Against it:
+
+| sphere | Octane / Iray | g/r Octane v Iray | b/r Octane v Iray |
+|---|---|---|---|
+| Metal Brushed | 1.12 | 1.12 v 1.12 | 1.40 v 1.37 |
+| Cast Iron | 1.19 | 1.11 v 1.12 | 1.39 v 1.43 |
+| concrete | 1.03 | 1.04 v 1.04 | 1.19 v 1.17 |
+| concrete polished | 0.98 | 1.13 v 1.12 | 1.38 v 1.37 |
+| porcelain | 1.11 | 1.15 v 1.15 | 1.49 v 1.49 |
+| granite | 1.12 | 1.17 v 1.19 | 1.56 v 1.57 |
+| architectural | 1.07 | 0.51 v 0.54 | 0.72 v 0.75 |
+
+The dielectrics' numbers did not move (only the metals differed). Lesson:
+a reference that disagrees with every reading of the shader gets
+re-rendered before the export is bent to it.
+
 ## Not resolved
 
-- **Metal Brushed renders black in Iray** on Calib-NVIDIA although the
-  scene sets its three brush maps (the same `/resources/…` paths concrete
-  loads fine) and its Metal Color is 0.82. Octane shows brushed silver.
-  Cast Iron is darker and sharper in Iray (3.6 × in Octane at the centre).
-  Both were like this since the metals were added (octane35, 27 Oct).
-  An Iray probe (the preset's channels removed → MDL defaults; or the
-  maps re-pointed) would tell whether Iray fails to load them.
 - Real scenes with concrete (Sport.duf) have no dump yet; not checked
   there.
+- Architectural's glossiness below 1.

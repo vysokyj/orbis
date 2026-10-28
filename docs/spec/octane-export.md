@@ -550,8 +550,8 @@ Every material input (20007) is filled — Octane doesn't convert
   - Metals (`metal_examples`: Metal Brushed, Cast Iron): a Universal metal,
     albedo = Metal Color (`diffuse`) × (offset + scale · reflection map),
     roughness √(u · v) per texel, anisotropy from u / v, bump, the shader's
-    tiles (`mdl_metal`). Open: Iray renders Calib-NVIDIA's Metal Brushed
-    black and its Cast Iron darker and sharper than Octane's (#21).
+    tiles (`mdl_metal`). Calib-NVIDIA: Metal Brushed 1.12, Cast Iron 1.19
+    × Iray, hue within 0.01 (g/r) – 0.04 (b/r).
   - Dielectrics (concrete, concrete polished, asphalt, ceramic tiles small,
     granite black, porcelain, resin polyurethane matte, architectural):
     `df::fresnel_layer(ior, weight, glossy, diffuse)` → Universal albedo,
@@ -571,7 +571,7 @@ Every material input (20007) is filled — Octane doesn't convert
     with that F0 (0.2 → 2.62), metal, transparency and cutout opacity;
     glossiness → roughness (1 − g)² is a guess (Iray's
     `architectural_gloss_to_rough` is compiled in), only g = 1 calibrated.
-    Calib-NVIDIA (Octane / Iray, sphere luminance): concrete 1.04,
+    Calib-NVIDIA (Octane / Iray, sphere luminance): concrete 1.03,
     polished 0.98, porcelain 1.11, granite 1.12, architectural 1.07 — the
     level of the matte spheres elsewhere; before, all were plain diffuse
     without gloss, bump or tiling.
