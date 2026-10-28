@@ -501,6 +501,36 @@ if os.path.exists(leaf):
         open(leaf, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
         print(leaf, '(cards tuned)')
 
+# --- Thin-walled translucency (#45): Calib-Leaf's three cards, all thin
+# walled with the green diffuse, varying the Translucency Weight w and
+# Color Tc; lit from behind (Calib-Leaf's sun, towards the camera) or from
+# the front (turned round), the camera side then dark behind the cards; and
+# each with Base Color Effect 1 (Scatter & Transmit, -bce: the Genesis
+# EyeSocket's). Calib-Leaf's dump serves them all: only materials and the
+# light change.
+if os.path.exists(leaf):
+    DARK = [0.05, 0.02, 0.02]
+    THIN = {'A': [{'Translucency Weight': 0.5, 'Translucency Color': [1.0, 1.0, 1.0]},
+                  {'Translucency Weight': 0.5, 'Translucency Color': GREEN},
+                  {'Translucency Weight': 0.5, 'Translucency Color': DARK}],
+            'B': [{'Translucency Weight': 0.0},
+                  {'Translucency Weight': 0.3, 'Translucency Color': DARK},
+                  {'Translucency Weight': 0.65, 'Translucency Color': DARK}]}
+    for light, rot_y, bce in ((l, r, b) for l, r in (('back', 180.0), ('front', 0.0)) for b in (0, 1)):
+        for name, overs in THIN.items():
+            d = load(leaf)
+            mlib = {m['id']: m for m in d['material_library']}
+            cards = sorted((n for n in d['scene']['nodes'] if n.get('label', '').startswith('Leaf ')), key=lambda n: n['label'])
+            for card, over in zip(cards, overs):
+                geo = '#' + card['geometries'][0]['id']
+                m = next(m for m in d['scene']['materials'] if m['geometry'] == geo)
+                ch = next(e for e in mlib[m['url'].lstrip('#')]['extra'] if e['type'] == 'studio_material_channels')['channels']
+                for k, v in {'Thin Walled': True, 'Translucency Color': [1.0, 1.0, 1.0], 'Base Color Effect': bce, **over}.items():
+                    set_channel(ch, k, v, TYPES.get(type(v), 'float'))
+            sun = next(l for l in d['node_library'] if l['id'].startswith('DistantLight'))
+            next(r for r in sun['rotation'] if r['id'] == 'y')['current_value'] = rot_y
+            made.append((save(d, f'Calib-Thin-{light}-{name}' + ('-bce' if bce else '')), None))
+
 # --- Tone mapping
 TONES = [('Burn05', {'Burn Highlights': 0.5}), ('Burn0', {'Burn Highlights': 0.0}),
          ('Crush01', {'Crush Blacks': 0.1}), ('Crush03', {'Crush Blacks': 0.3}),

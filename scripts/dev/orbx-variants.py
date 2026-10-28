@@ -41,7 +41,8 @@ Hypotheses (by the Iray channels the variants stand for):
 - `set=<material>.<pin>=<f|c|p><value>[+…]`: any Universal pin of the
   material named /Scene/Materials/<material>… — `f` a float, `c` a grey
   colour, `p` the texture on that pin at power × value, `x` the pin's
-  colour, or its texture's power, × value (e.g.
+  colour (per channel with `x<r>,<g>,<b>`), or its texture's power, ×
+  value (e.g.
   `set=Genesis_8_Female_Cornea.coating=c0+Genesis_8_Female_Cornea.roughness=f0.07`).
 - `hair=<k>,<s>`: every Hair material (147) at albedo × k and specular s.
 - `twosided-x1`: two-sided emitters at the one-sided power (the export
@@ -162,13 +163,22 @@ def apply(ocs, hyp):
                 ocs = set_pin(ocs, mat, pin, value_node(33, 8, f'{v} {v} {v}'))
             elif kind == 'x':
                 c = albedo_of(ocs, mat, pin)
+                m = re.search(rf"name='/Scene/Materials/{re.escape(mat)}[^']*'", ocs)
+                end = ocs.find("name='/Scene/Materials/", m.end())
+                if f"<pin name='{pin}'>" not in ocs[m.end():end if end >= 0 else len(ocs)]:
+                    continue
                 if c is not None:
-                    ocs = set_pin(ocs, mat, pin, value_node(33, 8, ' '.join(f'{x * float(v):.6f}' for x in c)))
+                    k = [float(x) for x in v.split(',')] * (3 if ',' not in v else 1)
+                    ocs = set_pin(ocs, mat, pin, value_node(33, 8, ' '.join(f'{x * f:.6f}' for x, f in zip(c, k))))
                     continue
                 kind = 'p'
             if kind == 'p':
                 m = re.search(rf"name='/Scene/Materials/{re.escape(mat)}[^']*'", ocs)
-                at = ocs.index(f"<pin name='{pin}'>", m.end())
+                # Only within this material: a pin it lacks is left alone.
+                end = ocs.find("name='/Scene/Materials/", m.end())
+                at = ocs.find(f"<pin name='{pin}'>", m.end(), end if end >= 0 else len(ocs))
+                if at < 0:
+                    continue
                 pw = re.compile(r"(<pin name='power'>\s*<node[^>]*>\s*<attr name='value' type='6'>)([0-9.eE+-]+)")
                 pm = pw.search(ocs, at)
                 ocs = ocs[:pm.start()] + pm.group(1) + f'{float(pm.group(2)) * float(v):.6g}' + ocs[pm.end():]

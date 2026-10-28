@@ -44,6 +44,7 @@ thing at a time.
 | `Calib-PBRSkin` | PBRSkin layers and their enable switches | [Universal](spec/octane-export.md#universal-130--default) | — |
 | `Calib-SSS` | translucency and volume on props | [Universal](spec/octane-export.md#universal-130--default) | [#28](https://github.com/vysokyj/orbis/issues/28) |
 | `Calib-Leaf` | translucent cards, thin-walled or not | [Universal](spec/octane-export.md#universal-130--default) | — |
+| `Calib-Thin-*` | thin-walled translucency: w, Translucency Color, front- / backlit, Base Color Effect (`-bce`) | [Universal](spec/octane-export.md#universal-130--default) | [#45](https://github.com/vysokyj/orbis/issues/45) |
 | `Calib-Glass` | refraction: IOR, colour, roughness, thin walls, absorption | [Universal](spec/octane-export.md#universal-130--default) | — |
 | `Calib-Mixing` | Base Mixing 1 / 2 and Top Coat as room surfaces use them | [Universal](spec/octane-export.md#universal-130--default) | — |
 | `Calib-Headlamp-*` | the camera headlamp: mode × Auto Headlamp, with and without a dome | — | [#22](https://github.com/vysokyj/orbis/issues/22) |
@@ -78,6 +79,11 @@ user's own scenes.
    samples so every variant has the same noise; `--auto-ev` sets the
    scene's exposure first. Output: `~/Library/Caches/orbis/calib/iray`;
    copy the generated scenes' renders into `calib/references/iray`.
+   Render a variant at its reference's samples (the default is 400; Calib-
+   Eye's reference is 100) — time grows with them: Calib-Thin 22 s at 100,
+   Calib-Eye 228 s at 100 without its strand hair, 318 s with it, 1280 s
+   at 400. Test a material on primitives first (Calib-Thin, -SSS), a
+   figure only to confirm.
 3. **Dump and export** — `scripts/dev/daz-dump.sh <out dir> <scene.duf>…`
    writes the scene dump (the posed geometry) and the `.orbx`.
 4. **Octane render** — `scripts/dev/octane-render.sh <out dir> [samples]
