@@ -806,6 +806,11 @@ In a weighted mix the mix material (19) carries it. Notes:
   and ignores the level on a plain mesh; on a prop Octane would round its
   hard edges.
 
+  Why: on a Genesis 8 Female in Comfy Shorts (teens, a close-up), the
+  six displaced surfaces have 3–5 mm amounts at subdLevel 2. They kept
+  their UV seams, hems and the belt closed, and their silhouettes matched
+  the render without displacement.
+
 ## Lights
 
 Watts at 15 000 lm/W × a factor per emitter shape, fitted to Iray on the

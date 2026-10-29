@@ -97,10 +97,7 @@ way (bottom-edge row in px):
 
 ## Open
 
-- **A figure.** Skin and clothes displacement on a SubD figure is not
-  checked against Iray yet. The UV seams under vertex displacement and the
-  subdivision cap are untested. The scenes with displacement and a dump
-  (intake, teens) are missing content in the library.
+- **A figure.** Checked in the afternoon, see below.
 - **16-bit maps.** TIF maps and DAZ's automatic gamma for 16-bit images
   are untested; they are read at 2.2 too.
 - **DAZ Default** (`displacement` ids): #41.
@@ -144,3 +141,84 @@ at 2.0–2.4 ×. That was not the export; the c717cd8 export rendered the same.
 Their products (Angel HD, Nishi, FWSA Zurie HD) had been uninstalled since
 the references were rendered: 19–24 missing textures each, and the figures
 came out bare white. Reinstall them before the next skin round.
+
+## Afternoon: the figure check
+
+### Content back
+
+The Dazzle MCP installs DAZ store products now. It put back what intake
+lacked (66 IM products and 2 Renderotica ones) and the Calib-Skin skins
+(Angel HD with AugrDust Bodyart, Nishi and FWSA Zurie HD). For teens it
+added Comfy Shorts Set and Underbelly Outfit. Exports with the cached dumps
+report 0 missing textures for `Calib-Skin-{Angel,Nishi,Zurie}-front`
+(37, 37 and 31 textures), intake (936) and teens (180).
+The headless dump of intake, which failed before for want of content,
+now runs in 6.3 min. Its export also reports 0 missing textures
+(12.5 M faces, 320 meshes).
+
+### Scene
+
+intake is 12.5 M faces, too slow for a CPU Iray reference. teens is
+1.2 M faces. Its girl on the right wears Comfy Shorts on a Genesis 8
+Female, and their sweatshirt, tank top, shorts, belt, buckle and slip-ons
+all carry a displacement map (8-bit RGB TIFs, mostly 4096²). As exported:
+
+- `amount` is 3 mm on most surfaces and 5 mm on the sweatshirt, tank top
+  and one slip-on surface. The product presets set the range, and the
+  scene keeps it;
+- `subdLevel` is 2 on the clothes and the dolly (a figure-class prop), and
+  0 on the buckle (a plain node).
+
+None of the user's 80 scenes with a displacement map sets Minimum or
+Maximum in the scene itself; the ranges come from the products.
+
+A far camera puts the clothes at about 3.5 mm per pixel, which makes the
+relief sub-pixel. On that view, teens with displacement and teens with
+`amount` 0 differ only by sample noise (region means ±0.1 of 255).
+
+So `Calib-Disp-Teens` is a copy of teens in My Library only, with the
+camera 140 cm from her waist (about 1 mm per pixel) and nothing else
+changed. The Iray reference took 400 samples and 8.5 min.
+
+### Octane
+
+The full-resolution close-up mostly failed in Octane X with "render
+engine failure", with displacement and without it. Its first try without
+displacement rendered, and once 100 samples at parallel samples 8 did, but
+the same file failed on the next run. Half resolution (640 × 360) always
+rendered, and the far view of the same export did too. After a failure the
+next big scenes kept failing until the Octane cache
+(`intersection_functions.lib`) was moved away. Parallel samples 4 did not
+help either. This is not displacement: it is its own issue (#50).
+
+The comparison therefore runs at 640 × 360. That gives Octane with
+displacement at half resolution, and Octane without it and Iray at full
+resolution scaled down, all at 400 samples.
+
+- **No cracks.** No gaps opened at the UV seams, at the hems or trims,
+  or between the belt and the shorts. The silhouettes are the same as
+  without displacement.
+- **Relief.** At about 2 mm per pixel, 3 to 5 mm reads mainly as shading
+  grain. Detail (std of a 3 px high-pass) on the sweatshirt is 26.2 for
+  Iray, 23.2 for Octane and 20.9 for Octane without displacement. On the
+  shorts it is 16.7, 14.1 and 13.9. The half-resolution render is noisier,
+  so this only says the right direction; the amount itself rests on the
+  Calib-Disp spheres.
+- **Brightness** with displacement against without it: +1.5 (sweatshirt),
+  +1.1 (shorts), +3.6 (belt) of 255. Both Octane renders sit 4 to 6 %
+  above Iray on the clothes, and about 17 % above it on the wall. That is
+  the scene's light, not the displacement.
+- **Camera.** The export's camera (DAZ `XYZ` = Rz·Ry·Rx) frames the close-up
+  as Iray does. Edge correlation with Iray is 0.71, against 0.31 for the
+  other order (Rx·Ry); this camera has a yaw of −10° and a pitch of −30°.
+
+Other differences in teens are not displacement. They are the same with
+`amount` 0 (#51):
+
+- her feet come through the Slip Ons;
+- the man has one shoe;
+- the blonde's stockings are missing and her hair is white.
+
+So the figure agrees with the spec: vertex displacement at subdLevel 2
+leaves the seams of the clothes closed. Skin displacement (HD figures'
+detail maps) is still unchecked, and teens has none on its skin.
