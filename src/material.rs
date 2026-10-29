@@ -331,6 +331,48 @@ fn mdl_metal(mat: &Material) -> Option<MdlMetal> {
 
 /// The MDL metal's bump map: DAZ hangs it on "Bump Strength" (the
 /// amount), else `bump_texture`, else the MDL default.
+/// Iray Uber / PBRSkin displacement: the map, Octane's height (m) and mid
+/// level, and the subdivision level. Iray moves each vertex along its
+/// normal by Strength × lerp(Minimum, Maximum, map) cm (Calib-Disp: the
+/// white sphere 0..5 cm grew 5 cm, at Strength 0.5 2.5, black −5..5 shrank
+/// 5) — Octane by height × (map − mid). Only with a map (Iray needs one).
+pub(crate) struct Displacement {
+    pub map: String,
+    /// The map's gamma: its own `map_gamma`, else DAZ's automatic 2.2.
+    pub gamma: f32,
+    pub height_m: f32,
+    pub mid: f32,
+    pub subd: u32,
+}
+
+pub(crate) fn displacement(mat: &Material) -> Option<Displacement> {
+    let map = mat.image("Displacement Strength")?.to_string();
+    let strength = mat.float("Displacement Strength").unwrap_or(1.0);
+    let (lo, hi) = (mat.float("Minimum Displacement").unwrap_or(-0.1), mat.float("Maximum Displacement").unwrap_or(0.1));
+    let range = hi - lo;
+    if strength <= 0.0 || range.abs() < 1e-6 {
+        return None;
+    }
+    // SubD Displacement Level subdivides a SubD figure further for the
+    // displacement; Iray ignores it on a plain mesh, and Octane would round
+    // a prop's hard edges. Capped: a figure at level 3+ ran to millions of
+    // faces per surface.
+    let subd = if mat.prop { 0 } else { (mat.float("SubD Displacement Level").unwrap_or(0.0).max(0.0) as u32).min(DISPLACEMENT_SUBD_MAX) };
+    let gamma = mat.image_gamma("Displacement Strength").unwrap_or(DISPLACEMENT_MAP_GAMMA);
+    Some(Displacement { map, gamma, height_m: strength * range * 0.01, mid: (-lo / range).clamp(0.0, 1.0), subd })
+}
+
+/// The highest Octane subdivision level a displacement asks for.
+const DISPLACEMENT_SUBD_MAX: u32 = 2;
+
+/// DAZ reads displacement maps without an image gamma of their own
+/// (`map_gamma` 0, as every map in the user's scenes) as sRGB-ish 2.2,
+/// though the channel's `default_image_gamma` is 1: Calib-Disp-Map's grey
+/// 128 moved the sphere by 22 % of its range (L or RGB PNG, JPEG alike),
+/// grey 64 by 6 %; the same grey at `map_gamma` 1 by 50 % (an image's own
+/// gamma wins).
+const DISPLACEMENT_MAP_GAMMA: f32 = 2.2;
+
 fn bump_map(mat: &Material, default: &str) -> String {
     mat.image("Bump Strength").or(mat.image("bump_texture")).map(str::to_string).unwrap_or_else(|| format!("resources/{default}"))
 }
@@ -596,6 +638,7 @@ impl Ocs<'_> {
         self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
         self.in_mix = false;
         self.pin_close(i);
+        self.displacement_pin(i, mat);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
@@ -777,6 +820,23 @@ impl Ocs<'_> {
             let _ = writeln!(self.out, "{:j$} </node>", "");
             self.pin_close(j);
         }
+        let _ = writeln!(self.out, "{:i$}</node>", "");
+        self.pin_close(indent);
+    }
+
+    /// The material's displacement (`displacement`) as an Octane vertex
+    /// displacement (97): height map at DAZ's gamma, mid level, subdivision.
+    fn displacement_pin(&mut self, indent: usize, mat: &Material) {
+        let Some(d) = displacement(mat) else { return };
+        let Some(asset) = self.textures.asset(self.dirs, &d.map) else { return };
+        let id = self.id();
+        self.pin_open(indent, "displacement");
+        let i = indent + 1;
+        let _ = writeln!(self.out, "{:i$}<node id='{id}' type='97'>", "");
+        self.image_pin(i + 1, "texture", &asset, true, d.gamma, 1.0);
+        self.value_pin(i + 1, "amount", 6, 9, &format!("{} 0 0 0", num(d.height_m)));
+        self.value_pin(i + 1, "black_level", 6, 9, &format!("{} 0 0 0", num(d.mid)));
+        self.value_pin(i + 1, "subdLevel", 9, 5, &format!("{} 0 0 0", d.subd));
         let _ = writeln!(self.out, "{:i$}</node>", "");
         self.pin_close(indent);
     }
@@ -1059,6 +1119,7 @@ impl Ocs<'_> {
         if let Some(asset) = mat.image("Bump Strength").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(i, "bump", &asset, true, 1.0, 1.0);
         }
+        self.displacement_pin(i, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
             self.float_or_map(i, "opacity", mat, Some(mat.opacity_channel()), opacity);
@@ -1405,6 +1466,10 @@ impl Ocs<'_> {
         }
         if let Some(asset) = mat.image("Bump Strength").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(i, "bump", &asset, true, 1.0, 1.0);
+        }
+        // In a weighted mix the mix material carries it.
+        if !self.in_mix {
+            self.displacement_pin(i, mat);
         }
 
         self.emission(i, mat, area_m2);
@@ -2151,6 +2216,44 @@ mod tests {
     }
 
     #[test]
+    fn displacement_moves_by_strength_between_min_and_max() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("t")).unwrap();
+        std::fs::write(dir.path().join("t/d.jpg"), b"x").unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let disp = |strength: f32, lo: f32, hi: f32, level: f32| {
+            let mut m = Material::from_dson(&json!({"extra": [{"channels": [
+                {"channel": {"id": "Displacement Strength", "current_value": strength, "image_file": "/t/d.jpg"}},
+                {"channel": {"id": "Minimum Displacement", "current_value": lo}},
+                {"channel": {"id": "Maximum Displacement", "current_value": hi}},
+                {"channel": {"id": "SubD Displacement Level", "current_value": level}},
+            ]}]}), &HashMap::new());
+            m.prop = false;
+            m
+        };
+        // 0.5 × (−5 … 5 cm): 5 cm of height about a mid level of 0.5; the
+        // subdivision capped.
+        let d = displacement(&disp(0.5, -5.0, 5.0, 3.0)).unwrap();
+        assert!((d.height_m - 0.05).abs() < 1e-6 && (d.mid - 0.5).abs() < 1e-6 && d.subd == DISPLACEMENT_SUBD_MAX && d.gamma == 2.2);
+        // 0 … 10: all outward; a prop isn't subdivided.
+        let mut p = disp(1.0, 0.0, 10.0, 1.0);
+        p.prop = true;
+        let d = displacement(&p).unwrap();
+        assert!((d.height_m - 0.1).abs() < 1e-6 && d.mid == 0.0 && d.subd == 0);
+        // The image's own gamma wins.
+        let mut g = disp(1.0, 0.0, 10.0, 0.0);
+        g.channels.get_mut("Displacement Strength").unwrap().gamma = Some(1.0);
+        assert_eq!(displacement(&g).unwrap().gamma, 1.0);
+        // No strength, no range, no map: nothing.
+        assert!(displacement(&disp(0.0, -5.0, 5.0, 0.0)).is_none() && displacement(&disp(1.0, 2.0, 2.0, 0.0)).is_none());
+        assert!(displacement(&mat(json!([{"channel": {"id": "Displacement Strength", "current_value": 1}}]))).is_none());
+        let (x, _) = material_inputs(&[("Skin".into(), Rc::new(disp(0.5, -5.0, 5.0, 1.0)), 1.0)], &dirs, HashMap::new(), 9400, SkinShader::None);
+        assert!(x.contains("<pin name='displacement'>") && x.contains("type='97'"), "{x}");
+        assert!(x.contains("<pin name='amount'>") && x.contains("<attr name='value' type='9'>0.05 0 0 0</attr>"), "{x}");
+        assert!(x.contains("<pin name='black_level'>") && x.contains("<pin name='subdLevel'>") && x.contains("<attr name='value' type='5'>1 0 0 0</attr>"), "{x}");
+    }
+
+    #[test]
     fn nvidia_dielectrics_gloss_by_weight_at_their_ior() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("resources")).unwrap();
@@ -2303,7 +2406,7 @@ mod tests {
         // subsurface weight; a gloss. A readable diffuse map to bake from.
         image::RgbImage::from_pixel(8, 8, image::Rgb([200, 150, 120])).save(dir.path().join("Runtime/Textures/skin.jpg")).unwrap();
         let mut chromatic = (*sss).clone();
-        chromatic.channels.insert("SSS Mode".into(), crate::daz_material::Channel { value: json!(1), image: None });
+        chromatic.channels.insert("SSS Mode".into(), crate::daz_material::Channel { value: json!(1), image: None, gamma: None });
         let chromatic = std::rc::Rc::new(chromatic);
         let (ox, _) = material_inputs(&[("Torso".into(), chromatic, 1.0)], &dirs, HashMap::new(), 8100, SkinShader::OpenPbr);
         assert!(ox.contains("type='505' name='Torso'"), "{ox}");

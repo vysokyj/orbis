@@ -18,6 +18,9 @@ pub struct Channel {
     pub value: Value,
     /// Content-relative image path (`/Runtime/Textures/…`), percent-decoded.
     pub image: Option<String>,
+    /// The image's own gamma (`image_library` `map_gamma`), when it sets one
+    /// (0 is DAZ's automatic).
+    pub gamma: Option<f32>,
 }
 
 /// A material group's merged channels.
@@ -59,7 +62,7 @@ impl Material {
                     images.get(&crate::dson::percent_decode(r.trim_start_matches('#'))).cloned()
                 })
                 .filter(|s| !s.is_empty());
-            self.channels.insert(id.to_string(), Channel { value, image });
+            self.channels.insert(id.to_string(), Channel { value, image, gamma: None });
         };
         if let Some(obj) = m.as_object() {
             for v in obj.values() {
@@ -90,7 +93,7 @@ impl Material {
             }
         }
         if weighted_brick && !self.channels.contains_key("Base Mixing") {
-            self.channels.insert("Base Mixing".into(), Channel { value: Value::from(2), image: None });
+            self.channels.insert("Base Mixing".into(), Channel { value: Value::from(2), image: None, gamma: None });
         }
     }
 
@@ -282,6 +285,28 @@ pub fn image_library(doc: &Value) -> HashMap<String, String> {
             Some((id, crate::dson::percent_decode(url)))
         })
         .collect()
+}
+
+/// The gamma `image_library` gives an image file (`map_gamma`, by its
+/// path), where it isn't DAZ's automatic 0.
+pub fn image_gammas(doc: &Value) -> HashMap<String, f32> {
+    doc.get("image_library")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|i| {
+            let g = i.get("map_gamma")?.as_f64()? as f32;
+            let url = i.get("map")?.as_array()?.first()?.get("url")?.as_str()?;
+            (g > 0.0).then(|| (crate::dson::percent_decode(url), g))
+        })
+        .collect()
+}
+
+impl Material {
+    /// The gamma of a channel's image, when its image sets one.
+    pub fn image_gamma(&self, id: &str) -> Option<f32> {
+        self.channel(id)?.gamma
+    }
 }
 
 /// Marks a channel image that is a layered stack, not a file.

@@ -760,6 +760,39 @@ Power (W) = L × unit factor / 2 / **15 000** (`DAZ_LUMENS_PER_WATT`) ×
 surface area (m²) for luminance units. Calib-Emissive (one-sided 50 × 50 cm,
 5000 cd/m²): 3.4× Iray without the factor, 0.98–1.02 with it (#6).
 
+### Displacement
+
+Iray Uber and PBRSkin displacement goes to the material's `displacement`
+pin as an Octane **vertex displacement** (97), as Iray displaces vertices.
+Only a map with a non-zero strength and range counts; Iray needs a map.
+In a weighted mix the mix material (19) carries it. Notes:
+[2026-10-29](../notes/2026-10-29-displacement.md).
+
+- **Amount.** Iray moves a vertex along its normal by Strength ×
+  lerp(Minimum, Maximum, map) cm. Octane moves it by `amount` × (map −
+  `black_level`), so:
+  - `amount` = Strength × (Maximum − Minimum) × 0.01 m;
+  - `black_level` = −Minimum / (Maximum − Minimum).
+
+  Why: on Calib-Disp, Octane's sphere silhouettes lie on Iray's to the
+  pixel. White over 0..5 cm grew by 5 cm, at strength 0.5 by 2.5 cm and at
+  strength 2 by 10 cm. Black over −5..5 cm shrank by 5 cm, and white over
+  −5..5 cm grew by 5 cm.
+- **Map gamma 2.2.** DAZ reads a map without a gamma of its own
+  (`map_gamma` 0, as every displacement map in the user's scenes) at 2.2,
+  though the channel declares `default_image_gamma` 1. The image's own
+  `map_gamma` wins.
+
+  Why: on Calib-Disp-Map, grey 128 moved the sphere by 22 % of its range
+  and grey 64 by 6 %, for an L PNG, an RGB PNG and a JPEG alike. With
+  `map_gamma` 1 the same grey 128 moved it by 50 %. Other data maps may
+  share this:
+  [#49](https://github.com/vysokyj/orbis/issues/49).
+- **Subdivision.** `subdLevel` = SubD Displacement Level, on figures only
+  and capped at 2. Iray subdivides a SubD figure further for displacement
+  and ignores the level on a plain mesh; on a prop Octane would round its
+  hard edges.
+
 ## Lights
 
 Watts at 15 000 lm/W × a factor per emitter shape, fitted to Iray on the

@@ -107,8 +107,9 @@ pub(super) fn material_uv_sets(duf: &Value, instance_id: &str) -> HashMap<String
 /// definition (`url` into a `material_library`) overlaid with the scene
 /// material's own channels.
 pub(super) fn scene_materials(lib: &mut Library, instance_id: &str) -> HashMap<String, Rc<crate::daz_material::Material>> {
-    use crate::daz_material::{image_library, Material};
+    use crate::daz_material::{image_gammas, image_library, Material};
     let images = image_library(&lib.duf);
+    let gammas = image_gammas(&lib.duf);
     let mats: Vec<Value> = lib
         .duf
         .pointer("/scene/materials")
@@ -125,6 +126,9 @@ pub(super) fn scene_materials(lib: &mut Library, instance_id: &str) -> HashMap<S
             None => Material::default(),
         };
         mat.merge(&m, &images);
+        for c in mat.channels.values_mut() {
+            c.gamma = c.image.as_ref().and_then(|i| gammas.get(i)).copied();
+        }
         let mat = Rc::new(mat);
         for g in m.get("groups").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
             out.insert(g.to_string(), mat.clone());

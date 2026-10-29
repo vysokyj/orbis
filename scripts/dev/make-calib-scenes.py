@@ -11,6 +11,8 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-Tone-*: Iray tone mapping off the calibrated defaults — Burn
   Highlights, Crush Blacks, Gamma — to check the tone LUT's curve (#14),
   fitted so far on Gladiator alone.
+- Calib-Disp: displacement (#24) by uniform maps, measured on the
+  spheres' silhouettes.
 - Calib-DOF-*: depth of field, focus at 1.5 m with the spheres at ~4.6 m,
   f/4, f/8, f/16 — to check Iray's 10x aperture.
 
@@ -324,7 +326,20 @@ def uber_spheres(name, colour, plain, variants):
         ch = next(e for e in lm['extra'] if e['type'] == 'studio_material_channels')['channels']
         for k, v in {'Base Mixing': 0, 'Metallic Weight': 0.0, 'Dual Lobe Specular Weight': 0.0, 'Top Coat Weight': 0.0,
                      'Translucency Weight': 0.0, 'Refraction Weight': 0.0, **plain, **over}.items():
-            set_channel(ch, k, v, TYPES.get(type(v), 'float'))
+            if isinstance(k, tuple):
+                # A map: on the scene material's channel, listed in
+                # image_library, as DAZ saves them (see Calib-Mixing).
+                extra = m.setdefault('extra', [])
+                sc = next((e for e in extra if e.get('type') == 'studio_material_channels'), None)
+                if sc is None:
+                    sc = {'type': 'studio_material_channels', 'channels': []}
+                    extra.append(sc)
+                sc['channels'].append({'channel': {'id': k[0], 'type': 'float', 'current_value': over.get(k[0], 1.0), 'image_file': v}})
+                lib_images = d.setdefault('image_library', [])
+                if not any(i['id'] == v for i in lib_images):
+                    lib_images.append({'id': v, 'name': os.path.basename(v), 'map_gamma': 0, 'map': [{'url': v, 'label': os.path.basename(v)}]})
+            else:
+                set_channel(ch, k, v, TYPES.get(type(v), 'float'))
     made.append((save(d, name), labels))
 
 
@@ -434,6 +449,55 @@ uber_spheres('Calib-Dispersion', [0.6, 0.6, 0.6], GL, [
     ('X6 ior 1.8 abbe 20', {'Refraction Index': 1.8, 'Abbe': 20.0}),
     ('X7 ior 2.4 abbe 30', {'Refraction Index': 2.4, 'Abbe': 30.0}),
     ('X8 ior 1.33 abbe 55', {'Refraction Index': 1.33, 'Abbe': 55.0}),
+])
+
+# --- Displacement (#24): uniform maps (synthetic, ours) push the whole
+# sphere along its normals, so the silhouette measures the amount: Strength
+# × the map's value between Minimum and Maximum Displacement (cm), and
+# whether the map is read linearly (grey 0.5 = 128).
+DISP = {name: f'/Runtime/Textures/ORBIS/calib-disp-{name}.png' for name in ('white', 'grey', 'black')}
+for name, path in DISP.items():
+    p = os.path.join(os.path.dirname(out_dir), path.lstrip('/'))
+    if not os.path.exists(p):
+        from PIL import Image
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        Image.new('L', (64, 64), {'white': 255, 'grey': 128, 'black': 0}[name]).save(p)
+# How the map's value is read: grey levels, an RGB PNG, a JPEG, and the
+# image's own gamma 1 (`map_gamma`, set below) — all over 0..10 cm.
+for name, (mode, level, ext) in {'grey-rgb': ('RGB', 128, 'png'), 'grey64': ('L', 64, 'png'), 'grey192': ('L', 192, 'png'),
+                                  'grey-jpg': ('L', 128, 'jpg'), 'grey-g1': ('L', 128, 'png')}.items():
+    DISP[name] = f'/Runtime/Textures/ORBIS/calib-disp-{name}.{ext}'
+    p = os.path.join(os.path.dirname(out_dir), DISP[name].lstrip('/'))
+    if not os.path.exists(p):
+        from PIL import Image
+        Image.new(mode, (64, 64), (level,) * 3 if mode == 'RGB' else level).save(p, quality=100) if ext == 'jpg' else \
+            Image.new(mode, (64, 64), (level,) * 3 if mode == 'RGB' else level).save(p)
+R10 = {'Displacement Strength': 1.0, 'Minimum Displacement': 0.0, 'Maximum Displacement': 10.0}
+uber_spheres('Calib-Disp-Map', GREY_SPHERE, {}, [
+    ('M1 none', {}),
+    ('M2 grey', {('Displacement Strength', 'image'): DISP['grey'], **R10}),
+    ('M3 grey rgb', {('Displacement Strength', 'image'): DISP['grey-rgb'], **R10}),
+    ('M4 grey 64', {('Displacement Strength', 'image'): DISP['grey64'], **R10}),
+    ('M5 grey 192', {('Displacement Strength', 'image'): DISP['grey192'], **R10}),
+    ('M6 grey jpg', {('Displacement Strength', 'image'): DISP['grey-jpg'], **R10}),
+    ('M7 grey gamma 1', {('Displacement Strength', 'image'): DISP['grey-g1'], **R10}),
+    ('M8 white', {('Displacement Strength', 'image'): DISP['white'], **R10}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for i in d['image_library']:
+        if i['id'] == DISP['grey-g1']:
+            i['map_gamma'] = 1
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+uber_spheres('Calib-Disp', GREY_SPHERE, {}, [
+    ('P1 none', {}),
+    ('P2 white 0..5', {('Displacement Strength', 'image'): DISP['white'], 'Displacement Strength': 1.0, 'Minimum Displacement': 0.0, 'Maximum Displacement': 5.0}),
+    ('P3 white 0..5 s0.5', {('Displacement Strength', 'image'): DISP['white'], 'Displacement Strength': 0.5, 'Minimum Displacement': 0.0, 'Maximum Displacement': 5.0}),
+    ('P4 black -5..5', {('Displacement Strength', 'image'): DISP['black'], 'Displacement Strength': 1.0, 'Minimum Displacement': -5.0, 'Maximum Displacement': 5.0}),
+    ('P5 grey 0..10', {('Displacement Strength', 'image'): DISP['grey'], 'Displacement Strength': 1.0, 'Minimum Displacement': 0.0, 'Maximum Displacement': 10.0}),
+    ('P6 white 0..5 s2', {('Displacement Strength', 'image'): DISP['white'], 'Displacement Strength': 2.0, 'Minimum Displacement': 0.0, 'Maximum Displacement': 5.0}),
+    ('P7 white -5..5', {('Displacement Strength', 'image'): DISP['white'], 'Displacement Strength': 1.0, 'Minimum Displacement': -5.0, 'Maximum Displacement': 5.0}),
+    ('P8 grey -5..5', {('Displacement Strength', 'image'): DISP['grey'], 'Displacement Strength': 1.0, 'Minimum Displacement': -5.0, 'Maximum Displacement': 5.0}),
 ])
 
 # --- Camera headlamp (#22): Calib-Glossy has no light node, only its dome.
