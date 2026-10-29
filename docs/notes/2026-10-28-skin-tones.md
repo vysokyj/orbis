@@ -308,3 +308,35 @@ than Iray's: an Enhanced idea, #47.
 - Then verify on all 48 scenes and Calib-Eye, and replace the trial code
   with the rule.
 - The skin sphere (Universal translucency on a prop) separately.
+
+## 9. Re-run, 2026-10-29
+
+Angel HD, Nishi and FWSA Zurie HD were uninstalled after the references
+were rendered (they came out bare white). With them reinstalled (Dazzle),
+all 16 Calib-Skin front / HDRI scenes exported with 0 missing textures and
+were rendered in Octane at 200 samples (`skin-compare.py`). Below: per scene,
+the median over the nine face and body regions (forehead, cheeks, nose,
+ears, neck, chest, shoulder):
+
+| figure | front Y (range) | r/g | b/g | HDRI Y (range) | r/g | b/g |
+|---|---|---|---|---|---|---|
+| Angel | 1.11 (1.05–1.23) | 0.99 | 0.92 | 1.18 (1.11–1.35) | 1.03 | 0.97 |
+| Gabriela | 0.99 (0.92–1.14) | 1.14 | 0.99 | 1.05 (0.97–1.15) | 1.18 | 1.05 |
+| Kayo | 1.18 (0.84–1.46) | 1.00 | 1.02 | 1.06 (0.93–1.46) | 1.09 | 1.04 |
+| Monique | 1.23 (0.94–1.83) | 0.88 | 1.28 | 1.50 (1.19–1.78) | 0.82 | 1.26 |
+| Nishi | 0.94 (0.72–1.07) | 1.09 | 1.06 | 1.12 (0.91–1.21) | 1.07 | 1.21 |
+| Twosret | 1.05 (0.79–1.62) | 0.94 | 1.21 | 1.23 (0.93–1.32) | 0.99 | 1.33 |
+| Victoria | 1.01 (0.97–1.12) | 0.99 | 1.03 | 1.12 (1.01–1.21) | 1.00 | 1.10 |
+| Zurie | 0.80 (0.70–1.05) | 1.18 | 0.88 | 0.92 (0.79–1.06) | 1.15 | 1.00 |
+
+- **Nishi and Zurie are back in line** (the white figures had read 2–3 ×).
+- **Today's material changes don't touch these:**
+  - the data-map gamma (#49): Monique front / HDRI and Twosret HDRI
+    rendered 1.25 / 1.54 / 1.25 with the export before it, 1.23 / 1.50 /
+    1.23 now;
+  - Base Mixing 1, thin films: none of the skins use them.
+- **What is left:**
+  - the dark skins render too bright and too blue: Monique (b/g 1.26 –
+    1.28, HDRI Y 1.50) and Twosret (b/g 1.21 – 1.33);
+  - Zurie is too red and too dark (r/g 1.15 – 1.18, front 0.80);
+  - the ears run brightest everywhere (Monique 1.77 / 1.83).
