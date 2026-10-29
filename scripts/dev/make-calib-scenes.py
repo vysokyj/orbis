@@ -489,6 +489,27 @@ if made[-1][0]:
         if i['id'] == DISP['grey-g1']:
             i['map_gamma'] = 1
     open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+# Data maps (#49): does DAZ decode a grey 128 map at 2.2 on other float
+# channels too (as on displacement)? Each map with no gamma of its own
+# (automatic) beside the same grey at `map_gamma` 1 and a plain 0.5.
+GREY, GREY1 = DISP['grey'], DISP['grey-g1']
+DG_GLOSS = {'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.05}
+uber_spheres('Calib-DataGamma', [0.6, 0.6, 0.6], {}, [
+    ('G1 opacity map', {('Cutout Opacity', 'image'): GREY, 'Cutout Opacity': 1.0}),
+    ('G2 opacity map g1', {('Cutout Opacity', 'image'): GREY1, 'Cutout Opacity': 1.0}),
+    ('G3 opacity 0.5', {'Cutout Opacity': 0.5}),
+    ('G4 metal map', {('Metallic Weight', 'image'): GREY, 'Metallic Weight': 1.0, **DG_GLOSS}),
+    ('G5 metal map g1', {('Metallic Weight', 'image'): GREY1, 'Metallic Weight': 1.0, **DG_GLOSS}),
+    ('G6 metal 0.5', {'Metallic Weight': 0.5, **DG_GLOSS}),
+    ('G7 rough map', {('Glossy Roughness', 'image'): GREY, 'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.5, 'Glossy Roughness': 1.0}),
+    ('G8 rough map g1', {('Glossy Roughness', 'image'): GREY1, 'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.5, 'Glossy Roughness': 1.0}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for i in d['image_library']:
+        if i['id'] == GREY1:
+            i['map_gamma'] = 1
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
 uber_spheres('Calib-Disp', GREY_SPHERE, {}, [
     ('P1 none', {}),
     ('P2 white 0..5', {('Displacement Strength', 'image'): DISP['white'], 'Displacement Strength': 1.0, 'Minimum Displacement': 0.0, 'Maximum Displacement': 5.0}),

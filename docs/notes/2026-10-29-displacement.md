@@ -58,8 +58,7 @@ channel's `default_image_gamma` 1 does not change that. The user's scenes
 set their maps by `image_file`, with no image_library entry, so they are
 automatic.
 
-That may hold for every data map (bump, roughness, opacity), which the
-export reads at gamma 1: #49.
+It holds for the other float channels too (#49, below).
 
 ## Octane (probe)
 
@@ -105,3 +104,41 @@ way (bottom-edge row in px):
 - **16-bit maps.** TIF maps and DAZ's automatic gamma for 16-bit images
   are untested; they are read at 2.2 too.
 - **DAZ Default** (`displacement` ids): #41.
+
+## Data maps (#49)
+
+Calib-DataGamma has eight Uber spheres with the same grey 128 map:
+
+- G1 to G3: Cutout Opacity as a map, the map at `map_gamma` 1, and a
+  plain 0.5;
+- G4 to G6: Metallic Weight the same way;
+- G7 and G8: Glossy Roughness as a map and the map at `map_gamma` 1.
+
+Sphere-centre mean, linear:
+
+| sphere | G1 | G2 | G3 | G4 | G5 | G6 | G7 | G8 |
+|---|---|---|---|---|---|---|---|---|
+| Iray | 0.131 | 0.177 | 0.168 | 0.110 | 0.088 | 0.081 | 0.105 | 0.097 |
+| Octane, maps at 2.2 | 0.135 | 0.183 | 0.173 | 0.139 | 0.120 | 0.111 | 0.118 | 0.109 |
+| Octane, maps at 1 (before) | 0.145 | 0.183 | 0.174 | 0.127 | 0.120 | 0.111 | 0.119 | 0.109 |
+
+- **Iray decodes all three at 2.2.** The automatic map renders apart from
+  the plain 0.5, the `map_gamma` 1 map renders as it, and the roughness map
+  comes out glossier.
+- **The export now does the same** (`data_gamma`): `float_or_map`, the
+  specular map of Glossy / Dual Lobe Reflectivity, the glossy weight map
+  and displacement.
+- **The ratios to the plain 0.5 move towards Iray's:**
+  - opacity: 0.78 now, Iray 0.78, before 0.83;
+  - metallic: 1.25 now, Iray 1.36, before 1.14.
+
+  Octane's metal is brighter overall (0.111 against 0.081), which is a
+  separate matter.
+
+The eight Calib-Skin figures (front light), new against old export,
+changed by ≤ 2 % on the face and body regions and by ≤ 5 % on the ears.
+That is little because their roughness maps sit mostly near 0 or 1.
+
+Some skins sit far off Iray in that run: Nishi at 2.5–3.1 × and Zurie at
+2.0–2.4 ×. The old export shows the same, so it is not this change.
+Those are #19's to explain.

@@ -358,20 +358,26 @@ pub(crate) fn displacement(mat: &Material) -> Option<Displacement> {
     // a prop's hard edges. Capped: a figure at level 3+ ran to millions of
     // faces per surface.
     let subd = if mat.prop { 0 } else { (mat.float("SubD Displacement Level").unwrap_or(0.0).max(0.0) as u32).min(DISPLACEMENT_SUBD_MAX) };
-    let gamma = mat.image_gamma("Displacement Strength").unwrap_or(DISPLACEMENT_MAP_GAMMA);
+    let gamma = data_gamma(mat, "Displacement Strength");
     Some(Displacement { map, gamma, height_m: strength * range * 0.01, mid: (-lo / range).clamp(0.0, 1.0), subd })
 }
 
 /// The highest Octane subdivision level a displacement asks for.
 const DISPLACEMENT_SUBD_MAX: u32 = 2;
 
-/// DAZ reads displacement maps without an image gamma of their own
-/// (`map_gamma` 0, as every map in the user's scenes) as sRGB-ish 2.2,
-/// though the channel's `default_image_gamma` is 1: Calib-Disp-Map's grey
-/// 128 moved the sphere by 22 % of its range (L or RGB PNG, JPEG alike),
-/// grey 64 by 6 %; the same grey at `map_gamma` 1 by 50 % (an image's own
-/// gamma wins).
-const DISPLACEMENT_MAP_GAMMA: f32 = 2.2;
+/// DAZ reads a float channel's 8-bit map without an image gamma of its own
+/// (`map_gamma` 0, as every map in the user's scenes) at 2.2, though the
+/// Uber channels declare `default_image_gamma` 1. Calib-Disp-Map's grey 128
+/// moved the sphere by 22 % of its range (L or RGB PNG, JPEG alike), grey
+/// 64 by 6 %, the same grey at `map_gamma` 1 by 50 %; Calib-DataGamma's
+/// grey opacity, metallic and roughness maps rendered as 0.22, the same
+/// map at `map_gamma` 1 as the plain 0.5 (#49). An image's own gamma wins.
+const DATA_MAP_GAMMA: f32 = 2.2;
+
+/// The gamma Iray reads a float channel's map at ([`DATA_MAP_GAMMA`]).
+fn data_gamma(mat: &Material, channel: &str) -> f32 {
+    mat.image_gamma(channel).unwrap_or(DATA_MAP_GAMMA)
+}
 
 fn bump_map(mat: &Material, default: &str) -> String {
     mat.image("Bump Strength").or(mat.image("bump_texture")).map(str::to_string).unwrap_or_else(|| format!("resources/{default}"))
@@ -954,7 +960,7 @@ impl Ocs<'_> {
     fn float_or_map(&mut self, indent: usize, pin: &str, mat: &Material, channel: Option<&str>, value: f32) {
         let tex = channel.and_then(|c| mat.image(c)).map(str::to_string);
         match tex.and_then(|t| self.textures.asset(self.dirs, &t)) {
-            Some(asset) => self.image_pin(indent, pin, &asset, true, 1.0, value),
+            Some(asset) => self.image_pin(indent, pin, &asset, true, data_gamma(mat, channel.unwrap_or_default()), value),
             None => self.float_pin(indent, pin, value),
         }
     }
@@ -1015,7 +1021,7 @@ impl Ocs<'_> {
         };
         let lobe = if glossy > 0.0 { glossy } else { dual_lobe }.min(1.0);
         match mat.image(ch).map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            Some(asset) => self.image_pin(i, "specular", &asset, true, 1.0, lobe * 2.0),
+            Some(asset) => self.image_pin(i, "specular", &asset, true, data_gamma(mat, ch), lobe * 2.0),
             None => self.float_pin(i, "specular", weight),
         }
         self.top_coat(i, mat, 0.0);
@@ -1365,7 +1371,7 @@ impl Ocs<'_> {
                 // The glossy layer's weight map (data) × its weight: the
                 // GSOV4 leather's 0.33 gloss with a seam mask rendered 3.4×
                 // Iray's sheen with Universal's full white one (Fetroom).
-                self.image_pin(i, "specular", &asset, true, 1.0, weight);
+                self.image_pin(i, "specular", &asset, true, data_gamma(mat, "Glossy Layered Weight"), weight);
             } else if weight < 1.0 || gloss_color != [1.0; 3] {
                 self.rgb_pin(i, "specular", gloss_color.map(|c| c * weight));
             }
@@ -2213,6 +2219,26 @@ mod tests {
         assert!(omni_hair(&mat(json!([{"channel": {"id": "Hair Root Color", "current_value": [1, 1, 1]}}]))).is_none());
         let (x, _) = material_inputs(&[("Omni".into(), hair(0.65), 1.0)], &[], HashMap::new(), 9600, SkinShader::None);
         assert!(x.contains("type='147'") && x.contains("<pin name='roughnessV'>"), "{x}");
+    }
+
+    #[test]
+    fn data_maps_read_at_dazs_automatic_gamma() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("t")).unwrap();
+        std::fs::write(dir.path().join("t/o.jpg"), b"x").unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let opacity = |gamma: Option<f32>| {
+            let mut m = Material::from_dson(&json!({"extra": [{"channels": [
+                {"channel": {"id": "Cutout Opacity", "current_value": 1, "image_file": "/t/o.jpg"}},
+            ]}]}), &HashMap::new());
+            m.channels.get_mut("Cutout Opacity").unwrap().gamma = gamma;
+            let (x, _) = material_inputs(&[("M".into(), Rc::new(m), 1.0)], &dirs, HashMap::new(), 9500, SkinShader::None);
+            x
+        };
+        // No gamma of its own: 2.2, decoded (sRGB space); its own 1: linear.
+        let auto = opacity(None);
+        assert!(auto.contains("<pin name='opacity'>") && auto.contains("<attr name='value' type='8'>2.2 0 0</attr>"), "{auto}");
+        assert!(opacity(Some(1.0)).contains("<attr name='value' type='8'>1 0 0</attr>"));
     }
 
     #[test]

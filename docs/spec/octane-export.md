@@ -565,12 +565,26 @@ Every material input (20007) is filled — Octane doesn't convert
   stain where Iray showed sand and pebbles (its map tiled 20 × 20).
 - Iray UV tiling → each texture's transform (scale 1/N); textures **wrap**
   (UDIM tiles).
-- **Colour space**: colour maps sRGB, data maps (roughness, opacity,
-  metallic, bump, normal) linear, every image node with
-  `initialColorSpaceSelected` = 1; the HDRI keeps linear. Why: without the
-  attribute data maps were decoded as sRGB — sunglasses nearly clear
-  (probes 55–57); with it the lenses tint like Iray's, brightness unchanged
-  (Octane2 moved 0.28 / 255).
+- **Colour space.** Colour maps are sRGB; bump and normal maps are
+  linear. Every image node gets `initialColorSpaceSelected` = 1, and the
+  HDRI stays linear. Why: without the attribute, data maps were decoded as
+  sRGB and sunglasses came out nearly clear (probes 55–57). With it the
+  lenses tint like Iray's, brightness unchanged (Octane2 moved 0.28 / 255).
+- **Float channels' maps are read at gamma 2.2.** This covers roughness,
+  opacity, metallic, translucency, glossy weight and reflectivity, and
+  displacement. DAZ reads a map with no gamma of its own (`map_gamma` 0,
+  "automatic", which is every map in the user's scenes) at 2.2, though
+  the Uber channels declare `default_image_gamma` 1. An image's own
+  `map_gamma` (from `image_library`) wins.
+
+  Why (#49): on Calib-DataGamma a grey 128 map renders as a value of 0.22
+  in Iray. The same grey at `map_gamma` 1 renders as the plain value 0.5.
+  The sphere-centre ratio of the map to the plain 0.5 is:
+  - opacity: Iray 0.78, export now 0.78 (0.83 at gamma 1);
+  - metallic: Iray 1.36, now 1.25 (1.14).
+
+  The eight Calib-Skin figures (front light) moved by at most 2 % (ears
+  5 %). Bump and normal maps are untested and stay linear.
 - **Colour channels** (Base / Glossy / Translucency / Transmitted / Emission
   Color, light colours) are gamma-encoded as DAZ stores them and decoded to
   linear by a **pure gamma 2.2** (`colour_to_linear`), as Iray does — not
@@ -785,9 +799,8 @@ In a weighted mix the mix material (19) carries it. Notes:
 
   Why: on Calib-Disp-Map, grey 128 moved the sphere by 22 % of its range
   and grey 64 by 6 %, for an L PNG, an RGB PNG and a JPEG alike. With
-  `map_gamma` 1 the same grey 128 moved it by 50 %. Other data maps may
-  share this:
-  [#49](https://github.com/vysokyj/orbis/issues/49).
+  `map_gamma` 1 the same grey 128 moved it by 50 %. The other float
+  channels share this (Textures, colour space).
 - **Subdivision.** `subdLevel` = SubD Displacement Level, on figures only
   and capped at 2. Iray subdivides a SubD figure further for displacement
   and ignores the level on a plain mesh; on a prop Octane would round its
