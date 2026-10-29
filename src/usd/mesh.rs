@@ -15,7 +15,8 @@ pub(super) struct GeoNode {
     pub(super) shell_instance: bool,
     /// The instance's own `type` (the scene can turn subdivision on or off).
     pub(super) subdivision: Option<bool>,
-    /// The node's "Visible" channel (hidden nodes are left out).
+    /// Neither the node nor an ancestor is hidden (`hidden_nodes`; hidden
+    /// nodes are left out).
     pub(super) visible: bool,
     /// A geometry shell's visible material groups (`material_group_<g>_vis`),
     /// when it lists any.
@@ -40,19 +41,71 @@ pub(super) fn ref_id(v: Option<&Value>) -> Option<String> {
     v.and_then(Value::as_str).map(|s| percent_decode(s.trim_start_matches('#')))
 }
 
+/// The scene's own node definitions (primitives, props made in DAZ), by id:
+/// a hidden one keeps its `Visible` there, not on the scene node —
+/// Calib-Leaf's hidden cubes rendered in Octane, not in Iray.
+fn local_defs(duf: &Value) -> HashMap<String, &Value> {
+    duf.pointer("/node_library").and_then(Value::as_array).into_iter().flatten()
+        .filter_map(|d| Some((percent_decode(d.get("id")?.as_str()?), d)))
+        .collect()
+}
+
+/// The scene nodes DAZ doesn't render: hidden themselves (`Visible` off) or
+/// under a hidden **group** (`studio/node/group_node`). A hidden group hides
+/// what's under it — Calib-Hair-Teens' blonde, under two hidden groups,
+/// rendered nothing in Iray while the export wrote her (#53) — but a hidden
+/// figure or bone doesn't: intake's dForce hairs under their hidden scalp
+/// caps render, and so did she with only the dolly or its bone hidden
+/// (`isVisible()` in DAZ).
+pub(super) fn hidden_nodes(duf: &Value) -> HashSet<String> {
+    let nodes = duf.pointer("/scene/nodes").and_then(Value::as_array).cloned().unwrap_or_default();
+    let local = local_defs(duf);
+    let mut parent: HashMap<String, String> = HashMap::new();
+    let mut own: HashSet<String> = HashSet::new();
+    let mut groups: HashSet<String> = HashSet::new();
+    for n in &nodes {
+        let Some(id) = n.get("id").and_then(Value::as_str).map(percent_decode) else { continue };
+        let def = n.get("url").and_then(Value::as_str).filter(|u| u.starts_with('#')).and_then(|u| local.get(&percent_decode(&u[1..])));
+        let mut channels = def.map(|d| node_channels(d)).unwrap_or_default();
+        channels.extend(node_channels(n));
+        if channels.get("Visible").and_then(Value::as_bool) == Some(false) {
+            let group = def.and_then(|d| d.get("extra")).and_then(Value::as_array).into_iter().flatten()
+                .any(|e| e.get("type").and_then(Value::as_str) == Some("studio/node/group_node"));
+            if group {
+                groups.insert(id.clone());
+            }
+            own.insert(id.clone());
+        }
+        if let Some(p) = ref_id(n.get("parent")) {
+            parent.insert(id, p);
+        }
+    }
+    let mut hidden = own.clone();
+    for id in parent.keys() {
+        let mut cur = parent.get(id);
+        // Bounded: a malformed parent loop can't hang the export.
+        for _ in 0..1000 {
+            let Some(c) = cur else { break };
+            if groups.contains(c) {
+                hidden.insert(id.clone());
+                break;
+            }
+            cur = parent.get(c);
+        }
+    }
+    hidden
+}
+
 pub(super) fn geo_nodes(duf: &Value) -> Vec<GeoNode> {
     let nodes = duf.pointer("/scene/nodes").and_then(Value::as_array).cloned().unwrap_or_default();
-    // The scene's own node definitions (primitives, props made in DAZ): a
-    // hidden one keeps its `Visible` there, not on the scene node — Calib-Leaf's
-    // hidden cubes rendered in Octane, not in Iray.
-    let local: HashMap<String, &Value> = duf.pointer("/node_library").and_then(Value::as_array).into_iter().flatten()
-        .filter_map(|d| Some((percent_decode(d.get("id")?.as_str()?), d)))
-        .collect();
+    let local = local_defs(duf);
+    let hidden = hidden_nodes(duf);
     nodes
         .iter()
         .filter_map(|n| {
             let gi = n.get("geometries")?.as_array()?.first()?;
             let id = percent_decode(n.get("id")?.as_str()?);
+            let visible = !hidden.contains(&id);
             let mut channels = n.get("url").and_then(Value::as_str)
                 .filter(|u| u.starts_with('#'))
                 .and_then(|u| local.get(&percent_decode(&u[1..])))
@@ -78,7 +131,7 @@ pub(super) fn geo_nodes(duf: &Value) -> Vec<GeoNode> {
                 shell_instance: gi.get("extra").and_then(Value::as_array).is_some_and(|e| {
                     e.iter().any(|x| x.get("type").and_then(Value::as_str) == Some("studio/geometry/shell"))
                 }),
-                visible: channels.get("Visible").and_then(Value::as_bool).unwrap_or(true),
+                visible,
                 shell_groups: lists_groups.then_some(shell_groups),
             })
         })

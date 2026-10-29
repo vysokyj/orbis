@@ -125,8 +125,13 @@ pub(super) const LEGACY_LUMENS: f64 = 1000.0 * std::f64::consts::PI;
 /// The scene's lights that DAZ renders: visible, switched on, illuminating.
 pub(super) fn scene_lights(lib: &mut Library) -> Vec<SceneLight> {
     let nodes = lib.duf.pointer("/scene/nodes").and_then(Value::as_array).cloned().unwrap_or_default();
+    let hidden = super::mesh::hidden_nodes(&lib.duf);
     let mut out = Vec::new();
     for node in &nodes {
+        // Under a hidden node DAZ doesn't render it either (#53).
+        if node.get("id").and_then(Value::as_str).is_some_and(|id| hidden.contains(&percent_decode(id))) {
+            continue;
+        }
         let Some(def) = node.get("url").and_then(Value::as_str).and_then(|u| lib.entry(u, "node_library")) else { continue };
         if def.get("type").and_then(Value::as_str) != Some("light") {
             continue;

@@ -878,6 +878,27 @@ fn hidden_in_the_scenes_own_node_definition() {
 }
 
 #[test]
+fn hidden_under_a_hidden_group() {
+    // Calib-Hair-Teens (#53): a hidden group hides what's under it, a hidden
+    // figure (the dolly, a scalp cap under dForce hair) doesn't.
+    let hidden = json!([{"type": "studio_node_channels", "channels": [{"channel": {"id": "Visible", "current_value": false}}]}]);
+    let group = json!([{"type": "studio/node/group_node"}]);
+    let duf = json!({
+        "node_library": [{"id": "Group 2", "type": "node", "extra": group}],
+        "scene": {"nodes": [
+            {"id": "Group 2-1", "url": "#Group%202", "label": "Group", "extra": hidden},
+            {"id": "Dolly", "label": "Dolly", "parent": "#Group%202-1", "geometries": [{"id": "d", "url": "#dolly"}]},
+            {"id": "base-1", "label": "base", "parent": "#Dolly"},
+            {"id": "Eva", "label": "Eva", "parent": "#base-1", "geometries": [{"id": "e", "url": "#eva"}]},
+            {"id": "Scalp", "label": "Scalp", "extra": hidden, "geometries": [{"id": "s", "url": "#scalp"}]},
+            {"id": "Hair", "label": "Hair", "parent": "#Scalp", "geometries": [{"id": "h", "url": "#hair"}]},
+        ]},
+    });
+    let visible: HashMap<String, bool> = super::mesh::geo_nodes(&duf).into_iter().map(|n| (n.label, n.visible)).collect();
+    assert_eq!(visible, HashMap::from([("Dolly".into(), false), ("Eva".into(), false), ("Scalp".into(), false), ("Hair".into(), true)]));
+}
+
+#[test]
 fn open_sheets_and_closed_volumes() {
     // A tetrahedron split into two material groups (closed: its seam is no
     // edge), beside a lone quad card (open).

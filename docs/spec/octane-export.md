@@ -213,7 +213,14 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
 - Stage `upAxis = "Y"`, `metersPerUnit = 1`, `defaultPrim = "Scene"`; points
   converted cm → **meters** (Octane ignores `metersPerUnit`).
 - One `Mesh` per visible node (points from the dump, topology from the
-  `.dsf`); `Visible` = false nodes are left out.
+  `.dsf`); `Visible` = false nodes are left out, and so is everything
+  under a hidden **group** (`studio/node/group_node`). The same goes for
+  lights. A hidden figure or bone doesn't hide its children.
+
+  Why: in DAZ (`isVisible()`) the blonde in Calib-Hair-Teens went
+  invisible with either of her two groups hidden, and Iray rendered
+  nothing of her, but she stayed visible with the dolly or its bone hidden.
+  intake's dForce hairs render under their hidden scalp caps (#53).
 - `GeomSubset` per material group; `primvars:st` indexed `faceVarying`.
   **Fully transparent groups** (opacity 0, no map — the NGV8 pubic hair's
   "Hiding" strands) are left out: invisible, yet under random-walk skin the
