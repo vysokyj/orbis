@@ -83,9 +83,9 @@ brows (Makenna, BS French Braid, Gala, BS Short Hair, Morgan).
 (Octane / Iray, R / G / B.) The hair has its sheen now, but stays too
 bright and too white. What Iray does on top:
 
-- **Top Coat Color through the coat.** Iray darkens and warms what lies
-  under the coat: without it the hair is 1.1 – 2.1 × brighter. Octane's
-  coating only tints its own reflection (#27).
+- **The top coat.** Iray darkens and warms what lies under it: without it
+  the hair is 1.1 – 2.1 × brighter. The coat's thin film does it, not its
+  colour (below).
 - **The Color Effects** (all 2) move it by up to 1.7 ×.
 - On cards seen edge-on, Fresnel at F0 0.46 leaves little diffuse.
 
