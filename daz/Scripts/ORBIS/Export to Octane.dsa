@@ -435,8 +435,8 @@
     }
 
     // Switch every mesh with a resolution level above 0 to its base mesh
-    // and rebuild the caches (hosts first, as the scene lists them); returns
-    // what to restore: [{ node, control, value }].
+    // and rebuild the caches; returns what to restore:
+    // [{ node, control, value }].
     function baseResolution() {
         var aLods = [];
         var aObjects = [];
@@ -453,9 +453,17 @@
                 oLod.setValue(0);
             }
         }
-        for (var i = 0; i < aObjects.length; i++) {
-            aObjects[i].node.finalize();
-            aObjects[i].object.forceCacheUpdate(aObjects[i].node, false);
+        // A freshly opened scene's wearables sit in a stale fit until DAZ has
+        // processed its events and the caches are rebuilt by force — twice:
+        // teens' boots were 11 cm off the man's feet and the slip-ons let the
+        // toes through after one rebuild, 1.8 / 1.2 cm (fitted) after the
+        // second (#51).
+        for (var pass = 0; pass < 2; pass++) {
+            processEvents();
+            for (var i = 0; i < aObjects.length; i++) {
+                aObjects[i].node.finalize();
+                aObjects[i].object.forceCacheUpdate(aObjects[i].node, true);
+            }
         }
         return aLods;
     }

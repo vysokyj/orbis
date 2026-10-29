@@ -139,8 +139,13 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   instead of 18396 vertices for a G8F shell). With every cache rebuilt, a
   graft host's cache has its grafts' vertices appended like a shell's (G8F
   16556 + graft 1840 = 18396); the export takes the host's first vertices
-  and accepts either count. — world space, cm,
-  Y up, morphs and pose applied; flat `x y z`. The export refines it itself
+  and accepts either count. The rebuild runs twice, each time after
+  `processEvents()` and with `forceCacheUpdate(node, true)`. Before it, a
+  freshly opened scene's wearables sit in a stale fit. teens: the man's
+  boots were 11 cm off his feet, and the slip-ons left 39 % of their upper
+  under the skin. After it the boots are 1.8 cm off and the slip-ons 1.2 cm,
+  as fitted (#51). — world space, cm, Y up, morphs and pose applied; flat
+  `x y z`. The export refines it itself
   (SubD above), so the dump stays small and topology matches the `.dsf`.
 - `lod`: the resolution level DAZ renders at (> 0 = refined). A geometry
   shell reports 0 and renders at its host's level — the export refines it

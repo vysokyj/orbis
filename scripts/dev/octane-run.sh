@@ -6,7 +6,8 @@
 # menu's "ORBIS probe", starts Octane X if it isn't running, clicks the menu
 # item (System Events; the terminal needs Accessibility access), waits for
 # the probe to write Documents/orbis_probe.done and quits Octane X again —
-# killed if it doesn't quit in 30 s. Output lands in the sandbox's Documents.
+# killed if it doesn't quit in 30 s (KEEP_OCTANE=1: left open). Output lands
+# in the sandbox's Documents.
 # Never run it while a DAZ Studio render is going: Iray takes the whole CPU.
 set -eu
 probe=$1
@@ -83,6 +84,11 @@ while :; do
     rm -f "$docs"/orbis_probe*.txt
 done
 [ $status -eq 0 ] || exit $status
+# KEEP_OCTANE=1 leaves it open, e.g. to read an error dialog (#50).
+if [ "${KEEP_OCTANE:-}" = 1 ]; then
+    echo "done (Octane X left open): $docs"
+    exit 0
+fi
 osascript -e 'tell application "Octane X" to quit' >/dev/null 2>&1 || true
 i=0
 while pgrep -q -f "$bin" && [ $i -lt 15 ]; do sleep 2; i=$((i + 1)); done
