@@ -40,7 +40,7 @@ Hypotheses (by the Iray channels the variants stand for):
   Octane model's; Faithful sets it).
 - `set=<material>.<pin>=<f|c|p><value>[+…]`: any Universal pin of the
   material named /Scene/Materials/<material>… — `f` a float, `c` a grey
-  colour, `p` the texture on that pin at power × value, `x` the pin's
+  colour, `r` an RGB colour (`r<r>,<g>,<b>`), `e` an enum (e.g. `hairMode`), `p` the texture on that pin at power × value, `x` the pin's
   colour (per channel with `x<r>,<g>,<b>`), or its texture's power, ×
   value (e.g.
   `set=Genesis_8_Female_Cornea.coating=c0+Genesis_8_Female_Cornea.roughness=f0.07`).
@@ -161,6 +161,10 @@ def apply(ocs, hyp):
                 ocs = set_pin(ocs, mat, pin, value_node(31, 6, v))
             elif kind == 'c':
                 ocs = set_pin(ocs, mat, pin, value_node(33, 8, f'{v} {v} {v}'))
+            elif kind == 'r':
+                ocs = set_pin(ocs, mat, pin, value_node(33, 8, v.replace(',', ' ')))
+            elif kind == 'e':
+                ocs = set_pin(ocs, mat, pin, value_node(57, 2, v))
             elif kind == 'x':
                 c = albedo_of(ocs, mat, pin)
                 m = re.search(rf"name='/Scene/Materials/{re.escape(mat)}[^']*'", ocs)

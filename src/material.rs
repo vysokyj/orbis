@@ -1098,6 +1098,28 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
+    /// DAZ's OmniHair (`omni_hair`) as Octane's Hair in melanin mode.
+    fn omni_hair(&mut self, indent: usize, name: &str, h: &OmniHair) {
+        let id = self.id();
+        let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='147' name='{}'>", "", esc(name));
+        let i = indent + 1;
+        let _ = writeln!(self.out, "{:i$}<attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
+        self.value_pin(i, "hairMode", 57, 2, "1"); // melanin + pheomelanin
+        self.float_pin(i, "hairMelanin", h.eumelanin);
+        self.float_pin(i, "hairPheomelanin", h.pheomelanin);
+        self.float_pin(i, "ior", h.ior);
+        self.float_pin(i, "roughness", h.roughness);
+        self.float_pin(i, "roughnessV", h.azimuthal);
+        if h.diffuse > 0.0 {
+            self.float_pin(i, "diffuseAmount", h.diffuse);
+            self.rgb_pin(i, "diffuse", h.diffuse_colour);
+        }
+        if h.opacity < 1.0 {
+            self.float_pin(i, "opacity", h.opacity.max(0.0));
+        }
+        let _ = writeln!(self.out, "{:indent$}</node>", "");
+    }
+
     /// Iray's "Weighted" base mixing (`Base Mixing` 2) blends diffuse,
     /// translucency and glossy by their weights; Universal takes only the
     /// diffuse map. The factor that scales it to the blend's brightness:
@@ -1129,6 +1151,9 @@ impl Ocs<'_> {
     }
 
     fn universal(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
+        if let Some(h) = omni_hair(mat) {
+            return self.omni_hair(indent, name, &h);
+        }
         if mat.channel("Hair Root Color").is_some() {
             return self.hair(indent, name, mat);
         }
@@ -1444,6 +1469,119 @@ fn top_coat_ior(mat: &Material) -> f32 {
 fn ior_from_f0(f0: f32) -> f32 {
     let s = f0.clamp(0.0, 0.9).sqrt();
     (1.0 + s) / (1.0 - s)
+}
+
+/// DAZ's OmniHair ("OmniHair Root-Tip Blend", a brick graph on
+/// `OmniSurface::OmniHairBase`): Chiang's hair BSDF — as Octane's Hair is —
+/// absorbing by melanin and a base colour. Root and tip are averaged.
+struct OmniHair {
+    /// Octane's Melanin and Pheomelanin (its melanin mode): OmniHair's
+    /// eumelanin and pheomelanin concentrations — as is, the crown of
+    /// Calib-OmniHair came out 0.99 (blonde) / 1.01 (brown) × Iray; the
+    /// absorption turned into Octane's albedo (Chiang's colour mapping)
+    /// rendered it 0.65 / 0.78.
+    eumelanin: f32,
+    pheomelanin: f32,
+    ior: f32,
+    /// OmniHair hands Chiang's BSDF its roughness already mapped (`compute_v`,
+    /// `compute_s` on its inputs): passed on so (the unmapped 0.2 rendered
+    /// the same crown).
+    roughness: f32,
+    azimuthal: f32,
+    /// Its diffuse lobe ("Highlight" in DAZ).
+    diffuse: f32,
+    diffuse_colour: [f32; 3],
+    opacity: f32,
+}
+
+/// OmniHairBase's absorption per unit eumelanin and pheomelanin.
+const OMNI_EUMELANIN: [f32; 3] = [0.506, 0.841, 1.653];
+const OMNI_PHEOMELANIN: [f32; 3] = [0.343, 0.733, 1.924];
+
+/// OmniHairBase's longitudinal roughness mapping (`compute_v`).
+fn omni_v(b: f32) -> f32 {
+    let t = 0.726 * b + 0.812 * b * b + 3.7 * b.powi(20);
+    t * t
+}
+
+/// OmniHairBase's azimuthal roughness mapping (`compute_s`).
+fn omni_s(b: f32) -> f32 {
+    0.265 * b + 1.194 * b * b + 5.372 * b.powi(22)
+}
+
+/// Chiang et al.'s colour ↔ absorption factor at azimuthal roughness β:
+/// σ = (ln c / f(β))², c = exp(−√σ · f(β)).
+fn chiang_factor(b: f32) -> f32 {
+    let (b2, b4) = (b * b, b.powi(4));
+    5.969 - 0.215 * b + 2.532 * b2 - 10.73 * b2 * b + 5.574 * b4 + 0.245 * b4 * b
+}
+
+/// The eumelanin and pheomelanin (≥ 0) whose absorption comes closest to σ.
+fn melanin_fit(sigma: [f32; 3]) -> (f32, f32) {
+    let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let (e, p) = (OMNI_EUMELANIN, OMNI_PHEOMELANIN);
+    let (ee, pp, ep, es, ps) = (dot(e, e), dot(p, p), dot(e, p), dot(e, sigma), dot(p, sigma));
+    let det = ee * pp - ep * ep;
+    let (a, b) = ((es * pp - ps * ep) / det, (ps * ee - es * ep) / det);
+    if a < 0.0 {
+        (0.0, (ps / pp).max(0.0))
+    } else if b < 0.0 {
+        ((es / ee).max(0.0), 0.0)
+    } else {
+        (a, b)
+    }
+}
+
+/// The OmniHair a brick shader renders with, from its DAZ channels.
+fn omni_hair(mat: &Material) -> Option<OmniHair> {
+    mat.channel("Melanin")?;
+    mat.channel("Hair Root Color")?;
+    let avg = |a: &str, b: &str, d: f32| (mat.float(a).unwrap_or(d) + mat.float(b).or(mat.float(a)).unwrap_or(d)) / 2.0;
+    let avg_colour = |a: &str, b: &str| {
+        let (x, y) = (mat.color(a).unwrap_or([1.0; 3]), mat.color(b).or(mat.color(a)).unwrap_or([1.0; 3]));
+        [0, 1, 2].map(|k| (x[k] + y[k]) / 2.0)
+    };
+    // "Melanin Presets": white … black, 7 = custom (the slider).
+    const PRESETS: [f32; 7] = [0.0, 0.0025, 0.10, 0.175, 0.30, 0.65, 1.0];
+    let melanin = match mat.float("Melanin Presets").map(|p| p as usize) {
+        Some(p) if p < PRESETS.len() => PRESETS[p],
+        _ => mat.float("Melanin").unwrap_or(1.0),
+    };
+    let redness = mat.float("Melanin Redness").unwrap_or(0.5);
+    let m = melanin * melanin * 2.4;
+    let (eu, pheo) = (m * (1.0 - redness), m * redness);
+    let sigma_m = [0, 1, 2].map(|k| (eu * OMNI_EUMELANIN[k] + pheo * OMNI_PHEOMELANIN[k]).max(0.0));
+    let roughness = omni_v(avg("Roughness", "Roughness Tip", 0.1));
+    let anisotropic = mat.float("Anisotropic Roughness").unwrap_or(0.0) > 0.0;
+    let az_input = avg("Azimuthal Roughness", "Azimuthal Roughness Tip", 0.2);
+    let azimuthal = if anisotropic { omni_s(az_input) } else { roughness };
+    let base = avg_colour("Hair Root Color", "Hair Tip Color");
+    let weight = mat.float("Diffuse Strength").unwrap_or(1.0);
+    let (eumelanin, pheomelanin) = if base == [1.0; 3] && weight == 1.0 {
+        (eu, pheo)
+    } else {
+        // The base colour's absorption (× 2.4, as the MDL does), blended
+        // toward the melanin's by √melanin — a white base at Diffuse
+        // Strength ≥ 0.42 absorbs nothing, which leaves the melanin × √m;
+        // a coloured one is fitted as the two pigments (least squares, ≥ 0).
+        let f = chiang_factor(if anisotropic { az_input } else { roughness });
+        let t = melanin.max(0.0).sqrt();
+        let sigma = [0, 1, 2].map(|k| {
+            let s = ((base[k] * weight * 2.4).clamp(0.001, 1.0).ln() / f).powi(2);
+            s + (sigma_m[k] - s) * t
+        });
+        melanin_fit(sigma)
+    };
+    Some(OmniHair {
+        eumelanin,
+        pheomelanin,
+        ior: mat.float("IOR").unwrap_or(1.55).max(1.0 + 1e-5),
+        roughness: roughness.clamp(0.0, 1.0),
+        azimuthal: azimuthal.clamp(0.0, 1.0),
+        diffuse: mat.float("Highlight Weight").unwrap_or(0.0).clamp(0.0, 1.0),
+        diffuse_colour: avg_colour("Highlight Root Color", "Tip Highlight Color"),
+        opacity: if mat.float("Enable Opacity").unwrap_or(0.0) > 0.0 { mat.float("Cutout Opacity").unwrap_or(1.0) } else { 1.0 },
+    })
 }
 
 /// Octane Hair albedo from Iray's Blended Dual Lobe hair: its hair colour
@@ -1894,6 +2032,36 @@ mod tests {
 
     fn mat(chs: serde_json::Value) -> Rc<Material> {
         Rc::new(Material::from_dson(&json!({"extra": [{"channels": chs}]}), &HashMap::new()))
+    }
+
+    #[test]
+    fn omni_hair_absorbs_by_melanin() {
+        let hair = |melanin: f32| strength(melanin, 1.0);
+        fn strength(melanin: f32, w: f32) -> Rc<Material> {
+            mat(json!([
+                {"channel": {"id": "Diffuse Strength", "current_value": w}},
+                {"channel": {"id": "Melanin", "current_value": melanin}},
+                {"channel": {"id": "Melanin Redness", "current_value": 0.5}},
+                {"channel": {"id": "Hair Root Color", "current_value": [1, 1, 1]}},
+                {"channel": {"id": "Hair Tip Color", "current_value": [1, 1, 1]}},
+                {"channel": {"id": "Roughness", "current_value": 0.2}},
+            ]))
+        }
+        let blonde = omni_hair(&hair(0.175)).unwrap();
+        let brown = omni_hair(&hair(0.65)).unwrap();
+        // m² · 2.4, split by the redness; roughness mapped.
+        assert!((blonde.eumelanin - 0.175f32.powi(2) * 1.2).abs() < 1e-5 && (brown.pheomelanin - 0.65f32.powi(2) * 1.2).abs() < 1e-5);
+        assert!((blonde.roughness - omni_v(0.2)).abs() < 1e-6);
+        // A white base at Diffuse Strength 0.8 absorbs nothing: the melanin × √m.
+        let d = omni_hair(&strength(0.65, 0.8)).unwrap();
+        assert!((d.eumelanin - brown.eumelanin * 0.65f32.sqrt()).abs() < 1e-4, "{} {}", d.eumelanin, brown.eumelanin);
+        // The fit recovers a pigment mix.
+        let (a, b) = melanin_fit([0, 1, 2].map(|k| 0.3 * OMNI_EUMELANIN[k] + 0.7 * OMNI_PHEOMELANIN[k]));
+        assert!((a - 0.3).abs() < 1e-4 && (b - 0.7).abs() < 1e-4);
+        // Blended Dual Lobe hair (no Melanin) stays with `hair`.
+        assert!(omni_hair(&mat(json!([{"channel": {"id": "Hair Root Color", "current_value": [1, 1, 1]}}]))).is_none());
+        let (x, _) = material_inputs(&[("Omni".into(), hair(0.65), 1.0)], &[], HashMap::new(), 9600, SkinShader::None);
+        assert!(x.contains("type='147'") && x.contains("<pin name='roughnessV'>"), "{x}");
     }
 
     #[test]

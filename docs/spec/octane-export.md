@@ -672,6 +672,28 @@ saturation curve fits both; open in #42. Backlit strands glow through
 (Octane's TT lobe) where Iray's stay dark: kept, it is Octane's more
 plausible take (the Enhanced look).
 
+**OmniHair** ("OmniHair Root-Tip Blend", a brick graph on
+`OmniSurface::OmniHairBase`: Chiang's hair BSDF, as Octane's Hair is) →
+Hair in **melanin mode** (`hairMode` 1): `hairMelanin` / `hairPheomelanin`
+= OmniHair's eumelanin / pheomelanin concentrations, m² · 2.4 · (1 − r) and
+· r (m = Melanin or its preset, r = Melanin Redness). A base colour other
+than white at Diffuse Strength 1 adds its absorption (Chiang's colour
+mapping of colour × strength × 2.4, clamped to 1) blended toward the
+melanin's by √m — a white one at strength ≥ 0.42 absorbs nothing, leaving
+the melanin × √m; a coloured one is fitted as the two pigments (least
+squares, ≥ 0: `melanin_fit`). Roughness: OmniHair's mapped values
+(`compute_v`, and `compute_s` for the azimuthal when Anisotropic
+Roughness is on) — the unmapped 0.2 rendered the same crown. IOR as is;
+Highlight (its diffuse lobe) as `diffuseAmount` / `diffuse`; root and tip
+averaged. Why melanin mode: the absorption turned into Octane's albedo by
+Chiang's colour mapping rendered the crown 0.65 (blonde) / 0.78 (brown) ×
+Iray; the concentrations as is 0.99 / 1.00. Calib-OmniHair (Calib-Hair's
+strands, local), crown: blonde 0.99, brown 1.00, black 0.88, red 0.85,
+dyed 0.95, Wendy's settings 0.89, highlight 0.73. Octane's pheomelanin
+reads yellower than Iray's: brown and red come out golden where Iray's are
+reddish (red: g/r 0.85 v 0.72) — Chiang's coefficients (MDL's ÷ 1.21 /
+÷ 1.83) and pheomelanin as a redness fraction were worse; open (#21).
+
 ### Emission
 
 Iray emission → Universal `emission`: blackbody (53: power, temperature,
