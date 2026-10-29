@@ -34,10 +34,12 @@ mod project;
 mod subdivide;
 mod usda;
 mod usdz;
+mod volume;
 #[cfg(test)]
 mod tests;
 
 pub use camera::*;
+pub use volume::Volume;
 use dump::*;
 pub use dump::{dump_cache_path, store_dump, DUMP_FORMAT_VERSION};
 pub use environment::*;
@@ -127,7 +129,9 @@ pub struct ExportReport {
 /// Convert `scene` (the saved `.duf`) with its `dump` (written by DAZ Studio)
 /// into a `.usdz` at `out`.
 pub fn export_scene_usdz(scene: &Path, dump: &Path, out: &Path, opts: &ExportOptions) -> Result<ExportReport> {
-    let (meshes, report, mut lib) = build_scene(scene, dump, opts)?;
+    let (meshes, volumes, mut report, mut lib) = build_scene(scene, dump, opts)?;
+    // The .usdz carries meshes only; the volumes go into project.ocs.
+    report.skipped.extend(volumes.iter().map(|v| format!("{}: a VDB volume (only in .orbx)", v.label)));
     let (layer, _) = write_usda(&meshes, &lights_iray_uses(&mut lib));
     write_atomically(out, |f| write_usdz(f, &[("scene.usda", layer.as_bytes())]))?;
     Ok(report)
@@ -139,7 +143,7 @@ pub fn export_scene_usdz(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
 /// own Open panel or gallery (it refuses files handed over from outside).
 pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOptions) -> Result<ExportReport> {
     let progress = &opts.progress;
-    let (meshes, mut report, mut lib) = build_scene(scene, dump, opts)?;
+    let (meshes, volumes, mut report, mut lib) = build_scene(scene, dump, opts)?;
     progress.report(35, "writing the USD scene");
     let mut lights = lights_iray_uses(&mut lib);
     let mut cameras = scene_cameras(&mut lib);
@@ -175,7 +179,26 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     // The meshes are in the layer now; a big scene's (19.8 M points) held
     // beside it, its package and every texture peaked at 16 GB.
     drop(meshes);
-    let (scene_nodes, mesh_connect) = crate::material::scene_lights(&octane_spots(&lights), ground, 170_000, 1439);
+    // VDB volumes, each file packed once.
+    let mut vdb_files: Vec<(String, PathBuf)> = Vec::new();
+    let octane_volumes: Vec<_> = volumes
+        .iter()
+        .map(|v| {
+            let asset = match vdb_files.iter().find(|(_, f)| *f == v.file) {
+                Some((a, _)) => a.clone(),
+                None => {
+                    let base = v.file.file_name().and_then(|n| n.to_str()).unwrap_or("volume.vdb");
+                    let safe: String = base.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect();
+                    let a = format!("assets/vdb/{:02}_{safe}", vdb_files.len());
+                    vdb_files.push((a.clone(), v.file.clone()));
+                    a
+                }
+            };
+            // VDB units are DAZ's cm: the node's transform, in meters.
+            crate::material::OctaneVolume { name: v.label.clone(), asset, grid: v.grid.clone(), transform: v.transform.map(|x| x * f64::from(CM)), scattering: v.scattering, absorption: v.absorption, anisotropy: v.anisotropy }
+        })
+        .collect();
+    let (scene_nodes, mesh_connect) = crate::material::scene_lights(&octane_spots(&lights), ground, &octane_volumes, 170_000, 1439);
     let tone = scene_tone_mapping(&mut lib);
     // Iray lights with a hidden dome (Draw Dome off) but shows black there;
     // "Scene Only" has no dome light to begin with (power 0, black anyway).
@@ -233,6 +256,11 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
                 _ => w.add(asset, data)?,
             }
         }
+        for (asset, file) in &vdb_files {
+            progress.report(95, "writing the VDB volumes");
+            w.begin(asset)?;
+            std::io::copy(&mut std::fs::File::open(file).with_context(|| format!("reading {}", file.display()))?, &mut w)?;
+        }
         // Iray's tone curve, which the imager's LUT node names (project.ocs).
         if !tone.is_plain() {
             w.add(TONE_LUT_ASSET, tone.cube_lut().as_bytes())?;
@@ -262,7 +290,7 @@ const USDZ_ASSET: &str = "scene.usdz";
 const OCTANE_VERSION: &str = "15050000";
 
 /// Read the scene, its dump and library assets into meshes.
-fn build_scene(scene: &Path, dump: &Path, opts: &ExportOptions) -> Result<(Vec<Mesh>, ExportReport, Library)> {
+fn build_scene(scene: &Path, dump: &Path, opts: &ExportOptions) -> Result<(Vec<Mesh>, Vec<Volume>, ExportReport, Library)> {
     let duf: Value = serde_json::from_str(&decompress_scene(
         &std::fs::read(scene).with_context(|| format!("reading {}", scene.display()))?,
     )?)?;
@@ -285,8 +313,9 @@ fn build_scene(scene: &Path, dump: &Path, opts: &ExportOptions) -> Result<(Vec<M
     }
     let mut lib = Library::new(dirs, duf);
     opts.progress.report(5, "building the meshes");
-    let (meshes, report) = build_meshes(&mut lib, &dump)?;
-    Ok((meshes, report, lib))
+    let (meshes, mut report) = build_meshes(&mut lib, &dump)?;
+    let volumes = volume::scene_volumes(&mut lib, &dump, &mut report);
+    Ok((meshes, volumes, report, lib))
 }
 
 /// Write through `<out>.tmp` and rename, so a failed export leaves no

@@ -364,7 +364,7 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     // Iray's cos(θ · 90°/30°)⁴ beam: a soft Octane disk 0.78 × as wide.
     assert!((spots[0].spread_deg - 46.8).abs() < 1.0 && spots[0].watts == 10.0, "{:?}", spots[0]);
     assert!((octane_cone_half(30.0, 1.0) - 37.8).abs() < 1.0, "a cos¹ beam: a wider soft disk");
-    let (nodes, mesh) = crate::material::scene_lights(&spots, None, 500, 1439);
+    let (nodes, mesh) = crate::material::scene_lights(&spots, None, &[], 500, 1439);
     assert!(nodes.contains("type='402' name='SpotLight'") && nodes.contains("type='3' name='DAZ 3D lights'"));
     assert!(nodes.contains("<pin name='Input 1' dynamicType='12' connect='1439'/>"));
     // DAZ "XYZ" (X applied first) is Octane "ZYX" (enum 5).
@@ -384,14 +384,14 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     assert_eq!(ground_height(&e, &[]), 0.0);
     e.ground_origin_y = Some(12.0);
     assert!((ground_height(&e, &[]) - 0.12).abs() < 1e-6);
-    let (lifted, _) = crate::material::scene_lights(&[], Some((0.8, 0.12)), 500, 1439);
+    let (lifted, _) = crate::material::scene_lights(&[], Some((0.8, 0.12)), &[], 500, 1439);
     assert!(lifted.contains("<attr name='translation' type='8'>0 0.119 0</attr>"), "{lifted}");
-    let (g, gmesh) = crate::material::scene_lights(&[], Some((0.8, 0.0)), 500, 1439);
+    let (g, gmesh) = crate::material::scene_lights(&[], Some((0.8, 0.0)), &[], 500, 1439);
     assert!(g.contains("type='4' name='DAZ ground'") && g.contains("<attr name='translation' type='8'>0 -0.001 0</attr>"), "{g}");
     assert!(g.contains("type='110' name='DAZ ground plane'") && g.contains("type='145'") && g.contains("<attr name='value' type='6'>0.712</attr>"), "{g}");
     assert!(g.contains("<pin name='Input 2' dynamicType='12' connect='501'/>") && gmesh != 1439, "{g}");
     assert_eq!(g.matches("<node ").count(), g.matches("</node>").count());
-    assert_eq!(crate::material::scene_lights(&[], None, 500, 1439), (String::new(), 1439));
+    assert_eq!(crate::material::scene_lights(&[], None, &[], 500, 1439), (String::new(), 1439));
     assert_ne!(mesh, 1439);
     assert!(light_emitters(&lights).is_empty(), "no UsdLux emitter for a spot");
     // A point light stays UsdLux: 1500 lm × 0.58 / 15 000 = 0.058 W, glowing.
@@ -406,6 +406,48 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     let em = light_emitters(&[point]);
     let xml = crate::material::light_inputs(&em, 100);
     assert!(xml.contains("name='/Scene/Lights/Bulb_light'") && xml.contains("type='53'") && xml.contains("6500 0 0"));
+}
+
+#[test]
+fn vdb_volume_goes_to_octane_not_as_its_box() {
+    let dir = std::env::temp_dir().join(format!("orbis-volume-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("Runtime")).unwrap();
+    std::fs::write(dir.join("Runtime/haze.vdb"), crate::vdb::tests::file()).unwrap();
+    let mut duf = scene();
+    duf["scene"]["nodes"].as_array_mut().unwrap().push(json!({"id": "Box", "name": "Box", "label": "Haze", "geometries": [{"id": "bi", "url": "#h"}]}));
+    duf["scene"]["materials"].as_array_mut().unwrap().push(json!({"geometry": "#bi", "groups": ["Torso", "Legs"], "extra": [{"type": "studio_material_channels", "channels": [
+        {"channel": {"id": "Volume File", "type": "file", "current_value": "/Runtime/haze.vdb"}},
+        {"channel": {"id": "Scattering Multiplier", "type": "float_color", "current_value": [1, 0.5, 0]}},
+        {"channel": {"id": "Absorption Multiplier", "type": "float_color", "current_value": [0.5, 0.5, 0.5]}},
+        {"channel": {"id": "Density Multiplier", "type": "float", "current_value": 1000}},
+        {"channel": {"id": "Density Relative To Size", "type": "bool", "current_value": true}},
+    ]}]}));
+    let mut d = dump();
+    let t = [0.1, 0.0, 0.0, 5.0, 0.0, 0.1, 0.0, -10000.0, 0.0, 0.0, 0.1, 0.0];
+    d.nodes.push(DumpNode { name: "Box".into(), label: "Haze".into(), lod: 0, vertices: (0..6).map(|i| [i as f32, 3.0, 0.0]).collect(), transform: Some(t), ..Default::default() });
+    let mut lib = Library::new(vec![dir.clone()], duf);
+    let (meshes, mut report) = build_meshes(&mut lib, &d).unwrap();
+    assert!(meshes.iter().all(|m| m.label != "Haze"), "the box itself is not drawn");
+    let v = volume::scene_volumes(&mut lib, &d, &mut report);
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(v.len(), 1, "{:?}", report.skipped);
+    // Relative to size: 1000 ÷ the node's scale 0.1; the file's first grid;
+    // the multipliers decoded as colours (0.5 → 0.218).
+    assert_eq!((v[0].grid.as_str(), v[0].transform), ("density", t));
+    let near = |a: [f32; 3], b: [f32; 3]| (0..3).all(|k| (a[k] - b[k]).abs() < 0.1);
+    assert!(near(v[0].scattering, [10000.0, 2176.38, 0.0]) && near(v[0].absorption, [2176.38; 3]), "{v:?}");
+    let ov = crate::material::OctaneVolume { name: "Haze".into(), asset: "assets/vdb/00_haze.vdb".into(), grid: "density".into(), transform: t.map(|x| x * 0.01), scattering: v[0].scattering, absorption: v[0].absorption, anisotropy: 0.85 };
+    let (x, mesh) = crate::material::scene_lights(&[], None, &[ov], 500, 1439);
+    assert!(x.contains("<attr name='transform' type='13'>0.001 0 0 0.05 0 0.001 0 -100 0 0 0.001 0</attr>"), "{x}");
+    assert!(x.contains("type='91' name='Haze'") && x.contains("<attr name='filename' type='11'>assets/vdb/00_haze.vdb</attr>"), "{x}");
+    // 10⁴ per meter: the density pin's 10⁴ × the grids' 1; a 10-voxel step
+    // (1 % of the VDB's own voxel at the placement's 0.001).
+    assert!(x.contains("<attr name='volumeScatteringScale' type='6'>1</attr>") && x.contains("<attr name='value' type='9'>10000 0 0 0</attr>"), "{x}");
+    assert!(x.contains("<pin name='rayMarchStepPercent'>") && x.contains("<attr name='value' type='9'>0.01 0 0 0</attr>"), "{x}");
+    assert!(x.contains("<attr name='value' type='8'>1 0.217638 0</attr>") && x.contains("<attr name='value' type='8'>0.217638 0.217638 0.217638</attr>"), "{x}");
+    assert!(x.contains("type='60'") && x.contains("<attr name='value' type='8'>0.85 0 0</attr>"), "{x}");
+    assert!(x.contains(&format!("connect='{}'", 501)) && mesh != 1439);
+    assert_eq!(x.matches("<node ").count(), x.matches("</node>").count());
 }
 
 #[test]

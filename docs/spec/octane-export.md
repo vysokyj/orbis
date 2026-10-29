@@ -268,10 +268,63 @@ in the `.duf` and rebuilds the groups on load — so they come from the dump.
   (UltraScatter hides its sources), else it is left out as before.
 - Copy mode "target + children" isn't followed: only the target's mesh.
 
+### VDB volumes
+
+A node whose material has a **Volume File** is a VDB volume. DAZ's
+"Simple OpenVDB MDL Volume" passes the file through
+`base::lookup_volume_coefficients` into Iray Uber's inhomogeneous volume.
+The node's mesh only carries the material; Iray fills the VDB's own extent,
+placed by the node. Notes: [2026-10-29](../notes/2026-10-29-vdb-volumes.md).
+
+- **The box is not drawn.** Drawn, Gladiator's haze cube was an opaque
+  white wall.
+- **Units and placement.** VDB world units are DAZ's cm. The volume is
+  placed by the node's world transform from the dump, in meters, as a
+  transform (67) with the whole matrix. The Volume node (91) is in meters
+  (`scaleUnitType` 4). The `.vdb` is packed once as `assets/vdb/NN_<file>`.
+- **Grid.** "Volume Channel", else the file's first grid, read from the
+  header (`vdb.rs`).
+- **Coefficients, per meter in both renderers:**
+  - σs = Scattering Multiplier · D
+  - σa = Absorption Multiplier · D
+  - D = Density Multiplier, **÷ the node's scale** when "Density Relative
+    To Size" is on.
+  - The multipliers are colours, decoded as Iray decodes them.
+
+  Why: Calib-VDB at DTAS's scale 0.1 renders density 1000 relative as
+  thick as 10000 without it. Absorption only (Calib-VDB-abs) matches
+  Iray at factor 1: sky 0.80 / horizon 0.36 / below 0.79 of the haze-free
+  render, against Iray's 0.79 / 0.35 / 0.77 (σ × 100 was opaque). Left raw,
+  the (1, 0.6, 0.3) haze came out too grey and DTAS's absorption 0.09 too
+  dark.
+
+  With all of it, DTAS's haze (Calib-VDB-base) comes out 1.20 / 1.30 / 1.12
+  of the haze-free render, against Iray's 1.22 / 1.31 / 1.22. Its densities
+  ×0.1, unscaled and isotropic agree within 0–10 %. Ten times denser
+  (10⁴) stays darker than Iray's bright fog: 1.62 / 0.88 / 1.29 against
+  2.14 / 1.53 / 2.48.
+- **The Volume medium (98):**
+  - density = min(peak σ, 10⁴) (the pin's maximum), and the grid scales
+    (`volume*Scale`, applied as the file loads) take the rest;
+  - colours σ / peak, `invertAbsorption` off;
+  - phase (60) g = **SSS Direction** — Iray applies it (0 instead of
+    DTAS's 0.85 renders the haze 8–30 % brighter).
+- **Step = 10 placed voxels.** Octane's `rayMarchStepPercent` is a
+  percentage of the VDB's *own* voxel (3000 units for DTAS), not of the
+  placed one, so the value is 10 × the placement's scale (0.01 for DTAS).
+  Why: at the default 100 % a step crossed the whole haze; it rendered
+  thin, and longer steps rendered it thinner still. It converges at 10
+  voxels (1 % and 0.1 % alike); 4 voxels took over 20 minutes for 400
+  samples.
+- **Not exported:** emission (reported), the offsets, and Clip To Geometry
+  (the volume fills its whole extent). A `.usdz` reports the volumes as
+  skipped.
+
 ## Package
 
 `.orbx` with `assets/scene.usdz` (stored, 64-byte aligned, own writer),
-textures `assets/tex/NNNN_<file>` (incl. flattened layered images) and
+textures `assets/tex/NNNN_<file>` (incl. flattened layered images), VDB
+volumes `assets/vdb/NN_<file>` and
 `project.ocs` from the template `assets/octane/project.ocs`.
 
 Scene graph:
@@ -284,7 +337,8 @@ Scene
 │    └─ geometry (1439)              output linker
 ├─ <DAZ spot>           analytic light (402), one per DAZ spotlight
 ├─ ground               placement (4) → plane (110) + shadow catcher (145), optional
-├─ "DAZ 3D lights"      geometry group (3): Input 1 = USD output, Input 2… = spots, ground
+├─ <VDB node>           placement (4) → transform (67) + volume (91) → volume medium (98)
+├─ "DAZ 3D lights"      geometry group (3): Input 1 = USD output, Input 2… = spots, ground, volumes
 └─ "<scene>"            render target(s) (56) → the group (or 1439 when nothing else)
 ```
 

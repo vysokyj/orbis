@@ -20,6 +20,7 @@ scripts/dev/daz-render.sh <scene.duf> <out.png> [secs] [samples]   # unattended 
 scripts/dev/octane-run.sh <probe.lua> [scene.orbx]   # unattended Octane X Lua probe (starts/quits Octane X)
 scripts/dev/octane-render.sh <out dir> [samples] <scene.orbx>...   # unattended Octane renders of exports, as exported
 python3 scripts/dev/make-calib-scenes.py   # Calib-PBRSkin / Calib-Tone-* / Calib-DOF-* from Calib-Materials.duf
+python3 scripts/dev/make-vdb-scenes.py   # Calib-VDB-* (local: Calib-HDRI with Gladiator's DTAS haze VDB)
 python3 scripts/dev/make-omnihair-scenes.py   # Calib-OmniHair-* (local: Calib-Hair's strands on DAZ's OmniHair shader)
 python3 scripts/dev/make-light-scenes.py   # Calib-L-* light scenes from Calib-Point/-Area/-Spot/-Distant/-Emissive
 python3 scripts/dev/calib-render.py [--auto-ev] <scene.duf>...   # Iray references → ~/Library/Caches/orbis/calib/iray
@@ -48,6 +49,7 @@ attaches the zip to a GitHub release.
 | `src/daz_material.rs` | DSON materials: merged Iray channels |
 | `src/layered_image.rs` | DAZ Layered Image Editor stacks → flattened images |
 | `src/texture_budget.rs` | Texture memory budget, downscaling |
+| `src/vdb.rs` | OpenVDB header: grid names |
 | `src/orbx.rs` | ORBX container writer/reader (reverse-engineered) |
 | `src/dson.rs` | gzip DSON, percent-decoding |
 | `src/daz.rs` | DAZ Studio on this machine: content dirs, app bundle |

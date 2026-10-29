@@ -14,3 +14,4 @@ pub mod orbx;
 pub mod texture_budget;
 pub mod tuning;
 pub mod usd;
+pub mod vdb;

@@ -65,7 +65,8 @@ From a checkout: `scripts/install.sh` builds and installs.
 - **Lights** — point, spot, distant, area (rect, disc, sphere), emissive
   surfaces; photometric and legacy units.
 - **Environment** — HDRI dome (rotation, intensity, hidden dome), Iray
-  Sun-Sky as Octane daylight, the shadow-catching ground.
+  Sun-Sky as Octane daylight, the shadow-catching ground, VDB volumes (DAZ's
+  Simple OpenVDB MDL Volume, e.g. atmospheric haze).
 - **Camera and image** — every DAZ camera as a render target, depth of
   field, Iray's exposure and tone curve.
 

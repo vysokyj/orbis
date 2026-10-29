@@ -282,12 +282,10 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
         if merged.contains(n.id.as_str()) {
             continue; // part of its host's mesh
         }
-        // A VDB volume's box (Iray's volume material, `Volume File`): Octane
-        // would render the box itself — Gladiator's haze cube came out an
-        // opaque white wall behind him, the sky 1.58 × Iray. Not exported
-        // until its volume is (#21).
-        if scene_materials(lib, &n.instance_id).values().any(|m| m.image("Volume File").is_some() || m.channel("Volume File").is_some_and(|c| c.value.as_str().is_some_and(|s| !s.is_empty()))) {
-            report.skipped.push(format!("{}: a VDB volume (not exported yet)", n.label));
+        // A VDB volume's box (Iray's volume material, `Volume File`) only
+        // carries the volume (`volume::scene_volumes`): drawn, Gladiator's
+        // haze cube came out an opaque white wall behind him.
+        if scene_materials(lib, &n.instance_id).values().any(|m| super::volume::is_volume(m)) {
             continue;
         }
         let instances = copies.as_ref().map_or(0, |c| c.len() - usize::from(n.visible));

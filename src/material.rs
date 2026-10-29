@@ -1848,6 +1848,38 @@ pub struct OctaneSpot {
     pub translation: [f64; 3],
 }
 
+/// A VDB volume for Octane: Iray's coefficients ([`crate::usd::Volume`])
+/// with the `.vdb` packed at `asset`.
+#[derive(Debug, Clone)]
+pub struct OctaneVolume {
+    pub name: String,
+    pub asset: String,
+    pub grid: String,
+    /// The placement: VDB units → meters, rows of a 3×4 matrix.
+    pub transform: [f64; 12],
+    pub scattering: [f32; 3],
+    pub absorption: [f32; 3],
+    /// The phase function's g (Iray's "SSS Direction").
+    pub anisotropy: f32,
+}
+
+/// Iray's volume coefficients → Octane's: both per meter (Calib-VDB-abs,
+/// absorption only, at a converged step: sky 0.80 / horizon 0.36 / below
+/// 0.79 of the haze-free render, Iray 0.79 / 0.35 / 0.77).
+const VOLUME_COEFFICIENT_SCALE: f32 = 1.0;
+
+/// The volume medium's ray-march step, in world voxels. Octane takes the
+/// step percentage of the VDB's own voxel (3000 units in DTAS's haze),
+/// not of the placed one (3 m): at the default 100 % it crossed the whole
+/// haze in a step or two and rendered it thin and step-dependent (400 %
+/// thinner still). Calib-VDB-abs converged at 10 voxels (1 % and 0.1 %
+/// alike, 147 s and 837 s for 200 samples; at 4 voxels Calib-VDB-base
+/// took over 20 minutes for 400).
+const VOLUME_STEP_VOXELS: f64 = 10.0;
+
+/// The volume medium's density pin: Octane's maximum.
+const VOLUME_DENSITY_MAX: f32 = 10_000.0;
+
 /// Octane's rotation order (transform node enum: XYZ, XZY, YXZ, YZX, ZXY,
 /// ZYX) for a DAZ one. Octane names the matrix product left to right
 /// ("XYZ" = Rx·Ry·Rz, Z applied first — measured with a Lua probe in Octane
@@ -1862,11 +1894,12 @@ fn octane_rotation_order(daz: &str) -> u32 {
 /// Iray's shadow-catching ground (`ground` = its shadow intensity and
 /// height, meters) as an infinite plane (110) with a shadow catcher
 /// material (145), and
+/// VDB volumes (91, [`OctaneVolume`]) in a volume medium (98), and
 /// a geometry group (type 3) joining them with the USD import's output node
 /// `usd_output`. Returns the XML and the node the render target's mesh pin
 /// connects to (the group, or `usd_output` when there is nothing to add).
-pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, first_id: u32, usd_output: u32) -> (String, u32) {
-    if spots.is_empty() && ground.is_none() {
+pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, volumes: &[OctaneVolume], first_id: u32, usd_output: u32) -> (String, u32) {
+    if spots.is_empty() && ground.is_none() && volumes.is_empty() {
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
@@ -1934,6 +1967,59 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, first_id: 
         w.pin_open(7, "groundColor");
         let _ = writeln!(w.out, "        <node id='{cid}' type='145' name='DAZ ground shadow'>");
         w.float_pin(9, "opacity", (opacity * GROUND_SHADOW_OPACITY) as f32);
+        w.out.push_str("        </node>\n");
+        w.pin_close(7);
+        w.out.push_str("      </node>\n");
+        w.pin_close(5);
+        w.out.push_str("    </node>\n");
+    }
+    for (k, v) in volumes.iter().enumerate() {
+        let id = w.id();
+        ids.push(id);
+        let _ = writeln!(w.out, "    <node id='{id}' type='4' name='{}' position='{} -450'>", esc(&v.name), 300 + (spots.len() + 1 + k) * 200);
+        let tid = w.id();
+        w.pin_open(5, "transform");
+        let _ = writeln!(w.out, "      <node id='{tid}' type='67'>");
+        let m: Vec<String> = v.transform.iter().map(|x| num64(*x)).collect();
+        let _ = writeln!(w.out, "       <attr name='transform' type='13'>{}</attr>", m.join(" "));
+        w.out.push_str("      </node>\n");
+        w.pin_close(5);
+        let gid = w.id();
+        w.pin_open(5, "geometry");
+        let _ = writeln!(w.out, "      <node id='{gid}' type='91' name='{}'>", esc(&v.name));
+        let _ = writeln!(w.out, "       <attr name='filename' type='11'>{}</attr>", esc(&v.asset));
+        // Meters: the placement scales the VDB's units (DAZ's cm).
+        w.out.push_str("       <attr name='scaleUnitType' type='2'>4</attr>\n");
+        // Octane's coefficients, per meter: grid value × the grid's scale
+        // (applied as the file loads) × the medium's density × its colour.
+        // The density pin stops at 10⁴: what is beyond goes to the grids.
+        let peak = v.scattering.iter().chain(&v.absorption).fold(0.0f32, |a, &b| a.max(b));
+        let unit = if peak > 0.0 { peak } else { 1.0 };
+        let total = unit * VOLUME_COEFFICIENT_SCALE;
+        let density = total.min(VOLUME_DENSITY_MAX);
+        for (id, scale) in [("volumeAbsorptionId", "volumeAbsorptionScale"), ("volumeScatterId", "volumeScatteringScale")] {
+            let _ = writeln!(w.out, "       <attr name='{id}' type='10'>{}</attr>", esc(&v.grid));
+            let _ = writeln!(w.out, "       <attr name='{scale}' type='6'>{}</attr>", num(total / density));
+        }
+        w.out.push_str("       <attr name='volumeEmissionId' type='10'></attr>\n");
+        let mid = w.id();
+        w.pin_open(7, "medium");
+        let _ = writeln!(w.out, "        <node id='{mid}' type='98' name='{} medium'>", esc(&v.name));
+        w.value_pin(9, "scale", 6, 9, &format!("{} 0 0 0", num(density)));
+        // The placement's uniform scale: VDB units → meters.
+        let t = &v.transform;
+        let det = t[0] * (t[5] * t[10] - t[6] * t[9]) - t[1] * (t[4] * t[10] - t[6] * t[8]) + t[2] * (t[4] * t[9] - t[5] * t[8]);
+        let step = (VOLUME_STEP_VOXELS * det.abs().cbrt()).min(1.0);
+        w.value_pin(9, "rayMarchStepPercent", 6, 9, &format!("{} 0 0 0", num64(step)));
+        w.rgb_pin(9, "absorption", v.absorption.map(|c| c / unit));
+        w.value_pin(9, "invertAbsorption", 11, 1, "0");
+        w.rgb_pin(9, "scattering", v.scattering.map(|c| c / unit));
+        let pid = w.id();
+        w.pin_open(9, "phase");
+        let _ = writeln!(w.out, "          <node id='{pid}' type='60'>");
+        w.value_pin(11, "scattering_direction", 6, 8, &format!("{} 0 0", num(v.anisotropy)));
+        w.out.push_str("          </node>\n");
+        w.pin_close(9);
         w.out.push_str("        </node>\n");
         w.pin_close(7);
         w.out.push_str("      </node>\n");
