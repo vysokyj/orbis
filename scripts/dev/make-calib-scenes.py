@@ -392,6 +392,22 @@ uber_spheres('Calib-ColorEffect', [0.3, 0.5, 0.8], TR, [
     ('C7 coat 1', {'Top Coat Weight': 1.0, 'Top Coat Color': [0.9, 0.3, 0.2], 'Top Coat Color Effect': 1}),
     ('C8 mode1 specular', {'Translucency Weight': 0.0, 'Base Mixing': 1, 'Glossy Layered Weight': 1.0, 'Glossy Specular': [0.9, 0.3, 0.2], 'Glossiness': 0.8}),
 ])
+# Colour effects over an opaque matte grey (#27, #52): does a top coat's or a
+# glossy layer's colour tint what lies under it? Morgan Hair's coat (0.975,
+# beige, effect 2) darkened its hair in Iray.
+COAT_RED = {'Top Coat Weight': 1.0, 'Top Coat Color': [0.9, 0.3, 0.2], 'Top Coat Roughness': 0.3}
+COAT_MORGAN = {'Top Coat Weight': 0.975, 'Top Coat Color': [0.522, 0.494, 0.443], 'Top Coat Roughness': 0.3}
+GLOSS_RED = {'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.3, 'Glossy Color': [0.9, 0.3, 0.2]}
+uber_spheres('Calib-CoatEffect', [0.6, 0.6, 0.6], {'Glossy Layered Weight': 0.0}, [
+    ('E1 coat red fx0', {**COAT_RED, 'Top Coat Color Effect': 0}),
+    ('E2 coat red fx1', {**COAT_RED, 'Top Coat Color Effect': 1}),
+    ('E3 coat red fx2', {**COAT_RED, 'Top Coat Color Effect': 2}),
+    ('E4 coat morgan fx0', {**COAT_MORGAN, 'Top Coat Color Effect': 0}),
+    ('E5 coat morgan fx2', {**COAT_MORGAN, 'Top Coat Color Effect': 2}),
+    ('E6 gloss red fx0', {**GLOSS_RED, 'Glossy Color Effect': 0}),
+    ('E7 gloss red fx1', {**GLOSS_RED, 'Glossy Color Effect': 1}),
+    ('E8 gloss red fx2', {**GLOSS_RED, 'Glossy Color Effect': 2}),
+])
 # Base Mixing 1, specular / glossiness (#52): the Glossy Specular colour,
 # the layer's weight, and Morgan Hair's glossy and top coat (a card hair in
 # this mode rendered white in Octane, honey blond in Iray).

@@ -90,3 +90,35 @@ bright and too white. What Iray does on top:
 - On cards seen edge-on, Fresnel at F0 0.46 leaves little diffuse.
 
 Still open in #52.
+
+## Colour effects and the coat's thin film (#27, #31)
+
+**Calib-CoatEffect** (`calib/scenes`): a matte grey under a top coat or a
+glossy layer, each in Color Effect 0 / 1 / 2. Iray sphere medians:
+
+- red coat: 0.415 / 0.426 / 0.393, with no red tint;
+- Morgan's coat, effect 0 / 2: 0.370 / 0.364;
+- red gloss: 0.327 / 0.329 / 0.315.
+
+The effects don't tint an opaque base. Octane renders the eight at 1.05 –
+1.16 × Iray, in the reference spheres' band: nothing to change.
+Calib-SpecMode S8 (Morgan's coat without its film) against S7 (no coat):
+0.385 against 0.389, so the coat's colour doesn't darken either.
+
+**The film.** Morgan's coat has Top Coat Thin Film 193 876 nm at IOR 1.91.
+Iray with that film at 0 brightens the hair as much as dropping the coat
+does (crown 1.42 / 1.97 / 1.53 against 1.52 / 2.09 / 1.59 ×). So the film
+is what darkens the hair, and warms it a little.
+
+**Octane's thin film** (Universal `filmwidth`, `filmIor`) halves the hair
+at a width of 0.5, 1 or 193.876 alike, with no tint. On Calib-ThinFilm
+(Iray films of 300 – 1200 nm at IOR 1.5 / 1.3) it took the spheres from
+1.04 – 1.10 × Iray to 0.55 – 0.73 ×. There Iray's films barely change the
+luminance, and Octane's darken: the export keeps leaving them out. Those
+films sit at the IOR of the layer under them. Morgan's (1.91 over a coat
+of 1.5) does not, which is presumably why it shows in Iray: a calibration
+with an IOR contrast is next (#31).
+
+Even with Octane's film the hair stays 1.4 – 3.5 × too bright and whiter
+than Iray. Left: Glossy Anisotropy 0.74 (#23, Iray streaks the highlights
+along the cards) and the Color Effects on transmitted light.
