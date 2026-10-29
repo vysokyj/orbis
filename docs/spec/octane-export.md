@@ -505,6 +505,19 @@ Every material input (20007) is filled — Octane doesn't convert
   Squared` (default on) — Iray squares the slider, Octane doesn't:
   highlights went from 31 / 17 / 6 px to 48 / 24 / 22 against Iray's
   56 / 26 / 20 (#10).
+- **Thin films dim the diffuse.** Top Coat Thin Film over the coat and
+  Base Thin Film over the glossy layer leave 1 − (0.053 + 1.6 R) × the
+  layer's weight of the albedo, with R = ((n − 1) / (n + 1))² at the
+  film's IOR. The thickness hardly matters. Octane's own film
+  (`filmwidth`, `filmIor`) is not used.
+
+  Why: Calib-FilmIOR. Coat films of 500 nm, 2 µm and 194 µm at IOR 1.91,
+  194 µm at 1.5 and 1.3, and glossy films of 500 nm and 194 µm at 1.91
+  left 0.77 / 0.76 / 0.81 / 0.87 / 0.92 / 0.74 / 0.78 of a matte grey in
+  Iray. Octane rendered those spheres 1.19 – 1.47 × Iray, and now 1.09 –
+  1.20 (the plain sphere: 1.09). Octane's film only dims the specular, and
+  hard: Calib-ThinFilm's black glossy spheres, which Iray's films barely
+  change, went from 1.04 – 1.10 to 0.55 – 0.73 × Iray with it (#31).
 - **Top Coat** → Universal `coating` = Top Coat Color × weight,
   `coatingRoughness` (Top Coat Roughness, or 1 − Top Coat Glossiness in
   modes 1 / 2, squared likewise), `coatingIor`: the top-coated sphere's

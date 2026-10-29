@@ -122,3 +122,48 @@ with an IOR contrast is next (#31).
 Even with Octane's film the hair stays 1.4 – 3.5 × too bright and whiter
 than Iray. Left: Glossy Anisotropy 0.74 (#23, Iray streaks the highlights
 along the cards) and the Color Effects on transmitted light.
+
+## Calib-FilmIOR: films with an IOR contrast (#31)
+
+Eight spheres over a matte grey (0.6), Iray medians against F1 (a coat
+without a film):
+
+| sphere | / F1 |
+|---|---|
+| F2 coat film 500 nm at 1.91 | 0.89 |
+| F3 194 µm at 1.91 | 0.83 – 0.87 |
+| F4 194 µm at 1.5 | 0.83 – 0.88 |
+| F5 194 µm at 1.3 | 0.79 – 0.85 |
+| F6 2 µm at 1.91 | 0.70 – 0.76 |
+| F7 glossy film 500 nm at 1.91 (no coat) | 0.68 – 0.76 |
+| F8 glossy film 194 µm at 1.91 (no coat) | 0.66 – 0.75 |
+
+The IOR contrast wasn't it: a film at the coat's own IOR dims too. Octane
+without films rendered F2 – F8 1.19 – 1.47 × Iray, against the plain
+sphere's 1.09. That puts what Iray's film leaves of the diffuse at 0.77 /
+0.81 / 0.87 / 0.92 / 0.76 / 0.74 / 0.78. It depends on the film's IOR and
+hardly on its thickness. With R = ((n − 1) / (n + 1))², the air / film
+reflectance, it is ≈ 1 − (0.053 + 1.6 R): 0.92 at 1.3, 0.88 at 1.5, 0.79
+at 1.91.
+
+Octane's own film (`filmwidth` in µm, `filmIor`) moved these only
+1.42 → 1.36. It dims Universal's specular, not the diffuse.
+
+The export now dims the albedo by that fit, weighted by the coat's or the
+glossy layer's weight (`film_dimming`):
+
+- Calib-FilmIOR: 1.09 – 1.20 × Iray;
+- Calib-ThinFilm: unchanged at 1.02 – 1.09 (black spheres).
+
+Morgan Hair, Octane / Iray:
+
+| patch | before | now |
+|---|---|---|
+| crown | 2.78 / 4.96 / 6.95 | 2.13 / 3.85 / 5.47 |
+| side | 1.34 / 1.73 / 2.17 | 1.19 / 1.54 / 1.88 |
+| middle | 2.20 / 3.60 / 4.66 | 1.92 / 3.14 / 3.97 |
+| tips | 1.75 / 2.53 / 3.20 | 1.39 / 2.03 / 2.51 |
+
+Still too bright, and too blue against Iray's warm hair. The first try of
+this render ended in "render engine failure" (#50) on the small scene too;
+the second rendered.

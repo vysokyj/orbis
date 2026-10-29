@@ -109,7 +109,7 @@ for opath in sorted(glob.glob(os.path.join(oct_dir, 'Calib-*.png'))):
         for k, box in LIGHT_REGIONS.items():
             r = ratio(o, i, box)
             cells.append(f'{k} {r:.2f}' if r else f'{k} –')
-    elif boxes and any(name.startswith(p) for p in ('Calib-PBRSkin', 'Calib-Glossy', 'Calib-Tone', 'Calib-DOF', 'Calib-SSS', 'Calib-Glass', 'Calib-Mixing', 'Calib-NVIDIA', 'Calib-TopCoat', 'Calib-SpecMode', 'Calib-ColorEffect', 'Calib-CoatEffect', 'Calib-ThinFilm')):
+    elif boxes and any(name.startswith(p) for p in ('Calib-PBRSkin', 'Calib-Glossy', 'Calib-Tone', 'Calib-DOF', 'Calib-SSS', 'Calib-Glass', 'Calib-Mixing', 'Calib-NVIDIA', 'Calib-TopCoat', 'Calib-SpecMode', 'Calib-ColorEffect', 'Calib-CoatEffect', 'Calib-ThinFilm', 'Calib-FilmIOR')):
         rs = [ratio(o, i, b) for b in boxes]
         cells.append('spheres ' + ' '.join(f'{r:.2f}' if r else '–' for r in rs))
         fr = ratio(o, i, (boxes[0][1] + 60, boxes[0][1] + 140, 700, 1220))

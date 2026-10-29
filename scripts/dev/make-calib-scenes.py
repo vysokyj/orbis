@@ -408,6 +408,22 @@ uber_spheres('Calib-CoatEffect', [0.6, 0.6, 0.6], {'Glossy Layered Weight': 0.0}
     ('E7 gloss red fx1', {**GLOSS_RED, 'Glossy Color Effect': 1}),
     ('E8 gloss red fx2', {**GLOSS_RED, 'Glossy Color Effect': 2}),
 ])
+# Thin films with an IOR contrast (#31): Calib-ThinFilm's films sit at the
+# IOR of the layer under them and hardly show in Iray; Morgan Hair's coat
+# film (193 876 nm at 1.91 over a coat of 1.5) darkened its hair 0.5–0.7 ×.
+COAT = {'Top Coat Weight': 1.0, 'Top Coat Roughness': 0.3, 'Top Coat IOR': 1.5}
+uber_spheres('Calib-FilmIOR', [0.6, 0.6, 0.6], {'Glossy Layered Weight': 0.0}, [
+    ('F1 coat no film', COAT),
+    ('F2 coat 500 1.91', {**COAT, 'Top Coat Thin Film': 500.0, 'Top Coat Thin Film IOR': 1.914}),
+    ('F3 coat 194um 1.91', {**COAT, 'Top Coat Thin Film': 193875.6, 'Top Coat Thin Film IOR': 1.914}),
+    ('F4 coat 194um 1.5', {**COAT, 'Top Coat Thin Film': 193875.6, 'Top Coat Thin Film IOR': 1.5}),
+    ('F5 coat 194um 1.3', {**COAT, 'Top Coat Thin Film': 193875.6, 'Top Coat Thin Film IOR': 1.3}),
+    ('F6 coat 2000 1.91', {**COAT, 'Top Coat Thin Film': 2000.0, 'Top Coat Thin Film IOR': 1.914}),
+    ('F7 gloss 500 1.91', {'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.3,
+                           'Base Thin Film': 500.0, 'Base Thin Film IOR': 1.914}),
+    ('F8 gloss 194um 1.91', {'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.3,
+                             'Base Thin Film': 193875.6, 'Base Thin Film IOR': 1.914}),
+])
 # Base Mixing 1, specular / glossiness (#52): the Glossy Specular colour,
 # the layer's weight, and Morgan Hair's glossy and top coat (a card hair in
 # this mode rendered white in Octane, honey blond in Iray).

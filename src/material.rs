@@ -1284,7 +1284,7 @@ impl Ocs<'_> {
         // Iray; at the default shares 1.8 – 2.5 ×. The Genesis EyeSocket's
         // caruncle is such a surface (#20, #45).
         let scatter_transmit = transmit > 0.0 && mat.float("Base Color Effect").unwrap_or(0.0) as i32 == 1;
-        let diffuse_weight = (1.0 - refraction) * (1.0 - transmit) * if scatter_transmit { SCATTER_TRANSMIT_DIFFUSE } else { 1.0 };
+        let diffuse_weight = (1.0 - refraction) * (1.0 - transmit) * if scatter_transmit { SCATTER_TRANSMIT_DIFFUSE } else { 1.0 } * film_dimming(mat);
 
         // Iray "Base Mixing" 1 (specular/glossiness) ignores Metallic Weight;
         // a black base under a strong white gloss there is a mirror —
@@ -1521,6 +1521,32 @@ fn specular_ior(mat: &Material) -> f32 {
     let f0 = mat.color("Glossy Specular").map_or(0.04, luminance).clamp(0.0, 0.95);
     let s = f0.sqrt();
     (1.0 + s) / (1.0 - s)
+}
+
+/// What Iray's thin films (Top Coat Thin Film over the coat, Base Thin Film
+/// over the glossy layer) leave of the diffuse under them: 1 − (0.053 +
+/// 1.6 R), R = ((n − 1) / (n + 1))² at the film's IOR n, scaled by the
+/// layer's weight; nearly independent of the thickness. Octane's film
+/// (`filmwidth`) only dims the specular — Calib-ThinFilm's black spheres
+/// went from 1.04 – 1.10 to 0.55 – 0.73 × Iray — so the export dims the
+/// albedo instead. Calib-FilmIOR (#31): a coat film of 500 nm / 2 µm /
+/// 194 µm at IOR 1.91, 194 µm at 1.5 / 1.3, and glossy films of 500 nm /
+/// 194 µm at 1.91 left 0.77 / 0.76 / 0.81 / 0.87 / 0.92 / 0.74 / 0.78 of
+/// the matte grey; the fit gives 0.79 / 0.79 / 0.79 / 0.88 / 0.92 / 0.79.
+/// Morgan Hair's coat film (194 µm at 1.91) darkened its hair 0.5 – 0.7 ×
+/// through its layers of cards (#52).
+fn film_dimming(mat: &Material) -> f32 {
+    let dim = |thickness: &str, ior: &str, weight: f32| {
+        if mat.float(thickness).unwrap_or(0.0) <= 0.0 || weight <= 0.0 {
+            return 1.0;
+        }
+        let n = mat.float(ior).unwrap_or(1.5);
+        let r = ((n - 1.0) / (n + 1.0)).powi(2);
+        1.0 - (0.053 + 1.6 * r) * weight.min(1.0)
+    };
+    let coat = mat.float("Top Coat Weight").unwrap_or(0.0);
+    let gloss = mat.float("Glossy Layered Weight").unwrap_or(0.0);
+    dim("Top Coat Thin Film", "Top Coat Thin Film IOR", coat) * dim("Base Thin Film", "Base Thin Film IOR", gloss)
 }
 
 /// Rec. 709 luminance of a linear colour.
@@ -2601,6 +2627,17 @@ mod tests {
             let pin = &x[x.find("<pin name='ior'>").expect("F0 as the IOR")..];
             assert!(pin[..pin.len().min(200)].contains(&format!("<attr name='value' type='6'>{ior}")), "{pin}");
         }
+        // A coat's thin film at IOR 1.5 (R 0.04) leaves 0.883 of a white
+        // diffuse: 1 − (0.053 + 1.6 · 0.04).
+        let filmed = mat(json!([
+            {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},
+            {"channel": {"id": "Top Coat Weight", "current_value": 1}},
+            {"channel": {"id": "Top Coat Thin Film", "current_value": 500}},
+            {"channel": {"id": "Top Coat Thin Film IOR", "current_value": 1.5}},
+        ]));
+        let (fx, _) = material_inputs(&[("Film".into(), filmed, 1.0)], &dirs, HashMap::new(), 8940, SkinShader::None);
+        let albedo = &fx[fx.find("<pin name='albedo'>").unwrap()..];
+        assert!(albedo[..200].contains("0.883 0.883 0.883"), "{albedo}");
         // A translucent prop: half its diffuse passes through.
         let wax = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},
