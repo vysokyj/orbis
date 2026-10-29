@@ -219,5 +219,12 @@ Octane X runs Lua scripts from its **Script** menu.
   Save with `octane.render.saveImage(path, octane.imageSaveFormat.PNG_8)` (raw
   beauty) or `octane.render.saveRenderPass(octane.renderPassId.BEAUTY_DENOISER_OUTPUT, …)`
   (denoised). `octane.render.imageType` doesn't exist.
+- **Focus**: the first `octane.render.start` of a project opened with
+  `octane.project.load` brings Octane X to the front (rendering it again
+  doesn't). Nodes imported into the open project don't:
+  `octane.nodegraph.createRootGraph(name):importFromFile(path)`, then
+  `octane.project.getSceneGraph():copyFrom(root:getOwnedItems())` — the same
+  pixels. Started with `open -g`, Octane X still has to come to the front once
+  to leave its simple mode.
 - Syntax-check with `luajit -bl`. No log at all = the script never started
   (not run, or Octane hung).

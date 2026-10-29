@@ -16,12 +16,21 @@ log("start " .. os.date())
 for line in io.lines(docs .. "orbis_jobs.txt") do
     local file, name, samples = line:match("^([^\t]+)\t([^\t]+)\t(%d+)")
     local ok, err = pcall(function()
-        assert(octane.project.load(docs .. file), "load failed")
+        -- Imported into the open project, not opened as one: the first
+        -- render of a project opened by octane.project.load brings Octane X
+        -- to the front (2026-10-29); one of imported nodes doesn't.
+        local root = octane.nodegraph.createRootGraph("orbis import")
+        root:importFromFile(docs .. file)
+        local scene = octane.project.getSceneGraph()
+        for _, item in ipairs(scene:getOwnedItems()) do item:destroy() end
+        scene:copyFrom(root:getOwnedItems())
+        root:destroy()
         local rt
-        for _, item in ipairs(octane.project.getSceneGraph():getOwnedItems()) do
+        for _, item in ipairs(scene:getOwnedItems()) do
             local p = item:getProperties()
             if p.type == octane.NT_RENDERTARGET and p.name ~= "Preview Render Target" and not rt then rt = item end
         end
+        assert(rt, "no render target")
         -- A project opened from Lua leaves the imager's tone LUT without
         -- its package and file (opened from File > Open it has them, probe
         -- 96); pointing it back into the package didn't load it either. The
@@ -54,7 +63,6 @@ for line in io.lines(docs .. "orbis_jobs.txt") do
         octane.render.start{ renderTargetNode = rt }
         local saved = octane.render.saveImage(docs .. "orbis_job_" .. name .. ".png", octane.imageSaveFormat.PNG_8)
         log(name .. ": " .. (os.time() - t) .. " s, saved " .. tostring(saved))
-        octane.project.reset()
     end)
     if not ok then log(name .. ": ERROR " .. tostring(err)) end
 end
