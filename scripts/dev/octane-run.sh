@@ -5,20 +5,19 @@
 # probe opens it with octane.project.load), installs the probe as the script
 # menu's "ORBIS probe", starts Octane X if it isn't running, clicks the menu
 # item (System Events; the terminal needs Accessibility access), waits for
-# the probe to write Documents/orbis_probe.done and quits Octane X again —
-# killed if it doesn't quit in 30 s (KEEP_OCTANE=1: left open). Output lands
-# in the sandbox's Documents.
-# Never run it while a DAZ Studio render is going: Iray takes the whole CPU.
+# the probe to write Documents/orbis_probe.done and leaves Octane X running:
+# a start takes the focus once, to leave its simple mode (QUIT_OCTANE=1:
+# quits it, killed if it doesn't quit in 30 s). Output lands in the
+# sandbox's Documents. It waits for the render lock (render-lock.sh): never
+# beside a DAZ Studio render, Iray takes the whole CPU.
 set -eu
 probe=$1
 scene=${2:-}
 docs="$HOME/Library/Containers/com.otoy.rndrviewer/Data/Documents"
 scripts="$docs/ORBIS Scripts"
 bin="Octane X.app/Contents/MacOS/Octane X"
-if pgrep -q -f "instanceName orbis-render"; then
-    echo "a DAZ Studio render is running — wait for it" >&2
-    exit 1
-fi
+. "$(dirname "$0")/render-lock.sh"
+render_lock "octane-run.sh $(basename "$probe")"
 # Octane opens in its simple mode and switches to the standalone one (with
 # the Script menu) a few seconds later — not at all behind a locked screen.
 if ioreg -n Root -d1 -a | grep -A1 CGSSessionScreenIsLocked | grep -q true; then
@@ -84,9 +83,10 @@ while :; do
     rm -f "$docs"/orbis_probe*.txt
 done
 [ $status -eq 0 ] || exit $status
-# KEEP_OCTANE=1 leaves it open, e.g. to read an error dialog (#50).
-if [ "${KEEP_OCTANE:-}" = 1 ]; then
-    echo "done (Octane X left open): $docs"
+# Left running: the next run clicks its menu in the background. QUIT_OCTANE=1
+# quits it (e.g. after a failure left it unable to render big scenes, #50).
+if [ "${QUIT_OCTANE:-}" != 1 ]; then
+    echo "done (Octane X left running): $docs"
     exit 0
 fi
 osascript -e 'tell application "Octane X" to quit' >/dev/null 2>&1 || true

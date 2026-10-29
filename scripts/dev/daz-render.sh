@@ -12,12 +12,9 @@ max_samples=${4:-2000}
 here=$(cd "$(dirname "$0")" && pwd)
 app="/Applications/DAZ 3D/DAZStudio6 64-bit/DAZStudio.app/Contents/MacOS/DAZStudio"
 copy="${out%.*}.duf"
-# One renderer at a time: Iray takes the whole CPU (scripts/dev/octane-run.sh
-# quits Octane X when its probe is done).
-if pgrep -q -f "Octane X.app/Contents/MacOS/Octane X"; then
-    echo "Octane X is running — quit it first" >&2
-    exit 1
-fi
+# One renderer at a time (Octane X may stay open): wait for the others.
+. "$here/render-lock.sh"
+render_lock "daz-render.sh $(basename "$scene")"
 python3 - "$scene" "$copy" "$max_time" "$max_samples" <<'EOF'
 import gzip, json, sys
 src, dst, max_time, max_samples = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])

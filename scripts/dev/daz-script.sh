@@ -10,10 +10,9 @@ set -eu
 # Absolute: DAZ Studio starts through `open`, in another directory.
 script=$(cd "$(dirname "$1")" && pwd)/$(basename "$1"); shift
 app="/Applications/DAZ 3D/DAZStudio6 64-bit/DAZStudio.app/Contents/MacOS/DAZStudio"
-if pgrep -q -f "Octane X.app/Contents/MacOS/Octane X"; then
-    echo "Octane X is running — quit it first" >&2
-    exit 1
-fi
+# One DAZ instance or render at a time (Octane X may stay open).
+. "$(dirname "$0")/render-lock.sh"
+render_lock "daz-script.sh $(basename "$script")"
 for a in "$@"; do set -- "$@" -scriptArg "$a"; shift; done
 i=0
 while dir=$(defaults read com.daz.Studio6 "ContentDir$i" 2>/dev/null); do

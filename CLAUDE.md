@@ -17,7 +17,7 @@ scripts/package.sh                             # plugin zip → dist/ (git-ignor
 scripts/dev/render-icons.sh                    # assets/icon/*.svg → committed thumbnails
 python3 scripts/dev/fetch-octane-docs.py docs/octane/manual <cache dir>   # Octane manual mirror (git-ignored)
 scripts/dev/daz-render.sh <scene.duf> <out.png> [secs] [samples]   # unattended capped Iray render (own DAZ instance)
-scripts/dev/octane-run.sh <probe.lua> [scene.orbx]   # unattended Octane X Lua probe (starts/quits Octane X)
+scripts/dev/octane-run.sh <probe.lua> [scene.orbx]   # unattended Octane X Lua probe (starts Octane X, leaves it running; QUIT_OCTANE=1 quits)
 scripts/dev/octane-render.sh <out dir> [samples] <scene.orbx>...   # unattended Octane renders of exports, as exported
 python3 scripts/dev/make-calib-scenes.py   # Calib-PBRSkin / Calib-Tone-* / Calib-DOF-* from Calib-Materials.duf
 python3 scripts/dev/make-vdb-scenes.py   # Calib-VDB-* (local: Calib-HDRI with Gladiator's DTAS haze VDB)
@@ -100,7 +100,11 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   launch it with a file; the user opens the `.orbx` from its File → Open.
 - The binary is ad-hoc signed until #3; a downloaded copy is quarantined.
 - Automation: never run a DAZ render and an Octane probe at once (Iray takes
-  the whole CPU; both scripts refuse). `octane-run.sh` needs an unlocked
+  the whole CPU). DAZ Studio and Octane X may both stay open; `daz-render.sh`,
+  `daz-script.sh` and `octane-run.sh` take turns through one lock
+  (`scripts/dev/render-lock.sh`, `~/Library/Caches/orbis/render.lock`) and
+  wait for it — don't wait on `pgrep` for Octane X or DAZ to quit, call the
+  scripts (or `render_lock` from them). `octane-run.sh` needs an unlocked
   screen — behind a lock Octane X never leaves its simple mode (no Script
   menu). DAZ renders fine headless; App Nap is off for DAZ
   (`NSAppSleepDisabled`), else it crawls in the background.
