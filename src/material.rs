@@ -1362,6 +1362,10 @@ impl Ocs<'_> {
             // sphere's 1.13 (r 1: see `glossy_excess`).
             let refl = if specular_mode { 1.0 } else { reflectivity_share(mat.float("Glossy Reflectivity")) };
             let weight = glossy.min(1.0) * refl;
+            // Base Mixing 1: Glossy Specular's hue tints the reflection too
+            // (its strength is the IOR, `specular_ior`).
+            let hue = if specular_mode { specular_hue(mat) } else { [1.0; 3] };
+            let gloss_color = [0, 1, 2].map(|k| (gloss_color[k] * hue[k]).min(1.0));
             // A coloured gloss map tints the reflection: the HS CB braids'
             // brown gloss rendered as a grey sheen with Universal's white
             // default (Octane1, probe 60).
@@ -1445,12 +1449,21 @@ impl Ocs<'_> {
         // veil over the iris (pupil 0.89, iris 0.77 – 0.83; Calib-Eye, #20).
         self.top_coat(i, mat, if thin && refraction >= 0.5 { rough } else { 0.0 });
 
+        // Base Mixing 1 reflects Glossy Specular head-on (F0), as an IOR on
+        // the dielectric layer — unless the surface is mostly refraction.
+        let spec_ior = (specular_mode && !mirror && glossy > 0.0 && weighted.is_none()).then(|| specular_ior(mat));
+        if refraction == 0.0 {
+            if let Some(n) = spec_ior {
+                self.float_pin(i, "ior", n);
+            }
+        }
+
         // Glass-like surfaces (cornea, windows): Iray refraction → transmission,
         // tinted by the refraction's colour (see `own_refraction`).
         if refraction > 0.0 {
             let colour = mat.color(if own_refraction { "Refraction Color" } else { "Glossy Color" }).unwrap_or([1.0; 3]);
             self.rgb_pin(i, "transmission", colour.map(|c| c * refraction));
-            let ior = mat.float("Refraction Index").unwrap_or(1.5);
+            let ior = spec_ior.filter(|_| refraction < 0.5).unwrap_or_else(|| mat.float("Refraction Index").unwrap_or(1.5));
             // Iray's thin-walled refraction reflects nothing of
             // its own — Calib-Glass's thin sphere was invisible; only a
             // glossy layer shows. IOR 1 takes Octane's Fresnel reflection away.
@@ -1493,6 +1506,36 @@ impl Ocs<'_> {
 /// min(2r, 1). See the glossy layer in `universal`.
 fn reflectivity_share(r: Option<f32>) -> f32 {
     (2.0 * r.unwrap_or(0.5)).clamp(0.0, 1.0)
+}
+
+/// Iray Base Mixing 1 (specular / glossiness): Glossy Specular is the gloss's
+/// head-on reflectance F0, Fresnel to white at grazing, and the diffuse
+/// takes what it leaves. Octane's dielectric layer does that by its IOR:
+/// n = (1 + √F0) / (1 − √F0) from Glossy Specular's luminance (a material
+/// without the channel: F0 0.04, IOR 1.5). Calib-SpecMode (#52): Glossy
+/// Specular 0 / 0.2 / 0.5 / 1, 0.5 at weight 0.5, and Morgan Hair's gloss
+/// without and with its top coat rendered 1.26 / 1.13 / 0.74 / 0.35 / 0.84 /
+/// 0.55 / 0.55 × Iray at the default IOR; 1.01 – 1.10 so (S1, mode 0: 1.08).
+/// Black reflects nothing head-on: floored at F0 0.04 it stayed 1.26.
+fn specular_ior(mat: &Material) -> f32 {
+    let f0 = mat.color("Glossy Specular").map_or(0.04, luminance).clamp(0.0, 0.95);
+    let s = f0.sqrt();
+    (1.0 + s) / (1.0 - s)
+}
+
+/// Rec. 709 luminance of a linear colour.
+fn luminance(c: [f32; 3]) -> f32 {
+    0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+}
+
+/// Glossy Specular's hue (the colour over its luminance):
+/// it tints a Base Mixing 1 gloss — Morgan Hair's beige specular is Iray's
+/// golden sheen.
+fn specular_hue(mat: &Material) -> [f32; 3] {
+    match mat.color("Glossy Specular") {
+        Some(c) if luminance(c) > 1e-3 => c.map(|x| x / luminance(c)),
+        _ => [1.0; 3],
+    }
 }
 
 /// Iray's volume absorption as an absorption coefficient per channel (1/m):
@@ -2546,6 +2589,18 @@ mod tests {
         let coat = &sx[sx.find("<pin name='coating'>").expect("excess gloss as a coating")..];
         assert!(coat[..300].contains("1 1 1"), "{coat}");
         assert!(sx.contains("<pin name='coatingRoughness'>"), "{sx}");
+        // Base Mixing 1: Glossy Specular 0.5 (linear 0.218) is F0 → IOR 2.75;
+        // black reflects nothing head-on (IOR 1).
+        for (gs, ior) in [(0.5, "2.74"), (0.0, "1")] {
+            let m = mat(json!([
+                {"channel": {"id": "Base Mixing", "current_value": 1}},
+                {"channel": {"id": "Glossy Layered Weight", "current_value": 1}},
+                {"channel": {"id": "Glossy Specular", "current_value": [gs, gs, gs]}},
+            ]));
+            let (x, _) = material_inputs(&[("Spec".into(), m, 1.0)], &dirs, HashMap::new(), 8920, SkinShader::None);
+            let pin = &x[x.find("<pin name='ior'>").expect("F0 as the IOR")..];
+            assert!(pin[..pin.len().min(200)].contains(&format!("<attr name='value' type='6'>{ior}")), "{pin}");
+        }
         // A translucent prop: half its diffuse passes through.
         let wax = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},

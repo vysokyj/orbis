@@ -540,6 +540,21 @@ Every material input (20007) is filled — Octane doesn't convert
   same leather's trousers.
 - Base Mixing 1 ignores Metallic Weight; a black base under a strong white
   gloss becomes a gloss-coloured metal (mirrors).
+- **Base Mixing 1 (specular / glossiness): Glossy Specular is F0.** Iray
+  reflects Glossy Specular's luminance head-on, with Fresnel to white at
+  grazing, and the diffuse takes what is left. The export uses the
+  dielectric layer's `ior` = (1 + √F0) / (1 − √F0); the refraction's IOR
+  wins when Refraction Weight ≥ 0.5. `specular` = Glossy Color × Glossy
+  Specular's hue × the layer's weight. A material without the channel takes
+  F0 0.04 (IOR 1.5), and DAZ's default 0.2314 is that too. Black reflects
+  nothing head-on (IOR 1).
+
+  Why: on Calib-SpecMode, Glossy Specular 0 / 0.2 / 0.5 / 1, 0.5 at weight
+  0.5, and Morgan Hair's gloss without and with its top coat rendered 1.26 /
+  1.13 / 0.74 / 0.35 / 0.84 / 0.55 / 0.55 × Iray at the default IOR. With
+  F0 as the IOR they render 1.01 – 1.10 (S1, mode 0: 1.08). At 1, Iray's
+  sphere is a mirror. 289 materials in 41 of the user's scenes are in this
+  mode, mostly hair and brows (#52).
 - **Refraction** (glass, water) → `transmission` = Refraction Weight ×
   the refraction's colour, IOR on `ior` (Dielectric IOR — Universal has no
   `index4`, probe 82; `ior` 2.0 brightened Calib-Materials' gloss 1.08 →

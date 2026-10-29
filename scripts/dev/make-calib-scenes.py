@@ -392,6 +392,23 @@ uber_spheres('Calib-ColorEffect', [0.3, 0.5, 0.8], TR, [
     ('C7 coat 1', {'Top Coat Weight': 1.0, 'Top Coat Color': [0.9, 0.3, 0.2], 'Top Coat Color Effect': 1}),
     ('C8 mode1 specular', {'Translucency Weight': 0.0, 'Base Mixing': 1, 'Glossy Layered Weight': 1.0, 'Glossy Specular': [0.9, 0.3, 0.2], 'Glossiness': 0.8}),
 ])
+# Base Mixing 1, specular / glossiness (#52): the Glossy Specular colour,
+# the layer's weight, and Morgan Hair's glossy and top coat (a card hair in
+# this mode rendered white in Octane, honey blond in Iray).
+SPEC = {'Base Mixing': 1, 'Glossy Layered Weight': 1.0, 'Glossiness': 0.7, 'Glossy Color': [1.0, 1.0, 1.0]}
+MORGAN = {'Glossy Color': [0.941, 0.914, 0.820], 'Glossy Specular': [0.722, 0.702, 0.616], 'Glossiness': 0.808,
+          'Glossy Layered Weight': 0.98, 'Glossy Color Effect': 2}
+uber_spheres('Calib-SpecMode', [0.5, 0.5, 0.5], SPEC, [
+    ('S1 mode0 refl 0.5', {'Base Mixing': 0, 'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.3}),
+    ('S2 spec 0', {'Glossy Specular': [0.0, 0.0, 0.0]}),
+    ('S3 spec 0.2', {'Glossy Specular': [0.2, 0.2, 0.2]}),
+    ('S4 spec 0.5', {'Glossy Specular': [0.5, 0.5, 0.5]}),
+    ('S5 spec 1', {'Glossy Specular': [1.0, 1.0, 1.0]}),
+    ('S6 spec 0.5 w0.5', {'Glossy Specular': [0.5, 0.5, 0.5], 'Glossy Layered Weight': 0.5}),
+    ('S7 morgan', MORGAN),
+    ('S8 morgan coat', {**MORGAN, 'Top Coat Weight': 0.975, 'Top Coat Color': [0.522, 0.494, 0.443], 'Top Coat Color Effect': 2,
+                        'Top Coat Glossiness': 0.532}),
+])
 # Backscattering (#29)
 uber_spheres('Calib-Backscatter', [0.45, 0.05, 0.04], {}, [
     ('B1 none', {}),
