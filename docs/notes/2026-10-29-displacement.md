@@ -139,6 +139,8 @@ The eight Calib-Skin figures (front light), new against old export,
 changed by ≤ 2 % on the face and body regions and by ≤ 5 % on the ears.
 That is little because their roughness maps sit mostly near 0 or 1.
 
-Some skins sit far off Iray in that run: Nishi at 2.5–3.1 × and Zurie at
-2.0–2.4 ×. The old export shows the same, so it is not this change.
-Those are #19's to explain.
+Some skins sat far off Iray in that run: Nishi at 2.5–3.1 × and Zurie
+at 2.0–2.4 ×. That was not the export; the c717cd8 export rendered the same.
+Their products (Angel HD, Nishi, FWSA Zurie HD) had been uninstalled since
+the references were rendered: 19–24 missing textures each, and the figures
+came out bare white. Reinstall them before the next skin round.
