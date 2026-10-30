@@ -127,8 +127,57 @@ fn shell_surface_visibility_and_hidden_nodes() {
     assert_eq!(names, ["Body", "Body_Shell"]);
     // Hidden graft still shapes the host and the shell (DAZ keeps it attached).
     let shell = &meshes[1];
-    assert_eq!(shell.face_indices, vec![1, 7, 8, 9]);
+    // The patch: the host's vertex 1 (welded) and the graft's 7–9, the
+    // points it uses renumbered.
+    assert_eq!(shell.face_indices, vec![0, 1, 2, 3]);
+    let xs: Vec<f32> = shell.points.iter().map(|p| (p[0] / CM).round()).collect();
+    assert_eq!(xs, [1.0, 7.0, 8.0, 9.0]);
     assert_eq!(shell.subsets, vec![("Graft_Patch".to_string(), vec![0])]);
+}
+
+/// The host alone (no graft, no shell), its quads in facet groups Hip and
+/// Thigh, with these node channels.
+fn host_with_channels(channels: Value) -> Vec<Mesh> {
+    let mut duf = scene();
+    duf["geometry_library"][0]["polygon_groups"] = json!({"count": 2, "values": ["Hip", "Thigh"]});
+    duf["geometry_library"][0]["polylist"]["values"] = json!([[0, 0, 0, 1, 2, 3], [1, 1, 1, 2, 3, 4]]);
+    duf["scene"]["nodes"] = json!([duf["scene"]["nodes"][0].clone()]);
+    duf["scene"]["nodes"][0]["extra"] = json!([{"type": "studio_node_channels", "channels": channels}]);
+    let mut lib = Library::new(vec![], duf);
+    build_meshes(&mut lib, &dump()).unwrap().0
+}
+
+#[test]
+fn hidden_surfaces_facets_and_unrenderable_nodes() {
+    let vis = |id: &str, on: bool| json!({"channel": {"id": id, "current_value": on}});
+    let subsets = |m: &[Mesh]| m.iter().flat_map(|m| m.subsets.iter().map(|(g, f)| (g.clone(), f.len()))).collect::<Vec<_>>();
+    assert_eq!(subsets(&host_with_channels(json!([]))), [("Torso".to_string(), 1), ("Legs".to_string(), 1)]);
+    // A surface switched off on a figure (not only on a shell).
+    let m = host_with_channels(json!([vis("material_group_Legs_vis", false), vis("material_group_Torso_vis", true)]));
+    assert_eq!(subsets(&m), [("Torso".to_string(), 1)]);
+    assert_eq!(m[0].points.len(), 4, "the points of the cut faces go");
+    // A facet group switched off (Geometry Editor / Mesh Visibility).
+    assert_eq!(subsets(&host_with_channels(json!([vis("facet_group_Hip_vis", false)]))), [("Legs".to_string(), 1)]);
+    // Renderable off: not rendered, like Visible off.
+    assert!(host_with_channels(json!([vis("Renderable", false)])).is_empty());
+}
+
+#[test]
+fn shell_hides_a_grafts_own_facet_group() {
+    // NGV8's Effect Layer: `WG_0_Rectum` off hides the graft's Rectum
+    // facets; its Hip facets are `WG_0_Hip`, apart from the host's Hip.
+    let graft = Topology { facet_groups: vec!["Hip".into(), "Rectum".into()], ..Default::default() };
+    assert_eq!(mesh::graft_facets(&graft, 0), ["WG_0_Hip", "WG_0_Rectum"]);
+
+    let mut duf = scene();
+    duf["geometry_library"][1]["polygon_groups"] = json!({"count": 1, "values": ["Inner"]});
+    let vis = |id: &str, on: bool| json!({"channel": {"id": id, "current_value": on}});
+    duf["scene"]["nodes"][2]["extra"] = json!([{"type": "studio_node_channels", "channels": [
+        vis("material_group_Torso_vis", true), vis("material_group_Graft_Patch_vis", true), vis("facet_group_WG_0_Inner_vis", false),
+    ]}]);
+    let mut lib = Library::new(vec![], duf);
+    let (meshes, _) = build_meshes(&mut lib, &dump()).unwrap();
+    assert_eq!(meshes[1].subsets, vec![("Torso".to_string(), vec![0])]);
 }
 
 #[test]
@@ -702,8 +751,8 @@ fn shell_surfaces_are_cut_after_refining() {
         materials: vec![None; 3],
         ..Default::default()
     };
-    let keep: HashSet<String> = ["B".to_string()].into();
-    let cut_after = subdivide::keep_groups(&subdivide::subdivide_once(&whole), &keep);
+    let keep: Vec<bool> = [false, true, false].iter().flat_map(|&k| [k; 4]).collect();
+    let cut_after = subdivide::keep_faces(&subdivide::subdivide_once(&whole), &keep);
     assert_eq!(cut_after.face_counts.len(), 4);
     assert_eq!(cut_after.subsets, vec![("B".to_string(), vec![0, 1, 2, 3])]);
     let refined = subdivide::subdivide_once(&whole).points;

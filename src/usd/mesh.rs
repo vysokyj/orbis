@@ -15,12 +15,17 @@ pub(super) struct GeoNode {
     pub(super) shell_instance: bool,
     /// The instance's own `type` (the scene can turn subdivision on or off).
     pub(super) subdivision: Option<bool>,
-    /// Neither the node nor an ancestor is hidden (`hidden_nodes`; hidden
-    /// nodes are left out).
+    /// Neither the node nor an ancestor is hidden (`hidden_nodes`) and the
+    /// node is `Renderable`; others are left out.
     pub(super) visible: bool,
     /// A geometry shell's visible material groups (`material_group_<g>_vis`),
     /// when it lists any.
     pub(super) shell_groups: Option<HashSet<String>>,
+    /// Material groups switched off (`material_group_<g>_vis` false) — what
+    /// a node other than a shell hides.
+    pub(super) hidden_surfaces: HashSet<String>,
+    /// Facet groups switched off (`facet_group_<g>_vis` false).
+    pub(super) hidden_facets: HashSet<String>,
 }
 
 /// The node channels (`extra[].channels[]`) of a scene node: id → value.
@@ -105,18 +110,23 @@ pub(super) fn geo_nodes(duf: &Value) -> Vec<GeoNode> {
         .filter_map(|n| {
             let gi = n.get("geometries")?.as_array()?.first()?;
             let id = percent_decode(n.get("id")?.as_str()?);
-            let visible = !hidden.contains(&id);
             let mut channels = n.get("url").and_then(Value::as_str)
                 .filter(|u| u.starts_with('#'))
                 .and_then(|u| local.get(&percent_decode(&u[1..])))
                 .map(|d| node_channels(d))
                 .unwrap_or_default();
             channels.extend(node_channels(n));
-            let shell_groups: HashSet<String> = channels
-                .iter()
-                .filter(|(_, v)| v.as_bool() == Some(true))
-                .filter_map(|(k, _)| k.strip_prefix("material_group_")?.strip_suffix("_vis").map(String::from))
-                .collect();
+            // Renderable off: shown in the viewport, not rendered. The node's
+            // own flag — DAZ doesn't pass it on to its children.
+            let visible = !hidden.contains(&id) && channels.get("Renderable").and_then(Value::as_bool) != Some(false);
+            let groups_set = |prefix: &str, on: bool| -> HashSet<String> {
+                channels
+                    .iter()
+                    .filter(|(_, v)| v.as_bool() == Some(on))
+                    .filter_map(|(k, _)| k.strip_prefix(prefix)?.strip_suffix("_vis").map(String::from))
+                    .collect()
+            };
+            let shell_groups = groups_set("material_group_", true);
             let lists_groups = channels.keys().any(|k| k.starts_with("material_group_") && k.ends_with("_vis"));
             let name = n.get("name").and_then(Value::as_str).unwrap_or(&id).to_string();
             Some(GeoNode {
@@ -133,6 +143,8 @@ pub(super) fn geo_nodes(duf: &Value) -> Vec<GeoNode> {
                 }),
                 visible,
                 shell_groups: lists_groups.then_some(shell_groups),
+                hidden_surfaces: groups_set("material_group_", false),
+                hidden_facets: groups_set("facet_group_", false),
             })
         })
         .collect()
@@ -197,11 +209,21 @@ pub(super) struct Part {
     pub(super) vert_offset: u32,
     pub(super) hidden: HashSet<u32>,
     pub(super) group_prefix: Option<String>,
+    /// Facet group names by index, as the welded mesh names them.
+    pub(super) facets: Vec<String>,
     pub(super) uv_by_group: HashMap<String, String>,
     /// Vertices welded onto the host (a merged graft's seam): local → mesh index.
     pub(super) weld: HashMap<u32, u32>,
     /// Materials by the group name the mesh uses (prefixed for grafts).
     pub(super) materials: HashMap<String, Rc<crate::daz_material::Material>>,
+}
+
+/// A graft's facet groups as DAZ names them once welded onto its host,
+/// numbered by the graft: NGV8's shells switch off `WG_0_Rectum` and
+/// `WG_0_Vagina` (the Effect Layer) and the host's `Hip`, yet show the
+/// graft's own Hip facets — the outside.
+pub(super) fn graft_facets(graft: &Topology, k: usize) -> Vec<String> {
+    graft.facet_groups.iter().map(|f| format!("WG_{k}_{f}")).collect()
 }
 
 /// An output mesh, ready to write.
@@ -386,18 +408,20 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
                 vert_offset: 0,
                 hidden: hidden_of(&host.id),
                 group_prefix: None,
+                facets: host_topo.facet_groups.clone(),
                 uv_by_group: material_uv_sets(&lib.duf, &host.instance_id),
                 topo: host_topo.clone(),
                 weld: HashMap::new(),
                 materials: mats.clone(),
             }];
             let mut offset = host_topo.vcount as u32;
-            for g in grafts.get(&host.id).into_iter().flatten() {
+            for (k, g) in grafts.get(&host.id).into_iter().flatten().enumerate() {
                 let t = topo_of[&g.id].clone();
                 parts.push(Part {
                     vert_offset: offset,
                     hidden: HashSet::new(),
                     group_prefix: Some(g.name.clone()),
+                    facets: graft_facets(&t, k),
                     uv_by_group: material_uv_sets(&lib.duf, &g.instance_id),
                     // Weld like the host's own mesh, or the shell's graft
                     // border floats beside the body (a visible outline).
@@ -413,13 +437,15 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
                 vert_offset: 0,
                 hidden: hidden_of(&n.id),
                 group_prefix: None,
+                facets: topo.facet_groups.clone(),
                 uv_by_group: material_uv_sets(&lib.duf, &n.instance_id),
                 topo: topo.clone(),
                 weld: HashMap::new(),
                 materials: scene_materials(lib, &n.instance_id),
             }];
             let mut offset = topo.vcount as u32;
-            for g in grafts.get(&n.id).into_iter().flatten().filter(|g| merged.contains(g.id.as_str())) {
+            // Numbered among all the host's grafts, merged or not.
+            for (k, g) in grafts.get(&n.id).into_iter().flatten().enumerate().filter(|(_, g)| merged.contains(g.id.as_str())) {
                 let t = topo_of[&g.id].clone();
                 let materials = scene_materials(lib, &g.instance_id)
                     .into_iter()
@@ -429,6 +455,7 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
                     vert_offset: offset,
                     hidden: HashSet::new(),
                     group_prefix: Some(g.name.clone()),
+                    facets: graft_facets(&t, k),
                     uv_by_group: material_uv_sets(&lib.duf, &g.instance_id),
                     weld: t.graft_pairs.iter().map(|&(gv, hv)| (gv, hv)).collect(),
                     topo: t.clone(),
@@ -466,12 +493,26 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
         // renders at its host's.
         let lod = if is_shell { dump.node(&shape_node.label, &shape_node.name).map_or(fig.lod, |h| h.lod) } else { fig.lod };
         let refined = shape_node.subdivision.unwrap_or(parts[0].topo.subdivision) && lod > 0;
-        // A shell renders only the surfaces it switches on — picked after
+        // A shell renders only the surfaces it switches on, any node only
+        // the surfaces and facet groups it doesn't switch off — picked after
         // refining it whole, as its host is: a cut-out patch refines its
         // border by the boundary rules and pulled it up to 0.3 mm under the
         // skin in creases, where random-walk skin lit it white (Octane4).
-        let visible = if is_shell { n.shell_groups.as_ref() } else { None };
-        let mut mesh = assemble(lib, &parts, if refined { None } else { visible });
+        let shown_face = |group: &str, facet: Option<&str>| {
+            let surface = match (is_shell, &n.shell_groups) {
+                (true, Some(on)) => on.contains(group),
+                _ => !n.hidden_surfaces.contains(group),
+            };
+            surface && !facet.is_some_and(|f| n.hidden_facets.contains(f))
+        };
+        let (mut mesh, shown) = assemble(lib, &parts, &shown_face);
+        // DAZ works in centimeters; write meters. Octane's USD import ignores
+        // `metersPerUnit` and takes points as meters.
+        mesh.points = points.iter().map(|p| [p[0] * CM, p[1] * CM, p[2] * CM]).collect();
+        let cut = shown.contains(&false);
+        if cut && !refined {
+            mesh = keep_faces(&mesh, &shown);
+        }
         let prop = !fig.class.contains("Figure");
         let open = open_subsets(&mesh);
         for (m, open) in mesh.materials.iter_mut().zip(open) {
@@ -481,13 +522,12 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
         }
         mesh.label = n.label.clone();
         mesh.name = unique_name(&mut names, &n.label);
-        // DAZ works in centimeters; write meters. Octane's USD import ignores
-        // `metersPerUnit` and takes points as meters.
-        mesh.points = points.iter().map(|p| [p[0] * CM, p[1] * CM, p[2] * CM]).collect();
         if refined {
+            // Each face refines into one quad per corner, in order.
+            let shown: Vec<bool> = mesh.face_counts.iter().zip(&shown).flat_map(|(&c, &s)| std::iter::repeat_n(s, c as usize)).collect();
             mesh = subdivide_once(&mesh);
-            if let Some(v) = visible {
-                mesh = keep_groups(&mesh, v);
+            if cut {
+                mesh = keep_faces(&mesh, &shown);
             }
         }
         mesh.instances = copies;
@@ -546,9 +586,10 @@ pub(super) fn open_subsets(mesh: &Mesh) -> Vec<bool> {
     mesh.subsets.iter().map(|(_, faces)| faces.iter().any(|&f| edges(f as usize).any(|e| uses[&e] == 1))).collect()
 }
 
-/// Merge `parts` into one mesh; `visible` (a shell's switched-on material
-/// groups) drops every polygon of any other group.
-pub(super) fn assemble(lib: &mut Library, parts: &[Part], visible: Option<&HashSet<String>>) -> Mesh {
+/// Merge `parts` into one mesh, and per face whether `shown` (by material
+/// group and facet group) keeps it — the caller cuts the rest away.
+pub(super) fn assemble(lib: &mut Library, parts: &[Part], shown: &dyn Fn(&str, Option<&str>) -> bool) -> (Mesh, Vec<bool>) {
+    let mut kept = Vec::new();
     let mut mesh = Mesh::default();
     let mut group_index: HashMap<String, usize> = HashMap::new();
     let mut uv_values: Vec<[f32; 2]> = Vec::new();
@@ -568,9 +609,6 @@ pub(super) fn assemble(lib: &mut Library, parts: &[Part], visible: Option<&HashS
                 Some(p) => format!("{p}_{group}"),
                 None => group.clone(),
             };
-            if visible.is_some_and(|v| !v.contains(&group_name)) {
-                continue;
-            }
             // A fully transparent surface (opacity 0, no map) is left out: it
             // renders nothing, yet under random-walk skin it is a boundary —
             // the NGV8 pubic hair's "Hiding" strands 0–2 mm under the skin
@@ -578,6 +616,7 @@ pub(super) fn assemble(lib: &mut Library, parts: &[Part], visible: Option<&HashS
             if part.materials.get(&group_name).is_some_and(|m| m.opacity() <= 0.0 && m.image(m.opacity_channel()).is_none()) {
                 continue;
             }
+            kept.push(shown(&group_name, part.facets.get(poly.facet as usize).map(String::as_str)));
             let face = mesh.face_counts.len() as u32;
             let gi = *group_index.entry(group_name.clone()).or_insert_with(|| {
                 mesh.materials.push(part.materials.get(&group_name).cloned());
@@ -628,5 +667,5 @@ pub(super) fn assemble(lib: &mut Library, parts: &[Part], visible: Option<&HashS
         }
         mesh.uvs = Some((uv_values, uv_indices));
     }
-    mesh
+    (mesh, kept)
 }

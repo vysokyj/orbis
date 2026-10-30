@@ -215,7 +215,8 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
 - One `Mesh` per visible node (points from the dump, topology from the
   `.dsf`); `Visible` = false nodes are left out, and so is everything
   under a hidden **group** (`studio/node/group_node`). The same goes for
-  lights. A hidden figure or bone doesn't hide its children.
+  lights. A hidden figure or bone doesn't hide its children. A node with
+  `Renderable` = false is left out too (its own flag; its children stay).
 
   Why: in DAZ (`isVisible()`) the blonde in Calib-Hair-Teens went
   invisible with either of her two groups hidden, and Iray rendered
@@ -233,6 +234,15 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   up to 0.3 mm under the skin in creases (0.12–0.21 mm above once fixed),
   which random-walk skin lit as white lines along the NGV8 Color Layer's
   outline (Octane4, probes 62–71).
+- **Hidden surfaces and facet groups**: any node (not only a shell) drops
+  the material groups its `material_group_<group>_vis` channels switch off
+  and the facet groups (`polygon_groups`, a figure's bone regions) its
+  `facet_group_<group>_vis` channels switch off — cut after refining, as
+  for shells. A welded graft's facet groups are named `WG_<k>_<group>`
+  (k: the graft's index among its host's grafts): NGV8's shells switch off
+  the host's `Hip` and the Effect Layer `WG_0_Rectum` / `WG_0_Vagina`, yet
+  show the graft's own Hip facets. The NGV8 shells are the only users of
+  these channels in My Library; not checked against an Iray render yet.
 - **Visible grafts are welded into their host mesh**: graft points follow the
   host's, border vertices are remapped onto their paired host vertex, graft
   groups are named `<graft node>_<group>` and keep the graft's materials and

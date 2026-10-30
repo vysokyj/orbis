@@ -197,9 +197,9 @@ pub(super) fn subdivide_once(m: &Mesh) -> Mesh {
     out
 }
 
-/// The faces of the subsets named in `keep` (with their materials and UVs),
-/// the points they use renumbered in order.
-pub(super) fn keep_groups(m: &Mesh, keep: &HashSet<String>) -> Mesh {
+/// The faces `keep` marks (with their materials and UVs), the points they
+/// use renumbered in order; subsets left empty go.
+pub(super) fn keep_faces(m: &Mesh, keep: &[bool]) -> Mesh {
     let mut starts = Vec::with_capacity(m.face_counts.len());
     let mut at = 0usize;
     for &c in &m.face_counts {
@@ -210,11 +210,8 @@ pub(super) fn keep_groups(m: &Mesh, keep: &HashSet<String>) -> Mesh {
     let mut point_of: HashMap<u32, u32> = HashMap::new();
     let mut uv_idx: Vec<u32> = Vec::new();
     for (i, (group, faces)) in m.subsets.iter().enumerate() {
-        if !keep.contains(group) {
-            continue;
-        }
         let mut new_faces = Vec::with_capacity(faces.len());
-        for &f in faces {
+        for &f in faces.iter().filter(|&&f| keep.get(f as usize).copied().unwrap_or(true)) {
             let (s, n) = (starts[f as usize], m.face_counts[f as usize] as usize);
             new_faces.push(out.face_counts.len() as u32);
             out.face_counts.push(n as u32);
@@ -229,6 +226,9 @@ pub(super) fn keep_groups(m: &Mesh, keep: &HashSet<String>) -> Mesh {
             if let Some((_, idx)) = &m.uvs {
                 uv_idx.extend_from_slice(&idx[s..s + n]);
             }
+        }
+        if new_faces.is_empty() {
+            continue;
         }
         out.subsets.push((group.clone(), new_faces));
         out.materials.push(m.materials.get(i).cloned().flatten());

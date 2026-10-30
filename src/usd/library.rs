@@ -2,9 +2,11 @@
 
 use super::*;
 
-/// One polygon: material group index and 3 or 4 vertex indices.
+/// One polygon: facet (polygon) group and material group indices, 3 or 4
+/// vertex indices.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Poly {
+    pub(super) facet: u32,
     pub(super) mat: u32,
     pub(super) n: u8,
     pub(super) v: [u32; 4],
@@ -22,6 +24,8 @@ pub(super) struct Topology {
     pub(super) vcount: usize,
     pub(super) polys: Vec<Poly>,
     pub(super) groups: Vec<String>,
+    /// Facet groups (`polygon_groups`: a figure's bone regions).
+    pub(super) facet_groups: Vec<String>,
     pub(super) default_uv: Option<String>,
     pub(super) subdivision: bool,
     /// Host polygons this geometry hides when grafted.
@@ -157,7 +161,7 @@ pub(super) fn parse_topology(g: &Value, url: &str) -> Topology {
             for (i, x) in p[2..].iter().enumerate() {
                 v[i] = x.as_u64()? as u32;
             }
-            Some(Poly { mat: p[1].as_u64()? as u32, n: n as u8, v })
+            Some(Poly { facet: p[0].as_u64()? as u32, mat: p[1].as_u64()? as u32, n: n as u8, v })
         })
         .collect();
     let vcount = g
@@ -172,6 +176,7 @@ pub(super) fn parse_topology(g: &Value, url: &str) -> Topology {
         vcount,
         polys,
         groups: values(g, "polygon_material_groups").iter().filter_map(|s| s.as_str().map(String::from)).collect(),
+        facet_groups: values(g, "polygon_groups").iter().filter_map(|s| s.as_str().map(String::from)).collect(),
         default_uv: g.get("default_uv_set").and_then(Value::as_str).map(|u| absolutize(u, url)),
         subdivision: g.get("type").and_then(Value::as_str) == Some("subdivision_surface"),
         // Hair, brows and lashes often carry an empty `"graft": {}` — only a
