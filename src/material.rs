@@ -1011,22 +1011,39 @@ impl Ocs<'_> {
     /// the coating, without OpenPBR's coat darkening (it took the base to
     /// 0.58 – 0.80 of Universal's on Calib-SSS's spheres, off it is 1.00).
     fn skin_gloss(&mut self, i: usize, mat: &Material, rough_ch: Option<&str>, rough: f32, inverted: bool) {
-        self.float_or_map(i, "roughness", mat, rough_ch, iray_roughness(mat, rough, inverted).clamp(0.0, 1.0));
         let glossy = mat.float("Glossy Layered Weight").unwrap_or(0.0).max(mat.float("Glossy Weight").unwrap_or(0.0));
-        let dual_lobe = mat.float("Dual Lobe Specular Weight").unwrap_or(0.0);
-        let (weight, ch) = if glossy > 0.0 {
-            (glossy.min(1.0) * reflectivity_share(mat.float("Glossy Reflectivity")), "Glossy Reflectivity")
-        } else {
-            (dual_lobe.min(1.0) * reflectivity_share(mat.float("Dual Lobe Specular Reflectivity")), "Dual Lobe Specular Reflectivity")
-        };
-        let lobe = if glossy > 0.0 { glossy } else { dual_lobe }.min(1.0);
-        match mat.image(ch).map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            Some(asset) => self.image_pin(i, "specular", &asset, true, data_gamma(mat, ch), lobe * 2.0),
-            None => self.float_pin(i, "specular", weight),
+        let coat = mat.float("Top Coat Weight").unwrap_or(0.0) > 0.0;
+        // The dual lobe as Universal's (see `DualLobe`): lobe 2 the coating,
+        // or under a Top Coat both lobes' roughness blended.
+        let dual_lobe = DualLobe::of(mat).filter(|_| glossy <= 0.0);
+        let mut rough = iray_roughness(mat, rough, inverted);
+        if let Some(dl) = dual_lobe.filter(|_| coat && rough_ch.and_then(|c| mat.image(c)).is_none()) {
+            rough = dl.blended_roughness(rough);
         }
-        self.top_coat(i, mat, 0.0);
-        if mat.float("Top Coat Weight").unwrap_or(0.0) > 0.0 {
-            self.float_pin(i, "coatingDarkening", 0.0);
+        self.float_or_map(i, "roughness", mat, rough_ch, rough.clamp(0.0, 1.0));
+        let lobe1 = dual_lobe.filter(|_| !coat).map_or(1.0, |dl| dl.lobe1);
+        let (weight, ch) = match dual_lobe {
+            Some(dl) => (dl.share, "Dual Lobe Specular Reflectivity"),
+            None => (glossy.min(1.0) * reflectivity_share(mat.float("Glossy Reflectivity")), "Glossy Reflectivity"),
+        };
+        let lobe = if glossy > 0.0 { glossy } else { mat.float("Dual Lobe Specular Weight").unwrap_or(0.0) }.min(1.0);
+        match mat.image(ch).map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
+            Some(asset) => self.image_pin(i, "specular", &asset, true, data_gamma(mat, ch), lobe * 2.0 * lobe1),
+            None => self.float_pin(i, "specular", weight * lobe1),
+        }
+        match dual_lobe.filter(|dl| !coat && dl.lobe1 < 1.0) {
+            Some(dl) => {
+                self.rgb_pin(i, "coating", [dl.share * (1.0 - dl.lobe1); 3]);
+                self.float_pin(i, "coatingRoughness", dl.lobe2_roughness);
+                self.float_pin(i, "coatingIor", dl.ior.unwrap_or(1.5));
+                self.float_pin(i, "coatingDarkening", 0.0);
+            }
+            None => {
+                self.top_coat(i, mat, 0.0);
+                if coat {
+                    self.float_pin(i, "coatingDarkening", 0.0);
+                }
+            }
         }
     }
 
@@ -1349,10 +1366,13 @@ impl Ocs<'_> {
         // Universal's default specular is a full white one — at roughness 0
         // over a normal map it made the matte slippers glitter (Octane1).
         let glossy = mat.float("Glossy Layered Weight").unwrap_or(0.0).max(mat.float("Glossy Weight").unwrap_or(0.0));
-        let dual_lobe = mat.float("Dual Lobe Specular Weight").unwrap_or(0.0);
+        let dual_lobe = DualLobe::of(mat);
+        // Iray's Top Coat: a clear dielectric layer over everything.
+        let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
+        let mut active_dual_lobe = None;
         if weighted.is_some() {
             self.rgb_pin(i, "specular", [0.0; 3]);
-        } else if !mirror && refraction == 0.0 && glossy <= 0.0 && dual_lobe <= 0.0 && mat.image("Glossy Layered Weight").is_none() {
+        } else if !mirror && refraction == 0.0 && glossy <= 0.0 && dual_lobe.is_none() && mat.image("Glossy Layered Weight").is_none() {
             self.rgb_pin(i, "specular", [0.0; 3]);
         } else if !mirror && glossy > 0.0 {
             // Iray's Glossy Reflectivity r scales the reflection (r 0.5 is
@@ -1379,10 +1399,12 @@ impl Ocs<'_> {
             } else if weight < 1.0 || gloss_color != [1.0; 3] {
                 self.rgb_pin(i, "specular", gloss_color.map(|c| c * weight));
             }
-        } else if !mirror && refraction == 0.0 && dual_lobe > 0.0 {
+        } else if let Some(dl) = dual_lobe.filter(|_| !mirror && refraction == 0.0) {
+            active_dual_lobe = Some(dl);
             // The dual lobe specular alone: its reflectivity as the glossy
-            // layer's, × its weight.
-            let weight = dual_lobe.min(1.0) * reflectivity_share(mat.float("Dual Lobe Specular Reflectivity"));
+            // layer's, × its weight; lobe 1's part of it here, lobe 2's the
+            // coating below (or all of it, when a Top Coat takes that).
+            let weight = if coat > 0.0 { dl.share } else { dl.share * dl.lobe1 };
             if weight < 1.0 {
                 self.rgb_pin(i, "specular", [weight; 3]);
             }
@@ -1429,10 +1451,31 @@ impl Ocs<'_> {
         } else {
             rough_ch
         };
+        // A dual lobe under a Top Coat: one lobe at both roughnesses' blend
+        // (a roughness map stays lobe 1's).
+        if let Some(dl) = active_dual_lobe.filter(|_| coat > 0.0 && rough_ch.and_then(|c| mat.image(c)).is_none()) {
+            rough = dl.blended_roughness(rough);
+        }
         self.float_or_map(i, "roughness", mat, rough_ch, rough.clamp(0.0, 1.0));
 
-        // Iray's Top Coat: a clear dielectric layer over everything.
-        let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
+        // Lobe 2 of a dual lobe specular as the coating (#26): Calib-DualLobe
+        // at a ratio of 0.5 / 0.15 / 0 and lobe 2 roughness 0.6 showed one
+        // sharp highlight in Octane (p99 / median 10 – 13) where Iray's
+        // spread (8.1 / 5.5 / 5.0); now 6.4 / 5.2 / 6.4.
+        if let Some(dl) = active_dual_lobe {
+            let lobe2 = dl.share * (1.0 - dl.lobe1);
+            if coat <= 0.0 && lobe2 > 0.0 {
+                self.rgb_pin(i, "coating", [lobe2; 3]);
+                self.float_pin(i, "coatingRoughness", dl.lobe2_roughness);
+                self.float_pin(i, "coatingIor", dl.ior.unwrap_or(1.5));
+            }
+            // Reflectivity above 0.5 as the IOR (Calib-DualLobe r 1: 0.79 →
+            // 1.18 × Iray, its neighbours 1.12 – 1.16).
+            if let Some(n) = dl.ior {
+                self.float_pin(i, "ior", n);
+            }
+        }
+
         // A Glossy Reflectivity above 0.5 reflects more than Universal's full
         // specular, which caps at 1 (Calib-Glossy, r 1: 0.74 × Iray, also
         // at specular 2); the excess 2r − 1 as a clear coating at the gloss's
@@ -1507,6 +1550,65 @@ impl Ocs<'_> {
 fn reflectivity_share(r: Option<f32>) -> f32 {
     (2.0 * r.unwrap_or(0.5)).clamp(0.0, 1.0)
 }
+
+/// Iray's dual lobe specular (skin's): two GGX lobes blended by Dual Lobe
+/// Specular Ratio, together reflecting the layer's share (its weight ×
+/// min(2r, 1) of Dual Lobe Specular Reflectivity, see `reflectivity_share`).
+/// On Universal lobe 1 is the `specular`, lobe 2 the `coating` (#26).
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct DualLobe {
+    /// The layer's share of Universal's full specular.
+    share: f32,
+    /// Lobe 1's part of it.
+    lobe1: f32,
+    /// Lobe 2's roughness as Octane's `coatingRoughness`.
+    lobe2_roughness: f32,
+    /// Above reflectivity 0.5: the IOR that reflects Iray's F0 = 0.08 r,
+    /// for both lobes.
+    ior: Option<f32>,
+}
+
+impl DualLobe {
+    /// None without a dual lobe layer.
+    fn of(mat: &Material) -> Option<Self> {
+        let weight = mat.float("Dual Lobe Specular Weight").unwrap_or(0.0).min(1.0);
+        if weight <= 0.0 {
+            return None;
+        }
+        let r = mat.float("Dual Lobe Specular Reflectivity");
+        // PBRSkin's ratio weighs lobe 2 (default 0.15), whose roughness is
+        // lobe 1's × Specular Lobe 2 Roughness Mult (0.4); Iray Uber's
+        // weighs lobe 1 (0.85) and lobe 2 has its own roughness (0) — DAZ's
+        // MDL (pbr_skin.mdl, irayubermaterial.mdl add_dual_lobe_specular).
+        let (lobe1, r2) = match mat.float("Specular Lobe 2 Roughness Mult") {
+            Some(mult) => (1.0 - mat.float("Dual Lobe Specular Ratio").unwrap_or(0.15), mat.float("Specular Lobe 1 Roughness").unwrap_or(0.6) * mult),
+            None => (mat.float("Dual Lobe Specular Ratio").unwrap_or(0.85), mat.float("Specular Lobe 2 Roughness").unwrap_or(0.0)),
+        };
+        Some(DualLobe {
+            share: weight * reflectivity_share(r),
+            lobe1: lobe1.clamp(0.0, 1.0),
+            lobe2_roughness: (DUAL_LOBE_2_ROUGHNESS * r2 * r2).clamp(0.0, 1.0),
+            ior: r.filter(|r| *r > 0.5).map(|r| ior_from_f0(0.08 * r)),
+        })
+    }
+
+    /// Without a coating to spare (a Top Coat takes it), one lobe at the
+    /// ratio's blend of both roughnesses (`lobe1_roughness` as Octane's).
+    fn blended_roughness(&self, lobe1_roughness: f32) -> f32 {
+        self.lobe1 * lobe1_roughness + (1.0 - self.lobe1) * self.lobe2_roughness
+    }
+}
+
+/// Octane's `coatingRoughness` for Iray's lobe 2 roughness r2: 2 · r2².
+/// Octane's coating is sharper than Iray's lobe at the same squared value:
+/// Calib-DualLobe's lobe-2-only sphere (r2 0.6) has Iray's p99 / median 5.0,
+/// Octane's coating 9.5 at 0.36, 6.9 at 0.6, 5.7 at 1 (its broadest); r2
+/// 0.3 Iray 16, Octane ~0.12 – 0.18. At 2 · r2² Calib-DualLobe's spheres
+/// (ratio 0.5 / 0.15 / 0.5 at reflectivity 0.25 / weight 0.5, r2 0.6) came
+/// out 6.4 / 5.2 / 7.6 / 9.3 against Iray's 8.1 / 5.5 / 8.1 / 9.0, r2 0.1
+/// 9.8 against 10.8. Beyond Octane's reach: r2 0.9 (Iray 3.3, Octane 6.6 at
+/// the coating's roughness 1) (#26).
+const DUAL_LOBE_2_ROUGHNESS: f32 = 2.0;
 
 /// Iray Base Mixing 1 (specular / glossiness): Glossy Specular is the gloss's
 /// head-on reflectance F0, Fresnel to white at grazing, and the diffuse
@@ -2435,6 +2537,50 @@ mod tests {
         let damp = &albedo[albedo.find("damp.png").unwrap()..];
         assert_eq!(albedo[..albedo.find("damp.png").unwrap()].matches("0.05 0.05 1").count(), 2, "{albedo}");
         assert!(!damp[..damp.find("</node>").unwrap()].contains("0.05 0.05 1"), "{albedo}");
+    }
+
+    #[test]
+    fn dual_lobe_second_lobe_as_coating() {
+        let dirs: Vec<std::path::PathBuf> = vec![];
+        let uber = mat(json!([
+            {"channel": {"id": "Dual Lobe Specular Weight", "current_value": 1}},
+            {"channel": {"id": "Dual Lobe Specular Reflectivity", "current_value": 0.5}},
+            {"channel": {"id": "Specular Lobe 1 Roughness", "current_value": 0.3}},
+            {"channel": {"id": "Specular Lobe 2 Roughness", "current_value": 0.6}},
+            {"channel": {"id": "Dual Lobe Specular Ratio", "current_value": 0.25}},
+        ]));
+        let dl = DualLobe::of(&uber).unwrap();
+        assert_eq!((dl.share, dl.lobe1, dl.ior), (1.0, 0.25, None));
+        assert!((dl.lobe2_roughness - 0.72).abs() < 1e-6, "{dl:?}");
+        let (x, _) = material_inputs(&[("Uber".into(), uber.clone(), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+        assert!(x.contains("<pin name='specular'>") && x.contains(">0.25 0.25 0.25<"), "lobe 1's share: {x}");
+        assert!(x.contains(">0.75 0.75 0.75<") && x.contains(">0.72<"), "lobe 2 as the coating: {x}");
+
+        // PBRSkin: the ratio weighs lobe 2, its roughness lobe 1's × the mult.
+        let pbr = mat(json!([
+            {"channel": {"id": "Dual Lobe Specular Weight", "current_value": 1}},
+            {"channel": {"id": "Specular Lobe 1 Roughness", "current_value": 0.5}},
+            {"channel": {"id": "Specular Lobe 2 Roughness Mult", "current_value": 0.4}},
+            {"channel": {"id": "Dual Lobe Specular Ratio", "current_value": 0.15}},
+            {"channel": {"id": "Dual Lobe Specular Reflectivity", "current_value": 1}},
+        ]));
+        let dl = DualLobe::of(&pbr).unwrap();
+        assert!((dl.lobe1 - 0.85).abs() < 1e-6 && (dl.lobe2_roughness - 0.08).abs() < 1e-6, "{dl:?}");
+        assert!((dl.ior.unwrap() - ior_from_f0(0.08)).abs() < 1e-6, "reflectivity 1: F0 0.08");
+
+        // Under a Top Coat the coating is the coat's; one blended lobe.
+        let coated = mat(json!([
+            {"channel": {"id": "Dual Lobe Specular Weight", "current_value": 1}},
+            {"channel": {"id": "Specular Lobe 1 Roughness", "current_value": 0.3}},
+            {"channel": {"id": "Specular Lobe 2 Roughness", "current_value": 0.6}},
+            {"channel": {"id": "Dual Lobe Specular Ratio", "current_value": 0.25}},
+            {"channel": {"id": "Top Coat Weight", "current_value": 1}},
+        ]));
+        let (x, _) = material_inputs(&[("Coated".into(), coated, 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+        assert!(!x.contains(">0.75 0.75 0.75<") && !x.contains("<pin name='specular'>"), "full lobe share: {x}");
+        let blended = 0.25 * 0.09 + 0.75 * 0.72;
+        assert!(x.contains(&format!(">{}<", num(blended))), "blended roughness {blended}: {x}");
+        assert!(DualLobe::of(&mat(json!([]))).is_none());
     }
 
     #[test]

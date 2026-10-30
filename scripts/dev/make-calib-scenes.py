@@ -380,6 +380,37 @@ uber_spheres('Calib-DualLobe', [0.45, 0.05, 0.04], DL, [
     ('D7 refl 1', {'Dual Lobe Specular Reflectivity': 1.0, 'Dual Lobe Specular Ratio': 0.5, 'Specular Lobe 2 Roughness': 0.6}),
     ('D8 weight 0.5', {'Dual Lobe Specular Weight': 0.5, 'Dual Lobe Specular Ratio': 0.5, 'Specular Lobe 2 Roughness': 0.6}),
 ])
+# Dual lobe, second round (#26): is lobe 2's roughness squared as lobe 1's
+# (E7 / E8 against Calib-DualLobe's D5), and Uber's defaults (ratio 0.85,
+# lobe 2 roughness 0: a mirror lobe; 152 materials in My Library).
+uber_spheres('Calib-DualLobe2', [0.45, 0.05, 0.04], DL, [
+    ('E1 ratio 0.85 r2 0', {'Dual Lobe Specular Ratio': 0.85, 'Specular Lobe 2 Roughness': 0.0}),
+    ('E2 ratio 0.85 r2 0.3', {'Dual Lobe Specular Ratio': 0.85, 'Specular Lobe 2 Roughness': 0.3}),
+    ('E3 ratio 0.5 r2 0.3', {'Dual Lobe Specular Ratio': 0.5, 'Specular Lobe 2 Roughness': 0.3}),
+    ('E4 ratio 0.5 r2 0.9', {'Dual Lobe Specular Ratio': 0.5, 'Specular Lobe 2 Roughness': 0.9}),
+    ('E5 lobe 2 only r 0.3', {'Dual Lobe Specular Ratio': 0.0, 'Specular Lobe 2 Roughness': 0.3}),
+    ('E6 lobe 2 only r 0.9', {'Dual Lobe Specular Ratio': 0.0, 'Specular Lobe 2 Roughness': 0.9}),
+    ('E7 lobe 1 only r 0.6', {'Dual Lobe Specular Ratio': 1.0, 'Specular Lobe 1 Roughness': 0.6}),
+    ('E8 lobe 1 r 0.6 unsquared', {'Dual Lobe Specular Ratio': 1.0, 'Specular Lobe 1 Roughness': 0.6, 'Roughness Squared': False}),
+])
+# Volume scattering (#28) on a skin's volume (Victoria 8's: translucency
+# 0.9, Transmitted Color over 0.125, scattering over 0.015 cm): chromatic
+# SSS scatters −ln(SSS Color) per distance, mono SSS Amount per distance
+# (DAZ's MDL); SSS Reflectance Tint isn't in the MDL.
+SKIN_VOLUME = {'Translucency Weight': 0.9, 'Translucency Color': [0.9, 0.55, 0.45], 'Thin Walled': False,
+               'Transmitted Color': [0.98, 0.48, 0.35], 'Transmitted Measurement Distance': 0.125,
+               'Scattering Measurement Distance': 0.015, 'SSS Mode': 1, 'SSS Color': [0.98, 0.69, 0.76],
+               'SSS Amount': 2.0, 'SSS Direction': 0.0}
+uber_spheres('Calib-SSSColor', [0.8, 0.55, 0.45], SKIN_VOLUME, [
+    ('V1 chromatic', {}),
+    ('V2 chromatic grey', {'SSS Color': [0.7, 0.7, 0.7]}),
+    ('V3 chromatic blue', {'SSS Color': [0.6, 0.75, 0.95]}),
+    ('V4 chromatic deep', {'SSS Color': [0.995, 0.95, 0.95]}),
+    ('V5 mono amount 2', {'SSS Mode': 0}),
+    ('V6 mono amount 0.5', {'SSS Mode': 0, 'SSS Amount': 0.5}),
+    ('V7 tint blue', {'SSS Reflectance Tint': [0.7, 0.85, 1.0]}),
+    ('V8 no translucency', {'Translucency Weight': 0.0}),
+])
 # Colour effects (#27): 0 Scatter Only, 1 Scatter & Transmit, 2 Scatter & Transmit Intensity
 TR = {'Translucency Weight': 0.5, 'Translucency Color': [0.9, 0.6, 0.4], 'Thin Walled': True}
 uber_spheres('Calib-ColorEffect', [0.3, 0.5, 0.8], TR, [

@@ -50,7 +50,8 @@ thing at a time.
 | `Calib-Headlamp-*` | the camera headlamp: mode × Auto Headlamp, with and without a dome | — | [#22](https://github.com/vysokyj/orbis/issues/22) |
 | `Calib-Aniso` | glossy / top coat anisotropy | — | [#23](https://github.com/vysokyj/orbis/issues/23) |
 | `Calib-TopCoat` | Top Coat layering modes | — | [#25](https://github.com/vysokyj/orbis/issues/25) |
-| `Calib-DualLobe` | dual lobe ratio and lobe 2 roughness | — | [#26](https://github.com/vysokyj/orbis/issues/26) |
+| `Calib-DualLobe`, `-DualLobe2` | dual lobe ratio and lobe 2 roughness; Uber's defaults, lobe 1 at roughness 0.6 | [Universal](spec/octane-export.md#universal-130--default) | [#26](https://github.com/vysokyj/orbis/issues/26), [#56](https://github.com/vysokyj/orbis/issues/56) |
+| `Calib-SSSColor` | volume scattering on a skin's volume: SSS Color, Mode, Amount, Reflectance Tint | — | [#28](https://github.com/vysokyj/orbis/issues/28) |
 | `Calib-ColorEffect` | colour effects, Glossy Specular | — | [#27](https://github.com/vysokyj/orbis/issues/27) |
 | `Calib-SpecMode` | Base Mixing 1: Glossy Specular as F0, Morgan Hair's gloss and top coat | done (F0 → IOR) | [#52](https://github.com/vysokyj/orbis/issues/52) |
 | `Calib-CoatEffect` | colour effects of a top coat / glossy layer over an opaque base | done (no tint) | [#27](https://github.com/vysokyj/orbis/issues/27) |

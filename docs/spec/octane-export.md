@@ -505,6 +505,24 @@ Every material input (20007) is filled — Octane doesn't convert
   Calib-Glossy, r 0 / 0.25 at the full default 2.42 / 1.54 × Iray, scaled
   1.21 / 1.14; r 1 0.74 at specular 1 or 2, 1.08 with the coating — the
   neighbours sit at 1.11 – 1.16.
+- **Dual lobe specular** (skin's, no glossy layer): Iray blends two GGX
+  lobes by `Dual Lobe Specular Ratio` — on Iray Uber the ratio weighs lobe
+  1 (default 0.85) and lobe 2 has `Specular Lobe 2 Roughness` (default 0, a
+  mirror); on PBRSkin it weighs lobe 2 (default 0.15), whose roughness is
+  lobe 1's × `Specular Lobe 2 Roughness Mult` (0.4) (DAZ's MDL). Lobe 1 is
+  `specular` at the layer's share (weight × min(2r, 1)) × its part; lobe 2
+  the `coating` at the rest, `coatingRoughness` **2 · r2²**, IOR 1.5. A
+  reflectivity r above 0.5 sets the IOR from F0 = 0.08 r on both. Under a
+  Top Coat (which takes the coating) one lobe at the full share and the
+  ratio's blend of both roughnesses. The same on OpenPBR skin (without the
+  IOR). Why: Calib-DualLobe rendered one sharp highlight whatever the ratio
+  (p99 / median of the sphere 9 – 13, Iray 5.0 – 8.1 for lobe 2 at 0.6);
+  now 6.4 / 5.2 / 7.6 / 9.3 against 8.1 / 5.5 / 8.1 / 9.0, lobe 2 at 0.1
+  9.8 vs 10.8; r 1 0.79 → 1.17 × Iray. Octane's coating is sharper than
+  Iray's lobe at the same squared roughness (r2 0.6: 9.5 at 0.36, 5.7 at
+  1). Not reached: lobe 2 at 0.9 (Iray 3.3, Octane 6.6 at 1), and lobe 1
+  above ~0.3 (#56). On a skin the ratio moves little: Victoria's forehead
+  0.92 × with all of it on lobe 2, 1.00 on lobe 1 (Iray).
 - **Roughness** by Base Mixing: 0 → `Glossy Roughness`, 1 and 2 →
   1 − `Glossiness` (both channels are always saved; Calib-Materials:
   Glossiness 0.8 beside Glossy Roughness 0.5 rendered Iray's sharp
@@ -750,7 +768,8 @@ Iray (1.17 so).
   the random walk: at `subsurface` 0.5 Octane rendered 0.67 – 0.73 of the
   colour whatever it was (Calib-SSS's spheres).
 - **Gloss** as Universal's (`skin_gloss`): Iray's squared roughness, the
-  dual lobe's weight × min(2r, 1) of its reflectivity — with the
+  dual lobe's weight × min(2r, 1) of its reflectivity (lobe 2 the coating,
+  see Universal) — with the
   reflectivity's **map** (dark under brows and make-up; a uniform gloss
   shone blue-grey there on dark skins), the Top Coat as the coating with
   its weight map and **`coatingDarkening` 0** (OpenPBR's coat took the base
