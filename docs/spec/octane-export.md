@@ -754,13 +754,15 @@ reddened) turned blue irises dark green (Calib-Hair, #20).
 **OpenPBR** (the Enhanced look, see Look; #19): OpenPBR Surface (505; its
 `radius` is the distance and `scale` the per-channel colour — the other way
 round from Standard Surface). On Iray's **chromatic SSS** (`SSS Mode` 1,
-the modern skins) its own colour rule, fitted on Calib-Skin (eight Genesis
-8 skins from pale to dark on one body, Iray probes; see
-docs/notes/2026-10-28-skin-tones.md). A mono-SSS skin (`SSS Mode` 0, like
-the Genesis 8 base skin) keeps the Standard Surface tint lifted by
-1 / (1 − 0.46 · w) (`OPENPBR_SKIN_DARKENING`; G8F 1.00 / 1.17 / 1.70 of
-Iray): none was in the fit, and under the rule Calib-Eye came out 1.76 ×
-Iray (1.17 so).
+the modern skins) and on **mono SSS with Base Color Effect 0** its own
+colour rule, fitted on Calib-Skin (eight Genesis 8 skins from pale to dark
+on one body, Iray probes; see docs/notes/2026-10-28-skin-tones.md) and its
+SSS variants (#28, docs/notes/2026-10-30-sss-volume.md). A mono-SSS skin
+with Base Color Effect 1 (the Genesis 8 base skin) keeps the Standard
+Surface tint lifted by 1 / (1 − 0.46 · w) (`OPENPBR_SKIN_DARKENING`; G8F
+1.00 / 1.17 / 1.70 of Iray): under the rule Calib-Eye came out 1.4 – 2.0 ×
+Iray (1.0 – 1.4 so) — whether its Base Color Effect, SSS Direction −0.65
+or w 0.5 makes the difference is open.
 
 - **Colour, baked per texel** into one map for `baseColor` and
   `subsurfaceColor` (`Textures::derived_skin`, `skin_albedo`):
@@ -770,6 +772,19 @@ Iray (1.17 so).
   within 0.94 – 1.03) and its subsurface part at ≈ 0.55 · Tc², not tied to
   D (a white diffuse map left it as it was); Tc · Tc_low keeps the map's
   texture at its contrast (Tc² doubled it).
+- The subsurface part × the **volume factor** (`volume_factor`) per
+  channel: (Rd(α) / Rd(α₀))^0.5, Rd Jensen's diffusion reflectance (dipole,
+  η 1.4) at the volume's reduced single-scattering albedo α = σs(1 − g) /
+  (σs(1 − g) + σa), α₀ the Genesis 8 skins' volume (Victoria 8's, which the
+  rule above was fit on). DAZ's MDL: σa = −ln(Transmitted Color) / d_t;
+  σs = −ln(SSS Color) / d_s (chromatic) or SSS Amount / d_s (mono); colours
+  linear. Why: Iray's SSS variants on Victoria / Monique / Zurie (SSS
+  Color grey, blue, deep; mono at Amount 2 and 0.5) moved the subsurface
+  part as Rd's root predicts within ~10 % (Zurie ~20 %); Rd itself
+  overshoots; Octane after it 0.81 – 1.34 × Iray relative to the base
+  render (before 0.61 – 1.90). SSS Reflectance Tint did nothing on the
+  figures and isn't read. The distances alone don't change α (Zurie's are
+  half Victoria's, her factor 1).
 - × **`SKIN_HUE_OPENPBR` (1.16, 0.83, 0.68)** to the power of the smooth
   colour's saturation ÷ 0.75: the eight figures came out 0.86 / 1.20 /
   1.48 × Iray per channel without it; at full strength the pale grey Zurie

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use crate::daz_material::Material;
+use crate::daz_material::{colour_to_linear, Material};
 
 /// Octane version written into each node's `compatibilityVersion`.
 const COMPAT: &str = "15050000";
@@ -1069,12 +1069,16 @@ impl Ocs<'_> {
         self.float_pin(i, "base", 1.0);
         // OpenPBR (Enhanced) on Iray's chromatic SSS (`SSS Mode` 1, the
         // modern skins): Iray's skin colour baked per texel, all of it
-        // through the random walk, the gloss as Universal's (#19). Its fit
-        // (Calib-Skin) has no mono-SSS skin: the Genesis 8 base skin (mono,
-        // w 0.5, Base Color Effect 1, a glossy layer) came out 1.76 × Iray
-        // under it on Calib-Eye, 1.17 under the older rule it keeps.
-        let chromatic = openpbr && mat.float("SSS Mode").unwrap_or(0.0) as i32 == 1;
-        let baked = if chromatic {
+        // through the random walk, the gloss as Universal's (#19). Mono SSS
+        // too with Base Color Effect 0: Calib-Skin's mono variants
+        // (Victoria, Monique, Zurie) came out 0.83 – 1.04 × Iray relative to
+        // the base render against 0.61 – 1.71 under the older rule (#28). Not the Genesis 8 base skin
+        // (mono, w 0.5, Base Color Effect 1, SSS Direction −0.65, a glossy
+        // layer): 1.4 – 2.0 × Iray under it on Calib-Eye, 1.0 – 1.4 under
+        // the older rule it keeps.
+        let mono = mat.float("SSS Mode").unwrap_or(0.0) as i32 != 1;
+        let bake = openpbr && (!mono || mat.float("Base Color Effect").unwrap_or(0.0) as i32 == 0);
+        let baked = if bake {
             let (d, tc) = (mat.image("diffuse").map(str::to_string), mat.image("Translucency Color").map(str::to_string));
             let (a, b) = skin_albedo(mat, translucency);
             let key = format!("skin:{d:?}:{tc:?}:{a:?}:{b:?}");
@@ -1103,7 +1107,7 @@ impl Ocs<'_> {
         colour_pin(self, "baseColor");
         let (rough_ch, rough, inverted) = mat.roughness_source();
         let rough_ch = if inverted { None } else { rough_ch };
-        if chromatic {
+        if bake {
             self.skin_gloss(i, mat, rough_ch, rough, inverted);
         } else {
             self.float_or_map(i, "roughness", mat, rough_ch, rough.clamp(0.0, 1.0));
@@ -1878,8 +1882,82 @@ fn skin_albedo(mat: &Material, w: f32) -> ([f32; 3], [f32; 3]) {
     let base = mat.base_color();
     let tc = mat.color("Translucency Color").unwrap_or([1.0; 3]);
     let a = base.map(|x| x * (1.0 - w).max(0.0).powf(SKIN_DIFFUSE_EXPONENT));
-    let b = tc.map(|t| w * SKIN_SSS_SHARE * t * t);
+    let volume = volume_factor(mat);
+    let b = [0, 1, 2].map(|k| w * SKIN_SSS_SHARE * tc[k] * tc[k] * volume[k]);
     (a, b)
+}
+
+/// How much more (or less) Iray's subsurface layer reflects with the
+/// skin's volume than with the Genesis 8 skins' it was fit on, per channel:
+/// (Rd(α) / Rd(α₀))^0.5, Rd Jensen's diffusion reflectance (η 1.4) of the
+/// volume's reduced single-scattering albedo α. DAZ's MDL
+/// (`add_uber_volume`): σa = −ln(Transmitted Color) / d_t, σs = −ln(SSS
+/// Color) / d_s for chromatic SSS (`SSS Mode` 1), SSS Amount / d_s for mono,
+/// the colours linear. Calib-Skin's variants (Victoria 8, Monique, Zurie:
+/// SSS Color grey / blue / deep, mono at Amount 2 and 0.5) over the
+/// subsurface layer's share of the base render: within ~10 % on Victoria
+/// and Monique (Zurie, more diffuse, ~20 %); Rd itself overshoots. SSS
+/// Reflectance Tint did nothing on them (#28).
+fn volume_factor(mat: &Material) -> [f32; 3] {
+    let alpha = volume_albedo(mat);
+    let reference = volume_albedo_of(SKIN_TRANSMITTED.map(colour_to_linear), SKIN_TRANSMITTED_DISTANCE, Scattering::Chromatic(SKIN_SSS_COLOR.map(colour_to_linear)), SKIN_SCATTERING_DISTANCE, 0.0);
+    [0, 1, 2].map(|k| (diffusion_reflectance(alpha[k]) / diffusion_reflectance(reference[k])).sqrt())
+}
+
+/// See [`volume_factor`]: the Genesis 8 skins' volume (Victoria 8's,
+/// sRGB colours, DAZ cm).
+const SKIN_TRANSMITTED: [f32; 3] = [0.9764706, 0.4823529, 0.3529412];
+const SKIN_TRANSMITTED_DISTANCE: f32 = 0.125;
+const SKIN_SSS_COLOR: [f32; 3] = [0.9764706, 0.6941177, 0.7607843];
+const SKIN_SCATTERING_DISTANCE: f32 = 0.015;
+
+enum Scattering {
+    /// `SSS Color` (linear): σs = −ln(colour) / d_s.
+    Chromatic([f32; 3]),
+    /// `SSS Amount`: σs = amount / d_s.
+    Mono(f32),
+}
+
+/// The skin volume's reduced single-scattering albedo per channel; channels
+/// the material leaves out are the Genesis 8 skins'. See [`volume_factor`].
+fn volume_albedo(mat: &Material) -> [f32; 3] {
+    let linear = |c: [f32; 3]| c.map(colour_to_linear);
+    let chromatic = Scattering::Chromatic(mat.color("SSS Color").unwrap_or(linear(SKIN_SSS_COLOR)));
+    let scattering = match mat.float("SSS Amount") {
+        Some(amount) if mat.float("SSS Mode").unwrap_or(0.0) as i32 != 1 => Scattering::Mono(amount),
+        _ => chromatic,
+    };
+    volume_albedo_of(
+        mat.color("Transmitted Color").unwrap_or(linear(SKIN_TRANSMITTED)),
+        mat.float("Transmitted Measurement Distance").filter(|d| *d > 0.0).unwrap_or(SKIN_TRANSMITTED_DISTANCE),
+        scattering,
+        mat.float("Scattering Measurement Distance").filter(|d| *d > 0.0).unwrap_or(SKIN_SCATTERING_DISTANCE),
+        mat.float("SSS Direction").unwrap_or(0.0).clamp(-0.95, 0.95),
+    )
+}
+
+/// Colours linear.
+fn volume_albedo_of(transmitted: [f32; 3], d_t: f32, scattering: Scattering, d_s: f32, g: f32) -> [f32; 3] {
+    let extinction = |c: f32| -c.clamp(1e-4, 0.9999).ln();
+    [0, 1, 2].map(|k| {
+        let sigma_a = extinction(transmitted[k]) / d_t;
+        let sigma_s = match scattering {
+            Scattering::Chromatic(c) => extinction(c[k]),
+            Scattering::Mono(amount) => amount.max(0.0),
+        } / d_s
+            * (1.0 - g);
+        sigma_s / (sigma_s + sigma_a).max(1e-6)
+    })
+}
+
+/// Jensen's diffusion reflectance of a semi-infinite medium (dipole, η 1.4)
+/// at reduced albedo `alpha`.
+fn diffusion_reflectance(alpha: f32) -> f32 {
+    const ETA: f32 = 1.4;
+    let fdr = -1.44 / (ETA * ETA) + 0.71 / ETA + 0.668 + 0.0636 * ETA;
+    let a = (1.0 + fdr) / (1.0 - fdr);
+    let s = (3.0 * (1.0 - alpha.clamp(0.0, 1.0))).sqrt();
+    (alpha / 2.0 * (1.0 + (-4.0 / 3.0 * a * s).exp()) * (-s).exp()).max(1e-6)
 }
 
 /// See [`skin_albedo`].
@@ -2638,6 +2716,7 @@ mod tests {
             {"channel": {"id": "Transmitted Measurement Distance", "current_value": 10}},
             {"channel": {"id": "Scattering Measurement Distance", "current_value": 0.5}},
             {"channel": {"id": "SSS Direction", "current_value": -0.6}},
+            {"channel": {"id": "Base Color Effect", "current_value": 1}},
         ]));
         let (sx, _) = material_inputs(&[("Torso".into(), sss.clone(), 1.0)], &dirs, HashMap::new(), 8000, SkinShader::StandardSurface);
         assert!(sx.contains("type='277' name='Torso'"), "{sx}");
@@ -2655,7 +2734,7 @@ mod tests {
         // Octane keeps the pin's colour space only when told the image's was
         // chosen; every image node says so.
         assert_eq!(sx.matches("<attr name='initialColorSpaceSelected' type='1'>1</attr>").count(), sx.matches("<attr name='filename'").count());
-        // OpenPBR on mono SSS (this one): radius the distance, scale the
+        // OpenPBR on mono SSS with Base Color Effect 1 (this one): radius the distance, scale the
         // colour; the tint lifted by 1 / (1 − 0.46 · 0.5).
         let (mx, _) = material_inputs(&[("Torso".into(), sss.clone(), 1.0)], &dirs, HashMap::new(), 8050, SkinShader::OpenPbr);
         assert!(mx.contains("type='505' name='Torso'"), "{mx}");
@@ -2679,7 +2758,7 @@ mod tests {
         assert!(pin("subsurface").contains("_skin_detail.png"), "{ox}");
         assert!(ox.contains("<pin name='specular'>"), "{ox}");
         let (a, b) = skin_albedo(&sss, 0.5);
-        assert!((a[0] - 0.5f32.powf(1.3)).abs() < 1e-6 && (b[0] - 0.5 * 0.55).abs() < 1e-6, "{a:?} {b:?}");
+        assert!((a[0] - 0.5f32.powf(1.3)).abs() < 1e-6 && (b[0] - 0.5 * 0.55 * volume_factor(&sss)[0]).abs() < 1e-6, "{a:?} {b:?}");
         let (radius, scale) = sss_radius(&sss);
         // Transmitted Color (0.706, 0.557, 0.467) is sRGB: linear 0.456, 0.271, 0.184.
         assert!((scale - 0.0115).abs() < 0.0005, "1.15 cm red diffusion length: {scale}");
@@ -2986,4 +3065,37 @@ mod tests {
         assert!(tex.files.is_empty(), "the map is averaged, not packed");
         assert_eq!(hx.matches("<node ").count(), hx.matches("</node>").count());
     }
+
+    #[test]
+    fn skin_volume_scales_the_subsurface_share() {
+        // Victoria 8's volume is the reference: no change.
+        let victoria = json!([
+            {"channel": {"id": "Transmitted Color", "current_value": [0.9764706, 0.4823529, 0.3529412]}},
+            {"channel": {"id": "Transmitted Measurement Distance", "current_value": 0.125}},
+            {"channel": {"id": "Scattering Measurement Distance", "current_value": 0.015}},
+            {"channel": {"id": "SSS Mode", "current_value": 1}},
+            {"channel": {"id": "SSS Color", "current_value": [0.9764706, 0.6941177, 0.7607843]}},
+            {"channel": {"id": "SSS Amount", "current_value": 2}},
+        ]);
+        let with = |extra: serde_json::Value| {
+            let mut chs = victoria.as_array().unwrap().clone();
+            chs.extend(extra.as_array().unwrap().iter().cloned());
+            volume_factor(&mat(serde_json::Value::Array(chs)))
+        };
+        let near = |f: [f32; 3], want: [f32; 3]| f.iter().zip(want).all(|(a, b)| (a - b).abs() < 0.02);
+        assert!(near(with(json!([])), [1.0; 3]));
+        // Zurie's shorter distances, the same albedo.
+        let zurie = with(json!([
+            {"channel": {"id": "Transmitted Measurement Distance", "current_value": 0.063}},
+            {"channel": {"id": "Scattering Measurement Distance", "current_value": 0.008}},
+        ]));
+        assert!(near(zurie, [1.0; 3]), "{zurie:?}");
+        // A blue SSS Color scatters more red, less blue (Iray 1.69 / 0.92 / 0.52).
+        let blue = with(json!([{"channel": {"id": "SSS Color", "current_value": [0.6, 0.75, 0.95]}}]));
+        assert!(near(blue, [1.58, 0.93, 0.51]), "{blue:?}");
+        // Mono: SSS Amount per distance (Iray 1.71 / 1.21 / 1.35).
+        let mono = with(json!([{"channel": {"id": "SSS Mode", "current_value": 0}}]));
+        assert!(near(mono, [1.65, 1.24, 1.40]), "{mono:?}");
+    }
+
 }
