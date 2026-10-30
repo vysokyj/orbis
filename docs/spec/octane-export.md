@@ -234,6 +234,14 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   up to 0.3 mm under the skin in creases (0.12–0.21 mm above once fixed),
   which random-walk skin lit as white lines along the NGV8 Color Layer's
   outline (Octane4, probes 62–71).
+- **Cast Shadows off**: the prim's object layer has shadow visibility off.
+  The USD graph then loads all object layers (`objectLayerImport` 3, the
+  template's is 1, none) and the export fills the input it creates per prim,
+  `/Scene/<prim>_object` (type 20017), with an object layer (type 65)
+  carrying only `shadow_visibility` 0; the prims without one keep a default
+  layer (Calib-L-Distant-45 with the sphere's off: no sphere shadow, the
+  cubes' as before; probes 100–102). An instanced mesh keeps its shadow —
+  its input's path isn't probed.
 - **Hidden surfaces and facet groups**: any node (not only a shell) drops
   the material groups its `material_group_<group>_vis` channels switch off
   and the facet groups (`polygon_groups`, a figure's bone regions) its

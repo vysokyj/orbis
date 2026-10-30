@@ -45,6 +45,17 @@ container is in [orbx.md](orbx.md); USD specs in [usd.md](usd.md).
   isn't drawn on its own (Octane X 2026.6, a cube instanced three times).
 - Imported mesh items are type 1; each prim gets a placement
   `<prim>_xform` (type 4).
+- **Object layers**: `A_GEOIMP_OBJECT_LAYER_IMPORT` (42, project attr
+  `objectLayerImport`): 1 hides them (no inputs; default), 2 one input
+  "Object layer" for all, 3 one input per prim, `/Scene/<prim>_object`
+  (type 20017, `/Scene/Lights/<light>_object` for lights), each wired
+  through an object layer map (64) to its mesh. Object layer (65) pins:
+  `layerId`, `general_visibility`, `camera_visibility`,
+  `shadow_visibility`, `dirtVisibility`, `curvatureVisibility`,
+  `roundEdgesVisibility`, `traceSets`, `traceSetVisibilityRules`,
+  `lightPassMask`, `randomSeed`, `objectColor`, `customAov`,
+  `customAovChannel`, `bakingGroupId`, `transform`. A project may fill only
+  some of the inputs; the rest get a default layer (probes 100–102).
 
 ## Project (`project.ocs`) rules
 

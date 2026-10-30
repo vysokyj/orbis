@@ -2322,6 +2322,24 @@ pub fn environment_texture(
     w.out
 }
 
+/// Object layer input nodes (type 20017) for the USD graph, which creates
+/// one per prim, `/Scene/<prim>_object`, once it loads all object layers
+/// (`objectLayerImport` 3, probes 100–102): for each mesh in `shadowless`
+/// an object layer (type 65) with shadow visibility off — DAZ's `Cast
+/// Shadows` off. Node ids start at `first_id`.
+pub fn object_layer_inputs(shadowless: &[String], first_id: u32) -> String {
+    let mut out = String::new();
+    for (k, name) in shadowless.iter().enumerate() {
+        let id = first_id + 3 * k as u32;
+        let _ = writeln!(out, "   <node id='{id}' type='20017' name='/Scene/{}_object' position='{} -450'>", esc(name), k * 200);
+        out.push_str("    <attr name='group' type='10'></attr>\n    <attr name='description' type='10'></attr>\n");
+        let _ = writeln!(out, "    <pin name='input'>\n     <node id='{}' type='65' name='Object layer'>", id + 1);
+        let _ = writeln!(out, "      <pin name='shadow_visibility'>\n       <node id='{}' type='11'>\n        <attr name='value' type='1'>0</attr>\n       </node>\n      </pin>", id + 2);
+        out.push_str("     </node>\n    </pin>\n   </node>\n");
+    }
+    out
+}
+
 /// Material input nodes (type 20007) for the USD graph, one per bound USD
 /// material `(prim name, material)`, plus the textures they use. Node ids
 /// start above `first_id`.

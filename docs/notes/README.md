@@ -20,3 +20,4 @@ median over a region) unless a note says otherwise; 1.00 = equal.
 | [2026-10-29 displacement](2026-10-29-displacement.md) | Iray displacement (strength × lerp(min, max, map)), DAZ's automatic gamma 2.2 for maps, Octane vertex displacement, Calib-Disp / Calib-Disp-Map, a figure's clothes (teens), Octane's "kernel failed" (#50) |
 | [2026-10-29 wardrobe fit](2026-10-29-wardrobe-fit.md) | Wearables in a stale fit in the dump (boots off the feet, toes through shoes): processEvents + forced cache rebuild (#51) |
 | [2026-10-29 Base Mixing 1 and Morgan Hair](2026-10-29-spec-mode-hair.md) | Glossy Specular as F0 (Octane IOR), Calib-SpecMode, Calib-Hair-Teens, the hair's top coat and colour effects (#52) |
+| [2026-10-30 node flags](2026-10-30-node-flags.md) | Renderable, hidden surfaces and facet groups (NGV8 shells, `WG_<k>_` graft facets), Cast Shadows as an Octane object layer (#36) |

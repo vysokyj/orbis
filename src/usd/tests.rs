@@ -1030,3 +1030,16 @@ fn camera_headlamp_when_iray_lights_with_it() {
     assert!(headlamp(&mut Library::new(vec![], scene(0, 0)), "Camera", &cam, false).is_none(), "auto 0");
     assert!(headlamp(&mut Library::new(vec![], scene(2, 2)), "Camera", &cam, false).is_none(), "off");
 }
+
+#[test]
+fn cast_shadows_off_becomes_an_object_layer_input() {
+    let vis = |id: &str, on: bool| json!({"channel": {"id": id, "current_value": on}});
+    let meshes = host_with_channels(json!([vis("Cast Shadows", false)]));
+    assert!(meshes[0].no_shadow);
+    assert!(!host_with_channels(json!([]))[0].no_shadow);
+    assert_eq!(shadowless_prims(&meshes), ["Body"]);
+    let xml = crate::material::object_layer_inputs(&shadowless_prims(&meshes), 160_000);
+    assert!(xml.contains("type='20017' name='/Scene/Body_object'") && xml.contains("<pin name='shadow_visibility'>"), "{xml}");
+    assert!(xml.contains("<attr name='value' type='1'>0</attr>"));
+    assert!(include_str!("../../assets/octane/project.ocs").contains(OBJECT_LAYERS_HIDDEN), "the template's import setting");
+}

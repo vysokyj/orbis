@@ -26,6 +26,8 @@ pub(super) struct GeoNode {
     pub(super) hidden_surfaces: HashSet<String>,
     /// Facet groups switched off (`facet_group_<g>_vis` false).
     pub(super) hidden_facets: HashSet<String>,
+    /// `Cast Shadows` off.
+    pub(super) no_shadow: bool,
 }
 
 /// The node channels (`extra[].channels[]`) of a scene node: id → value.
@@ -145,6 +147,7 @@ pub(super) fn geo_nodes(duf: &Value) -> Vec<GeoNode> {
                 shell_groups: lists_groups.then_some(shell_groups),
                 hidden_surfaces: groups_set("material_group_", false),
                 hidden_facets: groups_set("facet_group_", false),
+                no_shadow: channels.get("Cast Shadows").and_then(Value::as_bool) == Some(false),
             })
         })
         .collect()
@@ -248,6 +251,8 @@ pub(super) struct Mesh {
     /// Instanced: where its copies go (the mesh itself, when drawn, is one at
     /// `IDENTITY`) — written as a `PointInstancer` with it as the prototype.
     pub(super) instances: Option<Vec<Placement>>,
+    /// Casts no shadow (DAZ's `Cast Shadows` off).
+    pub(super) no_shadow: bool,
 }
 
 /// Meters per unit of DAZ's hair line widths (`Line Start Width` /
@@ -377,6 +382,7 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
             // mesh is only their guide.
             for mut mesh in hair_curves(lib, n, fig, &mut names) {
                 mesh.instances = copies.clone();
+                mesh.no_shadow = n.no_shadow;
                 report.instances += instances;
                 report.meshes += 1;
                 report.points += mesh.points.len();
@@ -531,6 +537,7 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
             }
         }
         mesh.instances = copies;
+        mesh.no_shadow = n.no_shadow;
         report.instances += instances;
         report.meshes += 1;
         report.points += mesh.points.len();
