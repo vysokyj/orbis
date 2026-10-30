@@ -11,6 +11,11 @@ samples so every variant has the same noise; `--auto-ev` set the scene's
 exposure, saved in the scene). Only the generated scenes' renders belong
 here — never a render of a user's own scene or of DAZ Store content.
 
-Calib-DualLobe2 and Calib-SSSColor were rendered on an Iray Server at 5000
-samples (`scripts/dev/iray-queue.sh -s 5000`); the others are being
-re-rendered that way (2026-10-30).
+`iray/renders.tsv` records how each kept render was made: samples, time cap
+(0 = none), renderer (`DAZ Studio Iray (CPU)` through `calib-render.py`, or
+`Iray Server (Boost for Daz)` through `iray-queue.sh`), date and render time.
+Iray capped by samples with no time or quality stop runs exactly that many
+iterations. `scripts/dev/keep-refs.py <render.png>...` copies renders in and
+updates it; it takes only scenes that are in `calib/scenes` and never
+replaces a render with one of fewer samples. Keep them as they come — commit
+during a long run, not at its end.

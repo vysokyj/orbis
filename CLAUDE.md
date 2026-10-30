@@ -28,6 +28,7 @@ python3 scripts/dev/calib-render.py [--auto-ev] <scene.duf>...   # Iray referenc
 DONE_FILE=<out>.done scripts/dev/daz-script.sh scripts/dev/daz-build-leaf-scene.dsa <Calib-L-Distant-45.duf> <Iray Uber Base.duf> <out>   # Calib-Leaf (then make-calib-scenes.py tunes its cards)
 DONE_FILE=<out>.done scripts/dev/daz-script.sh scripts/dev/daz-build-sundir-scene.dsa <Calib-L-Mode-SunSky-off.duf> <out>   # Calib-L-Mode-SunSky-dir (sun steered by a node)
 scripts/dev/iray-queue.sh [-s samples] <scene.duf>...   # Iray Server renders via daz-render-queue.dsa in the connected DAZ (docs/calibration.md)
+python3 scripts/dev/keep-refs.py [--renderer NAME] [--queue-log LOG] <render.png>...   # renders of calib/scenes → calib/references/iray + renders.tsv (samples, renderer, time)
 scripts/dev/daz-export-batch.sh <scene.duf> <out dir>   # the installed DAZ script's whole export unattended (--batch: saved options, DzProcess, report to orbis-batch.txt)
 scripts/dev/daz-dump.sh <out dir> <scene.duf>...   # headless DAZ dump (the ORBIS script's --dump) + orbis export
 python3 scripts/dev/orbx-variants.py <in.orbx> <out dir> <hypothesis>...   # material-pin variants of an export (gloss-2r, gloss-ior, dl-ior)
@@ -84,6 +85,11 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   Calib-*.duf (Base, Point, Area, Spot, Distant, Emissive, HDRI, Materials)
   nor Calib-Hair (it wears a DAZ Store hair): copy a new one in with its
   references checked (DAZ built-ins / primitives only).
+- Iray references go into git (`calib/references/iray`, with `renders.tsv`)
+  as they are rendered, through `keep-refs.py` — only renders of
+  `calib/scenes`, never of the user's own scenes, the Calib-Skin-* /
+  Calib-Hair-* scenes (DAZ Store figures and hair) or anything with store
+  content.
 - **Nothing third-party-copyrighted in the repo**: no OTOY manual text, no
   Octane sample files (the ORBX round-trip test reads `cornell.orbx` from the
   installed app and skips without it), no DAZ store content in fixtures —
