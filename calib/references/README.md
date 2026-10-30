@@ -19,3 +19,7 @@ iterations. `scripts/dev/keep-refs.py <render.png>...` copies renders in and
 updates it; it takes only scenes that are in `calib/scenes` and never
 replaces a render with one of fewer samples. Keep them as they come — commit
 during a long run, not at its end.
+
+Since 2026-10-30 every generated scene's reference is an Iray Server render
+at 5000 samples except Calib-Tone-Gladiator (400, CPU). The 400-sample CPU
+renders they replaced are kept in `~/Library/Caches/orbis/calib/iray-400`.
