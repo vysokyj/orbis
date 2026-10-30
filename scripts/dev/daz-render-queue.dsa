@@ -41,6 +41,13 @@
         oContent.addContentDirectory(aArgs[i], false);
         log("content dir " + aArgs[i]);
     }
+    // A crash of DAZ Studio mid-render leaves its scene in active/: back
+    // into the queue (its time kept, so it is next).
+    var aStale = new DzDir(sQueue + "/active").entryList(["*.duf"], DzDir.Files);
+    for (var j = 0; j < aStale.length; j++) {
+        new DzFile(sQueue + "/active/" + aStale[j]).rename(sQueue + "/" + aStale[j]);
+        log("requeued " + aStale[j] + " (left in active/)");
+    }
     log("started, watching " + sQueue);
     append(sQueue + "/ready", "started");
     while (!exists(sQueue + "/stop")) {
