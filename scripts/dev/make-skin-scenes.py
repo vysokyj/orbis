@@ -30,6 +30,8 @@ CHARS = LIB + '/People/Genesis 8 Female/Characters'
 FIGURES = {
     'Angel': CHARS + '/Angel/Iray/Angel Full Mat.duf',
     'Victoria': CHARS + '/Victoria 8/Materials/Iray/Victoria 8 All Maps.duf',
+    # Genesis 8 Female's own skin: mono SSS, Base Color Effect 1 (#28).
+    'Base': LIB + '/People/Genesis 8 Female/Materials/Base Materials/Iray/Base MAT All Maps.duf',
     'Kayo': CHARS + '/Kayo 8/Materials/Iray/Kayo 8 All Maps.duf',
     'Gabriela': CHARS + '/Gabriela 8/Materials/Iray/Gabriela 8 All Maps.duf',
     'Nishi': CHARS + '/Jessaii/Nishi/Materials Iray/Nishi 00 All Maps.duf',

@@ -24,6 +24,11 @@ VARIANTS = {
     'monoa05': {'SSS Mode': 0, 'SSS Amount': 0.5},
     'tintblue': {'SSS Reflectance Tint': [0.7, 0.85, 1.0]},
     'tintred': {'SSS Reflectance Tint': [1.0, 0.7, 0.6]},
+    # What keeps the Genesis 8 base skin (mono, Base Color Effect 1, SSS
+    # Direction −0.65, w 0.5) off the baked rule (#28): one at a time.
+    'bce0': {'Base Color Effect': 0},
+    'sssdir0': {'SSS Direction': 0.0},
+    'w09': {'Translucency Weight': 0.9},
     # Dual lobe specular (#26): Ratio weighs lobe 1 against lobe 2.
     'dlratio1': {'Dual Lobe Specular Ratio': 1.0},
     'dlratio0': {'Dual Lobe Specular Ratio': 0.0},
