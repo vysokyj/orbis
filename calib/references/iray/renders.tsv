@@ -24,14 +24,14 @@ Calib-Headlamp-auto-a2-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:47
 Calib-Headlamp-light-a1	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:51	111
 Calib-Headlamp-light-a2	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:53	111
 Calib-Headlamp-light-on	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:55	101
-Calib-Headlamp-off-a0	100	3600	DAZ Studio Iray (CPU)	2026-10-27 15:22	22
+Calib-Headlamp-off-a0	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:58	106
 Calib-Headlamp-off-a0-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:56	83
-Calib-Headlamp-off-a1	100	3600	DAZ Studio Iray (CPU)	2026-10-27 15:23	22
-Calib-Headlamp-off-a1-noenv	100	3600	DAZ Studio Iray (CPU)	2026-10-27 15:22	17
-Calib-Headlamp-off-a2	100	3600	DAZ Studio Iray (CPU)	2026-10-27 15:24	22
-Calib-Headlamp-off-a2-noenv	100	3600	DAZ Studio Iray (CPU)	2026-10-27 15:23	18
+Calib-Headlamp-off-a1	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:01	108
+Calib-Headlamp-off-a1-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:59	83
+Calib-Headlamp-off-a2	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:04	106
+Calib-Headlamp-off-a2-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:02	83
 Calib-Headlamp-on-a0	100	3600	DAZ Studio Iray (CPU)	2026-10-27 15:25	23
-Calib-Headlamp-on-a0-noenv	100	3600	DAZ Studio Iray (CPU)	2026-10-27 15:24	23
+Calib-Headlamp-on-a0-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:06	107
 Calib-Headlamp-on-a1	100	3600	DAZ Studio Iray (CPU)	2026-10-27 15:26	23
 Calib-Headlamp-on-a1-noenv	100	3600	DAZ Studio Iray (CPU)	2026-10-27 15:25	23
 Calib-Headlamp-on-a2	100	3600	DAZ Studio Iray (CPU)	2026-10-27 15:27	23
