@@ -64,9 +64,22 @@
         var opts = oMgr.getRenderOptions();
         opts.renderImgToId = DzRenderOptions.DirectToFile;
         opts.renderImgFilename = sPng;
-        var t = new Date().getTime();
-        oMgr.doRender(opts);
-        var secs = Math.round((new Date().getTime() - t) / 1000);
+        // An Iray Server can refuse new sessions for minutes after a large
+        // scene ("session handler rejected the session"): the render then
+        // fails within seconds and leaves a black image. Wait and retry.
+        var t, secs, bOk;
+        for (var iTry = 0; iTry < 10; iTry++) {
+            t = new Date().getTime();
+            bOk = oMgr.doRender(opts);
+            secs = Math.round((new Date().getTime() - t) / 1000);
+            if (bOk !== false && (bLocal || secs >= 15)) break;
+            log("render of " + sName + " failed after " + secs + " s, retrying in 30 s");
+            new DzFile(sPng).remove();
+            for (var iWait = 0; iWait < 30; iWait++) {
+                processEvents();
+                sleep(1000);
+            }
+        }
         log("rendered " + sName + " in " + secs + " s" + (exists(sPng) ? "" : " - NO IMAGE"));
         append(sJobLog, "rendered in " + secs + " s");
         append(sJobLog, "done");
