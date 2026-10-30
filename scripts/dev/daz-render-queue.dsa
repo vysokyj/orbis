@@ -1,44 +1,66 @@
-// ORBIS calibration: a render queue inside a running DAZ Studio — for Iray
-// Server (Boost for Daz), whose Bridge connection lives only in the DAZ
-// Studio that made it: connect there (Render Settings > Advanced > Bridge:
-// Secure off, Connect, Rendering Enabled), then run this script (File >
-// Open...). It renders every scene put into the queue folder, oldest first,
-// to <scene>.png beside it, then waits for more; a file named "stop" in the
-// folder ends it. Each scene replaces the open one. Queue scenes with
-// scripts/dev/iray-queue.sh. ECMAScript 3, ASCII only.
+// ORBIS calibration: a render queue inside a running DAZ Studio. It renders
+// every scene put into the queue folder, oldest first, to <scene>.png beside
+// it, then waits for more; a file named "stop" in the folder ends it. Each
+// scene replaces the open one. ECMAScript 3, ASCII only.
+//
+// Two uses:
+// - Local renders (scripts/dev/daz-render.sh): one DAZ Studio instance that
+//   stays open, started with script arguments: the queue folder, then the
+//   content directories (its own instance has its own preferences). Each
+//   job also gets <scene>.log (open, rendered in, done); "stop" quits the
+//   instance.
+// - Iray Server (Boost for Daz), whose Bridge connection lives only in the
+//   DAZ Studio that made it: connect there (Render Settings > Advanced >
+//   Bridge: Secure off, Connect, Rendering Enabled), then run this script
+//   without arguments (Render > ORBIS Iray Queue). Queue scenes with
+//   scripts/dev/iray-queue.sh.
 (function () {
+    var aArgs = App.scriptArgs;
+    var bLocal = aArgs.length > 0;
     // ~/Library/Caches/orbis/calib/queue: DzDir.homePath() fails in DAZ
     // Studio 6, so from DAZ's documents folder (~/Documents/DAZ 3D/Studio6).
     var sHome = App.getDocumentsPath().replace(/\/Documents(\/.*)?$/, "");
-    var sQueue = sHome + "/Library/Caches/orbis/calib/queue";
+    var sQueue = bLocal ? aArgs[0] : sHome + "/Library/Caches/orbis/calib/queue";
     var oDir = new DzDir(sQueue);
     oDir.mkpath(sQueue + "/active");
     oDir.mkpath(sQueue + "/done");
     var oContent = App.getContentMgr();
     var oMgr = App.getRenderMgr();
-    function log(s) {
-        var f = new DzFile(sQueue + "/queue.log");
+    function append(p, s) {
+        var f = new DzFile(p);
         f.open(DzFile.Append);
-        f.write(new Date().toString() + "  " + s + "\n");
+        f.write(s + "\n");
         f.close();
+    }
+    function log(s) {
+        append(sQueue + "/queue.log", new Date().toString() + "  " + s);
         print("ORBIS queue: " + s);
     }
     function exists(p) { return new DzFile(p).exists(); }
+    for (var i = 1; i < aArgs.length; i++) {
+        oContent.addContentDirectory(aArgs[i], false);
+        log("content dir " + aArgs[i]);
+    }
     log("started, watching " + sQueue);
+    append(sQueue + "/ready", "started");
     while (!exists(sQueue + "/stop")) {
         var aJobs = new DzDir(sQueue).entryList(["*.duf"], DzDir.Files, DzDir.Time | DzDir.Reversed);
         if (aJobs.length == 0) {
             processEvents();
-            sleep(2000);
+            sleep(1000);
             continue;
         }
         // Rendering in active/, then done/: DAZ goes by the .duf extension.
         var sName = aJobs[0];
         var sActive = sQueue + "/active/" + sName;
         var sPng = sQueue + "/" + sName.replace(/\.duf$/, ".png");
+        var sJobLog = sQueue + "/" + sName.replace(/\.duf$/, ".log");
         new DzFile(sQueue + "/" + sName).rename(sActive);
         log("open " + sName);
-        if (!oContent.openFile(sActive, false)) log("open failed: " + sName);
+        append(sJobLog, "open " + sName);
+        var bOpened = oContent.openFile(sActive, false);
+        append(sJobLog, "opened: " + bOpened);
+        if (!bOpened) log("open failed: " + sName);
         var opts = oMgr.getRenderOptions();
         opts.renderImgToId = DzRenderOptions.DirectToFile;
         opts.renderImgFilename = sPng;
@@ -46,8 +68,12 @@
         oMgr.doRender(opts);
         var secs = Math.round((new Date().getTime() - t) / 1000);
         log("rendered " + sName + " in " + secs + " s" + (exists(sPng) ? "" : " - NO IMAGE"));
+        append(sJobLog, "rendered in " + secs + " s");
+        append(sJobLog, "done");
         new DzFile(sActive).rename(sQueue + "/done/" + sName);
     }
     new DzFile(sQueue + "/stop").remove();
+    new DzFile(sQueue + "/ready").remove();
     log("stopped");
+    if (bLocal) App.delayedExit();
 })();

@@ -16,7 +16,7 @@ scripts/install.sh                             # build + `orbis install` into "M
 scripts/package.sh                             # plugin zip → dist/ (git-ignored)
 scripts/dev/render-icons.sh                    # assets/icon/*.svg → committed thumbnails
 python3 scripts/dev/fetch-octane-docs.py docs/octane/manual <cache dir>   # Octane manual mirror (git-ignored)
-scripts/dev/daz-render.sh <scene.duf> <out.png> [secs] [samples]   # unattended capped Iray render (own DAZ instance)
+scripts/dev/daz-render.sh <scene.duf> <out.png> [secs] [samples]   # unattended capped Iray render (one DAZ instance that stays open; --stop quits it)
 scripts/dev/octane-run.sh <probe.lua> [scene.orbx]   # unattended Octane X Lua probe (starts Octane X, leaves it running; QUIT_OCTANE=1 quits)
 scripts/dev/octane-render.sh <out dir> [samples] <scene.orbx>...   # unattended Octane renders of exports, as exported
 python3 scripts/dev/make-calib-scenes.py   # Calib-PBRSkin / Calib-Tone-* / Calib-DOF-* from Calib-Materials.duf

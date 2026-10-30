@@ -80,7 +80,12 @@ user's own scenes.
 2. **Iray reference** — `scripts/dev/calib-render.py [--auto-ev]
    [--samples N] <scene.duf>…`: a headless DAZ Studio render, capped by
    samples so every variant has the same noise; `--auto-ev` sets the
-   scene's exposure first. Output: `~/Library/Caches/orbis/calib/iray`;
+   scene's exposure first. The renders go through one DAZ Studio instance
+   (`orbis-render`) that stays open between them: `daz-render.sh` starts
+   it on the first render with `daz-render-queue.dsa` and hands it each
+   scene through `~/Library/Caches/orbis/calib/queue-local`, under the
+   render lock; `daz-render.sh --stop` quits it. Output:
+   `~/Library/Caches/orbis/calib/iray`;
    copy the generated scenes' renders into `calib/references/iray`.
    Render a variant at its reference's samples (the default is 400; Calib-
    Eye's reference is 100) — time grows with them: Calib-Thin 22 s at 100,
