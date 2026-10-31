@@ -584,7 +584,9 @@ Every material input (20007) is filled — Octane doesn't convert
   diffuse Iray leaves 0.77 – 0.81; 1.09 – 1.20 × Iray with the earlier
   fitted albedo dimming, 0.96 – 1.14 now (#31).
 - **BSDF model and roughness.** Uber Universal materials (not refractive
-  ones, nor the skins' Standard Surface / OpenPBR) use GGX (`brdf` 2) at
+  ones, nor the skins' Standard Surface / OpenPBR) use GGX energy
+  preserving (`brdf` 6; plain GGX lost light on rough lobes: Calib-Glossy
+  roughness 0.6 1.17 → 1.01 × Iray, DualLobe2's r 0.36 1.25 → 1.08) at
   roughness r + 1.85 r², r = Iray's roughness after its squaring; the
   coating too. Iray's lobes are Phong (2 / r², MDL `simple_glossy_bsdf`);
   Octane's default BSDF kept rough highlights sharp and bright.

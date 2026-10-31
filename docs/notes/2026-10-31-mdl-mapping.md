@@ -135,3 +135,28 @@ albedo: halving the albedo darkened the metal too (the full metal 1.19 →
 coating of a Reflectivity above 0.5 now fades with 1 − w (the 2.14).
 Calib-DataGamma G6 1.41 → 1.09; PBRSkin P7 / P8 0.93 / 1.02. The old
 binary for the comparison was built from HEAD into a separate target dir.
+
+## Iray references for the map scenes
+
+Calib-Map-Effect / -TopCoat / -Misc / -SpecMode on the Iray Server (5000
+samples; Effect 525 s for its translucency, the others ~110 s), Octane
+rendered alongside (the queue holds no render lock). Octane / Iray per
+sphere, current export:
+
+| scene | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| Map-Effect (E1–E8) | 1.14 | 1.02 | 1.16 | 1.13 | 1.17 | 1.05 | 1.00 | 1.11 |
+| Map-TopCoat (C1–C8) | 1.12 | 1.12 | 1.17 | 1.11 | 1.07 | 1.18 | 1.14 | 1.21 |
+| Map-Misc (X1–X8) | 1.16 | 1.89 | 0.87 | 1.03 | 0.77 | 1.18 | 0.68 | 0.50 |
+| Map-SpecMode (S1–S8) | 0.91 | 1.12 | 1.06 | 0.92 | 1.02 | 1.05 | 0.53 | 1.05 |
+
+- **Diffuse Strength** was ignored (E5 1.52): DAZ multiplies it into the
+  linear diffuse colour; `Material::base_color` now does (1.17).
+- **GGX energy preserving** (`brdf` 6) instead of GGX (2): rough lobes
+  kept their light — Calib-Glossy roughness 0.6 1.17 → 1.01, DualLobe2
+  r 0.36 1.25 → 1.08, r 0.81 0.83 → 0.89, S7 0.41 → 0.53; TopCoat,
+  Mixing, ColorEffect, SpecMode and Map-Metal unchanged.
+- Open: X2 (backscattering, Share Glossy Inputs off) 1.89 (#29), X8 flakes
+  0.50 (#30), X7 a refractive volume 0.68 (#28), X5 rough unshared
+  refraction 0.77, X3 dual lobe 0.87 (#26), S7 Base Mixing 1 at
+  Glossiness 0.3 0.53 (#52).

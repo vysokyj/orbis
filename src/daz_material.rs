@@ -161,9 +161,13 @@ impl Material {
         self.channel(id)?.image.as_deref()
     }
 
-    /// Base color (Iray `diffuse` / "Base Color").
+    /// Base color (Iray `diffuse` / "Base Color") × Diffuse Strength, which
+    /// DAZ Studio multiplies into the linear colour it passes to the MDL
+    /// (its .mi export): ignored, Calib-Map-Effect's strength 0.5 sphere
+    /// rendered 1.52 × Iray (#32).
     pub fn base_color(&self) -> [f32; 3] {
-        self.color("diffuse").unwrap_or([0.8; 3])
+        let strength = self.float("Diffuse Strength").unwrap_or(1.0).max(0.0);
+        self.color("diffuse").unwrap_or([0.8; 3]).map(|c| c * strength)
     }
 
     /// Specular roughness, 0 = mirror … 1 = matte. Iray Uber keeps it in

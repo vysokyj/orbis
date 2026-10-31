@@ -609,11 +609,14 @@ impl Ocs<'_> {
         if self.gloss_ggx { (r + GGX_ROUGHNESS_CURVE * r * r).clamp(0.0, 1.0) } else { r }
     }
 
-    /// Universal's `brdf` GGX (2; probe 104: 0 Octane, the default, 1
-    /// Beckmann, 6 GGX energy preserving, 7 STD) while `gloss_ggx`.
+    /// Universal's `brdf` GGX energy preserving (6; probe 104: 0 Octane,
+    /// the default, 1 Beckmann, 2 GGX, 7 STD) while `gloss_ggx`. Plain GGX
+    /// lost light on rough lobes, which Iray's Phong keeps: Calib-Glossy's
+    /// roughness 0.6 1.17 → 1.01 × Iray, Calib-DualLobe2's r 0.36 lobe 1.25
+    /// → 1.08, Calib-Map-SpecMode's Glossiness 0.3 0.41 → 0.53 (#56).
     fn brdf_pin(&mut self, i: usize) {
         if self.gloss_ggx {
-            self.value_pin(i, "brdf", 57, 2, "2");
+            self.value_pin(i, "brdf", 57, 2, "6");
         }
     }
 
