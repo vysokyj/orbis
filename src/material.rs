@@ -1939,13 +1939,27 @@ fn top_coat_roughness(mat: &Material) -> f32 {
 /// Library) reflects F0 = 0.08 × Reflectivity head-on (0.5 → 0.04, IOR
 /// 1.5): Calib-TopCoat's Reflectivity 1 sphere 0.75 → 1.09 × Iray (0.5:
 /// 1.11), and the cornea's 0.3 no longer mirrors the room over the iris
-/// (Calib-Eye, #20). The other modes keep Top Coat IOR (#25).
+/// (Calib-Eye, #20). DAZ Studio passes neither Top Coat IOR nor the Curve
+/// Normal / Grazing / Exponent to the MDL (its .mi export,
+/// docs/daz/iray-uber-mdl.md): Fresnel (2) reflects at the MDL's IOR 1.5
+/// whatever the channel — Calib-TopCoat's IOR 1.5 and 2 spheres render
+/// alike in Iray — and Custom Curve (3) at its defaults, 0 head-on to 1 at
+/// grazing by (1 − cos θ)^5 (`CURVE_COAT_IOR`, #25).
 fn top_coat_ior(mat: &Material) -> f32 {
     match mat.float("Top Coat Layering Mode").unwrap_or(0.0) as i32 {
         0 => ior_from_f0(0.08 * mat.float("Reflectivity").unwrap_or(0.5)),
-        _ => mat.float("Top Coat IOR").unwrap_or(1.5),
+        3 => CURVE_COAT_IOR,
+        _ => 1.5,
     }
 }
+
+/// Universal's `coatingIor` for Iray's Custom Curve coat (0 head-on):
+/// Calib-TopCoat's curve spheres 2.5 × Iray at the old Top Coat IOR 1.5,
+/// 1.52 at 1.22 (Fresnel matching the curve's hemispherical average,
+/// 0.048), 1.23 at 1.07, 1.18 at 1 (no coat; the plain coated spheres
+/// 1.04 – 1.11). Iray shows no head-on reflection on them, only a rim:
+/// 1.07 keeps that rim.
+const CURVE_COAT_IOR: f32 = 1.07;
 
 /// The dielectric IOR that reflects `f0` head-on: (1 + √F0) / (1 − √F0).
 fn ior_from_f0(f0: f32) -> f32 {
@@ -3398,6 +3412,23 @@ mod tests {
         ]));
         let (y, _) = material_inputs(&[("Ball".into(), reflectivity, 1.0)], &[], HashMap::new(), 6000, SkinShader::None);
         assert!(!y.contains("type='19'") && y.contains("<pin name='coating'>"), "{y}");
+    }
+
+    #[test]
+    fn fresnel_and_curve_coats_ignore_the_channels_iray_never_gets() {
+        let coat = |mode: i32| {
+            let m = mat(json!([
+                {"channel": {"id": "Top Coat Weight", "current_value": 1}},
+                {"channel": {"id": "Top Coat Layering Mode", "current_value": mode}},
+                {"channel": {"id": "Top Coat IOR", "current_value": 2.0}},
+                {"channel": {"id": "Top Coat Curve Normal", "current_value": 0.3}},
+                {"channel": {"id": "Reflectivity", "current_value": 1.0}},
+            ]));
+            top_coat_ior(&m)
+        };
+        assert_eq!(coat(2), 1.5);
+        assert_eq!(coat(3), CURVE_COAT_IOR);
+        assert!((coat(0) - ior_from_f0(0.08)).abs() < 1e-6);
     }
 
     #[test]

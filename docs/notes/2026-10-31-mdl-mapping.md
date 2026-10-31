@@ -55,3 +55,25 @@ an open question:
   curve head-on 0), then recheck Calib-TopCoat T5 – T8.
 - #59: the w² metal.
 - Converting .mi to Octane directly: an option to weigh (see #60).
+
+## #25: Fresnel and Custom Curve coats as Iray gets them
+
+`top_coat_ior`: Fresnel → 1.5 always, Custom Curve → a fixed IOR.
+Calib-TopCoat, Octane / Iray (spheres T1 – T8, compare-all):
+
+| | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 |
+|---|---|---|---|---|---|---|---|---|
+| before (full pass) | 1.09 | 0.10 | 0.05 | 0.15 | 1.10 | 2.06 | 2.49 | 2.55 |
+| Fresnel 1.5, curve 1.22 | 1.10 | 1.04 | 1.01 | 1.04 | 1.11 | 1.11 | 1.52 | 1.54 |
+| curve 1.07 | 1.10 | 1.04 | 1.01 | 1.04 | 1.11 | 1.11 | 1.23 | 1.23 |
+| curve 1.0 | 1.10 | 1.04 | 1.04 | 1.05 | 1.11 | 1.11 | 1.18 | 1.19 |
+
+(The "before" row is the 2026-10-31 full pass, before the weighted coat
+fix made T3 / T4 right.) 1.22 matches Schlick's curve from 0 on the
+hemispherical average (1/21); Iray's curve spheres show no head-on
+reflection at all, so it was too much. 1 removes the coat and leaves
+1.18: the rest is not the coat. Kept 1.07 for the rim Iray shows.
+
+Measuring pitfall: the scratch measure script decoded the Octane PNG at
+gamma 2.2 like Iray's; compare-all uses the export's response. Only
+compare-all's numbers count.
