@@ -626,7 +626,7 @@ impl Ocs<'_> {
     /// (clamped at 1: 0.69) and Calib-ColorEffect's C8 (Base Mixing 1, red
     /// Glossy Specular: 1.35 → 1.77, #27). Beckmann stayed sharp (#56).
     fn gloss_roughness(&self, r: f32) -> f32 {
-        if self.gloss_ggx { (r + GGX_ROUGHNESS_CURVE * r * r).min(r.max(0.0).sqrt()).clamp(0.0, 1.0) } else { r }
+        if self.gloss_ggx { ggx_roughness(r) } else { r }
     }
 
     /// Universal's `brdf` GGX energy preserving (6; probe 104: 0 Octane,
@@ -724,9 +724,8 @@ impl Ocs<'_> {
         self.gloss_ggx = true;
         self.brdf_pin(j + 1);
         let (rough_ch, rough, inverted) = mat.roughness_source();
-        let rough_ch = if inverted { None } else { rough_ch };
         let rough = self.gloss_roughness(iray_gloss_roughness(mat).unwrap_or_else(|| iray_roughness(mat, rough, inverted)));
-        self.float_or_map(j + 1, "roughness", mat, rough_ch, rough.clamp(0.0, 1.0));
+        self.roughness_pin(j + 1, mat, rough_ch, rough.clamp(0.0, 1.0), true);
         if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(j + 1, "normal", &asset, false, 1.0, 1.0);
         }
@@ -1228,12 +1227,37 @@ impl Ocs<'_> {
     /// `value`), else the constant `value`.
     fn float_or_map(&mut self, indent: usize, pin: &str, mat: &Material, channel: Option<&str>, value: f32) {
         let tex = channel.and_then(|c| mat.image(c)).map(str::to_string);
-        // A roughness map Iray squares with its value (`square_float`, the
-        // .mi export): squared here by twice its gamma.
-        let squared = pin == "roughness" && channel.is_some_and(|c| c.ends_with("Roughness")) && mat.float("Roughness Squared").unwrap_or(1.0) > 0.0;
         match tex.and_then(|t| self.textures.asset(self.dirs, &t)) {
-            Some(asset) => self.image_pin(indent, pin, &asset, true, data_gamma(mat, channel.unwrap_or_default()) * if squared { 2.0 } else { 1.0 }, value),
+            Some(asset) => self.image_pin(indent, pin, &asset, true, data_gamma(mat, channel.unwrap_or_default()), value),
             None => self.float_pin(indent, pin, value),
+        }
+    }
+
+    /// The gloss's roughness pin: `value` (Iray's roughness, through the GGX
+    /// curve when `ggx`), or the channel's map as Iray reads it — the map ×
+    /// the channel's value, 1 − that for a glossiness, squared (`square_float`,
+    /// `gloss_to_rough`: DAZ's .mi export, Calib-Mi-Maps) — baked per pixel
+    /// with the same curve.
+    fn roughness_pin(&mut self, indent: usize, mat: &Material, channel: Option<&str>, value: f32, ggx: bool) {
+        let Some((ch, map)) = channel.and_then(|c| Some((c, mat.image(c)?.to_string()))) else {
+            return self.float_pin(indent, "roughness", value);
+        };
+        let inverted = ch.ends_with("Glossiness");
+        let v = mat.float(ch).unwrap_or(1.0);
+        let squared = mat.float(if inverted { "Glossiness Squared" } else { "Roughness Squared" }).unwrap_or(1.0) > 0.0;
+        // `derived` decodes at 2.2; the map's own gamma rescales that.
+        let g = data_gamma(mat, ch) / crate::iray::COLOUR_GAMMA;
+        let key = format!("roughness|{map}|{v}|{inverted}|{squared}|{ggx}|{g}");
+        let asset = self.textures.derived(self.dirs, &map, &key, 1.0, |l| {
+            let m = l.max(0.0).powf(g) * v;
+            let r = (if inverted { 1.0 - m } else { m }).clamp(0.0, 1.0);
+            let r = if squared { r * r } else { r };
+            [if ggx { ggx_roughness(r) } else { r }; 3]
+        });
+        match asset {
+            Some(asset) => self.image_pin(indent, "roughness", &asset, true, 1.0, 1.0),
+            // An image it can't read: the map as is (a glossiness, its value).
+            None => self.float_or_map(indent, "roughness", mat, Some(ch).filter(|_| !inverted), value),
         }
     }
 
@@ -1292,7 +1316,7 @@ impl Ocs<'_> {
         if let Some(dl) = dual_lobe.filter(|_| coat && rough_ch.and_then(|c| mat.image(c)).is_none()) {
             rough = dl.blended_roughness(rough);
         }
-        self.float_or_map(i, "roughness", mat, rough_ch, rough.clamp(0.0, 1.0));
+        self.roughness_pin(i, mat, rough_ch, rough.clamp(0.0, 1.0), false);
         let lobe1 = dual_lobe.filter(|_| !coat).map_or(1.0, |dl| dl.lobe1);
         let (weight, ch) = match dual_lobe {
             Some(dl) => (dl.share, "Dual Lobe Specular Reflectivity"),
@@ -1378,11 +1402,12 @@ impl Ocs<'_> {
         };
         colour_pin(self, "baseColor");
         let (rough_ch, rough, inverted) = mat.roughness_source();
-        let rough_ch = if inverted { None } else { rough_ch };
         if bake {
             self.skin_gloss(i, mat, rough_ch, rough, inverted);
         } else {
-            self.float_or_map(i, "roughness", mat, rough_ch, rough.clamp(0.0, 1.0));
+            // Standard Surface takes the slider unsquared; a glossiness map
+            // would need inverting: its value only.
+            self.float_or_map(i, "roughness", mat, rough_ch.filter(|_| !inverted), rough.clamp(0.0, 1.0));
         }
         match &baked {
             // The diffuse map's marked detail (brows, liner) out of the random
@@ -1774,8 +1799,6 @@ impl Ocs<'_> {
         } else {
             mat.roughness_source()
         };
-        // A glossiness map would need inverting; use its value only.
-        let rough_ch = if inverted { None } else { rough_ch };
         let mut rough = match iray_gloss_roughness(mat).filter(|_| !refraction_rough) {
             Some(r) => r,
             None if refraction_rough => iray(mat).and_then(|u| u.float("refraction_roughness")).unwrap_or_else(|| iray_roughness(mat, rough, inverted)),
@@ -1800,7 +1823,8 @@ impl Ocs<'_> {
         self.gloss_ggx = !refraction_rough;
         self.brdf_pin(i);
         let rough = self.gloss_roughness(rough);
-        self.float_or_map(i, "roughness", mat, rough_ch, rough.clamp(0.0, 1.0));
+        let ggx = self.gloss_ggx;
+        self.roughness_pin(i, mat, rough_ch, rough.clamp(0.0, 1.0), ggx);
 
         // Lobe 2 of a dual lobe specular as the coating (#26): Calib-DualLobe
         // at a ratio of 0.5 / 0.15 / 0 and lobe 2 roughness 0.6 showed one
@@ -2695,6 +2719,11 @@ fn glossy_reflectivity(mat: &Material) -> Option<f32> {
 /// Iray's metallic weight (Base Mixing 1 has none).
 fn metallic(mat: &Material) -> f32 {
     iray(mat).and_then(|u| u.float("metallic_weight")).unwrap_or_else(|| mat.metallic())
+}
+
+/// Iray's roughness on Octane's GGX gloss (`Ocs::gloss_roughness`).
+fn ggx_roughness(r: f32) -> f32 {
+    (r + GGX_ROUGHNESS_CURVE * r * r).min(r.max(0.0).sqrt()).clamp(0.0, 1.0)
 }
 
 /// `Ocs::gloss_roughness`'s curve.
@@ -4035,5 +4064,30 @@ mod tests {
         }
         wrong.sort();
         assert!(checked > 0 && wrong.is_empty(), "{} of {checked} NVIDIA example values differ from DAZ's .mi:\n{}", wrong.len(), wrong.join("\n"));
+    }
+
+    /// A glossiness map as Iray reads it (DAZ's .mi export, Calib-Mi-Maps):
+    /// (1 − map × Glossiness)², baked per pixel through the GGX curve.
+    #[test]
+    fn glossiness_map_becomes_iray_roughness() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("Runtime/Textures")).unwrap();
+        image::GrayImage::from_pixel(2, 2, image::Luma([128])).save(dir.path().join("Runtime/Textures/grey.png")).unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let m = Rc::new(Material::from_dson(
+            &json!({"extra": [{"channels": [
+                {"channel": {"id": "Base Mixing", "current_value": 1}},
+                {"channel": {"id": "Glossy Layered Weight", "current_value": 1.0}},
+                {"channel": {"id": "Glossiness", "current_value": 0.6, "image_file": "/Runtime/Textures/grey.png"}},
+            ]}]}),
+            &HashMap::new(),
+        ));
+        let (xml, tex) = material_inputs(&[("Gloss".into(), m, 1.0)], &dirs, HashMap::new(), 7000, SkinShader::None);
+        let (name, png) = tex.generated.iter().find(|(n, _)| n.ends_with("grey_derived.png")).expect("baked roughness");
+        assert!(xml.contains(name.as_str()), "{xml}");
+        let px = image::load_from_memory(png).unwrap().to_luma8().get_pixel(0, 0).0[0];
+        let l = crate::daz_material::colour_to_linear(128.0 / 255.0);
+        let want = ggx_roughness((1.0 - l * 0.6).powi(2));
+        assert!((f32::from(px) / 255.0 - want).abs() < 1.5 / 255.0, "{px} vs {want}");
     }
 }
