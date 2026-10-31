@@ -543,6 +543,8 @@ struct Ocs<'a> {
     film: Option<Film>,
     /// Per open pin, whether `pin_open` wrapped it in the film's Multiply.
     pin_wraps: Vec<bool>,
+    /// Writing an Uber gloss as GGX (`gloss_roughness`).
+    gloss_ggx: bool,
 }
 
 fn esc(s: &str) -> String {
@@ -586,6 +588,33 @@ impl Ocs<'_> {
             let _ = writeln!(self.out, "{:i$} </pin>\n{:i$}</node>", "", "");
         }
         let _ = writeln!(self.out, "{:indent$}</pin>", "");
+    }
+
+    /// Iray's (MDL) roughness `r` as Universal's under GGX: r + 1.85 r².
+    /// Iray's Uber lobes are Phong with exponent 2 / r² (MDL
+    /// `simple_glossy_bsdf`), Octane's default BSDF ("Octane") kept a sharp
+    /// peak on rough highlights: Calib-DualLobe2's lobes at r 0.36 / 0.81
+    /// had p99 / median 2.6 / 2.6 against Iray's 1.3 / 1.5 and rendered
+    /// 1.58 / 1.99 × Iray. GGX at r is right for sharp highlights (r 0.09:
+    /// Calib-Glossy's 2.5 against Iray's 2.6) but stays sharp above; GGX at
+    /// √r matches the rough ones (1.4 / 1.5) but spreads and brightens the
+    /// sharp (Calib-Glossy's Reflectivity 1 sphere 1.21 → 1.62). The curve
+    /// passes both: 0.09 → 0.105, 0.36 → 0.6, 0.81 → 1. Calib-Glossy's
+    /// spheres 1.02 – 1.16 × Iray (were 1.06 – 1.21), roughness 0.6 1.47 →
+    /// 1.17; DualLobe2's rough lobes 1.02 – 1.25 (were 1.47 – 1.99), lobe 2
+    /// at 0.81 0.83; SpecMode 0.95 – 1.10. Off: Roughness Squared off at 0.6
+    /// (clamped at 1: 0.69) and Calib-ColorEffect's C8 (Base Mixing 1, red
+    /// Glossy Specular: 1.35 → 1.77, #27). Beckmann stayed sharp (#56).
+    fn gloss_roughness(&self, r: f32) -> f32 {
+        if self.gloss_ggx { (r + GGX_ROUGHNESS_CURVE * r * r).clamp(0.0, 1.0) } else { r }
+    }
+
+    /// Universal's `brdf` GGX (2; probe 104: 0 Octane, the default, 1
+    /// Beckmann, 6 GGX energy preserving, 7 STD) while `gloss_ggx`.
+    fn brdf_pin(&mut self, i: usize) {
+        if self.gloss_ggx {
+            self.value_pin(i, "brdf", 57, 2, "2");
+        }
     }
 
     /// A Multiply texture (39) of Iray's film tint — a Mix (38) of the
@@ -667,9 +696,11 @@ impl Ocs<'_> {
             None => self.rgb_pin(j + 1, "albedo", gloss_color),
         }
         self.float_pin(j + 1, "metallic", 1.0);
+        self.gloss_ggx = true;
+        self.brdf_pin(j + 1);
         let (rough_ch, rough, inverted) = mat.roughness_source();
         let rough_ch = if inverted { None } else { rough_ch };
-        let rough = iray_roughness(mat, rough, inverted);
+        let rough = self.gloss_roughness(iray_roughness(mat, rough, inverted));
         self.float_or_map(j + 1, "roughness", mat, rough_ch, rough.clamp(0.0, 1.0));
         if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(j + 1, "normal", &asset, false, 1.0, 1.0);
@@ -681,6 +712,7 @@ impl Ocs<'_> {
         // weighted surface under a 0.8 coat lost half its sheen (Calib-Mixing
         // jamb 0.55 × Iray).
         self.top_coat(j + 1, mat, 0.0);
+        self.gloss_ggx = false;
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
             self.float_or_map(j + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
@@ -730,7 +762,11 @@ impl Ocs<'_> {
             None => self.rgb_pin(j + 1, "albedo", colour),
         }
         self.float_pin(j + 1, "metallic", 1.0);
-        self.float_pin(j + 1, "roughness", top_coat_roughness(mat));
+        self.gloss_ggx = true;
+        self.brdf_pin(j + 1);
+        let rough = self.gloss_roughness(top_coat_roughness(mat));
+        self.gloss_ggx = false;
+        self.float_pin(j + 1, "roughness", rough);
         if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(j + 1, "normal", &asset, false, 1.0, 1.0);
         }
@@ -861,7 +897,8 @@ impl Ocs<'_> {
             Some(asset) => self.image_pin(i, "coating", &asset, true, 1.0, coat),
             None => self.rgb_pin(i, "coating", colour.map(|c| c * coat)),
         }
-        self.float_pin(i, "coatingRoughness", top_coat_roughness(mat).max(min_roughness).clamp(0.0, 1.0));
+        let rough = self.gloss_roughness(top_coat_roughness(mat));
+        self.float_pin(i, "coatingRoughness", rough.max(min_roughness).clamp(0.0, 1.0));
         self.float_pin(i, "coatingIor", top_coat_ior(mat));
     }
 
@@ -1582,6 +1619,11 @@ impl Ocs<'_> {
         if let Some(dl) = active_dual_lobe.filter(|_| coat > 0.0 && rough_ch.and_then(|c| mat.image(c)).is_none()) {
             rough = dl.blended_roughness(rough);
         }
+        // GGX at √r for the gloss (`gloss_roughness`); a refraction keeps
+        // Octane's default BSDF it was calibrated on.
+        self.gloss_ggx = !refraction_rough;
+        self.brdf_pin(i);
+        let rough = self.gloss_roughness(rough);
         self.float_or_map(i, "roughness", mat, rough_ch, rough.clamp(0.0, 1.0));
 
         // Lobe 2 of a dual lobe specular as the coating (#26): Calib-DualLobe
@@ -1592,7 +1634,8 @@ impl Ocs<'_> {
             let lobe2 = dl.share * (1.0 - dl.lobe1);
             if coat <= 0.0 && lobe2 > 0.0 {
                 self.rgb_pin(i, "coating", [lobe2; 3]);
-                self.float_pin(i, "coatingRoughness", dl.lobe2_roughness);
+                let r2 = self.gloss_roughness(dl.lobe2_roughness);
+                self.float_pin(i, "coatingRoughness", r2);
                 self.float_pin(i, "coatingIor", dl.ior.unwrap_or(1.5));
             }
             // Reflectivity above 0.5 as the IOR (Calib-DualLobe r 1: 0.79 →
@@ -1617,6 +1660,7 @@ impl Ocs<'_> {
         // pupil came out 0.43 × Iray; blurred like its gloss it is Iray's
         // veil over the iris (pupil 0.89, iris 0.77 – 0.83; Calib-Eye, #20).
         self.top_coat(i, mat, if thin && refraction >= 0.5 { rough } else { 0.0 });
+        self.gloss_ggx = false;
 
         // Base Mixing 1 reflects Glossy Specular head-on (F0), as an IOR on
         // the dielectric layer — unless the surface is mostly refraction.
@@ -2259,6 +2303,9 @@ fn iray_roughness(mat: &Material, r: f32, from_glossiness: bool) -> f32 {
     if mat.float(channel).unwrap_or(1.0) > 0.0 { r * r } else { r }
 }
 
+/// `Ocs::gloss_roughness`'s curve.
+const GGX_ROUGHNESS_CURVE: f32 = 1.85;
+
 /// Metallic Weight below this (without a map) is left out: see `universal`.
 const NEGLIGIBLE_METALLIC: f32 = 0.05;
 
@@ -2320,7 +2367,7 @@ pub struct LightEmitter {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -2492,7 +2539,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, volumes: &
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -2639,7 +2686,7 @@ pub fn environment_texture(
     textures: &mut Textures,
     first_id: u32,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -2699,7 +2746,7 @@ pub fn material_inputs(
 ) -> (String, Textures) {
     let Shading { skin, thin_glass_ior_one, max_transmission } = shading.into();
     let mut textures = Textures { layered, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -2930,7 +2977,7 @@ mod tests {
         assert!((dl.lobe2_roughness - 0.72).abs() < 1e-6, "{dl:?}");
         let (x, _) = material_inputs(&[("Uber".into(), uber.clone(), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
         assert!(x.contains("<pin name='specular'>") && x.contains(">0.25 0.25 0.25<"), "lobe 1's share: {x}");
-        assert!(x.contains(">0.75 0.75 0.75<") && x.contains(">0.72<"), "lobe 2 as the coating: {x}");
+        assert!(x.contains(">0.75 0.75 0.75<") && x[x.find("<pin name='coatingRoughness'>").unwrap()..][..200].contains("type='6'>1</attr>"), "lobe 2 as the coating (GGX curve of 0.72, clamped): {x}");
 
         // PBRSkin: the ratio weighs lobe 2, its roughness lobe 1's × the mult.
         let pbr = mat(json!([
@@ -2954,8 +3001,9 @@ mod tests {
         ]));
         let (x, _) = material_inputs(&[("Coated".into(), coated, 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
         assert!(!x.contains(">0.75 0.75 0.75<") && !x.contains("<pin name='specular'>"), "full lobe share: {x}");
-        let blended = 0.25 * 0.09 + 0.75 * 0.72;
-        assert!(x.contains(&format!(">{}<", num(blended))), "blended roughness {blended}: {x}");
+        let ggx = |r: f32| (r + GGX_ROUGHNESS_CURVE * r * r).min(1.0);
+        let blended = ggx(0.25 * 0.09 + 0.75 * 0.72);
+        assert!(x.contains(&format!(">{}<", num(blended))), "blended roughness {blended} (GGX curve): {x}");
         assert!(DualLobe::of(&mat(json!([]))).is_none());
     }
 
@@ -3236,7 +3284,8 @@ mod tests {
         ]));
         let (cx, _) = material_inputs(&[("Cornea".into(), thin_cornea, 1.0)], &dirs, HashMap::new(), 8995, SkinShader::None);
         let pin = |p: &str| cx[cx.find(&format!("<pin name='{p}'>")).unwrap()..].split("</attr>").next().unwrap().rsplit('>').next().unwrap().to_string();
-        assert_eq!((pin("roughness"), pin("coatingRoughness")), ("0.09".to_string(), "0.09".to_string()), "{cx}");
+        let r = num(0.09 + GGX_ROUGHNESS_CURVE * 0.0081);
+        assert_eq!((pin("roughness"), pin("coatingRoughness")), (r.clone(), r), "{cx}");
         assert!(pin("coatingIor").starts_with("1.36"), "{cx}");
         // On an open card it passes twice the share.
         let leaf = mat(json!([
@@ -3398,10 +3447,11 @@ mod tests {
         assert!(x.contains("type='19' name='Ball'"), "{x}");
         let amount = &x[x.find("<pin name='amount'>").unwrap()..];
         assert!(amount[..200].contains("type='6'>0.4</attr>"), "{amount}");
-        // The coat: a metal in the top coat colour (linear), roughness 0.1².
+        // The coat: a GGX metal in the top coat colour (linear), Iray's
+        // roughness 0.1² on the GGX curve.
         let coat = &x[x.find("name='Ball top coat'").unwrap()..];
         let coat = &coat[..coat.find("name='Ball base'").unwrap()];
-        assert!(coat.contains("<pin name='metallic'>") && coat.contains("type='6'>0.01</attr>"), "{coat}");
+        assert!(coat.contains("<pin name='metallic'>") && coat.contains(&format!("type='6'>{}</attr>", num(0.01 + GGX_ROUGHNESS_CURVE * 1e-4))) && coat.contains("<pin name='brdf'>"), "{coat}");
         // The base keeps no coating of its own.
         let base = &x[x.find("name='Ball base'").unwrap()..];
         assert!(!base.contains("<pin name='coating'>"), "{base}");

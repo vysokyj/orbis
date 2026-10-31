@@ -583,6 +583,16 @@ Every material input (20007) is filled — Octane doesn't convert
   over a matte grey): the head-on tint at IOR 1.91 is 0.77 – 0.83, the
   diffuse Iray leaves 0.77 – 0.81; 1.09 – 1.20 × Iray with the earlier
   fitted albedo dimming, 0.96 – 1.14 now (#31).
+- **BSDF model and roughness.** Uber Universal materials (not refractive
+  ones, nor the skins' Standard Surface / OpenPBR) use GGX (`brdf` 2) at
+  roughness r + 1.85 r², r = Iray's roughness after its squaring; the
+  coating too. Iray's lobes are Phong (2 / r², MDL `simple_glossy_bsdf`);
+  Octane's default BSDF kept rough highlights sharp and bright.
+
+  Why: Calib-DualLobe2's rough lobes went from 1.47 – 1.99 to 1.02 – 1.25
+  × Iray with Iray's highlight spread, Calib-Glossy's spheres 1.06 – 1.21
+  → 1.02 – 1.16 (roughness 0.6: 1.47 → 1.17); GGX at r stays sharp above
+  r ≈ 0.3, at √r too broad below it; Beckmann stays sharp (#56).
 - **Top Coat** → Universal `coating` = Top Coat Color × weight,
   `coatingRoughness` (Top Coat Roughness, or 1 − Top Coat Glossiness in
   modes 1 / 2, squared likewise), `coatingIor`: the top-coated sphere's

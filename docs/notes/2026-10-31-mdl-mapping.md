@@ -74,6 +74,33 @@ hemispherical average (1/21); Iray's curve spheres show no head-on
 reflection at all, so it was too much. 1 removes the coat and leaves
 1.18: the rest is not the coat. Kept 1.07 for the rim Iray shows.
 
-Measuring pitfall: the scratch measure script decoded the Octane PNG at
-gamma 2.2 like Iray's; compare-all uses the export's response. Only
-compare-all's numbers count.
+Measuring pitfall: a scratch script's whole-sphere means disagreed with
+compare-all, which averages the middle 60 % of each sphere and leaves out
+clipped pixels (both decode at gamma 2.2). Quote compare-all.
+
+## #56: GGX and a roughness curve
+
+Probe 104: Universal's `brdf` enum is 0 Octane (the default), 1 Beckmann,
+2 GGX, 6 GGX energy preserving, 7 STD; `diffuseBrdf` defaults to
+Lambertian (Iray: Oren-Nayar, #32). Octane was never on GGX.
+
+Variants (`orbx-variants.py brdf=<n>`, `rough-pow=<p>`, `a&b`), measured
+with `highlight-spread.py` (p99 / median per sphere, `--vs` luminance):
+
+| Calib-DualLobe2 | E4 | E6 r .81 | E7 r .36 | E8 r .6 unsq. |
+|---|---|---|---|---|
+| Iray spread | 1.3 | 1.5 | 1.3 | 1.7 |
+| default BSDF, r: spread / lum | 1.5 / 1.47 | 2.6 / 1.99 | 2.6 / 1.58 | 3.3 / 1.92 |
+| Beckmann, r | 1.9 / – | 2.4 / – | 4.9 / – | 4.8 / – |
+| GGX, r | 1.6 / – | 1.5 / – | 3.6 / – | 2.3 / – |
+| GGX, √r | 1.4 / 1.07 | 1.5 / 0.83 | 1.4 / 1.25 | 1.8 / 1.05 |
+| GGX, r + 1.85 r² | 1.5 / 1.02 | 1.5 / 0.83 | 1.5 / 1.25 | 1.5 / 0.69 |
+
+Beckmann sharpens (the opposite of the hypothesis from Phong ≈ Beckmann);
+the roughness scale is what differed. √r fixed the rough spheres but made
+the sharp ones broad and bright (Calib-Glossy Reflectivity 1: 1.21 →
+1.62, SpecMode 1.06 → 1.14). The curve r + 1.85 r² keeps GGX at about r
+for sharp lobes and √r for rough ones: Calib-Glossy 1.02 – 1.16 (G7 1.47
+→ 1.17), SpecMode 0.95 – 1.10, Mixing 1.03 – 1.20, TopCoat unchanged.
+Worse: E8 (Roughness Squared off) 0.69 and Calib-ColorEffect C8 1.35 →
+1.77 (#27). Calib-Materials has no cached dump, not checked.

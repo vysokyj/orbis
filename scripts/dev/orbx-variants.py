@@ -28,6 +28,11 @@ Hypotheses (by the Iray channels the variants stand for):
   doubled (≤ 1): Tc · min(2w, 1).
 - `ior=<n>`: Universal's Dielectric IOR (`ior`) n on every material but
   the floor (Plane).
+- `rough-pow=<p>`: every plain roughness / coatingRoughness r → r^p.
+- `a&b`: hypotheses a and b together.
+- `brdf=<n>`: Universal's BSDF model on every material but the floor
+  (0 Octane, the default; 1 Beckmann; 2 GGX; 6 GGX energy preserving;
+  7 STD) — Iray's Uber lobes are Phong ≈ Beckmann (#56).
 - `daylight-model=<n>`: the Daylight environment's model (0 Preetham,
   1 Octane, 2 Nishita, 3 Hosek-Wilkie — the export's).
 - `daylight=<model>,<power>,<sun>,<ground start>`: the Daylight
@@ -150,6 +155,10 @@ def halve_double_sided(ocs):
 
 
 def apply(ocs, hyp):
+    if '&' in hyp:
+        for h in hyp.split('&'):
+            ocs = apply(ocs, h)
+        return ocs
     if hyp == 'twosided-x1':
         return halve_double_sided(ocs)
     if hyp.startswith('set='):
@@ -222,6 +231,19 @@ def apply(ocs, hyp):
         for mat in sorted(set(re.findall(r"name='/Scene/Materials/([^']*)'", ocs))):
             if not mat.startswith('Plane'):
                 ocs = set_pin(ocs, mat, 'ior', value_node(31, 6, hyp[4:]))
+        return ocs
+    if hyp.startswith('rough-pow='):
+        # Every material's plain roughness / coatingRoughness value r → r^p
+        # (p 0.5: undo the export's squaring, #56).
+        k = float(hyp[len('rough-pow='):])
+        pat = r"(<pin name='(?:roughness|coatingRoughness)'>\s*<node[^>]*type='31'>\s*<attr name='value' type='6'>)([0-9.eE+-]+)"
+        return re.sub(pat, lambda m: m.group(1) + f'{float(m.group(2)) ** k:.6g}', ocs)
+    if hyp.startswith('brdf='):
+        # Universal's BSDF model (probe 104): 0 Octane (the default),
+        # 1 Beckmann, 2 GGX, 6 GGX energy preserving, 7 STD.
+        for mat in sorted(set(re.findall(r"name='/Scene/Materials/([^']*)'", ocs))):
+            if not mat.startswith('Plane'):
+                ocs = set_pin(ocs, mat, 'brdf', value_node(57, 2, hyp[5:]))
         return ocs
     if hyp == 'transm-x2':
         for mat, (w, thin) in TRANSLUCENT.items():
