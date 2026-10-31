@@ -256,8 +256,12 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   groups are named `<graft node>_<group>` and keep the graft's materials and
   UV set. Grafts inside a shell are welded too. (Two meshes subdivide apart
   and leave a seam or a floating outline.)
-- **SubD**: `subdivision_surface` at `lod > 0` is refined once by the export
-  (Catmull-Clark, as DAZ's SubD 1). Every mesh is written with
+- **SubD**: `subdivision_surface` at `lod > 0` is refined by the export
+  as many times as Iray does: SubD Level + Render SubD Level (the scene's
+  geometry instance over the definition; DAZ's defaults 1 + 0; Genesis 8
+  Female 1 + 1 = 2), at most 3 (Catmull-Clark, `mesh::subd_levels` — DAZ's
+  .mi export of G8F at every pair 0 + 0 … 2 + 2 had the vertices of the sum;
+  #62). Every mesh is written with
   `subdivisionScheme = "none"` and smooth vertex normals — Octane has no
   per-mesh level, and "subdivide all" rounds hard props.
 - **Skin-tight lift**: an unrefined mesh conforming to a refined one (hair
@@ -1043,7 +1047,8 @@ In a weighted mix the mix material (19) carries it. Notes:
   `map_gamma` 1 the same grey 128 moved it by 50 %. The other float
   channels share this (Textures, colour space).
 - **Subdivision.** `subdLevel` = SubD Displacement Level, on figures only
-  and capped at 2. Iray subdivides a SubD figure further for displacement
+  and capped at 1 — on top of the export's own levels (usually 2; it was 2
+  over one level before). Iray subdivides a SubD figure further for displacement
   and ignores the level on a plain mesh; on a prop Octane would round its
   hard edges.
 

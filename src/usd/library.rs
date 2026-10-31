@@ -28,6 +28,9 @@ pub(super) struct Topology {
     pub(super) facet_groups: Vec<String>,
     pub(super) default_uv: Option<String>,
     pub(super) subdivision: bool,
+    /// SubD Level (`SubDIALevel`) and Render SubD Level (`SubDRenderLevel`)
+    /// as the definition sets them (`subd_levels`).
+    pub(super) subd: [Option<i64>; 2],
     /// Host polygons this geometry hides when grafted.
     pub(super) graft_hidden: Option<Vec<u32>>,
     /// Graft vertex → host vertex it is welded to.
@@ -179,6 +182,7 @@ pub(super) fn parse_topology(g: &Value, url: &str) -> Topology {
         facet_groups: values(g, "polygon_groups").iter().filter_map(|s| s.as_str().map(String::from)).collect(),
         default_uv: g.get("default_uv_set").and_then(Value::as_str).map(|u| absolutize(u, url)),
         subdivision: g.get("type").and_then(Value::as_str) == Some("subdivision_surface"),
+        subd: subd_channels(g),
         // Hair, brows and lashes often carry an empty `"graft": {}` — only a
         // graft that welds vertices onto its host is one.
         graft_hidden: g.get("graft").filter(|gr| !values(gr, "vertex_pairs").is_empty()).map(|gr| {
@@ -221,4 +225,20 @@ pub(super) fn parse_uv_set(u: &Value) -> UvSet {
         })
         .unwrap_or_default();
     UvSet { vertex_count: u.get("vertex_count").and_then(Value::as_u64).unwrap_or(0) as usize, uvs, overrides }
+}
+
+/// A geometry's (or geometry instance's) `SubDIALevel` and
+/// `SubDRenderLevel` channels, where it sets them.
+pub(super) fn subd_channels(g: &Value) -> [Option<i64>; 2] {
+    let mut out = [None, None];
+    for c in g.get("extra").and_then(Value::as_array).into_iter().flatten().flat_map(|e| e.get("channels").and_then(Value::as_array).into_iter().flatten()) {
+        let Some(c) = c.get("channel") else { continue };
+        let v = c.get("current_value").or_else(|| c.get("value")).and_then(Value::as_i64);
+        match c.get("id").and_then(Value::as_str) {
+            Some("SubDIALevel") => out[0] = v,
+            Some("SubDRenderLevel") => out[1] = v,
+            _ => {}
+        }
+    }
+    out
 }

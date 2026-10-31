@@ -373,8 +373,11 @@ pub(crate) fn displacement(mat: &Material) -> Option<Displacement> {
     Some(Displacement { map, gamma, height_m: strength * range * 0.01, mid: (-lo / range).clamp(0.0, 1.0), subd })
 }
 
-/// The highest Octane subdivision level a displacement asks for.
-const DISPLACEMENT_SUBD_MAX: u32 = 2;
+/// The highest Octane subdivision level a displacement asks for, on top of
+/// the levels the export refines a figure by (DAZ's SubD Level + Render SubD
+/// Level, usually 2): 3 in all, as when the export refined once and this
+/// was 2.
+const DISPLACEMENT_SUBD_MAX: u32 = 1;
 
 /// DAZ reads a float channel's 8-bit map without an image gamma of its own
 /// (`map_gamma` 0, as every map in the user's scenes) at 2.2, though the

@@ -1067,3 +1067,14 @@ fn headlamp_sits_where_daz_puts_it() {
     }
     assert_eq!(checked, 4);
 }
+
+#[test]
+fn subd_levels_add_up_as_daz_renders_them() {
+    // DAZ's .mi export of Genesis 8 Female (definition 1 + 1): the SubD
+    // Level and Render SubD Level add up; the scene's instance overrides.
+    assert_eq!(mesh::subd_levels([None, None], [Some(1), Some(1)]), 2);
+    assert_eq!(mesh::subd_levels([None, Some(0)], [Some(1), Some(1)]), 1, "the lashes: render level 0");
+    assert_eq!(mesh::subd_levels([Some(0), Some(0)], [Some(1), Some(1)]), 0);
+    assert_eq!(mesh::subd_levels([None, None], [None, None]), 1, "DAZ's defaults 1 + 0");
+    assert_eq!(mesh::subd_levels([Some(2), Some(2)], [None, None]), 3, "capped");
+}

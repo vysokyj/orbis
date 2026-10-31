@@ -15,6 +15,8 @@ pub(super) struct GeoNode {
     pub(super) shell_instance: bool,
     /// The instance's own `type` (the scene can turn subdivision on or off).
     pub(super) subdivision: Option<bool>,
+    /// The instance's SubD Level / Render SubD Level, where the scene sets them.
+    pub(super) subd: [Option<i64>; 2],
     /// Neither the node nor an ancestor is hidden (`hidden_nodes`) and the
     /// node is `Renderable`; others are left out.
     pub(super) visible: bool,
@@ -140,6 +142,7 @@ pub(super) fn geo_nodes(duf: &Value) -> Vec<GeoNode> {
                 instance_id: percent_decode(gi.get("id").and_then(Value::as_str).unwrap_or_default()),
                 url: gi.get("url").and_then(Value::as_str)?.to_string(),
                 subdivision: gi.get("type").and_then(Value::as_str).map(|t| t == "subdivision_surface"),
+                subd: super::library::subd_channels(gi),
                 shell_instance: gi.get("extra").and_then(Value::as_array).is_some_and(|e| {
                     e.iter().any(|x| x.get("type").and_then(Value::as_str) == Some("studio/geometry/shell"))
                 }),
@@ -530,10 +533,14 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
         }
         mesh.label = n.label.clone();
         mesh.name = unique_name(&mut names, &n.label);
-        if refined {
+        let levels = if refined { subd_levels(shape_node.subd, parts[0].topo.subd) } else { 0 };
+        if levels > 0 {
             // Each face refines into one quad per corner, in order.
-            let shown: Vec<bool> = mesh.face_counts.iter().zip(&shown).flat_map(|(&c, &s)| std::iter::repeat_n(s, c as usize)).collect();
-            mesh = subdivide_once(&mesh);
+            let mut shown: Vec<bool> = shown;
+            for _ in 0..levels {
+                shown = mesh.face_counts.iter().zip(&shown).flat_map(|(&c, &s)| std::iter::repeat_n(s, c as usize)).collect();
+                mesh = subdivide_once(&mesh);
+            }
             if cut {
                 mesh = keep_faces(&mesh, &shown);
             }
@@ -678,3 +685,17 @@ pub(super) fn assemble(lib: &mut Library, parts: &[Part], shown: &dyn Fn(&str, O
     }
     (mesh, kept)
 }
+
+/// How many times DAZ subdivides a SubD mesh for Iray: SubD Level + Render
+/// SubD Level (the scene's instance over the definition; DAZ's defaults 1
+/// and 0). Its .mi export of Genesis 8 Female (definition 1 + 1) at every
+/// pair from 0 + 0 to 2 + 2 had 18 868 / 69 352 / 269 600 / 1 062 928 /
+/// 4 220 912 vertices by the sum (#62). Capped at `SUBD_LEVEL_MAX`.
+pub(super) fn subd_levels(instance: [Option<i64>; 2], definition: [Option<i64>; 2]) -> u32 {
+    let level = |i: usize, default: i64| instance[i].or(definition[i]).unwrap_or(default).max(0);
+    (level(0, 1) + level(1, 0)).min(SUBD_LEVEL_MAX) as u32
+}
+
+/// The most levels the export refines a mesh by: level 4 is ~4 M vertices
+/// for one figure.
+pub(super) const SUBD_LEVEL_MAX: i64 = 3;
