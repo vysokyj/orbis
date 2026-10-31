@@ -583,6 +583,55 @@ pub fn is_uber(mat: &Material) -> bool {
     mat.mdl.is_empty() && mat.channels.contains_key("Base Mixing") && !mat.channels.contains_key("Dual Lobe Specular Enable")
 }
 
+/// What DAZ hands Iray for a PBRSkin material (`pbr_skin.mdl`): the
+/// arguments of `pbr_material`, `pbr_add_clearcoat`,
+/// `pbr_add_metallicflakes` and `pbr_add_volume`, as `function.param`. Raw
+/// values where Uber converts: roughness unsquared (the MDL squares it),
+/// distances in cm; colours linear. The "… Enable" switches reach the MDL
+/// as expressions (DAZ's graph), not as values: they aren't here.
+pub fn pbrskin(mat: &Material) -> BTreeMap<&'static str, Arg> {
+    let ch = Channels(mat);
+    let on = |k: &str| ch.bool(k, false);
+    let mut out = BTreeMap::new();
+    out.insert("pbr_material.basecolor", ch.color_or_map("diffuse", [0.5; 3], 1.0));
+    out.insert("pbr_material.metallic", Arg::Float(ch.float("Metallic Weight", 0.0)));
+    out.insert("pbr_material.diffuse_roughness", Arg::Float(ch.float("Diffuse Roughness", 0.0)));
+    out.insert("pbr_material.dual_lobe_specular_weight", Arg::Float(ch.float("Dual Lobe Specular Weight", 1.0)));
+    out.insert("pbr_material.specularlevel", Arg::Float(REFLECTIVITY_SCALE * ch.float("Dual Lobe Specular Reflectivity", 0.5)));
+    out.insert("pbr_material.roughness", Arg::Float(ch.float("Specular Lobe 1 Roughness", 0.6)));
+    // Lobe 2's roughness as a multiple of lobe 1's.
+    out.insert("pbr_material.roughness2", Arg::Float(ch.float("Specular Lobe 2 Roughness Mult", 0.4)));
+    out.insert("pbr_material.roughness2_weight", Arg::Float(ch.float("Dual Lobe Specular Ratio", 0.15)));
+    // The diffuse's share: 1 − Translucency Weight (`translucency_weight_inverted`).
+    out.insert("pbr_material.translucency_weight", Arg::Float(1.0 - ch.float("Translucency Weight", 0.8)));
+    out.insert("pbr_material.translucency_color", ch.color_or_map("Translucency Color", [1.0; 3], 1.0));
+    out.insert("pbr_material.makeup_weight", Arg::Float(ch.float("Makeup Weight", 1.0)));
+    out.insert("pbr_material.detail_weight", Arg::Float(ch.float("Detail Weight", 1.0)));
+    out.insert("pbr_material.occlusion_weight", Arg::Float(ch.float("Ambient Occlusion Weight", 1.0)));
+    out.insert("pbr_material.specular_occlusion_facing", Arg::Float(ch.float("Specular Occusion Facing", 0.6)));
+    out.insert("pbr_material.specular_occlusion_grazing", Arg::Float(ch.float("Specular Occlusion Grazing", 0.1)));
+    out.insert("pbr_add_clearcoat.top_coat_weight", Arg::Float(ch.float("Top Coat Weight", 0.5)));
+    out.insert("pbr_add_clearcoat.top_coat_roughness", Arg::Float(ch.float("Top Coat Roughness", 0.05)));
+    out.insert("pbr_add_clearcoat.top_coat_specular_level", Arg::Float(REFLECTIVITY_SCALE * ch.float("Top Coat Reflectivity", 0.5)));
+    out.insert("pbr_add_clearcoat.top_coat_color", ch.color_or_map("Top Coat Color", [1.0; 3], 1.0));
+    out.insert("pbr_add_metallicflakes.metallic_flakes_enable", Arg::Bool(on("Metallic Flakes Enable")));
+    out.insert("pbr_add_metallicflakes.metallic_flakes_weight", Arg::Float(ch.float("Metallic Flakes Weight", 1.0)));
+    out.insert("pbr_add_metallicflakes.metallic_flakes_roughness", Arg::Float(ch.float("Metallic Flakes Roughness", 0.0)));
+    out.insert("pbr_add_metallicflakes.metallic_flakes_density", Arg::Float(ch.float("Metallic Flakes Density", 0.2)));
+    out.insert("pbr_add_metallicflakes.metallic_flakes_color", ch.color_or_map("Metallic Flakes Color", [1.0; 3], 1.0));
+    out.insert("pbr_add_volume.sub_surface_enable", Arg::Bool(on("Sub Surface Enable")));
+    out.insert("pbr_add_volume.sub_surface_scattering_color", Arg::Color(ch.color("SSS Color", [0.5; 3])));
+    out.insert("pbr_add_volume.scattering_distance_of_measurement", Arg::Float(ch.float("Scattering Measurement Distance", 0.015)));
+    out.insert("pbr_add_volume.transmitted_color", Arg::Color(ch.color("Transmitted Color", [0.0; 3])));
+    out
+}
+
+/// Whether DAZ renders the material with PBRSkin (its "… Enable"
+/// switches).
+pub fn is_pbrskin(mat: &Material) -> bool {
+    mat.channels.contains_key("Dual Lobe Specular Enable") && mat.channels.contains_key("Specular Lobe 2 Roughness Mult")
+}
+
 type NodeChannels = std::collections::HashMap<String, Value>;
 
 fn ch_num(ch: &NodeChannels, k: &str, d: f64) -> f64 {
@@ -1008,5 +1057,71 @@ mod tests {
         }
         wrong.sort();
         assert!(checked > 0 && wrong.is_empty(), "{} of {checked} values differ from DAZ's .mi:\n{}", wrong.len(), wrong.join("\n"));
+    }
+
+    /// A PBRSkin call tree's arguments as `function.param`: `pass_*`
+    /// wrappers unwrapped, nested layers flattened; expressions (enable
+    /// switches DAZ computes in MDL) left out.
+    fn flatten_pbr(v: &Value, out: &mut HashMap<String, Value>) {
+        let Some(m) = v["mdl"].as_str() else { return };
+        let func = m.split('(').next().unwrap_or(m).rsplit("::").next().unwrap_or(m).to_string();
+        for (k, a) in v["args"].as_object().into_iter().flatten() {
+            match a["mdl"].as_str() {
+                Some(n) if (n.contains("pbr_") || n.contains("::add_")) && !n.contains("normal") => flatten_pbr(a, out),
+                Some(n) if n.starts_with("daz_3d::basic::pass_") && !a["args"]["v"].is_object() => {
+                    out.insert(format!("{func}.{k}"), a["args"]["v"].clone());
+                }
+                Some(_) => {}
+                None => {
+                    out.insert(format!("{func}.{k}"), a.clone());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn pbrskin_matches_daz_mi_export() {
+        // PBRSkin's definition is DAZ's (`PBRSkin.dsf`): its channel
+        // defaults only, extracted by scripts/dev/daz-defaults.py.
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let defaults: serde_json::Map<String, Value> = serde_json::from_str(&std::fs::read_to_string(root.join("calib/references/daz-defaults/PBRSkin.json")).unwrap()).unwrap();
+        let channels: Vec<Value> = defaults.into_iter().map(|(id, v)| serde_json::json!({"channel": {"id": id, "current_value": v}})).collect();
+        let base = Material::from_dson(&serde_json::json!({"extra": [{"channels": channels}]}), &HashMap::new());
+        let (mut checked, mut wrong) = (0, Vec::new());
+        for f in std::fs::read_dir(root.join("calib/references/mi")).unwrap() {
+            let f = f.unwrap().path();
+            let scene = f.file_stem().unwrap().to_string_lossy().to_string();
+            let fixture: Value = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();
+            let doc: Value = serde_json::from_str(&crate::dson::decompress_scene(&std::fs::read(root.join(format!("calib/scenes/{scene}.duf"))).unwrap()).unwrap()).unwrap();
+            let mut label = HashMap::new();
+            for n in doc.pointer("/scene/nodes").and_then(Value::as_array).into_iter().flatten() {
+                for g in n["geometries"].as_array().into_iter().flatten() {
+                    label.insert(g["id"].as_str().unwrap_or("").to_string(), n["label"].as_str().unwrap_or("").to_string());
+                }
+            }
+            for m in doc.pointer("/scene/materials").and_then(Value::as_array).into_iter().flatten() {
+                if !m["url"].as_str().is_some_and(|u| u.contains("PBRSkin.dsf")) {
+                    continue;
+                }
+                let mut mat = base.clone();
+                mat.merge(m, &HashMap::new());
+                let node = &label[m["geometry"].as_str().unwrap().rsplit('#').next().unwrap()];
+                for g in m["groups"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                    let key = format!("{node}/{g}");
+                    let mi = &fixture["materials"][&key];
+                    let mut theirs = HashMap::new();
+                    flatten_pbr(&mi["args"]["v"], &mut theirs);
+                    for (param, ours) in pbrskin(&mat) {
+                        checked += 1;
+                        let t = theirs.get(param).and_then(|v| fixture_arg(v, &ours));
+                        if !t.as_ref().is_some_and(|t| close(t, &ours)) {
+                            wrong.push(format!("{param}: {scene} {key}: DAZ {t:?}, ours {ours:?}"));
+                        }
+                    }
+                }
+            }
+        }
+        wrong.sort();
+        assert!(checked > 0 && wrong.is_empty(), "{} of {checked} PBRSkin arguments differ from DAZ's .mi:\n{}", wrong.len(), wrong.join("\n"));
     }
 }

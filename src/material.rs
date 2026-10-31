@@ -1921,13 +1921,18 @@ impl DualLobe {
         // weighs lobe 1 (0.85) and lobe 2 has its own roughness (0) — DAZ's
         // MDL (pbr_skin.mdl, irayubermaterial.mdl add_dual_lobe_specular).
         let (lobe1, r2) = match mat.float("Specular Lobe 2 Roughness Mult") {
-            Some(mult) => (1.0 - mat.float("Dual Lobe Specular Ratio").unwrap_or(0.15), mat.float("Specular Lobe 1 Roughness").unwrap_or(0.6) * mult),
+            // PBRSkin: what DAZ passes (`pbr_material`'s roughness2_weight,
+            // roughness, roughness2 — lobe 2's a multiple of lobe 1's).
+            Some(mult) => {
+                let p = |k: &str, d: f32| pbrskin(mat, k).unwrap_or(d);
+                (1.0 - p("pbr_material.roughness2_weight", mat.float("Dual Lobe Specular Ratio").unwrap_or(0.15)), p("pbr_material.roughness", mat.float("Specular Lobe 1 Roughness").unwrap_or(0.6)) * p("pbr_material.roughness2", mult))
+            }
             None => (mat.float("Dual Lobe Specular Ratio").unwrap_or(0.85), mat.float("Specular Lobe 2 Roughness").unwrap_or(0.0)),
         };
         // Iray Uber: what DAZ passes — F0 = 0.08 r, lobe 2's roughness
         // squared.
         let u = iray(mat);
-        let r = u.as_ref().and_then(|u| u.float("dual_lobe_specular_reflectivity")).map(|f0| f0 / crate::iray::REFLECTIVITY_SCALE).or(r);
+        let r = u.as_ref().and_then(|u| u.float("dual_lobe_specular_reflectivity")).or_else(|| pbrskin(mat, "pbr_material.specularlevel")).map(|f0| f0 / crate::iray::REFLECTIVITY_SCALE).or(r);
         let r2_squared = u.as_ref().and_then(|u| u.float("dual_lobe_specular_roughness_2")).unwrap_or(r2 * r2);
         Some(DualLobe {
             share: weight * reflectivity_share(r),
@@ -2320,7 +2325,13 @@ fn top_coat_roughness(mat: &Material) -> f32 {
 /// grazing by (1 − cos θ)^5 (`CURVE_COAT_IOR`, #25).
 fn top_coat_ior(mat: &Material) -> f32 {
     match mat.float("Top Coat Layering Mode").unwrap_or(0.0) as i32 {
-        0 => ior_from_f0(iray(mat).and_then(|u| u.float("top_coat_curve_strength")).unwrap_or_else(|| 0.08 * mat.float("Reflectivity").unwrap_or(0.5))),
+        0 => ior_from_f0(
+            iray(mat)
+                .and_then(|u| u.float("top_coat_curve_strength"))
+                // PBRSkin reflects by its own Top Coat Reflectivity.
+                .or_else(|| pbrskin(mat, "pbr_add_clearcoat.top_coat_specular_level"))
+                .unwrap_or_else(|| 0.08 * mat.float("Reflectivity").unwrap_or(0.5)),
+        ),
         3 => CURVE_COAT_IOR,
         _ => 1.5,
     }
@@ -2648,6 +2659,17 @@ fn iray_gloss_roughness(mat: &Material) -> Option<f32> {
     match mat.roughness_source().0 {
         Some("Specular Lobe 1 Roughness") => u.float("dual_lobe_specular_roughness_1"),
         _ => u.float("glossy_roughness"),
+    }
+}
+
+/// A PBRSkin argument DAZ hands Iray (`crate::iray::pbrskin`), as a float.
+fn pbrskin(mat: &Material, param: &str) -> Option<f32> {
+    if !crate::iray::is_pbrskin(mat) {
+        return None;
+    }
+    match crate::iray::pbrskin(mat).get(param)? {
+        crate::iray::Arg::Float(f) => Some(*f),
+        _ => None,
     }
 }
 

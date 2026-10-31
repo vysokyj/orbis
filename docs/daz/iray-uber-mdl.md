@@ -74,6 +74,14 @@ Found beyond it:
   are, ground colour linear. The sun's direction: a steering node's
   position as is, else the solar position — ours (`usd::sun_direction`)
   within 0.1° of DAZ's.
+- **PBRSkin** (`iray::pbrskin`; its channel defaults from DAZ's
+  PBRSkin.dsf in `calib/references/daz-defaults/PBRSkin.json`): values
+  raw where Uber converts — roughness unsquared (pbr_skin.mdl squares it),
+  distances in cm; colours linear; `specularlevel` and the coat's
+  `top_coat_specular_level` 0.08 × their Reflectivity (Top Coat
+  Reflectivity, not Uber's Reflectivity); `translucency_weight` = 1 −
+  Translucency Weight (inverted in the MDL); lobe 2's roughness the Mult.
+  The "… Enable" switches reach the MDL as expressions, not values.
 - **Emission:** Luminance in cd/m² as `emission_flux` (radiant exitance),
   in lm as a power, in W × Luminous Efficacy as a power; temperature and
   `emission_scene_unit_size` 1 once the colour is non-black.
