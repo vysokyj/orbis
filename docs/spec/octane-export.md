@@ -491,7 +491,14 @@ Every material input (20007) is filled — Octane doesn't convert
   diffuse transmission: `albedo` × (1 − w), `transmission` = Translucency
   Color (map) × w, `transmissionType` 1 (Diffuse), 3 (Thin Wall (Diffuse))
   when thin-walled. Not on metal, refraction or Base Mixing 2 (its weights
-  are shared out by the weighted mix). Why: left out, Calib-SSS's spheres at
+  are shared out by the weighted mix). A closed, non-thin solid with Iray's
+  volume under it (Transmitted Color set; ~313 installed materials) has its
+  `transmission` × the skin's volume factor (`volume_factor`, Rd(α) /
+  Rd(α₀))^0.5 per channel) × 0.7 (`PROP_VOLUME_LEVEL`): Calib-SSSColor's
+  spheres with SSS Color grey / blue / deep 0.84 – 1.05 × Iray, before 1.05 –
+  2.68; mono 1.40 – 1.54 (before 1.40 – 1.69; Iray's mono spheres are darker
+  than Rd says, its figures weren't), SSS Reflectance Tint 1.34 (unread,
+  darkens there) (#28). Why: left out, Calib-SSS's spheres at
   w 0.5 / 1 rendered 1.6 – 1.7 / 3.2 × Iray and Calib-PBRSkin's Gladio cloth
   1.72; with it 0.91 – 0.96 and 1.23 (its neighbours 1.14 – 1.26), the two
   types alike on closed spheres. On P8 (metallic 0.75) the transmission

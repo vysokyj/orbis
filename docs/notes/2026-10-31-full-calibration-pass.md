@@ -100,3 +100,25 @@ Calib-ColorEffect per sphere (mean R G B, Octane / Iray):
   every ColorEffect sphere default grey (materials not applied). Rendered
   alone, the same export was right. Octane's import into its open project
   probably went wrong once; watch for it.
+
+## Props SSS (#28's leftover)
+
+Translucent props passed Translucency Color × w as diffuse transmission,
+whatever their volume, so the eight Calib-SSSColor spheres rendered alike.
+Their Iray medians ranged 0.064 – 0.216 in red. The transmission is now ×
+`volume_factor` × `PROP_VOLUME_LEVEL` when the solid is closed, not thin
+and has a Transmitted Color.
+
+| Level | V1 chrom | V2 grey | V3 blue | V4 deep | V5 mono | V6 mono 0.5 | V7 tint |
+|---|---|---|---|---|---|---|---|
+| none (before) | 1.35 | 1.05 | 1.13 | 2.68 | 1.40 | 1.69 | 2.35 |
+| 0.6 | 0.71 | 0.78 | 0.84 | 0.84 | 1.20 | 1.09 | 1.08 |
+| 0.7 (kept) | 0.84 | 0.97 | 1.05 | 0.93 | 1.54 | 1.40 | 1.34 |
+| 0.8 | 1.00 | 1.19 | 1.30 | 1.06 | 1.95 | 1.76 | 1.65 |
+
+These are median luminance, Octane / Iray. Octane responds steeply to the
+transmission colour. At 0.7 red sits 0.71 – 0.96 and green / blue 0.87 –
+1.21 on the chromatic spheres. Calib-SSS (no volume) didn't change.
+Calib-Eye, Calib-Hair-socket, Calib-Leaf and Victoria's front skin are
+unchanged within noise. Calib-Eye's first try in a batch rendered empty
+(#58); alone it was the same as before.

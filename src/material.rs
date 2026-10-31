@@ -1418,6 +1418,15 @@ impl Ocs<'_> {
             // w, 0.81 at min(2w, 1); a closed sphere stays at w (1.25 – 1.38
             // at 2w).
             let share = if mat.open && !thin { (2.0 * transmit).min(1.0) } else { transmit } * transmit_share;
+            // A closed solid with Iray's volume under it: the light it passes
+            // back out scales with the volume's diffusion reflectance, as on
+            // skin (`volume_factor`), × `PROP_VOLUME_LEVEL`. Calib-SSSColor's
+            // spheres (Victoria 8's volume, SSS Color grey / blue / deep)
+            // 0.84 – 1.05 × Iray, before 1.05 – 2.68; mono 1.40 – 1.54
+            // (before 1.40 – 1.69: Iray's mono spheres darker than Rd says,
+            // unlike its figures), SSS Reflectance Tint, unread, 1.34 (#28).
+            let volume = if !thin && !mat.open && absorption(mat).is_some() { volume_factor(mat).map(|v| v * PROP_VOLUME_LEVEL) } else { [1.0; 3] };
+            let tc = [0, 1, 2].map(|k| tc[k] * volume[k]);
             match mat.image("Translucency Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
                 Some(asset) => self.overlaid_pin(i, "transmission", mat, "Translucency Color", &asset, share, tc),
                 None => self.rgb_pin(i, "transmission", tc.map(|c| c * share)),
@@ -1762,6 +1771,10 @@ const REFRACTION_ROUGHNESS_SCALE: f32 = 0.3;
 /// transmission shares. See `universal`.
 const SCATTER_TRANSMIT_DIFFUSE: f32 = 0.4;
 const SCATTER_TRANSMIT_TRANSMISSION: f32 = 2.0;
+/// A translucent prop's volume (`universal`): its transmission × the volume
+/// factor × this. Octane's response to it is steep: 0.6 / 0.8 put
+/// Calib-SSSColor's chromatic spheres at 0.71 – 0.84 / 1.00 – 1.30 × Iray.
+const PROP_VOLUME_LEVEL: f32 = 0.7;
 /// Base Color Effect 2 (Scatter & Transmit Intensity): see `universal`.
 const SCATTER_TRANSMIT_INTENSITY_DIFFUSE: f32 = 0.95;
 const SCATTER_TRANSMIT_INTENSITY_TRANSMISSION: f32 = 1.55;
@@ -3174,6 +3187,29 @@ mod tests {
         let (e0, e1, e2) = (effect(0), effect(1), effect(2));
         assert!((e1 / e0 - SCATTER_TRANSMIT_DIFFUSE).abs() < 1e-3, "{e0} {e1}");
         assert!((e2 / e0 - SCATTER_TRANSMIT_INTENSITY_DIFFUSE).abs() < 1e-3, "{e0} {e2}");
+    }
+
+    #[test]
+    fn a_translucent_props_volume_scales_its_transmission() {
+        let transmission = |extra: serde_json::Value| {
+            let mut ch = vec![json!({"channel": {"id": "diffuse", "current_value": [0.8, 0.8, 0.8]}}), json!({"channel": {"id": "Translucency Weight", "current_value": 0.9}})];
+            ch.extend(extra.as_array().unwrap().iter().cloned());
+            let (x, _) = material_inputs(&[("Ball".into(), mat(serde_json::Value::Array(ch)), 1.0)], &[], HashMap::new(), 8000, SkinShader::None);
+            let t = &x[x.find("<pin name='transmission'>").unwrap()..];
+            t[t.find("type='8'>").unwrap() + 9..].split('<').next().unwrap().split(' ').map(|v| v.parse::<f32>().unwrap()).collect::<Vec<_>>()
+        };
+        // No volume: the translucency as it is.
+        assert!((transmission(json!([]))[0] - 0.9).abs() < 1e-4);
+        // Victoria 8's volume (the reference): × the level alone.
+        let victoria = json!([
+            {"channel": {"id": "Transmitted Color", "current_value": [0.9764706, 0.4823529, 0.3529412]}},
+            {"channel": {"id": "Transmitted Measurement Distance", "current_value": 0.125}},
+            {"channel": {"id": "Scattering Measurement Distance", "current_value": 0.015}},
+            {"channel": {"id": "SSS Mode", "current_value": 1}},
+            {"channel": {"id": "SSS Color", "current_value": [0.9764706, 0.6941177, 0.7607843]}},
+        ]);
+        let t = transmission(victoria);
+        assert!(t.iter().all(|v| (v - 0.9 * PROP_VOLUME_LEVEL).abs() < 1e-3), "{t:?}");
     }
 
     #[test]
