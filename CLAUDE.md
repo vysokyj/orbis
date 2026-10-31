@@ -78,7 +78,8 @@ the loop, references in `calib/references`): `docs/calibration.md`.
 - `docs/nvidia/` — local mirror of NVIDIA's Iray and MDL docs (PDF + text).
   **Git-ignored and must stay so.** With DAZ's own MDL sources
   (`DAZStudio.app/Contents/shaders/iray/daz_3d/irayubermaterial.mdl` etc.)
-  it says what Iray does: read them before fitting a channel by calibration.
+  it says what Iray does: read them before fitting a channel by calibration
+  (Uber's layer stack: `docs/daz/iray-uber-mdl.md`).
 
 ## Conventions
 - Everything in the repo in English; Conventional Commits; push to `master`.

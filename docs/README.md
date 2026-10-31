@@ -9,6 +9,7 @@ Then, depending on what you need:
 | [calibration.md](calibration.md) | How the export is checked against Iray: the principle, the calibration scenes and what each measures, the scripts, the references. | You calibrate a feature, add a test scene or re-check a rule. |
 | [notes/](notes/README.md) | Dated lab notebook of calibration sessions: every attempt, the numbers, dead ends, process lessons. Not normative. | You re-open a rule or wonder how it was found. |
 | [daz/iray.md](daz/iray.md) | Iray in DAZ Studio: the Uber material's channels, lights, environment, tone mapping. | You need to know what a DAZ channel means. |
+| [daz/iray-uber-mdl.md](daz/iray-uber-mdl.md) | Iray Uber as DAZ's MDL builds it: the layer stack, each channel's MDL construct, what stays empirical (DAZ's compiled channel mapping). | Before mapping or calibrating an Uber channel. |
 | [daz/pbrskin.md](daz/pbrskin.md) | PBRSkin (Genesis 9 / 8.1 skins): how its MDL layers diffuse, translucency, makeup, dual lobe and volume. | You map or calibrate a PBRSkin skin (#57). |
 | [daz/files.md](daz/files.md) | `.duf` / `.dsf`, how DAZ Studio builds what it renders (subdivision, grafts, shells), headless DAZ Studio. | You read scene files or the scene dump. |
 | [daz/content.md](daz/content.md) | Content library layout, content types, figure compatibility. | You resolve assets or metadata. |
@@ -18,7 +19,7 @@ Then, depending on what you need:
 | [octane/usd.md](octane/usd.md) | The USD subset the export writes. | You touch the USD writer. |
 | `octane/manual/` | Local mirror of OTOY's manual (git-ignored, copyrighted; `scripts/dev/fetch-octane-docs.py`). | Before guessing at Octane behaviour. |
 | `nvidia/` | Local mirror of NVIDIA's Iray and MDL docs: Iray manual (render options, environment dome, tone mapping, firefly filter), MDL spec and handbook (`df::` layers and modifiers), core definitions, LPE, Iray Server; PDFs plus grep-able text (git-ignored, copyrighted; `scripts/dev/fetch-nvidia-docs.py`). | Before guessing at Iray behaviour or reading DAZ's MDL. |
-| DAZ's MDL sources | `DAZStudio.app/Contents/shaders/iray/` (`daz_3d/irayubermaterial.mdl`, `pbr_skin.mdl`, `dual_lobe_hair.mdl`, `OmniSurface/`, `nvidia/`): the shaders Iray renders — what each channel does, exactly. Installed with DAZ Studio, not in the repo. | Before calibrating a material channel. |
+| DAZ's MDL sources | `DAZStudio.app/Contents/shaders/iray/` (`daz_3d/irayubermaterial.mdl`, `pbr_skin.mdl`, `dual_lobe_hair.mdl`, `OmniSurface/`, `nvidia/`): the shaders Iray renders — what each channel does, exactly. Installed with DAZ Studio, not in the repo; Uber summarised in [daz/iray-uber-mdl.md](daz/iray-uber-mdl.md). | Before calibrating a material channel. |
 
 The spec decides; `daz/` and `octane/` only describe the other tools. Plans
 and open work are [GitHub issues](https://github.com/vysokyj/orbis/issues),

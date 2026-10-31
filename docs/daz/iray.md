@@ -3,6 +3,10 @@
 Reference for the DAZ ecosystem: what the Iray settings stored in a `.duf`
 mean, as far as reproducing a DAZ render in another renderer needs it. Where
 the channels sit in the file: [files.md](files.md).
+How the Uber shader layers them, from DAZ's MDL source:
+[iray-uber-mdl.md](iray-uber-mdl.md). Iray's renderer side (environment
+dome, tone mapping, firefly filter) is in NVIDIA's Iray manual
+(`docs/nvidia/`, `scripts/dev/fetch-nvidia-docs.py`).
 
 ## Iray Uber material
 

@@ -9,7 +9,7 @@ PDF names carry a release date (manual.261007.A4.pdf); they are found on
 each section's index page, so a new release is picked up. Already
 downloaded files are kept (delete one to fetch it again).
 """
-import logging, os, re, subprocess, sys, time, urllib.parse
+import html, logging, os, re, subprocess, sys, time, urllib.parse
 from pypdf import PdfReader
 
 logging.getLogger("pypdf").setLevel(logging.ERROR)  # font-encoding warnings
@@ -29,6 +29,11 @@ FIXED = {
     "iray-relnotes": "iray/relnotes.pdf",
     "iray-overview": "iray/presentations/iray_overview/nvidia_iray_rendering_system.pdf",
 }
+# HTML-only references, kept as text: the ::base module (anisotropy_conversion,
+# blend_color_layers, flake_noise_texture, …) that DAZ's MDL calls.
+PAGES = {
+    "mdl-base-module": "mdl/base_module/pages/base.html",
+}
 
 out = sys.argv[1] if len(sys.argv) > 1 else "docs/nvidia"
 os.makedirs(os.path.join(out, "pdf"), exist_ok=True)
@@ -42,8 +47,8 @@ def get(url):
 
 urls = dict((k, BASE + v) for k, v in FIXED.items())
 for name, page in SECTIONS.items():
-    html = get(BASE + page).decode("utf-8", "replace")
-    pdfs = re.findall(r'href="([^"#]+\.A4\.pdf)"', html) or re.findall(r'href="([^"#]+\.pdf)"', html)
+    index = get(BASE + page).decode("utf-8", "replace")
+    pdfs = re.findall(r'href="([^"#]+\.A4\.pdf)"', index) or re.findall(r'href="([^"#]+\.pdf)"', index)
     if not pdfs:
         print(f"{name}: no PDF on {page}", file=sys.stderr)
         continue
@@ -63,4 +68,11 @@ for name, url in sorted(urls.items()):
         open(txt, "w").write("\f".join(p.extract_text() or "" for p in reader.pages))
     lines.append(f"- [{name}](pdf/{name}.pdf) ([text](txt/{name}.txt)), {len(reader.pages)} pages — {url}")
     print(name, len(reader.pages), "pages")
+for name, page in sorted(PAGES.items()):
+    txt = os.path.join(out, "txt", f"{name}.txt")
+    if not os.path.exists(txt):
+        text = html.unescape(re.sub(r"<[^>]+>", " ", get(BASE + page).decode("utf-8", "replace")))
+        open(txt, "w").write(re.sub(r"\n\s*\n+", "\n\n", re.sub(r"[ \t]+", " ", text)))
+    lines.append(f"- [{name}](txt/{name}.txt) (HTML as text) — {BASE}{page}")
+    print(name, "page")
 open(os.path.join(out, "README.md"), "w").write("\n".join(lines) + "\n")
