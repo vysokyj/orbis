@@ -45,14 +45,17 @@ const EMISSION_POWER_FACTOR: f64 = 1.0 / 3.4;
 /// Luminance × its unit factor / 2 / 15 000 × `EMISSION_POWER_FACTOR` —
 /// a total for lm and W, per m² for the luminance units.
 pub fn iray_emission_watts(mat: &Material, area_m2: f64) -> f64 {
-    let l = mat.float("Luminance").unwrap_or(1500.0) as f64;
-    let per = |factor: f64| l * factor / 2.0 / DAZ_LUMENS_PER_WATT * EMISSION_POWER_FACTOR;
-    // The flux Iray gets: per m² (radiant exitance) or in total (power).
-    let u = iray(mat).filter(|u| u.bool("emission_enable") == Some(true));
-    if let (Some(Some(flux)), Some(mode)) = (u.as_ref().map(|u| u.color("emission_flux")), u.as_ref().and_then(|u| u.mode("emission_mode"))) {
-        let total = flux[0] as f64 / 2.0 / DAZ_LUMENS_PER_WATT * EMISSION_POWER_FACTOR;
-        return if mode == "intensity_power" { total } else { total * area_m2 };
+    let watts = |lm: f64| lm / 2.0 / DAZ_LUMENS_PER_WATT * EMISSION_POWER_FACTOR;
+    // The flux Iray gets (`crate::iray::uber`): a power, or a luminance per
+    // `emission_scene_unit_size` (m) squared.
+    if let Some(u) = iray(mat).filter(|u| u.bool("emission_enable") == Some(true)) {
+        if let (Some(flux), Some(mode), Some(unit)) = (u.color("emission_flux"), u.mode("emission_mode"), u.float("emission_scene_unit_size")) {
+            let flux = f64::from(flux[0]);
+            return if mode == "intensity_power" { watts(flux) } else { watts(flux) / f64::from(unit * unit) * area_m2 };
+        }
     }
+    let l = mat.float("Luminance").unwrap_or(1500.0) as f64;
+    let per = |factor: f64| watts(l * factor);
     match mat.float("Luminance Units").unwrap_or(0.0) as i64 {
         1 => per(1000.0) * area_m2,
         2 => per(10.764) * area_m2,

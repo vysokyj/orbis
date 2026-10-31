@@ -326,15 +326,25 @@ def uber_spheres(name, colour, plain, variants):
         ch = next(e for e in lm['extra'] if e['type'] == 'studio_material_channels')['channels']
         for k, v in {'Base Mixing': 0, 'Metallic Weight': 0.0, 'Dual Lobe Specular Weight': 0.0, 'Top Coat Weight': 0.0,
                      'Translucency Weight': 0.0, 'Refraction Weight': 0.0, **plain, **over}.items():
-            if isinstance(k, tuple):
+            if isinstance(k, tuple) and k[0] == 'diffuse':
+                # The base colour's map: on the scene material's top-level
+                # channel, as DAZ saves it (see Calib-Mixing).
+                m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': over.get('diffuse', [1.0, 1.0, 1.0]), 'image_file': v}}
+                lib_images = d.setdefault('image_library', [])
+                if not any(i['id'] == v for i in lib_images):
+                    lib_images.append({'id': v, 'name': os.path.basename(v), 'map_gamma': 0, 'map': [{'url': v, 'label': os.path.basename(v)}]})
+            elif isinstance(k, tuple):
                 # A map: on the scene material's channel, listed in
-                # image_library, as DAZ saves them (see Calib-Mixing).
+                # image_library, as DAZ saves them (see Calib-Mixing). A
+                # third element names the channel's type (a colour).
                 extra = m.setdefault('extra', [])
                 sc = next((e for e in extra if e.get('type') == 'studio_material_channels'), None)
                 if sc is None:
                     sc = {'type': 'studio_material_channels', 'channels': []}
                     extra.append(sc)
-                sc['channels'].append({'channel': {'id': k[0], 'type': 'float', 'current_value': over.get(k[0], 1.0), 'image_file': v}})
+                typ = k[2] if len(k) > 2 else 'float'
+                value = over.get(k[0], [1.0, 1.0, 1.0] if typ == 'float_color' else 1.0)
+                sc['channels'].append({'channel': {'id': k[0], 'type': typ, 'current_value': value, 'image_file': v}})
                 lib_images = d.setdefault('image_library', [])
                 if not any(i['id'] == v for i in lib_images):
                     lib_images.append({'id': v, 'name': os.path.basename(v), 'map_gamma': 0, 'map': [{'url': v, 'label': os.path.basename(v)}]})
@@ -701,6 +711,19 @@ if os.path.exists(point):
         made.append((save(headlamp(mode, auto, False), f'Calib-Headlamp-light-{name}'), []))
         glossy = glossy_was
 
+# .mi sweep (#62): what sets the headlamp DAZ hands Iray — its intensity,
+# the camera's focus distance, the offsets (HeadlampMode On, no dome).
+for name, over in (('i05', {'Headlamp Intensity': 0.5}), ('i2', {'Headlamp Intensity': 2.0}),
+                   ('dof200', {'Depth of Field': 200.0}), ('offset0', {'XHeadlampOffset': 0.0, 'YHeadlamp': 0.0, 'ZHeadlampOffset': 0.0})):
+    d = headlamp(1, 0, True)
+    cam = next(l for l in d['node_library'] if l.get('type') == 'camera')
+    chs = next(e for e in cam['extra'] if e.get('type') == 'studio_node_channels')['channels']
+    for k, v in over.items():
+        set_channel(chs, k, v, 'float')
+    if 'Depth of Field' in over:
+        cam['perspective']['focal_distance'] = over['Depth of Field']
+    made.append((save(d, f'Calib-Mi-Headlamp-{name}'), []))
+
 # --- Leaf cards (Calib-Leaf, built headless by daz-build-leaf-scene.dsa):
 # its cards come with DAZ's default shader; give them an Iray Uber material
 # (a copy of the sphere's) and the variants. Done once, on the built scene.
@@ -797,5 +820,44 @@ for fstop in (4, 8, 16):
     set_channel(ch, 'Depth of Field', 150.0, 'float')
     set_channel(ch, 'Aperature', float(fstop), 'float')
     made.append((save(d, f'Calib-DOF-f{fstop}'), None))
+
+# --- .mi sweeps (#62): what DAZ hands Iray where no other scene shows it,
+# read from DAZ's .mi export (scripts/dev/daz-export-mi.dsa), not rendered.
+# Values chosen so each conversion is unambiguous (e.g. Glossy Roughness
+# and 1 − Glossiness differ).
+G = '/Runtime/Textures/ORBIS/calib-disp-grey.png'
+MIX = {'Glossy Layered Weight': 1.0, 'Glossy Roughness': 0.3, 'Glossiness': 0.2}
+LOBES = {'Dual Lobe Specular Weight': 0.8, 'Specular Lobe 1 Roughness': 0.3, 'Specular Lobe 1 Glossiness': 0.2,
+         'Specular Lobe 2 Roughness': 0.5, 'Specular Lobe 2 Glossiness': 0.6, 'Dual Lobe Specular Ratio': 0.6}
+OWN = {'Share Glossy Inputs': False, 'Refraction Weight': 0.6, 'Refraction Roughness': 0.4, 'Refraction Glossiness': 0.3,
+       'Refraction Color': [0.3, 0.6, 0.9]}
+for mixing in (1, 2):
+    uber_spheres(f'Calib-Mi-Mix{mixing}', [0.6, 0.3, 0.2], {'Base Mixing': mixing, **MIX, 'Glossy Weight': 0.5}, [
+        ('M1 coat', {'Top Coat Weight': 0.8, 'Top Coat Roughness': 0.3, 'Top Coat Glossiness': 0.2}),
+        ('M2 metal', {'Metallic Weight': 0.7}),
+        ('M3 lobes', LOBES),
+        ('M4 backscatter', {'Backscattering Weight': 0.5, 'Backscattering Roughness': 0.3, 'Backscattering Glossiness': 0.2,
+                            'Share Glossy Inputs': False, 'Backscattering Color': [0.2, 0.4, 0.8]}),
+        ('M5 flakes', {'Metallic Flakes Weight': 0.6, 'Metallic Flakes Roughness': 0.3, 'Metallic Flakes Glossiness': 0.2}),
+        ('M6 own refraction', OWN),
+        ('M7 metal full', {'Metallic Weight': 1.0}),
+        ('M8 coat aniso', {'Top Coat Weight': 0.8, 'Top Coat Roughness': 0.3, 'Top Coat Glossiness': 0.2, 'Top Coat Anisotropy': 0.5}),
+    ])
+# Maps: how DAZ passes a channel's texture (gamma, the value as a factor,
+# tiling), colour and float channels, Base Mixing 0 and 1.
+uber_spheres('Calib-Mi-Maps', [0.6, 0.6, 0.6], {'Glossy Layered Weight': 1.0, 'Glossy Roughness': 0.3}, [
+    ('P1 colour map', {('diffuse', 'image'): TILES, 'diffuse': [0.8, 0.6, 0.4]}),
+    ('P2 tiled', {('diffuse', 'image'): TILES, 'Horizontal Tiles': 3.0, 'Vertical Tiles': 2.0, 'Horizontal Offset': 0.25, 'Vertical Offset': 0.5}),
+    ('P3 roughness map', {('Glossy Roughness', 'image'): G, 'Glossy Roughness': 0.7}),
+    ('P4 glossiness map', {'Base Mixing': 1, ('Glossiness', 'image'): G, 'Glossiness': 0.6}),
+    ('P5 metal map', {('Metallic Weight', 'image'): G, 'Metallic Weight': 0.8}),
+    ('P6 gloss colour map', {('Glossy Color', 'image', 'float_color'): TILES, 'Glossy Color': [0.9, 0.5, 0.3]}),
+    ('P7 translucency map', {'Translucency Weight': 0.5, ('Translucency Color', 'image', 'float_color'): TILES, 'Translucency Color': [0.7, 0.7, 0.7]}),
+    ('P8 bump and coat map', {('Bump Strength', 'image'): G, 'Bump Strength': 0.6, ('Top Coat Weight', 'image'): G, 'Top Coat Weight': 0.7}),
+])
+# Emission by Luminance Units: 0 cd/m², 1 kcd/m², 2 cd/ft², 3 kcd/ft², 4 lm, 5 W.
+uber_spheres('Calib-Mi-Emit', [0.6, 0.6, 0.6], {'Emission Color': [1.0, 0.9, 0.8], 'Luminance': 300.0}, [
+    (f'E{u} units {u}', {'Luminance Units': u}) for u in range(6)
+] + [('E6 two sided', {'Luminance Units': 0, 'Two Sided Light': True}), ('E7 temperature', {'Emission Temperature': 3000.0})])
 
 # Scene dumps: scripts/dev/daz-dump.sh (DAZ evaluates each scene headless).

@@ -57,11 +57,27 @@ Found beyond it:
 - **Base Color Effect** only where translucency mixes with the diffuse.
 - **Lights** (`iray::light`): `dzpm_diffuse_area_light`, spots
   `dzpm_spot_light`; Flux as is when photometric, else 1000 π × Intensity
-  with temperature 0; colour linear as `emission_color`; Spread Angle (the
-  full angle) in radians, Beam Exponent as `spot_exponent`; rect / disc /
-  sphere sizes in cm. The camera headlamp is a 7 × 3.5 cm rect,
-  `emission_color` 0.604, ~1.7 Mlm that varies between scenes — not
-  verified yet.
+  with temperature 0; the colour, unlike a material's, rounded to 8 bits
+  and through the sRGB curve; Spread Angle (the full angle) in radians,
+  Beam Exponent as `spot_exponent`; rect / disc / sphere sizes in cm by
+  Light Geometry, a spot's too (disc and sphere: Height as the diameter);
+  Two Sided on rect, disc and sphere. The camera headlamp
+  (`iray::headlamp`): a 7 × 3.5 cm rect, colour 0.8, 10 × Depth of Field²
+  × Headlamp Intensity lm; where its offsets put it is not verified.
+- **Maps** (`iray::Map`): `base::file_texture` scaled by the channel's
+  value (`color_scale`: linear for colours, as is for floats), read as a
+  colour (`texture_return.tint`) or grey (`.mono`); roughness maps then
+  `square_float`, glossiness maps `gloss_to_rough` first; bump
+  `file_bump_texture` at Bump Strength; UV transform Horizontal / Vertical
+  Tiles and Offset, the vertical offset negated; gamma the image's own, else
+  "auto" (Iray decides). A metal, refraction or backscattering map at
+  weight 1 leaves the diffuse on.
+- **Emission units:** cd/m² and kcd/m² (× 1000) per m², cd/ft² per foot
+  (`emission_scene_unit_size` 0.3048), kcd/ft² as cd per cm² (0.01, no ×
+  1000 — DAZ's own conversion), lm and W × efficacy as a power.
+- **Base Mixing 1 / 2:** every lobe's roughness follows the glossy one's
+  (1 − Glossiness in mode 1, the Roughness channel in 0 and 2, squared);
+  Weighted has no metal (Calib-Mi-Mix1 / -Mix2).
 - **Camera** (`iray::camera`): focal length and film width in cm, the
   width = Frame Width (fitted to the image's height) × aspect; lens radius
   focal (mm) / (2 · f-stop) when DOF is on, the focus distance as is.
@@ -82,9 +98,8 @@ Found beyond it:
   Reflectivity, not Uber's Reflectivity); `translucency_weight` = 1 −
   Translucency Weight (inverted in the MDL); lobe 2's roughness the Mult.
   The "… Enable" switches reach the MDL as expressions, not values.
-- **Emission:** Luminance in cd/m² as `emission_flux` (radiant exitance),
-  in lm as a power, in W × Luminous Efficacy as a power; temperature and
-  `emission_scene_unit_size` 1 once the colour is non-black.
+- **Emission:** `emission_flux` and mode by Luminance Units (above);
+  the temperature once the colour is non-black.
 
 Observed (DAZ Studio 6, 2026-10-31):
 

@@ -39,11 +39,12 @@ pub struct SceneLight {
     pub two_sided: bool,
 }
 
-/// Flux of DAZ's camera headlamp at Headlamp Intensity 1: Iray lit
-/// Calib-Glossy (no dome) with it 1.65 – 1.80 × as bright as a 1 Mlm point
-/// light at the headlamp's place, evenly over the floor — a point light
-/// (#22).
-pub(super) const HEADLAMP_LUMENS: f64 = 1.7e6;
+/// Octane's point-light headlamp against the 7 × 3.5 cm rect DAZ hands
+/// Iray (`crate::iray::headlamp`): Iray lit Calib-Glossy (no dome) with
+/// its headlamp — 1.77 Mlm there — 1.65 – 1.80 × as bright as a 1 Mlm point
+/// light at its place, evenly over the floor: a point light at 1.7 Mlm,
+/// 0.96 of DAZ's flux (#22).
+pub(super) const HEADLAMP_POINT_SHARE: f64 = 1.7e6 / 1_768_560.0;
 
 /// The camera headlamp DAZ adds, as a point light, when Iray lights with it:
 /// HeadlampMode On always (a scene with a point light 2.67 × as bright),
@@ -61,6 +62,12 @@ pub(super) fn headlamp(lib: &mut Library, label: &str, cam: &SceneCamera, has_li
     })?;
     let mut ch = node_channels(&def);
     ch.extend(node_channels(&node));
+    // The focus distance sets the headlamp's flux; `perspective` mirrors it.
+    if !ch.contains_key("Depth of Field") {
+        if let Some(d) = node.pointer("/perspective/focal_distance").or_else(|| def.pointer("/perspective/focal_distance")) {
+            ch.insert("Depth of Field".into(), d.clone());
+        }
+    }
     let num = |k: &str| ch.get(k).and_then(Value::as_f64);
     let auto = render_setting(&lib.duf, "Auto Headlamp").unwrap_or(0.0) as i64;
     let lit = match num("HeadlampMode").unwrap_or(0.0) as i64 {
@@ -90,7 +97,12 @@ pub(super) fn headlamp(lib: &mut Library, label: &str, cam: &SceneCamera, has_li
         beam_exponent: 1.0,
         color: [1.0; 3],
         kelvin: None,
-        lumens: HEADLAMP_LUMENS * num("Headlamp Intensity").unwrap_or(1.0),
+        // DAZ's flux (`crate::iray::headlamp`: 10 × focus distance² ×
+        // intensity) as a point light at `HEADLAMP_POINT_SHARE` of it.
+        lumens: match crate::iray::headlamp(&ch).args.get("flux") {
+            Some(crate::iray::Arg::Float(f)) => f64::from(*f) * HEADLAMP_POINT_SHARE,
+            _ => 0.0,
+        },
         euler_deg: [0.0; 3],
         rotation_order: "XYZ".into(),
         translation: p,

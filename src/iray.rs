@@ -10,8 +10,8 @@
 //! Octane side does with its parameters (`crate::material`). A rule
 //! changes only with a fixture that proves it (#62).
 //!
-//! Parameters this module doesn't produce yet are simply absent from
-//! [`uber`]'s result: unverified, not defaulted.
+//! Parameters this module doesn't produce are absent from [`uber`]'s
+//! result: not covered, not defaulted.
 
 use std::collections::BTreeMap;
 
@@ -29,9 +29,38 @@ pub enum Arg {
     Color([f32; 3]),
     /// An MDL enum value (`blm_layered`).
     Enum(&'static str),
-    /// A texture-driven argument: the image (content path as the channel
-    /// names it).
-    Map(String),
+    /// A texture-driven argument.
+    Map(Map),
+}
+
+/// A channel's map as DAZ hands it Iray: `base::file_texture` read as a
+/// colour (`texture_return.tint`) or grey (`.mono`), or a bump
+/// (`file_bump_texture`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Map {
+    /// Content path, as the channel names it.
+    pub image: String,
+    pub kind: MapKind,
+    /// The channel's value as the map's factor (`color_scale`): linear for
+    /// a colour channel, as is for a float one; a bump's strength.
+    pub scale: [f32; 3],
+    /// A glossiness map turned into roughness (`base::gloss_to_rough`).
+    pub gloss_to_rough: bool,
+    /// Then squared (`square_float`, Roughness / Glossiness Squared).
+    pub squared: bool,
+    /// UV tiles (u, v) and offsets: Horizontal / Vertical Tiles and
+    /// Offset, the vertical offset negated.
+    pub tiling: [f32; 4],
+    /// The image's own gamma (`map_gamma`); None leaves it to Iray
+    /// ("auto").
+    pub gamma: Option<f32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MapKind {
+    Colour,
+    Grey,
+    Bump,
 }
 
 /// The MDL material DAZ instantiates for an Iray Uber material:
@@ -58,7 +87,9 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     let backscattering = ch.float("Backscattering Weight", 0.0);
     let translucency = ch.float("Translucency Weight", 0.0);
     // A layer at full weight covers the diffuse: DAZ switches it off.
-    let diffuse_on = metallic < 1.0 && refraction < 1.0 && backscattering < 1.0;
+    // (Not when a map drives it: Calib-DataGamma's metal maps at weight 1.)
+    let full = |w: f32, id: &str| w >= 1.0 && ch.image(id).is_none();
+    let diffuse_on = !full(metallic, "Metallic Weight") && !full(refraction, "Refraction Weight") && !full(backscattering, "Backscattering Weight");
     out.insert("diffuse_enable", Arg::Bool(diffuse_on));
     out.insert("diffuse_weight", Arg::Float(if mixing == 2 { ch.float("Diffuse Weight", 1.0) } else { 1.0 }));
 
@@ -74,7 +105,11 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
         1 => square_if(1.0 - ch.float("Glossiness", 1.0), ch.bool("Glossiness Squared", true)),
         _ => square_if(ch.float("Glossy Roughness", 0.0), ch.bool("Roughness Squared", true)),
     };
-    out.insert("glossy_roughness", Arg::Float(rough));
+    let rough_map = match mixing {
+        1 => ch.map("Glossiness", MapKind::Grey, [ch.float("Glossiness", 1.0); 3]).map(|m| Map { gloss_to_rough: true, squared: ch.bool("Glossiness Squared", true), ..m }),
+        _ => ch.map("Glossy Roughness", MapKind::Grey, [ch.float("Glossy Roughness", 0.0); 3]).map(|m| Map { squared: ch.bool("Roughness Squared", true), ..m }),
+    };
+    out.insert("glossy_roughness", rough_map.map_or(Arg::Float(rough), Arg::Map));
     out.insert("glossy_roughness_enable", Arg::Bool(rough > 0.0));
     let reflectivity = match mixing {
         0 => REFLECTIVITY_SCALE * ch.float("Glossy Reflectivity", 0.5),
@@ -138,28 +173,26 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     out.insert("emission_tint", Arg::Color(emission));
     out.insert("emission_enable", Arg::Bool(emits));
     out.insert("emission_temperature", Arg::Float(if emits { ch.float("Emission Temperature", 6500.0) } else { 6000.0 }));
-    out.insert("emission_scene_unit_size", Arg::Float(if emits { 1.0 } else { 0.01 }));
     out.insert("two_sided_area", Arg::Bool(emits && ch.bool("Two Sided Light", false)));
-    // Luminance by its unit: cd/m² as is, lm as a power, W through the
-    // luminous efficacy (lm/W). Other units: not verified, left out.
+    // Luminance by its unit (Calib-Mi-Emit): a luminance per area of
+    // `emission_scene_unit_size` (m) — cd/m², kcd/m² (× 1000), cd/ft²
+    // (0.3048 m) and kcd/ft², which DAZ passes as cd per cm² (0.01 m, no
+    // × 1000) —, or a power: lm, W × the luminous efficacy (lm/W).
     let luminance = ch.float("Luminance", 1500.0);
-    let units = ch.int("Luminance Units", 0);
-    let flux = match units {
-        0 => Some((luminance, "intensity_radiant_exitance")),
-        4 => Some((luminance, "intensity_power")),
-        5 => Some((luminance * ch.float("Luminous Efficacy", 15.0), "intensity_power")),
-        _ => None,
+    let (flux, mode, unit) = match ch.int("Luminance Units", 0) {
+        1 => (luminance * 1000.0, "intensity_radiant_exitance", 1.0),
+        2 => (luminance, "intensity_radiant_exitance", 0.3048),
+        3 => (luminance, "intensity_radiant_exitance", 0.01),
+        4 => (luminance, "intensity_power", 1.0),
+        5 => (luminance * ch.float("Luminous Efficacy", 15.0), "intensity_power", 1.0),
+        _ => (luminance, "intensity_radiant_exitance", 1.0),
     };
-    if !emits {
-        out.insert("emission_flux", Arg::Color([500.0; 3]));
-        out.insert("emission_mode", Arg::Enum("intensity_radiant_exitance"));
-    } else if let Some((flux, mode)) = flux {
-        out.insert("emission_flux", Arg::Color([flux; 3]));
-        out.insert("emission_mode", Arg::Enum(mode));
-    }
+    out.insert("emission_flux", Arg::Color([if emits { flux } else { 500.0 }; 3]));
+    out.insert("emission_mode", Arg::Enum(if emits { mode } else { "intensity_radiant_exitance" }));
+    out.insert("emission_scene_unit_size", Arg::Float(if emits { unit } else { 0.01 }));
 
     // Metal (metallicity / roughness only).
-    out.insert("metallic_weight", Arg::Float(metallic));
+    out.insert("metallic_weight", if mixing == 0 { ch.float_or_map("Metallic Weight", 0.0) } else { Arg::Float(0.0) });
     out.insert("metallic_enable", Arg::Bool(metallic > 0.0));
     // The metal's head-on reflectance is the base colour's strongest
     // channel, its hue a directional tint.
@@ -254,7 +287,7 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
 
     // Top coat.
     let coat = ch.float("Top Coat Weight", 0.0);
-    out.insert("top_coat_weight", Arg::Float(coat));
+    out.insert("top_coat_weight", ch.float_or_map("Top Coat Weight", 0.0));
     out.insert("top_coat_enable", Arg::Bool(coat > 0.0));
     let coat_rough = match mixing {
         1 => square_if(1.0 - ch.float("Top Coat Glossiness", 1.0), ch.bool("Glossiness Squared", true)),
@@ -274,37 +307,6 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     let mode = ch.int("Top Coat Layering Mode", 0).clamp(0, 3) as usize;
     out.insert("top_coat_layer_mode", Arg::Enum(if coat > 0.0 { MODES[mode] } else { MODES[0] }));
     out.insert("top_coat_curve_strength", Arg::Float(if coat > 0.0 && mode == 0 { REFLECTIVITY_SCALE * ch.float("Reflectivity", 0.5) } else { 0.04 }));
-
-
-    // Branches no fixture covers yet are left out — unverified, not
-    // guessed: the other lobes' roughness outside Base Mixing 0, the top
-    // coat's and the metal under Weighted mixing.
-    let mut unverified: Vec<&str> = Vec::new();
-    if mixing != 0 {
-        if lobes > 0.0 {
-            unverified.extend(["dual_lobe_specular_roughness_1", "dual_lobe_specular_roughness_2"]);
-        }
-        if backscattering > 0.0 {
-            unverified.push("backscattering_roughness");
-        }
-        if on {
-            unverified.push("metallic_flakes_roughness");
-        }
-        if own {
-            unverified.push("refraction_roughness");
-        }
-    }
-    if mixing == 2 {
-        if coat > 0.0 {
-            unverified.push("top_coat_roughness");
-        }
-        if ch.float("Metallic Weight", 0.0) > 0.0 {
-            unverified.extend(["metallic_weight", "metallic_enable", "metallic_custom_curve_normal", "metallic_directional_color_enable", "metallic_directional_normal_color"]);
-        }
-    }
-    for k in unverified {
-        out.remove(k);
-    }
     out
 }
 
@@ -318,6 +320,13 @@ pub const REFLECTIVITY_SCALE: f32 = 0.08;
 
 /// DAZ's distances are in cm, the MDL's in m.
 pub const CM: f32 = 0.01;
+
+/// A colour channel as DAZ hands a light's colour to Iray: rounded to 8
+/// bits, then the sRGB curve.
+pub fn srgb_8bit_to_linear(c: f32) -> f32 {
+    let c = (c.clamp(0.0, 1.0) * 255.0).round() / 255.0;
+    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+}
 
 fn square_if(x: f32, squared: bool) -> f32 {
     if squared { x * x } else { x }
@@ -364,10 +373,27 @@ impl Channels<'_> {
         }
     }
 
+    fn map(&self, id: &str, kind: MapKind, scale: [f32; 3]) -> Option<Map> {
+        let image = self.image(id)?.to_string();
+        let gamma = self.0.channels.get(id).and_then(|c| c.gamma);
+        let tiling = [self.float("Horizontal Tiles", 1.0), self.float("Vertical Tiles", 1.0), self.float("Horizontal Offset", 0.0), -self.float("Vertical Offset", 0.0)];
+        Some(Map { image, kind, scale, gloss_to_rough: false, squared: false, tiling, gamma })
+    }
+
     fn color_or_map(&self, id: &str, default: [f32; 3], scale: f32) -> Arg {
-        match self.image(id) {
-            Some(m) => Arg::Map(m.to_string()),
-            None => Arg::Color(self.color(id, default).map(|c| c * scale)),
+        let colour = self.color(id, default).map(|c| c * scale);
+        match self.map(id, MapKind::Colour, colour) {
+            Some(m) => Arg::Map(m),
+            None => Arg::Color(colour),
+        }
+    }
+
+    /// A float channel, or its map scaled by the value.
+    fn float_or_map(&self, id: &str, default: f32) -> Arg {
+        let v = self.float(id, default);
+        match self.map(id, MapKind::Grey, [v; 3]) {
+            Some(m) => Arg::Map(m),
+            None => Arg::Float(v),
         }
     }
 }
@@ -418,24 +444,23 @@ pub fn light(kind: LightKind, channels: &std::collections::HashMap<String, Value
     // A non-photometric light has no colour temperature.
     args.insert("temperature", Arg::Float(if photometric { num("Temperature", 6500.0) } else { 0.0 }));
     args.insert("scene_unit_size", Arg::Float(1.0));
-    let colour = channels.get("Color").and_then(Value::as_array).map_or([1.0; 3], |a| {
-        [0, 1, 2].map(|i| (a.get(i).and_then(Value::as_f64).unwrap_or(1.0) as f32).max(0.0).powf(COLOUR_GAMMA))
-    });
+    // A light's colour, unlike a material's, goes through 8 bits and the
+    // sRGB curve (Calib-L-Mi-Point-colour: 0.3 → 77 / 255 → 0.07421).
+    let colour = channels.get("Color").and_then(Value::as_array).map_or([1.0; 3], |a| [0, 1, 2].map(|i| srgb_8bit_to_linear(a.get(i).and_then(Value::as_f64).unwrap_or(1.0) as f32)));
     args.insert("emission_color", Arg::Color(colour));
     let cm = |k: &str| num(k, 10.0);
+    // A spot takes Light Geometry too (Calib-L-Mi-Spot-rect).
     let shape = match kind {
         LightKind::Distant => LightShape::Distant,
-        LightKind::Spot => LightShape::Point,
-        LightKind::Point => match num("Light Geometry", 0.0) as i32 {
+        LightKind::Spot | LightKind::Point => match num("Light Geometry", 0.0) as i32 {
             1 => LightShape::Rectangle { width: cm("Width"), height: cm("Height") },
-            // Disc and sphere: Height as the diameter (Width equal in every
-            // fixture so far).
+            // Disc and sphere: Height as the diameter (Calib-L-Mi-*-30x60).
             2 => LightShape::Disc { radius: cm("Height") / 2.0 },
             3 => LightShape::Sphere { radius: cm("Height") / 2.0 },
             _ => LightShape::Point,
         },
     };
-    let area = matches!(shape, LightShape::Rectangle { .. } | LightShape::Disc { .. });
+    let area = matches!(shape, LightShape::Rectangle { .. } | LightShape::Disc { .. } | LightShape::Sphere { .. });
     args.insert("two_sided_area", Arg::Bool(area && flag("Two Sided", false)));
     let mdl = if kind == LightKind::Spot {
         args.insert("spot_exponent", Arg::Float(num("Beam Exponent", 1.0)));
@@ -517,17 +542,12 @@ impl Uber {
         is_uber(mat).then(|| Uber(uber(mat)))
     }
 
-    /// The argument, or its MDL default when DAZ doesn't pass it; None
-    /// where `uber` left it out as unverified.
+    /// The argument, or its MDL default when DAZ doesn't pass it.
     fn arg(&self, param: &str) -> Option<Arg> {
-        match self.0.get(param) {
-            Some(a) => Some(a.clone()),
-            None if MAY_BE_UNVERIFIED.contains(&param) => None,
-            None => uber_default(param),
-        }
+        self.0.get(param).cloned().or_else(|| uber_default(param))
     }
 
-    /// A float argument; None where it is unverified or a map.
+    /// A float argument; None for a map.
     pub fn float(&self, param: &str) -> Option<f32> {
         match self.arg(param)? {
             Arg::Float(f) => Some(f),
@@ -557,24 +577,6 @@ impl Uber {
         }
     }
 }
-
-/// Parameters [`uber`] leaves out in branches no fixture covers (see its
-/// end): absent means unverified for these, not the MDL default.
-const MAY_BE_UNVERIFIED: &[&str] = &[
-    "dual_lobe_specular_roughness_1",
-    "dual_lobe_specular_roughness_2",
-    "backscattering_roughness",
-    "metallic_flakes_roughness",
-    "refraction_roughness",
-    "top_coat_roughness",
-    "metallic_weight",
-    "metallic_enable",
-    "metallic_custom_curve_normal",
-    "metallic_directional_color_enable",
-    "metallic_directional_normal_color",
-    "emission_flux",
-    "emission_mode",
-];
 
 /// Whether DAZ renders the material with Iray Uber: its channels (Base
 /// Mixing among them), not PBRSkin's (its "… Enable" switches) nor a brick
@@ -631,6 +633,26 @@ pub fn pbrskin(mat: &Material) -> BTreeMap<&'static str, Arg> {
 pub fn is_pbrskin(mat: &Material) -> bool {
     mat.channels.contains_key("Dual Lobe Specular Enable") && mat.channels.contains_key("Specular Lobe 2 Roughness Mult")
 }
+
+/// The camera headlamp DAZ adds when it lights (`usd::lights::headlamp`
+/// decides when): a 7 × 3.5 cm rect, colour 0.8, no temperature, its flux
+/// 10 × the camera's Depth of Field (cm)² × Headlamp Intensity
+/// (Calib-Headlamp-*, Calib-Mi-Headlamp-*). Where the offsets put it is not
+/// verified (they move it by far less than their cm at a far focus).
+pub fn headlamp(camera: &std::collections::HashMap<String, Value>) -> Light {
+    let num = |k: &str, d: f32| camera.get(k).and_then(Value::as_f64).map_or(d, |v| v as f32);
+    let focus = num("Depth of Field", 300.0);
+    let mut args = BTreeMap::new();
+    args.insert("flux", Arg::Float(HEADLAMP_FLUX_PER_CM2 * focus * focus * num("Headlamp Intensity", 1.0)));
+    args.insert("temperature", Arg::Float(0.0));
+    args.insert("scene_unit_size", Arg::Float(1.0));
+    args.insert("emission_color", Arg::Color([srgb_8bit_to_linear(0.8); 3]));
+    args.insert("two_sided_area", Arg::Bool(false));
+    Light { mdl: "daz_3d::basic::dzpm_diffuse_area_light", args, shape: LightShape::Rectangle { width: 7.0, height: 3.5 } }
+}
+
+/// The headlamp's flux per cm² of the focus distance, squared.
+pub const HEADLAMP_FLUX_PER_CM2: f32 = 10.0;
 
 type NodeChannels = std::collections::HashMap<String, Value>;
 
@@ -763,6 +785,7 @@ mod tests {
     fn scene_materials(duf: &Path) -> HashMap<String, Material> {
         let doc: Value = serde_json::from_str(&crate::dson::decompress_scene(&std::fs::read(duf).unwrap()).unwrap()).unwrap();
         let images = image_library(&doc);
+        let gammas = crate::daz_material::image_gammas(&doc);
         let lib: HashMap<&str, &Value> = doc["material_library"].as_array().into_iter().flatten().filter_map(|m| Some((m["id"].as_str()?, m))).collect();
         let mut label = HashMap::new();
         for n in doc.pointer("/scene/nodes").and_then(Value::as_array).into_iter().flatten() {
@@ -777,6 +800,9 @@ mod tests {
             let url = m["url"].as_str().unwrap_or("");
             let mut mat = lib.get(url.trim_start_matches('#')).map_or_else(Material::default, |d| Material::from_dson(d, &images));
             mat.merge(m, &images);
+            for c in mat.channels.values_mut() {
+                c.gamma = c.image.as_ref().and_then(|i| gammas.get(i)).copied();
+            }
             let geo = m["geometry"].as_str().unwrap_or("").rsplit('#').next().unwrap_or("");
             let node = label.get(geo).cloned().unwrap_or_else(|| geo.to_string());
             for g in m["groups"].as_array().into_iter().flatten().filter_map(Value::as_str) {
@@ -801,19 +827,48 @@ mod tests {
                     return (c.len() == 3).then(|| Arg::Color([c[0], c[1], c[2]]));
                 }
                 if v.is_object() {
-                    return Some(Arg::Map(texture_path(v).unwrap_or_default()));
+                    return fixture_map(v).map(Arg::Map);
                 }
                 return None;
             }
         })
     }
 
-    /// The image a texture-call tree reads.
-    fn texture_path(v: &Value) -> Option<String> {
-        if let Some(p) = v.pointer("/texture/path").and_then(Value::as_str) {
-            return Some(p.to_string());
+    /// A texture-call tree from the .mi as a [`Map`].
+    fn fixture_map(v: &Value) -> Option<Map> {
+        let mdl = v["mdl"].as_str()?;
+        let a = &v["args"];
+        let f32s = |x: &Value| x.as_array().map(|a| a.iter().filter_map(Value::as_f64).map(|f| f as f32).collect::<Vec<_>>());
+        let file = |f: &Value, kind: MapKind, scale: [f32; 3]| -> Option<Map> {
+            let t = &f["args"]["texture"]["texture"];
+            let m = f32s(&f["args"]["uvw"]["args"]["transform"]).unwrap_or_else(|| vec![1.0, 0., 0., 0., 0., 1.0, 0., 0., 0., 0., 1.0, 0., 0., 0., 0., 1.0]);
+            Some(Map {
+                image: t["path"].as_str()?.to_string(),
+                kind,
+                scale,
+                gloss_to_rough: false,
+                squared: false,
+                tiling: [m[0], m[5], m[12], m[13]],
+                gamma: t["gamma"].as_f64().map(|g| g as f32),
+            })
+        };
+        let scale = |f: &Value| f32s(&f["args"]["color_scale"]).map_or([1.0; 3], |c| [c[0], c[1], c[2]]);
+        if mdl.starts_with("daz_3d::irayubermaterial::square_float") {
+            return fixture_map(&a["val"]).map(|m| Map { squared: true, ..m });
         }
-        v.as_object()?.values().find_map(texture_path)
+        if mdl.starts_with("base::gloss_to_rough") {
+            return fixture_map(&a["glossiness"]).map(|m| Map { gloss_to_rough: true, ..m });
+        }
+        if mdl.starts_with("base::texture_return.tint") {
+            return file(&a["s"], MapKind::Colour, scale(&a["s"]));
+        }
+        if mdl.starts_with("base::texture_return.mono") {
+            return file(&a["s"], MapKind::Grey, scale(&a["s"]));
+        }
+        if mdl.starts_with("base::file_bump_texture") {
+            return file(v, MapKind::Bump, [a["factor"].as_f64().unwrap_or(1.0) as f32; 3]);
+        }
+        None
     }
 
     fn close(a: &Arg, b: &Arg) -> bool {
@@ -822,7 +877,13 @@ mod tests {
         match (a, b) {
             (Arg::Float(x), Arg::Float(y)) => near(*x, *y),
             (Arg::Color(x), Arg::Color(y)) => (0..3).all(|i| near(x[i], y[i])),
-            (Arg::Map(x), Arg::Map(y)) => x.trim_start_matches('/') == y.trim_start_matches('/'),
+            (Arg::Map(x), Arg::Map(y)) => {
+                x.image.trim_start_matches('/') == y.image.trim_start_matches('/')
+                    && x.kind == y.kind
+                    && (0..3).all(|i| near(x.scale[i], y.scale[i]))
+                    && (0..4).all(|i| near(x.tiling[i], y.tiling[i]))
+                    && (x.gloss_to_rough, x.squared, x.gamma) == (y.gloss_to_rough, y.squared, y.gamma)
+            }
             _ => a == b,
         }
     }
@@ -913,11 +974,23 @@ mod tests {
             let f = f.unwrap().path();
             let scene = f.file_stem().unwrap().to_string_lossy().to_string();
             let fixture: Value = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();
-            let lights = scene_lights(&root.join(format!("calib/scenes/{scene}.duf")));
+            let duf = root.join(format!("calib/scenes/{scene}.duf"));
+            let lights = scene_lights(&duf);
+            let cameras: HashMap<String, HashMap<String, Value>> = scene_nodes(&duf)
+                .1
+                .into_iter()
+                .filter(|(d, _, _)| d["type"] == "camera")
+                .map(|(d, n, ch)| (n["label"].as_str().or(d["label"].as_str()).unwrap_or("").to_string(), ch))
+                .collect();
             for (label, mi) in fixture["lights"].as_object().unwrap() {
-                // The camera headlamp isn't a scene light (not verified yet).
-                let Some((kind, ch)) = lights.get(label) else { continue };
-                let ours = light(*kind, ch);
+                // The camera headlamp: from the camera's channels.
+                let ours = match lights.get(label) {
+                    Some((kind, ch)) => light(*kind, ch),
+                    None => match cameras.get(label) {
+                        Some(ch) => headlamp(ch),
+                        None => continue,
+                    },
+                };
                 checked += 1;
                 if mi["material"]["mdl"] != ours.mdl {
                     wrong.push(format!("mdl: {scene} {label}: DAZ {}, ours {}", mi["material"]["mdl"], ours.mdl));

@@ -1014,7 +1014,8 @@ fn camera_headlamp_when_iray_lights_with_it() {
             "node_library": [{"id": "Camera", "type": "camera", "extra": [{"type": "studio_node_channels", "channels": [
                 {"channel": {"id": "HeadlampMode", "current_value": mode}},
                 {"channel": {"id": "XHeadlampOffset", "current_value": -30}},
-                {"channel": {"id": "YHeadlamp", "current_value": 20}}]}]}],
+                {"channel": {"id": "YHeadlamp", "current_value": 20}},
+                {"channel": {"id": "Depth of Field", "current_value": 420.543}}]}]}],
             "scene": {"nodes": [{"id": "Camera-1", "url": "#Camera", "label": "Camera"}],
                       "extra": [{"type": "studio_render_settings", "render_options": {"render_elements": [
                           {"id": "General Render", "channels": [{"channel": {"id": "Auto Headlamp", "current_value": auto}}]}]}}]},
@@ -1023,7 +1024,8 @@ fn camera_headlamp_when_iray_lights_with_it() {
     let cam = SceneCamera { pos: [0.0; 3], target: [0.0, 0.0, -1.0], up: [0.0, 1.0, 0.0], fov_deg: 40.0, focal_depth: 1.0, aperture_cm: 0.0 };
     let h = headlamp(&mut Library::new(vec![], scene(1, 0)), "Camera", &cam, true).expect("on");
     assert!((h.translation[0] + 0.3).abs() < 1e-6 && (h.translation[1] - 0.2).abs() < 1e-6, "{:?}", h.translation);
-    assert_eq!(h.lumens, HEADLAMP_LUMENS);
+    // DAZ's 10 × 420.543² lm (Calib-Glossy's focus) as the calibrated 1.7 Mlm point.
+    assert!((h.lumens / 1.7e6 - 1.0).abs() < 1e-5, "{}", h.lumens);
     assert!(headlamp(&mut Library::new(vec![], scene(0, 1)), "Camera", &cam, false).is_some(), "auto, no lights");
     assert!(headlamp(&mut Library::new(vec![], scene(0, 1)), "Camera", &cam, true).is_none(), "auto 1 with lights");
     assert!(headlamp(&mut Library::new(vec![], scene(0, 2)), "Camera", &cam, true).is_none(), "auto 2 with lights");

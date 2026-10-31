@@ -1113,11 +1113,15 @@ emission units keep their ratios (20 000 lm and 50 W against 5000 cd/m² on
   a DAZ spot −Z).
 
 
-**Camera headlamp** (#22, `lights::headlamp`): the point light DAZ puts at
-the render camera, moved by X / Y / Z Headlamp Offset (camera axes), at
-1.7 Mlm × Headlamp Intensity (`HEADLAMP_LUMENS`: Iray lit Calib-Glossy
-without its dome 1.65 – 1.80 × as bright as a 1 Mlm point light there;
-with the dome it adds 10.8 %). When:
+**Camera headlamp** (#22, `lights::headlamp`): DAZ hands Iray a 7 × 3.5
+cm rect at the camera, colour 0.8, of 10 × Depth of Field (cm)² ×
+Headlamp Intensity lm (`iray::headlamp`, its .mi export: 1.77 Mlm at
+Calib-Glossy's 420.5 cm focus, 0.4 Mlm at 200 cm). The export makes it a
+point light at 0.96 of that flux (`HEADLAMP_POINT_SHARE`: Iray lit
+Calib-Glossy without its dome 1.65 – 1.80 × as bright as a 1 Mlm point
+light there; with the dome it adds 10.8 %), moved by X / Y / Z Headlamp
+Offset (camera axes) — how DAZ applies the offsets isn't verified: at a
+far focus they move its rect by far less than their cm. When:
 
 | HeadlampMode | Auto Headlamp (render setting) | lit |
 |---|---|---|

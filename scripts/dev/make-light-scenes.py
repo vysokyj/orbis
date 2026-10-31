@@ -183,6 +183,23 @@ VARIANTS = [
     ('Emit-cd-2sided', 'Calib-Emissive', False, lambda d: emitter(d, {'Two Sided Light': True})),
     ('Emit-lm', 'Calib-Emissive', False, lambda d: emitter(d, {'Luminance Units': 4, 'Luminance': 20000.0})),
     ('Emit-W', 'Calib-Emissive', False, lambda d: emitter(d, {'Luminance Units': 5, 'Luminance': 50.0})),
+    # .mi sweeps (#62): what DAZ hands Iray, read from its .mi export, not
+    # rendered — sizes with Width ≠ Height, a spot with an emitter shape,
+    # colour and temperature, the sun elsewhere, a turned and tinted dome.
+    ('Mi-Rect-30x60', 'Calib-Area', False, lambda d: light(d, 'PointLight', {'Width': 30.0, 'Height': 60.0}, r=DOWN)),
+    ('Mi-Disc-30x60', 'Calib-Area', False, lambda d: light(d, 'PointLight', {'Light Geometry': 2, 'Width': 30.0, 'Height': 60.0, 'Two Sided': True}, r=DOWN)),
+    ('Mi-Sphere-30x60', 'Calib-Area', False, lambda d: light(d, 'PointLight', {'Light Geometry': 3, 'Width': 30.0, 'Height': 60.0, 'Two Sided': True}, r=DOWN)),
+    ('Mi-Spot-rect', 'Calib-Spot', True, lambda d: light(d, 'SpotLight', {'Light Geometry': 1, 'Width': 20.0, 'Height': 40.0}, t={'x': 0.0, 'y': 250.0, 'z': 0.0}, r=DOWN)),
+    ('Mi-Point-colour', 'Calib-Point', False, lambda d: light(d, 'PointLight', {'Color': [1.0, 0.6, 0.3], 'Temperature': 3000.0, 'Flux': 2500.0})),
+    ('Mi-Point-legacy-colour', 'Calib-Point', False, lambda d: light(d, 'PointLight', {'Photometric Mode': False, 'Intensity': 0.7, 'Color': [0.4, 0.7, 1.0]})),
+    ('Mi-SunSky-sydney', 'Calib-Point', False, lambda d: (env_mode(d, 2, False), sun_sky(d, {
+        'SS Latitude': -33.87, 'SS Longitude': 151.21, 'SS Day': 2457300, 'SS Time': 30000, 'SS UTC Offset': 10.0, 'SS Haze': 2.0,
+        'SS Multiplier': 0.2, 'SS Sun Disk Intensity': 2.0, 'SS Sun Disk Scale': 2.0, 'SS Ground Color': [0.2, 0.5, 0.3],
+        'SS Saturation': 0.8, 'SS Horizon Height': 0.1}))),
+    ('Mi-Dome-turned', 'Calib-Point', False, lambda d: (env_mode(d, 0, False), sun_sky(d, {
+        'Environment Intensity': 1.5, 'Environment Tint': [1.0, 0.8, 0.6], 'Dome Rotation': 30.0, 'Dome Orientation X': 10.0,
+        'Dome Orientation Y': 20.0, 'Dome Orientation Z': 5.0, 'Draw Ground': True, 'Ground Shadow Intensity': 0.6,
+        'Ground Position Mode': 1, 'Ground Origin Y': 12.0}))),
 ]
 
 only = {a for a in sys.argv[2:] if not a.startswith('--')}
