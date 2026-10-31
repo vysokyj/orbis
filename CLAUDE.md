@@ -19,6 +19,7 @@ python3 scripts/dev/fetch-octane-docs.py docs/octane/manual <cache dir>   # Octa
 python3 scripts/dev/fetch-nvidia-docs.py   # NVIDIA Iray / MDL docs mirror → docs/nvidia (git-ignored; needs pypdf)
 DONE_FILE=<out dir>/export-mi.done scripts/dev/daz-script.sh $PWD/scripts/dev/daz-export-mi.dsa <out dir> <scene.duf>... --   # scenes → Iray .mi (MDL arguments DAZ passes)
 python3 scripts/dev/mi-args.py [--param <regex>] <scene.mi>...   # those arguments per material (Calib-Map-* scenes sweep the channels)
+python3 scripts/dev/mi-oracle.py --out calib/references/mi <scene.mi>...   # .mi → JSON fixtures (options, camera, environment, lights, materials) for src/iray.rs's test
 python3 scripts/dev/highlight-spread.py [--vs <iray.png>] <render.png>...   # per-sphere highlight spread (p99 / median) and luminance vs Iray (#56)
 scripts/dev/daz-render.sh <scene.duf> <out.png> [secs] [samples]   # unattended capped Iray render (one DAZ instance that stays open; --stop quits it)
 scripts/dev/octane-run.sh <probe.lua> [scene.orbx]   # unattended Octane X Lua probe (starts Octane X, leaves it running; QUIT_OCTANE=1 quits)
@@ -50,6 +51,7 @@ attaches the zip to a GitHub release.
 | `src/main.rs` | `orbis` CLI (`export`, `install`); stdout = progress/report read by the DAZ script, logs on stderr |
 | `src/install.rs` | `orbis install`: binary → `~/Library/Application Support/ORBIS/bin/`, script (paths filled in) + thumbnails → `<library>/Scripts/ORBIS/` |
 | `src/usd/` | Scene → meshes (`.duf` + library `.dsf` + the scene dump, `dump.rs`), SubD, hair, cameras, lights, environment, USDA/USDZ, `project.ocs`; `export_scene_orbx` / `export_scene_usdz` |
+| `src/iray.rs` | DAZ channels → the MDL parameters DAZ hands Iray, verified against DAZ's .mi export (`calib/references/mi`) |
 | `src/tuning.rs` | The four export variants (Look × render mode) and every value that differs between them, one table |
 | `src/material.rs` | Iray Uber → Octane material/light/scene nodes in `project.ocs` |
 | `src/daz_material.rs` | DSON materials: merged Iray channels |
@@ -90,6 +92,10 @@ the loop, references in `calib/references`): `docs/calibration.md`.
 - Plans and to-dos go into GitHub issues, not docs.
 
 ## Watch out for
+- **Verified DAZ → Iray conversions outrank calibration.** `src/iray.rs`
+  reproduces DAZ's own `.mi` export (`calib/references/mi/*.json`, test in
+  the module). Never change it to fit a render; tune the Octane side
+  instead. It changes only with new `.mi` fixtures that prove it (#62).
 - `calib/scenes/` holds only generated scenes — never the user's own
   Calib-*.duf (Base, Point, Area, Spot, Distant, Emissive, HDRI, Materials)
   nor Calib-Hair (it wears a DAZ Store hair): copy a new one in with its

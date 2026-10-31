@@ -18,6 +18,15 @@ switch lets the user lean either way.
 Rules come from **calibration scenes**, never from one production scene: a
 fix has to hold on scenes built to test exactly that.
 
+**What DAZ hands Iray is read, not fitted.** DAZ's own `.mi` export of the
+calibration scenes says exactly which MDL parameters it computes from the
+channels (`scripts/dev/daz-export-mi.dsa` → `scripts/dev/mi-oracle.py` →
+`calib/references/mi/*.json`). Those conversions live in `src/iray.rs`,
+tested against every fixture; they outrank any calibration result.
+Calibration tunes only the Octane side — how Octane renders those
+parameters. A render that seems to contradict `src/iray.rs` points at the
+Octane side, never at the verified conversion (#62).
+
 **Four variants, one at a time.** An export is one of Look (Enhanced /
 Faithful) × render mode (Final / Preview). Calibrate **Enhanced + Final**
 (path tracing, the photoreal one) first, then run the same scenes for each

@@ -26,6 +26,39 @@ headless, `scripts/dev/mi-args.py` tabulates the arguments; the
 The .mi also carries Iray's render options (environment, tone mapping,
 path lengths).
 
+**The rules are code now:** `src/iray.rs` reproduces every argument of the
+Iray Uber materials in `calib/references/mi/` (DAZ's export of all
+`calib/scenes`, as JSON from `scripts/dev/mi-oracle.py`), and its test
+checks each one. The table below summarises; the module is the reference.
+Found beyond it:
+
+- **Base Mixing 2 (Weighted)** takes its roughness from Glossy Roughness,
+  like Base Mixing 0 — only Base Mixing 1 reads Glossiness. Without gloss
+  (Glossy Weight 0) the whole gloss part (colour, backscattering) isn't
+  passed.
+- **Diffuse** is switched off (`diffuse_enable` false) when Metallic,
+  Refraction or Backscattering Weight is 1.
+- **Metal hue:** `metallic_directional_color_enable` only for a coloured
+  base; a grey metal has no directional tint.
+- **Dual Lobe Specular Weight** goes to both `dual_lobe_specular_weight`
+  and `dual_lobe_uniform_specular_weight`.
+- **Refraction** without gloss (Glossy Layered Weight 0) doesn't reflect
+  (`refraction_reflection_enable` false); otherwise DAZ asks for the full
+  Fresnel reflection, except with Share Glossy Inputs off, which switches to
+  the `iray_uber` entry with the refraction's own colour and roughness.
+- **Volume** (transmitted colour and distance, scattering distance,
+  direction) is passed only inside a closed surface that lets light in
+  (Refraction, Translucency or SSS Amount > 0, not Thin Walled);
+  `absorption_enable` follows a non-black Transmitted Color, also on a
+  thin wall.
+- **SSS:** mono mode passes SSS Amount (clamped to 1) as grey; chromatic
+  mode passes the linear SSS Color and `logarithmic_scatter_enable`.
+  **SSS Reflectance Tint is not passed at all.**
+- **Base Color Effect** only where translucency mixes with the diffuse.
+- **Emission:** Luminance in cd/m² as `emission_flux` (radiant exitance),
+  in lm as a power, in W × Luminous Efficacy as a power; temperature and
+  `emission_scene_unit_size` 1 once the colour is non-black.
+
 Observed (DAZ Studio 6, 2026-10-31):
 
 | channel(s) | MDL argument |

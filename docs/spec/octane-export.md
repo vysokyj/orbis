@@ -466,6 +466,14 @@ by material, not by tone setting).
 Every material input (20007) is filled — Octane doesn't convert
 `UsdPreviewSurface`.
 
+**DAZ channels → Iray parameters** first, verified: `src/iray.rs` computes
+the MDL arguments DAZ Studio passes Iray (`iray_uber` / `iray_uber_unified`)
+exactly as DAZ's `.mi` export of every calibration scene shows them
+(`calib/references/mi/`, a test compares all of them). That step is never
+tuned by calibration; only what the Octane side makes of the parameters is.
+Where this spec states a channel conversion that `src/iray.rs` contradicts,
+`src/iray.rs` wins (#62).
+
 ### Universal (130) — default
 
 - **albedo** = diffuse map (sRGB) × the diffuse colour, or the colour; ×
