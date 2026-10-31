@@ -160,3 +160,19 @@ sphere, current export:
   0.50 (#30), X7 a refractive volume 0.68 (#28), X5 rough unshared
   refraction 0.77, X3 dual lobe 0.87 (#26), S7 Base Mixing 1 at
   Glossiness 0.3 0.53 (#52).
+
+## #27: the remaining Color Effects and Uber's Diffuse Overlay
+
+Per channel (R G B, Octane / Iray) before → after:
+
+- Map-Effect E6 / E7, blue overlay 0.5 (effect 1 / squared): B 0.47 / 0.47
+  → 1.12 / 1.08 — the export had no Uber overlay at all.
+- Map-Effect E3 / E4, red gloss effect 1 / 2: 1.15 1.24 1.75 / 1.13 1.09
+  1.71 → 1.10 1.04 1.43 / 1.09 0.85 1.24.
+- Calib-CoatEffect E7 / E8 (red gloss fx1 / fx2): R 1.19 / 1.12 → 1.05 /
+  1.02.
+- Map-TopCoat C3, red weighted coat: 1.08 1.57 4.29 → 1.07 1.00 1.81
+  (`edgeTint`: Octane's metal went white at the edge); C7 (Fresnel coat,
+  effect 1) 1.17 1.11 1.17 → 1.09 1.09 1.16.
+- Calib-Mixing, TopCoat, ColorEffect within 0.05 of before (ColorEffect's
+  C5 glass gloss effect 1 0.89 → 0.84).

@@ -698,6 +698,8 @@ impl Ocs<'_> {
             Some(asset) => self.tinted_image_pin(j + 1, "albedo", &asset, 1.0, gloss_color),
             None => self.rgb_pin(j + 1, "albedo", gloss_color),
         }
+        // Iray's weighted gloss has no Fresnel either: its colour to the edge.
+        self.rgb_pin(j + 1, "edgeTint", gloss_color);
         self.float_pin(j + 1, "metallic", 1.0);
         self.gloss_ggx = true;
         self.brdf_pin(j + 1);
@@ -747,6 +749,7 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
         let i = indent + 1;
         let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
+        let (colour, coat) = color_effect(mat, "Top Coat Color Effect", mat.color("Top Coat Color").unwrap_or([1.0; 3]), coat);
         match mat.image("Top Coat Weight").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             Some(asset) => self.image_pin(i, "amount", &asset, true, 1.0, coat),
             None => self.float_pin(i, "amount", coat),
@@ -759,11 +762,14 @@ impl Ocs<'_> {
         let j = i + 1;
         let _ = writeln!(self.out, "{:j$}<node id='{cid}' type='130' name='{} top coat'>", "", esc(name));
         let _ = writeln!(self.out, "{:j$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
-        let colour = mat.color("Top Coat Color").unwrap_or([1.0; 3]);
         match mat.image("Top Coat Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             Some(asset) => self.tinted_image_pin(j + 1, "albedo", &asset, 1.0, colour),
             None => self.rgb_pin(j + 1, "albedo", colour),
         }
+        // A weighted layer has no Fresnel: the colour to the edge, where
+        // Octane's metal goes white (Calib-Map-TopCoat's red weighted coat:
+        // G / B 1.57 / 4.29 × Iray).
+        self.rgb_pin(j + 1, "edgeTint", colour);
         self.float_pin(j + 1, "metallic", 1.0);
         self.gloss_ggx = true;
         self.brdf_pin(j + 1);
@@ -893,7 +899,7 @@ impl Ocs<'_> {
         if coat <= 0.0 || self.in_coat_mix {
             return;
         }
-        let colour = mat.color("Top Coat Color").unwrap_or([1.0; 3]);
+        let (colour, coat) = color_effect(mat, "Top Coat Color Effect", mat.color("Top Coat Color").unwrap_or([1.0; 3]), coat);
         // A weight map (data) × the weight, as for the glossy layer:
         // Gabriela 8's face coats only where hers is light (Calib-Skin).
         match mat.image("Top Coat Weight").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
@@ -1508,7 +1514,14 @@ impl Ocs<'_> {
             match diffuse.and_then(|t| self.textures.asset(self.dirs, &t)) {
                 Some(asset) if self.has_damp_or_ao(mat) => self.damp_ao_albedo(i, mat, &asset, diffuse_weight * mix, tint),
                 Some(asset) => self.overlaid_pin(i, "albedo", mat, "diffuse", &asset, diffuse_weight * mix, tint),
-                None => self.rgb_pin(i, "albedo", [0, 1, 2].map(|k| mat.base_color()[k] * diffuse_weight * share[k])),
+                None => {
+                    let base = [0, 1, 2].map(|k| mat.base_color()[k] * diffuse_weight * share[k]);
+                    let albedo = match diffuse_overlay(mat) {
+                        Some((colour, w)) => [0, 1, 2].map(|k| base[k] * (1.0 - w) + colour[k] * w * share[k]),
+                        None => base,
+                    };
+                    self.rgb_pin(i, "albedo", albedo)
+                }
             }
         }
 
@@ -1561,6 +1574,9 @@ impl Ocs<'_> {
             // Base Mixing 1: Glossy Specular's hue tints the reflection too
             // (its strength is the IOR, `specular_ior`).
             let hue = if specular_mode { specular_hue(mat) } else { [1.0; 3] };
+            // Glossy Color Effect: the hue at the weight × the colour's
+            // average (`color_effect`).
+            let (gloss_color, weight) = color_effect(mat, "Glossy Color Effect", gloss_color, weight);
             let gloss_color = [0, 1, 2].map(|k| gloss_color[k] * hue[k]);
             // A coloured gloss map tints the reflection: the HS CB braids'
             // brown gloss rendered as a grey sheen with Universal's white
@@ -1817,6 +1833,35 @@ fn specular_ior(mat: &Material) -> f32 {
     let f0 = mat.color("Glossy Specular").map_or(0.04, max_channel).clamp(0.0, 0.95);
     let s = f0.sqrt();
     (1.0 + s) / (1.0 - s)
+}
+
+/// A layer's colour and weight under Iray's Color Effect (DAZ's MDL,
+/// `transmit_color_calc`): 0 (Scatter Only) as they are; 1 and 2 (Scatter
+/// & Transmit, … Intensity) the colour's hue at full intensity (over its
+/// strongest channel) and the weight × the colour's average — a dark
+/// colour thins the layer instead of darkening it (#27).
+fn color_effect(mat: &Material, channel: &str, colour: [f32; 3], weight: f32) -> ([f32; 3], f32) {
+    let top = max_channel(colour);
+    if mat.float(channel).unwrap_or(0.0) as i32 == 0 || top <= 1e-4 {
+        return (colour, weight);
+    }
+    (colour.map(|c| c / top), weight * (colour.iter().sum::<f32>() / 3.0))
+}
+
+/// Iray Uber's own Diffuse Overlay (flat colours; a map is left out): a
+/// second diffuse at its weight over the diffuse and translucency, which
+/// it replaces by that share (`diffuse_base` in DAZ's MDL); "Weight
+/// Squared" squares the weight (the .mi export), the Color Effect as for
+/// any layer. Missing, Calib-Map-Effect's half blue overlay over red
+/// rendered B 0.47 × Iray (#27). Returns (colour, weight).
+fn diffuse_overlay(mat: &Material) -> Option<([f32; 3], f32)> {
+    let w = mat.float("Diffuse Overlay Weight").unwrap_or(0.0).clamp(0.0, 1.0);
+    if w <= 0.0 || mat.image("Diffuse Overlay Weight").is_some() || mat.image("Diffuse Overlay Color").is_some() {
+        return None;
+    }
+    let w = if mat.float("Diffuse Overlay Weight Squared").unwrap_or(0.0) > 0.0 { w * w } else { w };
+    let (colour, w) = color_effect(mat, "Diffuse Overlay Color Effect", mat.color("Diffuse Overlay Color").unwrap_or([0.5; 3]), w);
+    Some((colour, w.clamp(0.0, 1.0)))
 }
 
 /// What Universal's albedo keeps per channel under a Base Mixing 1 gloss of

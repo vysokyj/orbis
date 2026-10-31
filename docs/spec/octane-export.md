@@ -684,6 +684,20 @@ Every material input (20007) is filled — Octane doesn't convert
   1.05 / 0.82 / 0.94), Morgan's beige gloss 1.09 → 1.03; a grey gloss
   keeps 1 (#27). 506 installed materials have Base Mixing 1 with a Glossy
   Specular above 0.06 or a map.
+- **Color Effect (Glossy, Top Coat, Diffuse Overlay) 1 / 2** → the
+  layer's colour as its hue (over the strongest channel) and its weight ×
+  the colour's average, as DAZ's MDL (`transmit_color_calc`) does; 0
+  leaves both. Weighted coats and weighted-mix gloss (Mix materials with a
+  metal) get `edgeTint` = their colour: Iray's weighted layer has no
+  Fresnel to white. **Diffuse Overlay** (flat colours) → albedo (1 − w) ×
+  base + w × overlay, w squared with "Weight Squared".
+
+  Why: Calib-Map-Effect's blue overlay spheres had B 0.47 × Iray, now
+  1.12 / 1.08; its red gloss with effect 1 / 2 B 1.75 / 1.67 → 1.43 /
+  1.24; Calib-CoatEffect's red gloss with effect R 1.19 → 1.05;
+  Calib-Map-TopCoat's red weighted coat B 4.29 → 1.81, its Fresnel coat
+  with effect 1 1.09 / 1.09 / 1.16. An overlay with maps is still left
+  out (#27).
 - **Refraction** (glass, water) → `transmission` = Refraction Weight ×
   the refraction's colour, IOR on `ior` (Dielectric IOR — Universal has no
   `index4`, probe 82; `ior` 2.0 brightened Calib-Materials' gloss 1.08 →
