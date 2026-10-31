@@ -151,10 +151,17 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
         let map = image(node).or_else(|| def.as_ref().and_then(image)).filter(|m| !m.is_empty() && !m.starts_with('#'));
         let num = |k: &str| ch.get(k).and_then(Value::as_f64);
         let steered = sun_direction_node(lib, node, def.as_ref(), &nodes);
+        // What DAZ hands Iray (`crate::iray::environment`, verified against
+        // its .mi export).
+        let iray = crate::iray::environment(&ch);
+        let dome = match iray {
+            crate::iray::Environment::Dome { intensity } => intensity / crate::iray::DOME_INTENSITY_SCALE,
+            _ => num("Environment Intensity").unwrap_or(1.0) * num("Environment Map").unwrap_or(1.0),
+        };
         return Some(SceneEnvironment {
             map,
             // Intensity × the map channel's own value.
-            intensity: num("Environment Intensity").unwrap_or(1.0) * num("Environment Map").unwrap_or(1.0),
+            intensity: dome,
             rotation_deg: num("Dome Rotation").unwrap_or(0.0),
             orientation_deg: ["X", "Y", "Z"].map(|a| num(&format!("Dome Orientation {a}")).unwrap_or(0.0)),
             scene_only: num("Environment Mode") == Some(3.0),
@@ -163,9 +170,8 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
             ground_origin_y: (num("Ground Position Mode") == Some(1.0)).then(|| num("Ground Origin Y").unwrap_or(0.0)),
             draw_dome: ch.get("Draw Dome").and_then(Value::as_bool).unwrap_or(true),
             scene_lights: !matches!(num("Environment Mode").map(|m| m as i64), Some(1 | 2)),
-            sun_sky: (num("Environment Mode") == Some(2.0)).then(|| {
-                let ground = ch.get("SS Ground Color").and_then(Value::as_array);
-                SunSky {
+            sun_sky: match &iray {
+                crate::iray::Environment::SunSky { args, ground_color } => Some(SunSky {
                     sun_dir: steered.unwrap_or_else(|| {
                         sun_direction(
                             num("SS Latitude").unwrap_or(40.76426),
@@ -175,16 +181,15 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
                             num("SS UTC Offset").unwrap_or(-6.0),
                         )
                     }),
-                    turbidity: (2.0 + 2.0 * num("SS Haze").unwrap_or(0.0)).clamp(2.0, 10.0),
-                    power: SUN_SKY_POWER * num("SS Multiplier").unwrap_or(0.10132) / 0.10132 * haze_dimming(num("SS Haze").unwrap_or(0.0)),
-                    sun_intensity: SUN_SKY_SUN_SHARE * num("SS Sun Disk Intensity").unwrap_or(1.0),
-                    sun_size: num("SS Sun Disk Scale").unwrap_or(4.0) / 4.0,
+                    turbidity: (2.0 + 2.0 * args["haze"]).clamp(2.0, 10.0),
+                    power: SUN_SKY_POWER * args["multiplier"] / 0.10132 * haze_dimming(args["haze"]),
+                    sun_intensity: SUN_SKY_SUN_SHARE * args["sun_disk_intensity"],
+                    sun_size: args["sun_disk_scale"] / 4.0,
                     model: 3,
-                    ground: [0, 1, 2].map(|i| {
-                        f64::from(crate::daz_material::colour_to_linear(ground.and_then(|g| g.get(i)).and_then(Value::as_f64).unwrap_or(0.4) as f32))
-                    }),
-                }
-            }),
+                    ground: *ground_color,
+                }),
+                _ => None,
+            },
         });
     }
     None
@@ -305,32 +310,26 @@ pub(super) fn scene_tone_mapping(lib: &mut Library) -> ToneMapping {
         if ch.get("Tone Mapping Enable").and_then(Value::as_bool) == Some(false) {
             return ToneMapping::default();
         }
-        let num = |k: &str, d: f64| ch.get(k).and_then(Value::as_f64).unwrap_or(d);
-        let scale = num("White Point Scale", 1.0);
-        let wp = ch.get("White Point").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect::<Vec<_>>());
-        let white_point = match wp.as_deref() {
-            Some(&[r, g, b]) => [r * scale, g * scale, b * scale],
-            _ => [scale; 3],
-        };
+        // What DAZ hands Iray (`crate::iray::tone`, verified against its
+        // .mi export).
+        let iray = crate::iray::tone(&ch);
+        let p = |k: &str| iray[k];
         // Iray exposes by the camera's shutter, f-number and ISO (∝ ISO /
-        // (N² · S)); DAZ's "Exposure Value" is derived from them for show,
-        // and only in a saved scene is it sure to agree. Stated as the EV
-        // that gives the same exposure at ISO 100.
-        let physical = match (ch.get("Shutter Speed"), ch.get("Aperture"), ch.get("Film ISO")) {
-            (Some(s), Some(n), Some(iso)) => match (s.as_f64(), n.as_f64(), iso.as_f64()) {
-                (Some(s), Some(n), Some(iso)) if s > 0.0 && n > 0.0 && iso > 0.0 => Some((n * n * s).log2() - (iso / 100.0).log2()),
-                _ => None,
-            },
-            _ => None,
-        };
+        // (N² · S)), not by DAZ's "Exposure Value", which is derived from
+        // them for show. Stated as the EV that gives the same exposure at
+        // ISO 100.
+        let (s, n, iso) = (p("mip_camera_shutter"), p("mip_f_number"), p("mip_film_iso"));
+        // A scene without those channels (hand-made) keeps its EV.
+        let saved = ["Shutter Speed", "Aperture", "Film ISO"].iter().all(|k| ch.contains_key(*k));
+        let physical = (saved && s > 0.0 && n > 0.0 && iso > 0.0).then(|| (n * n * s).log2() - (iso / 100.0).log2());
         return ToneMapping {
-            exposure_value: physical.unwrap_or_else(|| num("Exposure Value", 13.0)),
-            cm2_factor: num("cm2 Factor", 1.0),
-            white_point,
-            burn_highlights: num("Burn Highlights", 1.0),
-            crush_blacks: num("Crush Blacks", 0.0),
-            saturation: num("Saturation", 1.0),
-            gamma: num("Gamma", 2.2),
+            exposure_value: physical.unwrap_or_else(|| ch.get("Exposure Value").and_then(Value::as_f64).unwrap_or(13.0)),
+            cm2_factor: p("mip_cm2_factor"),
+            white_point: crate::iray::white_point(&ch),
+            burn_highlights: p("mip_burn_highlights"),
+            crush_blacks: p("mip_crush_blacks"),
+            saturation: p("mip_saturation"),
+            gamma: p("mip_gamma"),
         };
     }
     ToneMapping::default()

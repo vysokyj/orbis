@@ -583,6 +583,124 @@ pub fn is_uber(mat: &Material) -> bool {
     mat.mdl.is_empty() && mat.channels.contains_key("Base Mixing") && !mat.channels.contains_key("Dual Lobe Specular Enable")
 }
 
+type NodeChannels = std::collections::HashMap<String, Value>;
+
+fn ch_num(ch: &NodeChannels, k: &str, d: f64) -> f64 {
+    ch.get(k).and_then(Value::as_f64).unwrap_or(d)
+}
+
+fn ch_bool(ch: &NodeChannels, k: &str, d: bool) -> bool {
+    ch.get(k).and_then(Value::as_bool).unwrap_or(d)
+}
+
+/// A DAZ colour channel, linear.
+fn ch_colour(ch: &NodeChannels, k: &str, d: [f64; 3]) -> [f64; 3] {
+    ch.get(k).and_then(Value::as_array).map_or(d, |a| [0, 1, 2].map(|i| a.get(i).and_then(Value::as_f64).unwrap_or(0.0).max(0.0).powf(COLOUR_GAMMA as f64)))
+}
+
+/// What DAZ hands Iray's camera, in cm.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Camera {
+    /// Focal length.
+    pub focal: f64,
+    /// The film's width: DAZ fits Frame Width (mm) to the image's
+    /// *height*, so the width is it × the aspect.
+    pub aperture: f64,
+    pub clip: [f64; 2],
+    /// Lens radius: focal length (mm) / (2 · f-stop) — in cm, 10× a real
+    /// lens's; 0 without DOF.
+    pub lens_radius: f64,
+    /// Focus distance; 0 without DOF.
+    pub lens_focus: f64,
+}
+
+/// The camera from its channels (definition overlaid by the node's) and
+/// the render size.
+pub fn camera(ch: &NodeChannels, (w, h): (u32, u32)) -> Camera {
+    let focal_mm = ch_num(ch, "Focal Length", 65.0);
+    let frame_mm = ch.get("Frame Width").and_then(Value::as_f64).filter(|f| *f > 0.0).unwrap_or(36.0);
+    let dof = ch_bool(ch, "DOF", false);
+    Camera {
+        focal: focal_mm / 10.0,
+        aperture: frame_mm / 10.0 * w as f64 / h.max(1) as f64,
+        clip: [ch_num(ch, "Near Clip", 5.0), ch_num(ch, "Far Clip", 4000.0)],
+        // DAZ spells the f-stop channel "Aperature".
+        lens_radius: if dof { focal_mm / (2.0 * ch_num(ch, "Aperature", 22.0).max(0.1)) } else { 0.0 },
+        lens_focus: if dof { ch_num(ch, "Depth of Field", 300.0) } else { 0.0 },
+    }
+}
+
+/// Iray's photographic tone mapping as DAZ passes it (`mip_*` on the
+/// camera), from the Tonemapper Options channels: all as they are — the
+/// exposure is Shutter Speed, Aperture (f-number) and Film ISO, not the
+/// Exposure Value DAZ shows; the white point × its scale.
+pub fn tone(ch: &NodeChannels) -> BTreeMap<&'static str, f64> {
+    let mut out = BTreeMap::new();
+    for (param, channel, default) in [
+        ("mip_film_iso", "Film ISO", 100.0),
+        ("mip_camera_shutter", "Shutter Speed", 128.0),
+        ("mip_f_number", "Aperture", 8.0),
+        ("mip_cm2_factor", "cm2 Factor", 1.0),
+        ("mip_burn_highlights", "Burn Highlights", 1.0),
+        ("mip_crush_blacks", "Crush Blacks", 0.0),
+        ("mip_saturation", "Saturation", 1.0),
+        ("mip_gamma", "Gamma", 2.2),
+        ("mip_vignetting", "Vignetting", 0.0),
+    ] {
+        out.insert(param, ch_num(ch, channel, default));
+    }
+    out
+}
+
+/// The white point Iray tone-maps to (`mip_whitepoint`): White Point ×
+/// White Point Scale, as entered (not linearised).
+pub fn white_point(ch: &NodeChannels) -> [f64; 3] {
+    let scale = ch_num(ch, "White Point Scale", 1.0);
+    let wp = ch.get("White Point").and_then(Value::as_array);
+    [0, 1, 2].map(|i| wp.and_then(|a| a.get(i)).and_then(Value::as_f64).unwrap_or(1.0) * scale)
+}
+
+/// Iray's environment as DAZ sets it up, from the Environment Options
+/// channels.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Environment {
+    /// Environment Mode 3 (Scene Only): none.
+    None,
+    /// An HDRI dome (modes 0 / 1): `environment_function_intensity` =
+    /// Environment Intensity × the map channel's value × 10 000.
+    Dome { intensity: f64 },
+    /// `base::sun_and_sky` (mode 2), its arguments. The sun's direction
+    /// isn't here: DAZ passes the position of the node `SS Sun Direction`
+    /// names (unnormalised, Calib-L-Mode-SunSky-dir), else the sun's place
+    /// for SS Latitude / Longitude / Day / Time — `usd::sun_direction`
+    /// (tested against it).
+    SunSky { args: BTreeMap<&'static str, f64>, ground_color: [f64; 3] },
+}
+
+/// Iray's dome brightness per unit of DAZ's Environment Intensity × map value.
+pub const DOME_INTENSITY_SCALE: f64 = 10_000.0;
+
+pub fn environment(ch: &NodeChannels) -> Environment {
+    match ch_num(ch, "Environment Mode", 0.0) as i32 {
+        3 => Environment::None,
+        2 => {
+            let mut args = BTreeMap::new();
+            for (param, channel, default) in [
+                ("multiplier", "SS Multiplier", 0.10132),
+                ("haze", "SS Haze", 0.0),
+                ("sun_disk_intensity", "SS Sun Disk Intensity", 1.0),
+                ("sun_disk_scale", "SS Sun Disk Scale", 4.0),
+                ("saturation", "SS Saturation", 1.0),
+                ("horizon_height", "SS Horizon Height", 0.0),
+            ] {
+                args.insert(param, ch_num(ch, channel, default));
+            }
+            Environment::SunSky { args, ground_color: ch_colour(ch, "SS Ground Color", [0.4f64.powf(2.2); 3]) }
+        }
+        _ => Environment::Dome { intensity: ch_num(ch, "Environment Intensity", 1.0) * ch_num(ch, "Environment Map", 1.0) * DOME_INTENSITY_SCALE },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Every rule against DAZ's own `.mi` export of the calibration scenes.
@@ -785,5 +903,110 @@ mod tests {
         }
         wrong.sort();
         assert!(checked > 0 && wrong.is_empty(), "{} of {checked} light values differ from DAZ's .mi:\n{}", wrong.len(), wrong.join("\n"));
+    }
+
+    /// A scene's nodes as (definition, node, channels: definition overlaid
+    /// by the node's).
+    fn scene_nodes(duf: &Path) -> (Value, Vec<(Value, Value, HashMap<String, Value>)>) {
+        let doc: Value = serde_json::from_str(&crate::dson::decompress_scene(&std::fs::read(duf).unwrap()).unwrap()).unwrap();
+        let lib: HashMap<String, Value> = doc["node_library"].as_array().into_iter().flatten().filter_map(|m| Some((m["id"].as_str()?.to_string(), m.clone()))).collect();
+        let channels = |n: &Value, out: &mut HashMap<String, Value>| {
+            for e in n["extra"].as_array().into_iter().flatten() {
+                for c in e["channels"].as_array().into_iter().flatten() {
+                    if let (Some(id), Some(v)) = (c["channel"]["id"].as_str(), c["channel"].get("current_value").or(c["channel"].get("value"))) {
+                        out.insert(id.to_string(), v.clone());
+                    }
+                }
+            }
+        };
+        let mut out = Vec::new();
+        for n in doc.pointer("/scene/nodes").and_then(Value::as_array).into_iter().flatten() {
+            let def = n["url"].as_str().and_then(|u| lib.get(&crate::dson::percent_decode(u.rsplit('#').next().unwrap_or("")))).cloned().unwrap_or(Value::Null);
+            let mut ch = HashMap::new();
+            channels(&def, &mut ch);
+            channels(n, &mut ch);
+            out.push((def, n.clone(), ch));
+        }
+        (doc, out)
+    }
+
+    fn by_id<'a>(nodes: &'a [(Value, Value, HashMap<String, Value>)], prefix: &str) -> Option<&'a HashMap<String, Value>> {
+        nodes.iter().find(|(d, n, _)| [d, n].iter().any(|v| v["id"].as_str().is_some_and(|i| i.starts_with(prefix)))).map(|(_, _, c)| c)
+    }
+
+    #[test]
+    fn camera_tone_and_environment_match_daz_mi_export() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let near = |a: f64, b: f64| (a - b).abs() <= 1e-4 * (1.0 + a.abs().max(b.abs()));
+        let num = |v: &Value| v.as_f64().unwrap_or(f64::NAN);
+        let (mut checked, mut wrong) = (0, Vec::new());
+        let mut check = |what: String, daz: f64, ours: f64| {
+            checked += 1;
+            if !near(daz, ours) {
+                wrong.push(format!("{what}: DAZ {daz}, ours {ours}"));
+            }
+        };
+        for f in std::fs::read_dir(root.join("calib/references/mi")).unwrap() {
+            let f = f.unwrap().path();
+            let scene = f.file_stem().unwrap().to_string_lossy().to_string();
+            let mi: Value = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();
+            let (doc, nodes) = scene_nodes(&root.join(format!("calib/scenes/{scene}.duf")));
+            let size = crate::usd::render_size(&doc);
+
+            // The one camera DAZ exports (every calibration scene has one).
+            let cams: Vec<_> = nodes.iter().filter(|(d, _, _)| d["type"] == "camera").collect();
+            if let [(_, _, ch)] = cams.as_slice() {
+                let c = camera(ch, size);
+                let m = &mi["camera"];
+                check(format!("{scene} focal"), num(&m["focal"]), c.focal);
+                check(format!("{scene} aperture"), num(&m["aperture"]), c.aperture);
+                check(format!("{scene} clip near"), num(&m["clip"][0]), c.clip[0]);
+                check(format!("{scene} clip far"), num(&m["clip"][1]), c.clip[1]);
+                check(format!("{scene} lens radius"), num(&m["mip_lens_radius"]), c.lens_radius);
+                check(format!("{scene} lens focus"), num(&m["mip_lens_focus"]), c.lens_focus);
+                check(format!("{scene} resolution"), num(&m["resolution"][0]), size.0 as f64);
+            }
+            if let Some(ch) = by_id(&nodes, "Tonemapper Options") {
+                for (param, v) in tone(ch) {
+                    check(format!("{scene} {param}"), num(&mi["camera"][param]), v);
+                }
+                let wp = white_point(ch);
+                for i in 0..3 {
+                    check(format!("{scene} whitepoint {i}"), num(&mi["camera"]["mip_whitepoint"][i]), wp[i]);
+                }
+            }
+            if let Some(ch) = by_id(&nodes, "Environment Options") {
+                let env = &mi["environment"];
+                match environment(ch) {
+                    Environment::None => check(format!("{scene} no environment"), 1.0, f64::from(u8::from(env.is_null()))),
+                    Environment::Dome { intensity } => {
+                        check(format!("{scene} dome"), 1.0, f64::from(u8::from(env["mdl"].as_str().is_some_and(|m| m.starts_with("base::environment_spherical")))));
+                        check(format!("{scene} dome intensity"), num(&mi["options"]["environment_function_intensity"]), intensity);
+                    }
+                    Environment::SunSky { args, ground_color } => {
+                        for (param, v) in args {
+                            check(format!("{scene} sun-sky {param}"), env["args"].get(param).map_or(f64::NAN, num), v);
+                        }
+                        for i in 0..3 {
+                            check(format!("{scene} sun-sky ground {i}"), num(&env["args"]["ground_color"][i]), ground_color[i]);
+                        }
+                        // The export's own solar position; a steering node's
+                        // position comes through unnormalised.
+                        let theirs: Vec<f64> = (0..3).map(|i| num(&env["args"]["sun_direction"][i])).collect();
+                        if (theirs.iter().map(|x| x * x).sum::<f64>().sqrt() - 1.0).abs() < 1e-3 {
+                            let n = |k: &str, d: f64| ch_num(ch, k, d);
+                            let ours = crate::usd::sun_direction(n("SS Latitude", 0.0), n("SS Longitude", 0.0), n("SS Day", 0.0), n("SS Time", 0.0), n("SS UTC Offset", 0.0));
+                            let len = theirs.iter().map(|x| x * x).sum::<f64>().sqrt();
+                            let angle = ((0..3).map(|i| ours[i] * theirs[i]).sum::<f64>() / len).clamp(-1.0, 1.0).acos().to_degrees();
+                            // Within 0.1°.
+                            check(format!("{scene} sun direction off by (°)"), 0.0, if angle < 0.1 { 0.0 } else { angle });
+                        }
+                        check(format!("{scene} sun-sky intensity"), num(&mi["options"]["environment_function_intensity"]), 1.0);
+                    }
+                }
+            }
+        }
+        wrong.sort();
+        assert!(checked > 0 && wrong.is_empty(), "{} of {checked} values differ from DAZ's .mi:\n{}", wrong.len(), wrong.join("\n"));
     }
 }

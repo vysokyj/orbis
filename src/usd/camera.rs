@@ -135,42 +135,38 @@ pub(super) fn camera_from_node(lib: &Library, node: &Value, def: Option<&Value>)
     let pos = t.map(|v| v * CM as f64);
     let mut def_channels = def.as_ref().map(node_channels).unwrap_or_default();
     def_channels.extend(node_channels(&node));
-    let focal_mm = def_channels
-        .get("Focal Length")
-        .and_then(Value::as_f64)
-        .or_else(|| persp.get("focal_length").and_then(Value::as_f64))
-        .unwrap_or(65.0);
     // The camera's channels rule (DAZ renders by them); `perspective`
-    // mirrors them in a saved scene.
-    let num = |ch: &str, key: &str, default: f64| {
-        def_channels.get(ch).and_then(Value::as_f64).or_else(|| persp.get(key).and_then(Value::as_f64)).unwrap_or(default)
-    };
-    let focal_depth = num("Depth of Field", "focal_distance", 300.0) * CM as f64;
+    // mirrors them in a saved scene and stands in for a missing one.
+    for (ch, key) in [("Focal Length", "focal_length"), ("Depth of Field", "focal_distance"), ("DOF", "depth_of_field"), ("Aperature", "fstop")] {
+        if !def_channels.contains_key(ch) {
+            if let Some(v) = persp.get(key) {
+                def_channels.insert(ch.to_string(), v.clone());
+            }
+        }
+    }
+    // What DAZ hands Iray (`crate::iray::camera`, verified against its .mi
+    // export): focal length and film width in cm, lens radius, focus.
+    let iray = crate::iray::camera(&def_channels, render_size(&lib.duf));
+    let focal_depth = def_channels.get("Depth of Field").and_then(Value::as_f64).unwrap_or(300.0) * CM as f64;
     let fwd = mat_vec(&rot, [0.0, 0.0, -1.0]);
-    let dof = def_channels.get("DOF").and_then(Value::as_bool).or_else(|| persp.get("depth_of_field").and_then(Value::as_bool)).unwrap_or(false);
-    // DAZ spells the f-stop channel "Aperature".
-    let fstop = num("Aperature", "fstop", 22.0).max(0.1);
     Some(SceneCamera {
         pos,
         target: [0, 1, 2].map(|i| pos[i] + fwd[i] * focal_depth),
         up: mat_vec(&rot, [0.0, 1.0, 0.0]),
-        fov_deg: horizontal_fov(&def_channels, focal_mm, render_size(&lib.duf)),
+        fov_deg: horizontal_fov(&iray),
         focal_depth,
-        // Iray's aperture radius is focal length (mm) / (2 · f-number) taken
+        // Iray's lens radius is focal length (mm) / (2 · f-number) taken
         // as cm — 10× a real lens's: Gladiator's 65 mm f/6 blurs a trunk at
         // 5.3 m by ~15–20 px (15 px predicted, 1.5 px for a real lens).
-        aperture_cm: if dof { focal_mm / (2.0 * fstop) } else { 0.0 },
+        aperture_cm: iray.lens_radius,
     })
 }
 
-/// Octane's (horizontal) field of view for a DAZ camera. DAZ fits its frame
-/// width (36 mm by default) to the image's *vertical* extent — the DSON
-/// `yfov` — so a landscape render sees wider: tan(h/2) = tan(v/2) · aspect.
-pub(super) fn horizontal_fov(channels: &HashMap<String, Value>, focal_mm: f64, (w, h): (u32, u32)) -> f64 {
-    let frame = channels.get("Frame Width").and_then(Value::as_f64).filter(|f| *f > 0.0).unwrap_or(FRAME_WIDTH_MM);
-    let half_v = (frame / 2.0 / focal_mm.max(0.1)).atan();
-    let aspect = w as f64 / h.max(1) as f64;
-    2.0 * (half_v.tan() * aspect).atan().to_degrees()
+/// Octane's (horizontal) field of view for the camera Iray gets: its film
+/// width (DAZ's Frame Width fitted to the image's *height*, × the aspect)
+/// over the focal length.
+pub(super) fn horizontal_fov(c: &crate::iray::Camera) -> f64 {
+    2.0 * (c.aperture / 2.0 / c.focal.max(0.01)).atan().to_degrees()
 }
 
 /// A front view (from +Z) that fits every mesh, for scenes without a camera.
@@ -200,7 +196,7 @@ pub(super) fn framing_camera(meshes: &[Mesh]) -> SceneCamera {
 }
 
 /// Render size from DAZ's render settings, else 1920×1080.
-pub(super) fn render_size(duf: &Value) -> (u32, u32) {
+pub(crate) fn render_size(duf: &Value) -> (u32, u32) {
     duf.pointer("/scene/extra")
         .and_then(Value::as_array)
         .into_iter()

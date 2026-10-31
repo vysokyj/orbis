@@ -62,6 +62,18 @@ Found beyond it:
   sphere sizes in cm. The camera headlamp is a 7 × 3.5 cm rect,
   `emission_color` 0.604, ~1.7 Mlm that varies between scenes — not
   verified yet.
+- **Camera** (`iray::camera`): focal length and film width in cm, the
+  width = Frame Width (fitted to the image's height) × aspect; lens radius
+  focal (mm) / (2 · f-stop) when DOF is on, the focus distance as is.
+- **Tone mapping** (`iray::tone`): Film ISO, Shutter Speed, Aperture,
+  burn, crush, gamma, saturation, vignetting, cm² factor as they are
+  (Exposure Value isn't passed); white point × its scale.
+- **Environment** (`iray::environment`): an HDRI dome at Environment
+  Intensity × Environment Map × 10 000; Scene Only none; sun-sky's
+  multiplier, haze, disk intensity / scale, saturation, horizon as they
+  are, ground colour linear. The sun's direction: a steering node's
+  position as is, else the solar position — ours (`usd::sun_direction`)
+  within 0.1° of DAZ's.
 - **Emission:** Luminance in cd/m² as `emission_flux` (radiant exitance),
   in lm as a power, in W × Luminous Efficacy as a power; temperature and
   `emission_scene_unit_size` 1 once the colour is non-black.
