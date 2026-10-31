@@ -19,6 +19,7 @@ python3 scripts/dev/fetch-octane-docs.py docs/octane/manual <cache dir>   # Octa
 python3 scripts/dev/fetch-nvidia-docs.py   # NVIDIA Iray / MDL docs mirror → docs/nvidia (git-ignored; needs pypdf)
 DONE_FILE=<out dir>/export-mi.done scripts/dev/daz-script.sh $PWD/scripts/dev/daz-export-mi.dsa <out dir> <scene.duf>... --   # scenes → Iray .mi (MDL arguments DAZ passes)
 python3 scripts/dev/mi-args.py [--param <regex>] <scene.mi>...   # those arguments per material (Calib-Map-* scenes sweep the channels)
+python3 scripts/dev/highlight-spread.py [--vs <iray.png>] <render.png>...   # per-sphere highlight spread (p99 / median) and luminance vs Iray (#56)
 scripts/dev/daz-render.sh <scene.duf> <out.png> [secs] [samples]   # unattended capped Iray render (one DAZ instance that stays open; --stop quits it)
 scripts/dev/octane-run.sh <probe.lua> [scene.orbx]   # unattended Octane X Lua probe (starts Octane X, leaves it running; QUIT_OCTANE=1 quits)
 scripts/dev/octane-render.sh <out dir> [samples] <scene.orbx>...   # unattended Octane renders of exports, as exported
