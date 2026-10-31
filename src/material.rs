@@ -2758,10 +2758,10 @@ mod tests {
         // chosen; every image node says so.
         assert_eq!(sx.matches("<attr name='initialColorSpaceSelected' type='1'>1</attr>").count(), sx.matches("<attr name='filename'").count());
         // OpenPBR on mono SSS with Base Color Effect 1 (this one): radius the distance, scale the
-        // colour; the tint lifted by 1 / (1 − 0.46 · 0.5).
+        // colour; the tint lifted by 1.3 (`openpbr_skin_lift` at w 0.5).
         let (mx, _) = material_inputs(&[("Torso".into(), sss.clone(), 1.0)], &dirs, HashMap::new(), 8050, SkinShader::OpenPbr);
         assert!(mx.contains("type='505' name='Torso'"), "{mx}");
-        assert!(mx.contains("<attr name='value' type='8'>0.649351 0.519481 0.402597</attr>"), "lifted tint: {mx}");
+        assert!(mx.contains("<attr name='value' type='8'>0.65 0.52 0.403</attr>"), "lifted tint: {mx}");
         // On chromatic SSS: the colour baked per texel (`skin_albedo`), the
         // same for base and subsurface; the diffuse map's detail mask as the
         // subsurface weight; a gloss. A readable diffuse map to bake from.
