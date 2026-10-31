@@ -1022,6 +1022,23 @@ impl Ocs<'_> {
         self.pin_close(indent);
     }
 
+    /// A scattering medium (59; probe 105) on `medium`: absorption and
+    /// scattering coefficients (1/m per channel) as colours × one `scale`.
+    /// The phase stays isotropic (SSS Direction isn't mapped).
+    fn scattering_pin(&mut self, indent: usize, sigma_a: [f32; 3], sigma_s: [f32; 3]) {
+        let scale = sigma_a.iter().chain(&sigma_s).copied().fold(0.0f32, f32::max).max(1e-6);
+        let id = self.id();
+        self.pin_open(indent, "medium");
+        let i = indent + 1;
+        let _ = writeln!(self.out, "{:i$}<node id='{id}' type='59'>", "");
+        self.value_pin(i + 1, "scale", 6, 9, &format!("{} 0 0 0", num(scale)));
+        self.rgb_pin(i + 1, "absorption", sigma_a.map(|s| s / scale));
+        self.value_pin(i + 1, "invertAbsorption", 11, 1, "0");
+        self.rgb_pin(i + 1, "scattering", sigma_s.map(|s| s / scale));
+        let _ = writeln!(self.out, "{:i$}</node>", "");
+        self.pin_close(indent);
+    }
+
     fn float_pin(&mut self, indent: usize, pin: &str, v: f32) {
         self.value_pin(indent, pin, 31, 6, &num(v));
     }
@@ -1826,6 +1843,8 @@ impl Ocs<'_> {
                 // Thin Wall (2): no bending — Iray's thin-walled glass sphere
                 // showed the background straight through (Calib-Glass).
                 self.value_pin(i, "transmissionType", 57, 2, "2");
+            } else if let Some(sigma_s) = scattering(mat) {
+                self.scattering_pin(i, absorption(mat).unwrap_or([0.0; 3]), sigma_s);
             } else if let Some(sigma) = absorption(mat) {
                 self.absorption_pin(i, sigma);
             }
@@ -2177,6 +2196,32 @@ fn absorption(mat: &Material) -> Option<[f32; 3]> {
     let (lo, hi) = colour.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &c| (lo.min(c), hi.max(c)));
     (distance_m > 0.0 && hi > 0.0 && lo < 1.0).then(|| colour.map(|c| -c.clamp(1e-4, 1.0).ln() / distance_m))
 }
+
+/// Iray's volume scattering coefficient per channel (1/m), as DAZ passes
+/// it (`add_uber_volume`, the .mi export): chromatic (`SSS Mode` 1) −ln(SSS
+/// Color) / `Scattering Measurement Distance`, else `SSS Amount` / that
+/// distance (cm; SSS Amount as is), × `REFRACTIVE_SCATTERING_SCALE`. None
+/// without SSS. Missing on a refractive volume, Calib-Map-Misc's (SSS
+/// Amount 0.3 at 0.5 cm under a blue-grey absorption) rendered 0.67 ×
+/// Iray; at the full σs 1.47, × 0.5 / 0.25 / 0.1 1.14 / 0.93 / 0.79 (#28).
+fn scattering(mat: &Material) -> Option<[f32; 3]> {
+    let amount = mat.float("SSS Amount")?;
+    let distance_m = mat.float("Scattering Measurement Distance").unwrap_or(0.0) * CM_PER_M_INV;
+    if distance_m <= 0.0 {
+        return None;
+    }
+    let sigma = if mat.float("SSS Mode").unwrap_or(0.0) as i32 == 1 {
+        mat.color("SSS Color")?.map(|c| -c.clamp(1e-4, 1.0).ln() / distance_m)
+    } else {
+        [amount.max(0.0) / distance_m; 3]
+    };
+    let sigma = sigma.map(|x| x * REFRACTIVE_SCATTERING_SCALE);
+    sigma.iter().any(|s| *s > 0.0).then_some(sigma)
+}
+
+/// See `scattering`: one sphere's fit — Octane's medium behind a
+/// refractive surface scatters more light back out than Iray's.
+const REFRACTIVE_SCATTERING_SCALE: f32 = 0.3;
 
 /// A figure's eye surface by its material name (Genesis 3 / 8 / 9: Irises,
 /// Pupils, Sclera; Cornea and EyeMoisture are refractive anyway).

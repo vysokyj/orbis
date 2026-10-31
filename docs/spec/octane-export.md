@@ -726,6 +726,14 @@ Every material input (20007) is filled — Octane doesn't convert
   another place on the floor (a mirror lobe sees the HDRI where the retro
   lobe doesn't); Calib-Map-Misc's unshared smooth lobe 1.89 → 0.99, its
   shared one 1.16 → 1.54 (#29).
+- **Scattering in a refractive volume** (SSS Amount / SSS Color with
+  refraction, not thin-walled) → a scattering medium (59) with Iray's σa
+  and σs (as DAZ passes them: −ln(SSS Color) / d chromatic, SSS Amount /
+  d mono, d in m) × 0.3 for σs; the phase stays isotropic. Why: missing,
+  Calib-Map-Misc's milky sphere rendered 0.67 × Iray, at the full σs
+  1.47, × 0.3 ~1.0 — one sphere's fit (#28). Translucent props keep
+  `volume_factor`; SSS Reflectance Tint isn't passed to Iray by DAZ at
+  all (the .mi export), so it has nothing to map.
 - **Refraction** (glass, water) → `transmission` = Refraction Weight ×
   the refraction's colour, IOR on `ior` (Dielectric IOR — Universal has no
   `index4`, probe 82; `ior` 2.0 brightened Calib-Materials' gloss 1.08 →

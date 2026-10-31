@@ -220,3 +220,19 @@ white (Share Glossy Inputs on → Glossy Color). Tries:
    (luminance), Map-Misc X1 / X2 1.54 / 0.99. Kept. The 2.01 is a sphere
    whose Iray arguments equal its neighbour's (1.04): the mirror's view of
    the HDRI differs there.
+
+## #28: volumes on props and in refraction
+
+- Calib-SSSColor with today's export: compare-all 0.83 – 1.34 (V1 – V8),
+  whole-sphere means 0.71 – 0.82 — Iray's translucent spheres glow at the
+  rim where Octane's don't; PROP_VOLUME_LEVEL 0.76 lifted both (0.88 –
+  1.54 / 0.78 – 0.92), so 0.7 stays. Calib-SSS 0.93 – 1.05.
+- The .mi: SSS Reflectance Tint is never passed (V7's arguments equal
+  V1's); chromatic SSS Color goes linear as `sub_surface_scattering_amount`
+  with `logarithmic_scatter_enable`, mono SSS Amount (clamped to 1 in
+  V5's case) as is.
+- Refraction with SSS (Map-Misc X7) had only an absorption medium: 0.67.
+  Octane's scattering medium (59; probe 105: scale, absorption,
+  invertAbsorption, scattering, phase) at Iray's σs: 1.47; σs × 0.5 /
+  0.25 / 0.1: 1.14 / 0.93 / 0.79. Kept 0.3, a one-sphere fit. Calib-Glass
+  and Calib-Dispersion have no SSS and don't change.
