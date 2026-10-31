@@ -342,6 +342,82 @@ impl Channels<'_> {
     }
 }
 
+/// A DAZ light's kind, from its node definition (`spot`, `directional`,
+/// else a point light whose Light Geometry may make it an area light).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum LightKind {
+    Point,
+    Spot,
+    Distant,
+}
+
+/// The emitter shape DAZ gives Iray, in the light's own space (cm).
+#[derive(Debug, Clone, PartialEq)]
+pub enum LightShape {
+    /// At the origin.
+    Point,
+    /// Along −Z.
+    Distant,
+    Rectangle { width: f32, height: f32 },
+    Disc { radius: f32 },
+    Sphere { radius: f32 },
+}
+
+/// What DAZ hands Iray for a scene light: the MDL light material, its
+/// arguments, and the emitter shape.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Light {
+    pub mdl: &'static str,
+    pub args: BTreeMap<&'static str, Arg>,
+    pub shape: LightShape,
+}
+
+/// Flux of a non-photometric DAZ light per unit of Intensity, lumens:
+/// 1000 π, whatever its Intensity Scale (Calib-L-Point-legacy: 3141.59 at
+/// Intensity 1, 6283.19 at 2).
+pub const LEGACY_LUMENS: f32 = 1000.0 * std::f32::consts::PI;
+
+/// A scene light (not the camera headlamp) from its channels (definition
+/// overlaid by the scene node's).
+pub fn light(kind: LightKind, channels: &std::collections::HashMap<String, Value>) -> Light {
+    let num = |k: &str, d: f32| channels.get(k).and_then(Value::as_f64).map_or(d, |v| v as f32);
+    let flag = |k: &str, d: bool| channels.get(k).and_then(Value::as_bool).unwrap_or(d);
+    let photometric = flag("Photometric Mode", false);
+    let mut args = BTreeMap::new();
+    args.insert("flux", Arg::Float(if photometric { num("Flux", 1500.0) } else { LEGACY_LUMENS * num("Intensity", 1.0) }));
+    // A non-photometric light has no colour temperature.
+    args.insert("temperature", Arg::Float(if photometric { num("Temperature", 6500.0) } else { 0.0 }));
+    args.insert("scene_unit_size", Arg::Float(1.0));
+    let colour = channels.get("Color").and_then(Value::as_array).map_or([1.0; 3], |a| {
+        [0, 1, 2].map(|i| (a.get(i).and_then(Value::as_f64).unwrap_or(1.0) as f32).max(0.0).powf(COLOUR_GAMMA))
+    });
+    args.insert("emission_color", Arg::Color(colour));
+    let cm = |k: &str| num(k, 10.0);
+    let shape = match kind {
+        LightKind::Distant => LightShape::Distant,
+        LightKind::Spot => LightShape::Point,
+        LightKind::Point => match num("Light Geometry", 0.0) as i32 {
+            1 => LightShape::Rectangle { width: cm("Width"), height: cm("Height") },
+            // Disc and sphere: Height as the diameter (Width equal in every
+            // fixture so far).
+            2 => LightShape::Disc { radius: cm("Height") / 2.0 },
+            3 => LightShape::Sphere { radius: cm("Height") / 2.0 },
+            _ => LightShape::Point,
+        },
+    };
+    let area = matches!(shape, LightShape::Rectangle { .. } | LightShape::Disc { .. });
+    args.insert("two_sided_area", Arg::Bool(area && flag("Two Sided", false)));
+    let mdl = if kind == LightKind::Spot {
+        args.insert("spot_exponent", Arg::Float(num("Beam Exponent", 1.0)));
+        // The full Spread Angle, in radians.
+        args.insert("spot_spread_angle", Arg::Float(num("Spread Angle", 60.0).to_radians()));
+        "daz_3d::basic::dzpm_spot_light"
+    } else {
+        "daz_3d::basic::dzpm_diffuse_area_light"
+    };
+    Light { mdl, args, shape }
+}
+
 #[cfg(test)]
 mod tests {
     //! Every rule against DAZ's own `.mi` export of the calibration scenes.
@@ -509,5 +585,97 @@ mod tests {
         }
         wrong.sort();
         assert!(wrong.is_empty(), "{} of {checked} arguments differ from DAZ's .mi:\n{}", wrong.len(), wrong.join("\n"));
+    }
+
+    /// `dzpm_diffuse_area_light` / `dzpm_spot_light` defaults (daz_3d/basic.mdl).
+    fn light_default(param: &str) -> Arg {
+        match param {
+            "flux" => Arg::Float(1500.0),
+            "temperature" => Arg::Float(6500.0),
+            "scene_unit_size" => Arg::Float(0.01),
+            "emission_color" => Arg::Color([1.0; 3]),
+            "two_sided_area" => Arg::Bool(false),
+            "spot_exponent" => Arg::Float(1.0),
+            "spot_spread_angle" => Arg::Float(6.283),
+            _ => panic!("no MDL default for {param}"),
+        }
+    }
+
+    /// `node label` → the light's kind and channels (definition + node).
+    fn scene_lights(duf: &Path) -> HashMap<String, (LightKind, HashMap<String, Value>)> {
+        let doc: Value = serde_json::from_str(&crate::dson::decompress_scene(&std::fs::read(duf).unwrap()).unwrap()).unwrap();
+        let lib: HashMap<&str, &Value> = doc["node_library"].as_array().into_iter().flatten().filter_map(|m| Some((m["id"].as_str()?, m))).collect();
+        let channels = |n: &Value, out: &mut HashMap<String, Value>| {
+            for e in n["extra"].as_array().into_iter().flatten() {
+                for c in e["channels"].as_array().into_iter().flatten() {
+                    if let (Some(id), Some(v)) = (c["channel"]["id"].as_str(), c["channel"].get("current_value").or(c["channel"].get("value"))) {
+                        out.insert(id.to_string(), v.clone());
+                    }
+                }
+            }
+        };
+        let mut out = HashMap::new();
+        for n in doc.pointer("/scene/nodes").and_then(Value::as_array).into_iter().flatten() {
+            let Some(def) = n["url"].as_str().and_then(|u| lib.get(u.rsplit('#').next().unwrap_or(""))) else { continue };
+            if def["type"] != "light" {
+                continue;
+            }
+            let kind = if def.get("spot").is_some() { LightKind::Spot } else if def.get("directional").is_some() { LightKind::Distant } else { LightKind::Point };
+            let mut ch = HashMap::new();
+            channels(def, &mut ch);
+            channels(n, &mut ch);
+            let label = n["label"].as_str().or(def["label"].as_str()).unwrap_or("").to_string();
+            out.insert(label, (kind, ch));
+        }
+        out
+    }
+
+    #[test]
+    fn lights_match_daz_mi_export() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let (mut checked, mut wrong) = (0, Vec::new());
+        for f in std::fs::read_dir(root.join("calib/references/mi")).unwrap() {
+            let f = f.unwrap().path();
+            let scene = f.file_stem().unwrap().to_string_lossy().to_string();
+            let fixture: Value = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();
+            let lights = scene_lights(&root.join(format!("calib/scenes/{scene}.duf")));
+            for (label, mi) in fixture["lights"].as_object().unwrap() {
+                // The camera headlamp isn't a scene light (not verified yet).
+                let Some((kind, ch)) = lights.get(label) else { continue };
+                let ours = light(*kind, ch);
+                checked += 1;
+                if mi["material"]["mdl"] != ours.mdl {
+                    wrong.push(format!("mdl: {scene} {label}: DAZ {}, ours {}", mi["material"]["mdl"], ours.mdl));
+                }
+                for (param, arg) in &ours.args {
+                    let theirs = match mi["material"]["args"].get(*param) {
+                        Some(v) => fixture_arg(v, arg),
+                        None => Some(light_default(param)),
+                    };
+                    checked += 1;
+                    if !theirs.as_ref().is_some_and(|t| close(t, arg)) {
+                        wrong.push(format!("{param}: {scene} {label}: DAZ {theirs:?}, ours {arg:?}"));
+                    }
+                }
+                let field = |k: &str| mi["fields"][k].as_array().map(|a| a.iter().filter_map(Value::as_f64).map(|v| v as f32).collect::<Vec<_>>());
+                let theirs = if let Some(r) = field("rectangle") {
+                    LightShape::Rectangle { width: r[0], height: r[4] }
+                } else if let Some(d) = field("disc") {
+                    LightShape::Disc { radius: d[3] }
+                } else if let Some(s) = field("sphere") {
+                    LightShape::Sphere { radius: s[0] }
+                } else if mi["fields"].get("direction").is_some() {
+                    LightShape::Distant
+                } else {
+                    LightShape::Point
+                };
+                checked += 1;
+                if theirs != ours.shape {
+                    wrong.push(format!("shape: {scene} {label}: DAZ {theirs:?}, ours {:?}", ours.shape));
+                }
+            }
+        }
+        wrong.sort();
+        assert!(checked > 0 && wrong.is_empty(), "{} of {checked} light values differ from DAZ's .mi:\n{}", wrong.len(), wrong.join("\n"));
     }
 }

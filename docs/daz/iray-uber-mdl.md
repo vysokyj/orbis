@@ -55,6 +55,13 @@ Found beyond it:
   mode passes the linear SSS Color and `logarithmic_scatter_enable`.
   **SSS Reflectance Tint is not passed at all.**
 - **Base Color Effect** only where translucency mixes with the diffuse.
+- **Lights** (`iray::light`): `dzpm_diffuse_area_light`, spots
+  `dzpm_spot_light`; Flux as is when photometric, else 1000 π × Intensity
+  with temperature 0; colour linear as `emission_color`; Spread Angle (the
+  full angle) in radians, Beam Exponent as `spot_exponent`; rect / disc /
+  sphere sizes in cm. The camera headlamp is a 7 × 3.5 cm rect,
+  `emission_color` 0.604, ~1.7 Mlm that varies between scenes — not
+  verified yet.
 - **Emission:** Luminance in cd/m² as `emission_flux` (radiant exitance),
   in lm as a power, in W × Luminous Efficacy as a power; temperature and
   `emission_scene_unit_size` 1 once the colour is non-black.
