@@ -189,3 +189,15 @@ capped at √r: S7 0.86 (spread 1.2 as Iray's), DualLobe2 E8 (unsquared
 Morgan spheres 1.03 → 0.96 / 0.97). S1 (black Glossy Specular) had no
 reflection at IOR 1 where Iray's curve reaches 1 at grazing: IOR ≥ 1.1,
 0.91 → 1.00 (at 1.07 its G / B went 0.65 / 0.42 → 0.80 / 0.64).
+
+## #30: metallic flakes as a Mix with a metal
+
+Calib-Flakes, Iray: no flakes 0.04 (mean of the sphere), white flakes at
+weight 1 0.20, density 0.3 0.07, roughness 0.6 0.23, gold 0.22 / 0.16 /
+0.10, weight 0.5 0.27 (brighter than weight 1). The export had no flakes
+(0.12 – 0.36 ×). `flake_mix_material`: Mix(metal in the flakes' colour,
+roughness 0.5, coat over it; the surface) at weight × k × density^1.3.
+k 0.5 / 0.4 / 0.3: 1.05 – 1.35 / 0.88 – 1.12 / 0.72 – 0.88; kept 0.4.
+Calib-Map-Misc X8 (gold, weight 0.5, no coat) 0.50 → 0.96 at 0.35.
+Pitfall: a zsh `for v in "a b"; do set -- $v` doesn't split either — the
+first batch of variants all ran at the default.

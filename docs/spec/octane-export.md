@@ -702,6 +702,17 @@ Every material input (20007) is filled — Octane doesn't convert
   Calib-Map-TopCoat's red weighted coat B 4.29 → 1.81, its Fresnel coat
   with effect 1 1.09 / 1.09 / 1.16. An overlay with maps is still left
   out (#27).
+- **Metallic flakes** → a Mix material: a metal in the flakes' colour
+  (`edgeTint` the same, roughness 0.5: the flakes' scattered normals) at
+  Flakes Weight × 0.4 × density^1.3 over the surface; the top coat lies
+  over both. Size, strength, the flakes' roughness and thin film aren't
+  mapped.
+
+  Why: Iray's flakes (DAZ's MDL: a weighted glossy layer at weight × a
+  flake noise, each flake with its own normal) take Calib-Flakes' spheres
+  from 0.04 to 0.20; missing, Octane rendered them 0.12 – 0.36 × Iray, now
+  0.88 – 1.12 (coverage 0.5: 1.05 – 1.35, 0.3: 0.72 – 0.88); Calib-Map-
+  Misc's gold flakes 0.50 → ~1 (#30).
 - **Refraction** (glass, water) → `transmission` = Refraction Weight ×
   the refraction's colour, IOR on `ior` (Dielectric IOR — Universal has no
   `index4`, probe 82; `ior` 2.0 brightened Calib-Materials' gloss 1.08 →

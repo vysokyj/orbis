@@ -534,6 +534,8 @@ struct Ocs<'a> {
     /// Writing the surface under a weighted top coat (`weighted_coat_material`):
     /// the mix carries the coat and the displacement.
     in_coat_mix: bool,
+    /// Writing the surface under metallic flakes (`flake_mix_material`).
+    in_flake_mix: bool,
     /// Thin-walled glass at IOR 1 (`Tuning::thin_glass_ior_one`).
     thin_glass_ior_one: bool,
     /// `Tuning::max_transmission`.
@@ -737,6 +739,48 @@ impl Ocs<'_> {
         if !self.in_coat_mix {
             self.displacement_pin(i, mat);
         }
+        let _ = writeln!(self.out, "{:indent$}</node>", "");
+    }
+
+    /// Iray's metallic flakes (`add_metal_flakes` in DAZ's MDL): a
+    /// `weighted_layer` of a glossy BSDF in the flakes' colour over the base
+    /// (under the top coat), at Flakes Weight × a procedural flake noise,
+    /// each flake with its own normal. Universal has no flakes: a Mix
+    /// material (19) of a metal in the flakes' colour at a broad roughness
+    /// (the flakes' scattered normals; their own roughness barely shows),
+    /// under the same top coat, at `flake_share` (`material1`), and the
+    /// surface without them (`material2`) (#30).
+    fn flake_mix_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
+        let id = self.id();
+        let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
+        let i = indent + 1;
+        self.float_pin(i, "amount", flake_share(mat));
+        self.pin_open(i, "material1");
+        let fid = self.id();
+        let j = i + 1;
+        let _ = writeln!(self.out, "{:j$}<node id='{fid}' type='130' name='{} flakes'>", "", esc(name));
+        let _ = writeln!(self.out, "{:j$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
+        let (colour, _) = color_effect(mat, "Metallic Flakes Color Effect", mat.color("Metallic Flakes Color").unwrap_or([1.0; 3]), 1.0);
+        self.rgb_pin(j + 1, "albedo", colour);
+        self.rgb_pin(j + 1, "edgeTint", colour);
+        self.float_pin(j + 1, "metallic", 1.0);
+        self.gloss_ggx = true;
+        self.brdf_pin(j + 1);
+        self.float_pin(j + 1, "roughness", FLAKE_ROUGHNESS);
+        self.top_coat(j + 1, mat, 0.0);
+        self.gloss_ggx = false;
+        let opacity = mat.opacity().clamp(0.0, 1.0);
+        if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
+            self.float_or_map(j + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
+        }
+        let _ = writeln!(self.out, "{:j$}</node>", "");
+        self.pin_close(i);
+        self.pin_open(i, "material2");
+        self.in_flake_mix = true;
+        self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
+        self.in_flake_mix = false;
+        self.pin_close(i);
+        self.displacement_pin(i, mat);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
@@ -1424,6 +1468,9 @@ impl Ocs<'_> {
         if skin != SkinShader::None && translucency > 0.0 && !refractive && !emissive && !cutout && !thin && !metal && !mat.prop && !is_eye(name) && mat.image("diffuse").is_some() {
             return self.standard_surface(indent, name, mat, translucency, skin == SkinShader::OpenPbr);
         }
+        if !self.in_flake_mix && !self.in_coat_mix && flake_share(mat) > 0.0 {
+            return self.flake_mix_material(indent, name, mat, area_m2, skin);
+        }
         if !self.in_coat_mix && weighted_top_coat(mat) {
             return self.weighted_coat_material(indent, name, mat, area_m2, skin);
         }
@@ -1844,6 +1891,32 @@ fn specular_ior(mat: &Material) -> f32 {
 /// Map-SpecMode's black specular sphere had G / B 0.65 / 0.42 × Iray at
 /// IOR 1 (no reflection), 0.80 / 0.64 at 1.07 (#52).
 const SPECULAR_MIN_IOR: f32 = 1.1;
+
+/// How much of a surface Iray's metallic flakes cover, as the Mix amount
+/// of `flake_mix_material`: Flakes Weight × 0.4 × density^1.3. Calib-Flakes
+/// (white flakes under a coat over dark blue): Iray's flakes take a sphere
+/// from 0.04 to 0.20, at density 0.3 to 0.07 (≈ density^1.3). Without
+/// flakes Octane rendered them 0.12 – 0.36 × Iray; at a coverage of 0.5 /
+/// 0.4 / 0.3 1.05 – 1.35 / 0.88 – 1.12 / 0.72 – 0.88; Calib-Map-Misc's gold
+/// flakes at weight 0.5 0.50 → 0.96 (at 0.35). Size, strength and the
+/// flakes' roughness change little in Iray and aren't mapped; nor is the
+/// flakes' thin film (#30).
+fn flake_share(mat: &Material) -> f32 {
+    let w = mat.float("Metallic Flakes Weight").unwrap_or(0.0).clamp(0.0, 1.0);
+    if w <= 0.0 {
+        return 0.0;
+    }
+    let density = mat.float("Metallic Flakes Density").unwrap_or(1.0).clamp(0.0, 1.0);
+    (w * FLAKE_COVERAGE * density.powf(1.3)).clamp(0.0, 1.0)
+}
+
+/// See `flake_share`.
+const FLAKE_COVERAGE: f32 = 0.4;
+
+/// The flakes' roughness in Octane: their scattered normals, not their
+/// own roughness (Calib-Flakes' roughness 0.6 sphere is like the 0.2 one
+/// in Iray).
+const FLAKE_ROUGHNESS: f32 = 0.5;
 
 /// A layer's colour and weight under Iray's Color Effect (DAZ's MDL,
 /// `transmit_color_calc`): 0 (Scatter Only) as they are; 1 and 2 (Scatter
@@ -2478,7 +2551,7 @@ pub struct LightEmitter {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -2650,7 +2723,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, volumes: &
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -2797,7 +2870,7 @@ pub fn environment_texture(
     textures: &mut Textures,
     first_id: u32,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -2857,7 +2930,7 @@ pub fn material_inputs(
 ) -> (String, Textures) {
     let Shading { skin, thin_glass_ior_one, max_transmission } = shading.into();
     let mut textures = Textures { layered, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -3578,6 +3651,23 @@ mod tests {
         ]));
         let (y, _) = material_inputs(&[("Ball".into(), reflectivity, 1.0)], &[], HashMap::new(), 6000, SkinShader::None);
         assert!(!y.contains("type='19'") && y.contains("<pin name='coating'>"), "{y}");
+    }
+
+    #[test]
+    fn metallic_flakes_are_a_mix_with_a_metal() {
+        let flaked = mat(json!([
+            {"channel": {"id": "Metallic Flakes Weight", "current_value": 1}},
+            {"channel": {"id": "Metallic Flakes Density", "current_value": 1}},
+            {"channel": {"id": "Metallic Flakes Color", "current_value": [1, 1, 1]}},
+            {"channel": {"id": "Top Coat Weight", "current_value": 1}},
+        ]));
+        let (x, _) = material_inputs(&[("Paint".into(), flaked, 1.0)], &[], HashMap::new(), 5000, SkinShader::None);
+        assert!(x.contains("type='19' name='Paint'") && x.contains("name='Paint flakes'") && x.contains("name='Paint base'"), "{x}");
+        let amount = &x[x.find("<pin name='amount'>").unwrap()..];
+        assert!(amount[..200].contains(&format!("type='6'>{}</attr>", num(FLAKE_COVERAGE))), "{amount}");
+        // The coat lies over both parts.
+        assert_eq!(x.matches("<pin name='coating'>").count(), 2, "{x}");
+        assert_eq!(x.matches("<node ").count(), x.matches("</node>").count());
     }
 
     #[test]
