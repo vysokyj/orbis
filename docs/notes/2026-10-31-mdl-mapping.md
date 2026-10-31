@@ -201,3 +201,22 @@ k 0.5 / 0.4 / 0.3: 1.05 – 1.35 / 0.88 – 1.12 / 0.72 – 0.88; kept 0.4.
 Calib-Map-Misc X8 (gold, weight 0.5, no coat) 0.50 → 0.96 at 0.35.
 Pitfall: a zsh `for v in "a b"; do set -- $v` doesn't split either — the
 first batch of variants all ran at the default.
+
+## #29: backscattering as a Mix with a dimmed metal
+
+Calib-Backscatter (red, no gloss; Iray, weight 1, r 0.09): (0.158, 0.136,
+0.098) against (0.093, 0.016, 0.009) without; r 0.49 (0.077, 0.085,
+0.114). The .mi passes the same arguments for the "blue" sphere as for
+white (Share Glossy Inputs on → Glossy Color). Tries:
+
+1. Mix(white metal, roughness r + offset) at amount w: 2 – 12 × Iray —
+   the mirror sees the bright sky, the retro lobe what's behind the camera.
+2. Amount 0.3 w² (1 − 1.1 r) (Iray's added light grows ≈ w²): 0.47 – 3.9
+   per channel, and Calib-Map-Misc's unshared smooth lobe still 2.03:
+   Iray's lobe *replaces* the surface (weighted_layer), a smooth one
+   returns almost nothing.
+3. Amount w, the metal × 5.7 r e^(−r/0.168) (0 at r 0, 0.3 at 0.09, 0.15
+   at 0.49): Calib-Backscatter 1.06 1.45 1.22 1.04 1.04 1.11 2.01 1.26
+   (luminance), Map-Misc X1 / X2 1.54 / 0.99. Kept. The 2.01 is a sphere
+   whose Iray arguments equal its neighbour's (1.04): the mirror's view of
+   the HDRI differs there.

@@ -713,6 +713,19 @@ Every material input (20007) is filled — Octane doesn't convert
   from 0.04 to 0.20; missing, Octane rendered them 0.12 – 0.36 × Iray, now
   0.88 – 1.12 (coverage 0.5: 1.05 – 1.35, 0.3: 0.72 – 0.88); Calib-Map-
   Misc's gold flakes 0.50 → ~1 (#30).
+- **Backscattering** (Base Mixing 0, not refractive) → a Mix material:
+  the surface and, at Backscattering Weight, a metal in Glossy Color (or
+  Backscattering Color with Share Glossy Inputs off) × 5.7 r e^(−r/0.168)
+  at Iray's roughness r (squared) on the GGX curve, the top coat over both.
+  An approximation: Octane has no retro-reflective lobe.
+
+  Why: Iray's lobe replaces the surface by its weight and returns light
+  from behind the camera — none at roughness 0, G 0.136 / 0.085 at r 0.09
+  / 0.49 under Calib-Backscatter's HDRI. Missing, its spheres had G / B
+  0.01 – 0.12 × Iray; now 1.04 – 1.45 in luminance, but 2.01 for one at
+  another place on the floor (a mirror lobe sees the HDRI where the retro
+  lobe doesn't); Calib-Map-Misc's unshared smooth lobe 1.89 → 0.99, its
+  shared one 1.16 → 1.54 (#29).
 - **Refraction** (glass, water) → `transmission` = Refraction Weight ×
   the refraction's colour, IOR on `ior` (Dielectric IOR — Universal has no
   `index4`, probe 82; `ior` 2.0 brightened Calib-Materials' gloss 1.08 →

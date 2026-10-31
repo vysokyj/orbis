@@ -536,6 +536,8 @@ struct Ocs<'a> {
     in_coat_mix: bool,
     /// Writing the surface under metallic flakes (`flake_mix_material`).
     in_flake_mix: bool,
+    /// Writing the surface under a backscattering lobe (`backscatter_mix_material`).
+    in_backscatter_mix: bool,
     /// Thin-walled glass at IOR 1 (`Tuning::thin_glass_ior_one`).
     thin_glass_ior_one: bool,
     /// `Tuning::max_transmission`.
@@ -779,6 +781,52 @@ impl Ocs<'_> {
         self.in_flake_mix = true;
         self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
         self.in_flake_mix = false;
+        self.pin_close(i);
+        self.displacement_pin(i, mat);
+        let _ = writeln!(self.out, "{:indent$}</node>", "");
+    }
+
+    /// Iray's backscattering (DAZ's MDL): a `weighted_layer` at
+    /// Backscattering Weight of `backscattering_glossy_reflection_bsdf` —
+    /// light sent back toward where it came from — over diffuse and gloss
+    /// (under metal, refraction, flakes and coat), tinted by Glossy Color
+    /// while Share Glossy Inputs is on (DAZ doesn't even pass Backscattering
+    /// Color then), else by its own colour. Octane has no retro-reflective
+    /// lobe: a Mix material (19) of a metal in that colour at a broad
+    /// roughness (`material1`, amount = the weight) and the surface (#29).
+    fn backscatter_mix_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
+        let id = self.id();
+        let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
+        let i = indent + 1;
+        let r = iray_roughness(mat, mat.float("Backscattering Roughness").unwrap_or(0.0), false);
+        self.float_pin(i, "amount", backscatter_weight(mat));
+        self.pin_open(i, "material1");
+        let bid = self.id();
+        let j = i + 1;
+        let _ = writeln!(self.out, "{:j$}<node id='{bid}' type='130' name='{} backscatter'>", "", esc(name));
+        let _ = writeln!(self.out, "{:j$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
+        let shared = mat.float("Share Glossy Inputs").unwrap_or(1.0) > 0.0;
+        let colour = if shared { mat.color("Glossy Color").unwrap_or([1.0; 3]) } else { mat.color("Backscattering Color").unwrap_or([0.5; 3]) };
+        let colour = colour.map(|c| c * backscatter_return(r));
+        self.rgb_pin(j + 1, "albedo", colour);
+        self.rgb_pin(j + 1, "edgeTint", colour);
+        self.float_pin(j + 1, "metallic", 1.0);
+        self.gloss_ggx = true;
+        self.brdf_pin(j + 1);
+        let rough = self.gloss_roughness(r);
+        self.float_pin(j + 1, "roughness", rough.clamp(0.0, 1.0));
+        self.top_coat(j + 1, mat, 0.0);
+        self.gloss_ggx = false;
+        let opacity = mat.opacity().clamp(0.0, 1.0);
+        if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
+            self.float_or_map(j + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
+        }
+        let _ = writeln!(self.out, "{:j$}</node>", "");
+        self.pin_close(i);
+        self.pin_open(i, "material2");
+        self.in_backscatter_mix = true;
+        self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
+        self.in_backscatter_mix = false;
         self.pin_close(i);
         self.displacement_pin(i, mat);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
@@ -1468,6 +1516,9 @@ impl Ocs<'_> {
         if skin != SkinShader::None && translucency > 0.0 && !refractive && !emissive && !cutout && !thin && !metal && !mat.prop && !is_eye(name) && mat.image("diffuse").is_some() {
             return self.standard_surface(indent, name, mat, translucency, skin == SkinShader::OpenPbr);
         }
+        if !self.in_backscatter_mix && !self.in_flake_mix && !self.in_coat_mix && backscatter_weight(mat) > 0.0 {
+            return self.backscatter_mix_material(indent, name, mat, area_m2, skin);
+        }
         if !self.in_flake_mix && !self.in_coat_mix && flake_share(mat) > 0.0 {
             return self.flake_mix_material(indent, name, mat, area_m2, skin);
         }
@@ -1908,6 +1959,27 @@ fn flake_share(mat: &Material) -> f32 {
     }
     let density = mat.float("Metallic Flakes Density").unwrap_or(1.0).clamp(0.0, 1.0);
     (w * FLAKE_COVERAGE * density.powf(1.3)).clamp(0.0, 1.0)
+}
+
+/// Iray's Backscattering Weight, when it applies (not on refraction, nor
+/// specular / weighted mixing — not calibrated there).
+fn backscatter_weight(mat: &Material) -> f32 {
+    if mat.float("Base Mixing").unwrap_or(0.0) as i32 != 0 || mat.float("Refraction Weight").unwrap_or(0.0) > 0.0 {
+        return 0.0;
+    }
+    mat.float("Backscattering Weight").unwrap_or(0.0).clamp(0.0, 1.0)
+}
+
+/// What Iray's backscattering lobe sends back, as a share of what Octane's
+/// mirror in its place reflects, by Iray's (squared) roughness r: 5.7 r
+/// e^(−r / 0.168). The lobe replaces the surface by its weight (a
+/// `weighted_layer`) and returns light from behind the camera: at r 0 only
+/// from exactly there — Calib-Map-Misc's unshared smooth lobe at weight
+/// 0.5 halved its sphere (1.89 × Iray without it) —, at r 0.09 G 0.136,
+/// at 0.49 0.085 (Calib-Backscatter at weight 1, white gloss colour over
+/// red), where Octane's mirror gave ~0.45 / 0.55. Fitted under one HDRI (#29).
+fn backscatter_return(r: f32) -> f32 {
+    (5.7 * r * (-r / 0.168).exp()).clamp(0.0, 1.0)
 }
 
 /// See `flake_share`.
@@ -2551,7 +2623,7 @@ pub struct LightEmitter {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -2723,7 +2795,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, volumes: &
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -2870,7 +2942,7 @@ pub fn environment_texture(
     textures: &mut Textures,
     first_id: u32,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -2930,7 +3002,7 @@ pub fn material_inputs(
 ) -> (String, Textures) {
     let Shading { skin, thin_glass_ior_one, max_transmission } = shading.into();
     let mut textures = Textures { layered, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
