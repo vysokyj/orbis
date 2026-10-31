@@ -1228,8 +1228,11 @@ impl Ocs<'_> {
     /// `value`), else the constant `value`.
     fn float_or_map(&mut self, indent: usize, pin: &str, mat: &Material, channel: Option<&str>, value: f32) {
         let tex = channel.and_then(|c| mat.image(c)).map(str::to_string);
+        // A roughness map Iray squares with its value (`square_float`, the
+        // .mi export): squared here by twice its gamma.
+        let squared = pin == "roughness" && channel.is_some_and(|c| c.ends_with("Roughness")) && mat.float("Roughness Squared").unwrap_or(1.0) > 0.0;
         match tex.and_then(|t| self.textures.asset(self.dirs, &t)) {
-            Some(asset) => self.image_pin(indent, pin, &asset, true, data_gamma(mat, channel.unwrap_or_default()), value),
+            Some(asset) => self.image_pin(indent, pin, &asset, true, data_gamma(mat, channel.unwrap_or_default()) * if squared { 2.0 } else { 1.0 }, value),
             None => self.float_pin(indent, pin, value),
         }
     }
