@@ -752,8 +752,8 @@ pub fn is_pbrskin(mat: &Material) -> bool {
 /// The camera headlamp DAZ adds when it lights (`usd::lights::headlamp`
 /// decides when): a 7 × 3.5 cm rect, colour 0.8, no temperature, its flux
 /// 10 × the camera's Depth of Field (cm)² × Headlamp Intensity
-/// (Calib-Headlamp-*, Calib-Mi-Headlamp-*). Where the offsets put it is not
-/// verified (they move it by far less than their cm at a far focus).
+/// (Calib-Headlamp-*, Calib-Mi-Headlamp-*), at the camera moved by the
+/// offsets in cm along its axes (`usd::lights::headlamp`, tested there).
 pub fn headlamp(camera: &std::collections::HashMap<String, Value>) -> Light {
     let num = |k: &str, d: f32| camera.get(k).and_then(Value::as_f64).map_or(d, |v| v as f32);
     let focus = num("Depth of Field", 300.0);

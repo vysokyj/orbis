@@ -63,7 +63,8 @@ Found beyond it:
   Light Geometry, a spot's too (disc and sphere: Height as the diameter);
   Two Sided on rect, disc and sphere. The camera headlamp
   (`iray::headlamp`): a 7 × 3.5 cm rect, colour 0.8, 10 × Depth of Field²
-  × Headlamp Intensity lm; where its offsets put it is not verified.
+  × Headlamp Intensity lm, at the camera moved by its offsets (cm, camera
+  axes). The .mi's instance transforms are world → object.
 - **Maps** (`iray::Map`): `base::file_texture` scaled by the channel's
   value (`color_scale`: linear for colours, as is for floats), read as a
   colour (`texture_return.tint`) or grey (`.mono`); roughness maps then
@@ -112,6 +113,11 @@ Found beyond it:
 - **OmniHair Root-Tip Blend** (`iray::omni_hair`): root and tip blended
   along the strand (`blend_colors`, gain 0.15); Diffuse Strength the base
   colour's weight, Highlight Weight the diffuse reflection's.
+- **NVIDIA MDL Examples** (Calib-NVIDIA): the channels go straight to the
+  example's MDL function — colours linear, numbers and textures as they
+  are, the rest at the function's defaults; `material::mdl_metal` /
+  `mdl_dielectric` read them so (test, where DAZ's definitions are
+  installed).
 - **Brick graphs** (Shader Mixer, even on Uber's bricks) aren't these
   conversions: `iray::is_uber` leaves them out (#21).
 - **Emission:** `emission_flux` and mode by Luminance Units (above);

@@ -1046,3 +1046,24 @@ fn cast_shadows_off_becomes_an_object_layer_input() {
     assert!(xml.contains("<attr name='value' type='1'>0</attr>"));
     assert!(include_str!("../../assets/octane/project.ocs").contains(OBJECT_LAYERS_HIDDEN), "the template's import setting");
 }
+
+#[test]
+fn headlamp_sits_where_daz_puts_it() {
+    // DAZ's .mi export of the headlamp scenes (calib/references/mi): the
+    // rect's world position — its instance transform is world → object, so
+    // the origin maps back as −t · Rᵀ (cm).
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut checked = 0;
+    for scene in ["Calib-Headlamp-on-a1", "Calib-Mi-Headlamp-offset0", "Calib-Mi-Headlamp-dof200", "Calib-Mi-Headlamp-i2"] {
+        let mi: Value = serde_json::from_str(&std::fs::read_to_string(root.join(format!("calib/references/mi/{scene}.json"))).unwrap()).unwrap();
+        let t: Vec<Vec<f64>> = mi["lights"]["Camera"]["transform"].as_array().unwrap().iter().map(|r| r.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect()).collect();
+        let daz = [0, 1, 2].map(|i| -(0..3).map(|j| t[3][j] * t[i][j]).sum::<f64>() * CM as f64);
+        let duf: Value = serde_json::from_str(&decompress_scene(&std::fs::read(root.join(format!("calib/scenes/{scene}.duf"))).unwrap()).unwrap()).unwrap();
+        let mut lib = Library::new(vec![], duf);
+        let (label, cam) = scene_cameras(&mut lib).into_iter().next().unwrap();
+        let ours = headlamp(&mut lib, &label, &cam, false).expect("lit").translation;
+        assert!((0..3).all(|i| (ours[i] - daz[i]).abs() < 1e-4), "{scene}: DAZ {daz:?}, ours {ours:?}");
+        checked += 1;
+    }
+    assert_eq!(checked, 4);
+}

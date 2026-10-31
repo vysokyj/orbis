@@ -3963,4 +3963,71 @@ mod tests {
         assert!(near(mono, [1.65, 1.24, 1.40]), "{mono:?}");
     }
 
+    /// NVIDIA's MDL examples get the channels straight as their MDL
+    /// arguments (colours linear), which `mdl_metal` / `mdl_dielectric`
+    /// read: against DAZ's .mi export of Calib-NVIDIA. Their definitions
+    /// are DAZ's (`/data/DAZ 3D/NVIDIA MDL Examples`): only where installed.
+    #[test]
+    fn nvidia_examples_match_daz_mi_export() {
+        use serde_json::Value;
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let dirs = crate::daz::content_dirs();
+        let read = |p: &std::path::Path| -> Value { serde_json::from_str(&crate::dson::decompress_scene(&std::fs::read(p).unwrap()).unwrap()).unwrap() };
+        let doc = read(&root.join("calib/scenes/Calib-NVIDIA.duf"));
+        let mi: Value = serde_json::from_str(&std::fs::read_to_string(root.join("calib/references/mi/Calib-NVIDIA.json")).unwrap()).unwrap();
+        let images = crate::daz_material::image_library(&doc);
+        let mut label = HashMap::new();
+        for n in doc.pointer("/scene/nodes").and_then(Value::as_array).into_iter().flatten() {
+            for g in n["geometries"].as_array().into_iter().flatten() {
+                label.insert(g["id"].as_str().unwrap_or("").to_string(), n["label"].as_str().unwrap_or("").to_string());
+            }
+        }
+        let near = |a: f32, b: f64| (f64::from(a) - b).abs() < 1e-4;
+        let (mut checked, mut wrong) = (0, Vec::new());
+        for m in doc.pointer("/scene/materials").and_then(Value::as_array).into_iter().flatten() {
+            let url = crate::dson::percent_decode(m["url"].as_str().unwrap_or(""));
+            let Some((file, _)) = url.split_once('#').filter(|(f, _)| f.contains("NVIDIA MDL Examples")) else { continue };
+            let Some(def) = dirs.iter().map(|d| d.join(file.trim_start_matches('/'))).find(|p| p.exists()) else {
+                eprintln!("skipped: no {file}");
+                return;
+            };
+            let mut mat = Material::from_dson(&read(&def)["material_library"][0], &images);
+            mat.merge(m, &images);
+            let node = &label[m["geometry"].as_str().unwrap().rsplit('#').next().unwrap()];
+            let args = &mi["materials"][format!("{node}/Default")]["args"]["v"];
+            let args = if args["args"]["base"].is_object() { &args["args"]["base"]["args"] } else { &args["args"] };
+            let colour = |k: &str| args[k].as_array().map(|a| a.iter().map(|x| x.as_f64().or(x["args"]["v"].as_f64()).unwrap_or(f64::NAN)).collect::<Vec<_>>());
+            let tex = |k: &str| args[k]["texture"]["path"].as_str().map(|p| p.rsplit('/').next().unwrap().to_string());
+            let name = |p: &str| p.rsplit('/').next().unwrap().to_string();
+            let mut check = |what: &str, ok: bool| {
+                checked += 1;
+                if !ok {
+                    wrong.push(format!("{node}: {what}"));
+                }
+            };
+            if let Some(metal) = mdl_metal(&mat) {
+                let c = colour("metal_color").unwrap();
+                check("metal colour", (0..3).all(|k| near(metal.colour[k], c[k])));
+                check("tiling", near(metal.tiles[0], args["tiling"]["args"]["x"].as_f64().unwrap()));
+                check("bump map", tex("bump_texture") == Some(name(&metal.bump.0)));
+            } else if let Some(d) = mdl_dielectric(&mat) {
+                match (&d.albedo, tex("diffuse_texture"), colour("base_color")) {
+                    (MdlAlbedo::Map(m, _), Some(t), _) => check("diffuse map", name(m) == t),
+                    (_, _, Some(b)) if d.transmission.is_some() => check("resin colour", d.transmission.is_some_and(|t| (0..3).all(|k| near(t[k] / RESIN_TRANSMISSION, b[k])))),
+                    (MdlAlbedo::Colour(c), _, Some(b)) => check("base colour", (0..3).all(|k| near(c[k], b[k]))),
+                    _ => {
+                        // Architectural: diffuse, reflectivity × the reflection colour's peak.
+                        let pass = |k: &str| args[k]["args"]["v"].clone();
+                        let diffuse: Vec<f64> = pass("diffuse").as_array().unwrap().iter().filter_map(Value::as_f64).collect();
+                        check("diffuse", matches!(d.albedo, MdlAlbedo::Colour(c) if (0..3).all(|k| near(c[k], diffuse[k]))));
+                        check("reflectivity", matches!(d.gloss, MdlGloss::Weight(w) if near(w, pass("reflectivity").as_f64().unwrap())));
+                    }
+                }
+            } else {
+                check("recognised", false);
+            }
+        }
+        wrong.sort();
+        assert!(checked > 0 && wrong.is_empty(), "{} of {checked} NVIDIA example values differ from DAZ's .mi:\n{}", wrong.len(), wrong.join("\n"));
+    }
 }

@@ -1119,9 +1119,9 @@ Headlamp Intensity lm (`iray::headlamp`, its .mi export: 1.77 Mlm at
 Calib-Glossy's 420.5 cm focus, 0.4 Mlm at 200 cm). The export makes it a
 point light at 0.96 of that flux (`HEADLAMP_POINT_SHARE`: Iray lit
 Calib-Glossy without its dome 1.65 – 1.80 × as bright as a 1 Mlm point
-light there; with the dome it adds 10.8 %), moved by X / Y / Z Headlamp
-Offset (camera axes) — how DAZ applies the offsets isn't verified: at a
-far focus they move its rect by far less than their cm. When:
+light there; with the dome it adds 10.8 %), at the camera moved by X / Y /
+Z Headlamp Offset (cm, camera axes: right, up, back) — where DAZ puts it
+(its .mi export). When:
 
 | HeadlampMode | Auto Headlamp (render setting) | lit |
 |---|---|---|
