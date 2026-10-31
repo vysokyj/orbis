@@ -16,7 +16,9 @@ Then, depending on what you need:
 | [octane/octane-x.md](octane/octane-x.md) | Octane X facts: USD import, `project.ocs` rules, node types and pins, kernels, Lua scripting. | You write Octane nodes or a probe. |
 | [octane/orbx.md](octane/orbx.md) | The ORBX container (reverse-engineered). | You touch the package writer. |
 | [octane/usd.md](octane/usd.md) | The USD subset the export writes. | You touch the USD writer. |
-| `octane/manual/` | Local mirror of OTOY's manual (git-ignored, copyrighted). | Before guessing at Octane behaviour. |
+| `octane/manual/` | Local mirror of OTOY's manual (git-ignored, copyrighted; `scripts/dev/fetch-octane-docs.py`). | Before guessing at Octane behaviour. |
+| `nvidia/` | Local mirror of NVIDIA's Iray and MDL docs: Iray manual (render options, environment dome, tone mapping, firefly filter), MDL spec and handbook (`df::` layers and modifiers), core definitions, LPE, Iray Server; PDFs plus grep-able text (git-ignored, copyrighted; `scripts/dev/fetch-nvidia-docs.py`). | Before guessing at Iray behaviour or reading DAZ's MDL. |
+| DAZ's MDL sources | `DAZStudio.app/Contents/shaders/iray/` (`daz_3d/irayubermaterial.mdl`, `pbr_skin.mdl`, `dual_lobe_hair.mdl`, `OmniSurface/`, `nvidia/`): the shaders Iray renders — what each channel does, exactly. Installed with DAZ Studio, not in the repo. | Before calibrating a material channel. |
 
 The spec decides; `daz/` and `octane/` only describe the other tools. Plans
 and open work are [GitHub issues](https://github.com/vysokyj/orbis/issues),

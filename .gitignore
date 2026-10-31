@@ -33,3 +33,7 @@ rustc-ice-*.txt
 # Python bytecode (scripts/dev)
 __pycache__/
 *.pyc
+
+# Mirrored NVIDIA Iray / MDL documentation — NVIDIA's copyrighted text;
+# fetch locally with scripts/dev/fetch-nvidia-docs.py
+/docs/nvidia/

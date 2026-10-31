@@ -16,6 +16,7 @@ scripts/install.sh                             # build + `orbis install` into "M
 scripts/package.sh                             # plugin zip → dist/ (git-ignored)
 scripts/dev/render-icons.sh                    # assets/icon/*.svg → committed thumbnails
 python3 scripts/dev/fetch-octane-docs.py docs/octane/manual <cache dir>   # Octane manual mirror (git-ignored)
+python3 scripts/dev/fetch-nvidia-docs.py   # NVIDIA Iray / MDL docs mirror → docs/nvidia (git-ignored; needs pypdf)
 scripts/dev/daz-render.sh <scene.duf> <out.png> [secs] [samples]   # unattended capped Iray render (one DAZ instance that stays open; --stop quits it)
 scripts/dev/octane-run.sh <probe.lua> [scene.orbx]   # unattended Octane X Lua probe (starts Octane X, leaves it running; QUIT_OCTANE=1 quits)
 scripts/dev/octane-render.sh <out dir> [samples] <scene.orbx>...   # unattended Octane renders of exports, as exported
@@ -74,6 +75,10 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   — reference about other tools, no Orbis decisions in them.
 - `docs/octane/manual/` — local mirror of OTOY's manual. **Git-ignored and
   must stay so** (copyrighted). Read it before guessing at Octane behaviour.
+- `docs/nvidia/` — local mirror of NVIDIA's Iray and MDL docs (PDF + text).
+  **Git-ignored and must stay so.** With DAZ's own MDL sources
+  (`DAZStudio.app/Contents/shaders/iray/daz_3d/irayubermaterial.mdl` etc.)
+  it says what Iray does: read them before fitting a channel by calibration.
 
 ## Conventions
 - Everything in the repo in English; Conventional Commits; push to `master`.
