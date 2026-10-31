@@ -1094,7 +1094,7 @@ impl Ocs<'_> {
         if openpbr {
             // OpenPBR's random walk shows less of the colour, the more so
             // the more subsurface: brought back to Standard Surface's level.
-            let lift = 1.0 / (1.0 - OPENPBR_SKIN_DARKENING * translucency);
+            let lift = openpbr_skin_lift(translucency);
             tint = tint.map(|t| t * lift);
         }
         let colour = [0, 1, 2].map(|k| mat.base_color()[k] * tint[k]);
@@ -2007,11 +2007,25 @@ fn iray_roughness(mat: &Material, r: f32, from_glossiness: bool) -> f32 {
 /// Metallic Weight below this (without a map) is left out: see `universal`.
 const NEGLIGIBLE_METALLIC: f32 = 0.05;
 
-/// OpenPBR Surface rendered the same skin colour darker than Standard
-/// Surface, evenly in R, G and B: 0.78 at translucency 0.5 (Genesis 8
-/// Female, Calib-HDRI), 0.70 at 0.62 (Fleur, Octane4) — 1 − 0.46 · w (#8).
-/// For skins outside `skin_albedo`'s rule (mono SSS).
-const OPENPBR_SKIN_DARKENING: f32 = 0.46;
+/// How much brighter OpenPBR gets a mono-SSS skin's colour than Standard
+/// Surface's `skin_tint`, by translucency `w`, between the points of
+/// `OPENPBR_SKIN_LIFT`. For skins outside `skin_albedo`'s rule (mono SSS
+/// with Base Color Effect 1: the Genesis 8 base skin).
+fn openpbr_skin_lift(w: f32) -> f32 {
+    let w = w.clamp(0.0, 1.0);
+    let i = OPENPBR_SKIN_LIFT.windows(2).position(|p| w <= p[1].0).unwrap_or(OPENPBR_SKIN_LIFT.len() - 2);
+    let ((w0, l0), (w1, l1)) = (OPENPBR_SKIN_LIFT[i], OPENPBR_SKIN_LIFT[i + 1]);
+    l0 + (l1 - l0) * (w - w0) / (w1 - w0)
+}
+
+/// See [`openpbr_skin_lift`]: (translucency, lift). Up to w 0.5 OpenPBR
+/// rendered the colour darker than Standard Surface, evenly in R, G and B:
+/// 0.78 at w 0.5 (Genesis 8 Female, Calib-HDRI), 0.70 at 0.62 (Fleur,
+/// Octane4) — 1 / (1 − 0.46 · w) brought it back (#8). Iray darkens this
+/// skin far more with w than that (Calib-Skin-Base: w 0.5 a third of w 0,
+/// w 0.9 a ninth), so past 0.5 the lift falls: under 1 / (1 − 0.46 · w)
+/// w 0.9 came out 1.8 – 2.2 × Iray, w 0 and 0.5 0.83 – 1.08 (#28).
+const OPENPBR_SKIN_LIFT: [(f32, f32); 4] = [(0.0, 1.0), (0.5, 1.3), (0.9, 0.45), (1.0, 0.35)];
 
 /// Subsurface radius colour (max channel 1, softened) and scale (meters)
 /// from Iray's volume channels; see [`Ocs::standard_surface`]. The scale is kept to
@@ -2148,7 +2162,7 @@ pub enum SkinShader {
     StandardSurface,
     /// OpenPBR Surface (505) with random walk: chromatic-SSS skins with the
     /// colour baked as Iray's skin shows it (`skin_albedo`, Calib-Skin, #19),
-    /// mono ones brightened to Iray's level (`OPENPBR_SKIN_DARKENING`).
+    /// mono ones brightened to Iray's level (`openpbr_skin_lift`).
     OpenPbr,
 }
 
@@ -2633,6 +2647,15 @@ mod tests {
         let damp = &albedo[albedo.find("damp.png").unwrap()..];
         assert_eq!(albedo[..albedo.find("damp.png").unwrap()].matches("0.05 0.05 1").count(), 2, "{albedo}");
         assert!(!damp[..damp.find("</node>").unwrap()].contains("0.05 0.05 1"), "{albedo}");
+    }
+
+    #[test]
+    fn openpbr_skin_lift_rises_to_half_translucency_then_falls() {
+        assert_eq!(openpbr_skin_lift(0.0), 1.0);
+        assert!((openpbr_skin_lift(0.25) - 1.15).abs() < 1e-5);
+        assert!((openpbr_skin_lift(0.5) - 1.3).abs() < 1e-5);
+        assert!((openpbr_skin_lift(0.9) - 0.45).abs() < 1e-5);
+        assert!((openpbr_skin_lift(1.5) - 0.35).abs() < 1e-5, "clamped to w 1");
     }
 
     #[test]

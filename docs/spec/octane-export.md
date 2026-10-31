@@ -759,10 +759,19 @@ colour rule, fitted on Calib-Skin (eight Genesis 8 skins from pale to dark
 on one body, Iray probes; see docs/notes/2026-10-28-skin-tones.md) and its
 SSS variants (#28, docs/notes/2026-10-30-sss-volume.md). A mono-SSS skin
 with Base Color Effect 1 (the Genesis 8 base skin) keeps the Standard
-Surface tint lifted by 1 / (1 − 0.46 · w) (`OPENPBR_SKIN_DARKENING`; G8F
-1.00 / 1.17 / 1.70 of Iray): under the rule Calib-Eye came out 1.4 – 2.0 ×
-Iray (1.0 – 1.4 so) — whether its Base Color Effect, SSS Direction −0.65
-or w 0.5 makes the difference is open.
+Surface tint × a lift by translucency w (`openpbr_skin_lift`): linear
+between 1 at w 0, 1.3 at 0.5, 0.45 at 0.9 and 0.35 at 1. Up to 0.5 that is
+1 / (1 − 0.46 · w), OpenPBR's darkening against Standard Surface (#8); past
+it Iray darkens this skin far more (w 0.9 a ninth of w 0). Calib-Skin-Base
+(docs/notes/2026-10-31-g8-base-skin.md): the base skin as it ships (w 0.5)
+0.83 – 1.18 × Iray under the front light, 1.0 – 1.1 under the HDRI with
+blue 1.2 – 1.4; w 0 0.94 – 1.08; w 0.9 luminance within ~0.8 – 1.3 but
+bluer (B 1.2 – 1.9; one scalar lift can't fix hue). Under the baked rule
+Calib-Eye came out 1.4 – 2.0 × Iray. SSS Direction changed nothing in
+Iray's render of it (−0.65 → 0) and only enters the subsurface anisotropy.
+Mono SSS with Base Color Effect 0 on this skin's volume is still too red
+under the baked rule (G / B 0.52 – 0.89; the volume factor didn't move it:
+its Translucency Color map carries the subsurface part), open in #28.
 
 - **Colour, baked per texel** into one map for `baseColor` and
   `subsurfaceColor` (`Textures::derived_skin`, `skin_albedo`):
