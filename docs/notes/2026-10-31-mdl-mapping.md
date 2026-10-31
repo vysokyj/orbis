@@ -104,3 +104,15 @@ for sharp lobes and √r for rough ones: Calib-Glossy 1.02 – 1.16 (G7 1.47
 → 1.17), SpecMode 0.95 – 1.10, Mixing 1.03 – 1.20, TopCoat unchanged.
 Worse: E8 (Roughness Squared off) 0.69 and Calib-ColorEffect C8 1.35 →
 1.77 (#27). Calib-Materials has no cached dump, not checked.
+
+## #27: C8, Base Mixing 1 with a red Glossy Specular
+
+The .mi: `glossy_reflectivity` 0.793 (the red channel, linear),
+`glossy_color` white, the hue (1, 0.089, 0.037) as
+`glossy_directional_normal_color` only. Iray's diffuse under it is
+1 − 0.793 head-on in every channel. Octane rendered C8's R right (0.366 /
+0.366) and G / B 1.5 / 2.9 ×: under a tinted specular Universal's diffuse
+keeps 1 − F·t per channel, so the blue base showed through. Albedo ×
+(1 − w·F0) / (1 − w·F0·t) (variant `set=C8_mode1_specular.albedo=x1,0.2226,0.2131`,
+then `specular_diffuse_share`): C8 1.77 → 1.08 (R / G / B 1.05 / 0.82 /
+0.94), Calib-SpecMode's Morgan spheres 1.09 → 1.03, the rest unchanged.

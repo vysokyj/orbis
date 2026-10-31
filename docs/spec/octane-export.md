@@ -661,10 +661,14 @@ Every material input (20007) is filled — Octane doesn't convert
   mode, mostly hair and brows (#52). The hue over the luminance went past
   1 and was clipped: Calib-ColorEffect's C8 (Glossy Specular 0.9 / 0.3 /
   0.2 over a blue base) rendered a white reflection where Iray's is a red
-  mirror (R 0.35 → 1.03 × Iray). Its green and blue stay 2.6 / 4.4 ×: in
-  Iray the blue base hardly shows through, in Octane 1 − F0 of it does
-  (#27). 506 installed materials have Base Mixing 1 with a Glossy Specular
-  above 0.06 or a map.
+  mirror (R 0.35 → 1.03 × Iray). Its green and blue stayed 2.6 / 4.4 ×:
+  Iray leaves the diffuse 1 − w·F0 in every channel (DAZ passes F0 as the
+  curve and the hue only as a directional tint on the reflection, its .mi
+  export), Octane 1 − w·F0·t per channel of the specular tint t. So the
+  albedo is × (1 − w·F0) / (1 − w·F0·t): C8 1.77 → 1.08 × Iray (R / G / B
+  1.05 / 0.82 / 0.94), Morgan's beige gloss 1.09 → 1.03; a grey gloss
+  keeps 1 (#27). 506 installed materials have Base Mixing 1 with a Glossy
+  Specular above 0.06 or a map.
 - **Refraction** (glass, water) → `transmission` = Refraction Weight ×
   the refraction's colour, IOR on `ior` (Dielectric IOR — Universal has no
   `index4`, probe 82; `ior` 2.0 brightened Calib-Materials' gloss 1.08 →

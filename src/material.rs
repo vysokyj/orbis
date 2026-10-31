@@ -1486,6 +1486,9 @@ impl Ocs<'_> {
             (true, Some(_)) => (mat.base_color(), 1.0),
             (false, _) => ([1.0; 3], 1.0),
         };
+        // Base Mixing 1 with a coloured gloss: see `specular_diffuse_share`.
+        let share = if specular_mode && !mirror && weighted.is_none() { specular_diffuse_share(mat, gloss.min(1.0), gloss_color) } else { [1.0; 3] };
+        let tint = [0, 1, 2].map(|k| tint[k] * share[k]);
         // The weighted blend scales the diffuse map (not a translucency
         // map standing in for a missing one — the HS CB cap went grey).
         if mirror {
@@ -1494,7 +1497,7 @@ impl Ocs<'_> {
             match diffuse.and_then(|t| self.textures.asset(self.dirs, &t)) {
                 Some(asset) if self.has_damp_or_ao(mat) => self.damp_ao_albedo(i, mat, &asset, diffuse_weight * mix, tint),
                 Some(asset) => self.overlaid_pin(i, "albedo", mat, "diffuse", &asset, diffuse_weight * mix, tint),
-                None => self.rgb_pin(i, "albedo", mat.base_color().map(|c| c * diffuse_weight)),
+                None => self.rgb_pin(i, "albedo", [0, 1, 2].map(|k| mat.base_color()[k] * diffuse_weight * share[k])),
             }
         }
 
@@ -1794,6 +1797,22 @@ fn specular_ior(mat: &Material) -> f32 {
     let f0 = mat.color("Glossy Specular").map_or(0.04, max_channel).clamp(0.0, 0.95);
     let s = f0.sqrt();
     (1.0 + s) / (1.0 - s)
+}
+
+/// What Universal's albedo keeps per channel under a Base Mixing 1 gloss of
+/// weight `w`: Iray leaves the diffuse 1 − w·F0 head-on whatever the
+/// gloss's colour (DAZ passes F0 = Glossy Specular's strongest channel as
+/// the curve, the hue as a directional tint on the reflection — its .mi
+/// export), Octane 1 − w·F0·t per channel of the specular tint t (Glossy
+/// Color × the hue), so a red specular let the blue base show through in
+/// green and blue: Calib-ColorEffect's C8 (Glossy Specular 0.9 / 0.3 / 0.2
+/// over a blue base) 1.77 × Iray, its G / B 1.5 / 2.9 ×; × (1 − w·F0) /
+/// (1 − w·F0·t) 1.08, R / G / B 1.05 / 0.82 / 0.94. A grey gloss keeps 1
+/// (#27).
+fn specular_diffuse_share(mat: &Material, w: f32, gloss_color: [f32; 3]) -> [f32; 3] {
+    let f0 = mat.color("Glossy Specular").map_or(0.04, max_channel).clamp(0.0, 0.95) * w.clamp(0.0, 1.0);
+    let hue = specular_hue(mat);
+    [0, 1, 2].map(|k| (1.0 - f0) / (1.0 - f0 * hue[k] * gloss_color[k].clamp(0.0, 1.0)).max(1e-3))
 }
 
 /// Iray's thin-film tint seen head-on and at grazing angles: what DAZ's
@@ -3394,6 +3413,11 @@ mod tests {
         assert!((hue[0] - 1.0).abs() < 1e-6 && hue[1] < 0.2 && hue[2] < 0.1, "{hue:?}");
         let grey = mat(json!([{"channel": {"id": "Glossy Specular", "current_value": [0.5, 0.5, 0.5]}}]));
         assert_eq!(specular_hue(&grey), [1.0; 3]);
+        // Under the red gloss the diffuse keeps Iray's 1 − F0 in every
+        // channel (Octane's 1 − F0·t compensated); a grey one is left alone.
+        let share = specular_diffuse_share(&red, 1.0, [1.0; 3]);
+        assert!((share[0] - 1.0).abs() < 1e-6 && share[1] < 0.3 && share[2] < 0.3, "{share:?}");
+        assert!(specular_diffuse_share(&grey, 1.0, [1.0; 3]).iter().all(|s| (s - 1.0).abs() < 1e-6));
         // Base Color Effect 2 shares out diffuse and translucency like 1,
         // by its own weights.
         let effect = |e: i32| {
