@@ -116,3 +116,22 @@ keeps 1 − F·t per channel, so the blue base showed through. Albedo ×
 (1 − w·F0) / (1 − w·F0·t) (variant `set=C8_mode1_specular.albedo=x1,0.2226,0.2131`,
 then `specular_diffuse_share`): C8 1.77 → 1.08 (R / G / B 1.05 / 0.82 /
 0.94), Calib-SpecMode's Morgan spheres 1.09 → 1.03, the rest unchanged.
+
+## #59: the metal at w²
+
+Iray reference for Calib-Map-Metal from the Iray Server (5000 samples,
+124 s). Octane / Iray per sphere (`highlight-spread.py --vs`):
+
+| | 0.25 | 0.5 | 0.75 | 1 | 1 refl 1 | 1 blue gloss | 0.5 no gloss | 0.5 spec mode |
+|---|---|---|---|---|---|---|---|---|
+| m = w (before) | 1.23 | 1.38 | 1.39 | 1.19 | 2.14 | 1.23 | 1.51 | 0.99 |
+| m = w², albedo × 1/(1+w) | 1.12 | 1.08 | 0.98 | 0.74 | 1.74 | 0.80 | 0.89 | 0.99 |
+| m = w²/k, albedo & specular × k | 1.12 | 1.16 | 1.22 | 1.19 | 1.28 | 1.23 | 1.06 | 0.99 |
+
+The first try forgot that Universal's metal takes its colour from the
+albedo: halving the albedo darkened the metal too (the full metal 1.19 →
+0.74; Calib-PBRSkin P7 / P8 1.01 / 1.24 → 0.55 / 0.74). A shared k = 1 − w
++ w² with m = w² / k gives Iray's w² metal + (1 − w) base. The excess
+coating of a Reflectivity above 0.5 now fades with 1 − w (the 2.14).
+Calib-DataGamma G6 1.41 → 1.09; PBRSkin P7 / P8 0.93 / 1.02. The old
+binary for the comparison was built from HEAD into a separate target dir.

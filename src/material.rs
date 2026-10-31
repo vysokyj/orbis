@@ -1488,6 +1488,14 @@ impl Ocs<'_> {
         };
         // Base Mixing 1 with a coloured gloss: see `specular_diffuse_share`.
         let share = if specular_mode && !mirror && weighted.is_none() { specular_diffuse_share(mat, gloss.min(1.0), gloss_color) } else { [1.0; 3] };
+        // Under a partial metal albedo and gloss scale (`metal_shares`).
+        let metal_w = if mirror || specular_mode || weighted.is_some() || !(mat.metallic() >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some()) {
+            0.0
+        } else {
+            mat.metallic()
+        };
+        let base_keep = metal_shares(metal_w).1;
+        let share = share.map(|s| s * base_keep);
         let tint = [0, 1, 2].map(|k| tint[k] * share[k]);
         // The weighted blend scales the diffuse map (not a translucency
         // map standing in for a missing one — the HS CB cap went grey).
@@ -1546,7 +1554,7 @@ impl Ocs<'_> {
             // × Iray at Universal's default, 1.21 / 1.14 so, like the matte
             // sphere's 1.13 (r 1: see `glossy_excess`).
             let refl = if specular_mode { 1.0 } else { reflectivity_share(mat.float("Glossy Reflectivity")) };
-            let weight = glossy.min(1.0) * refl;
+            let weight = glossy.min(1.0) * refl * base_keep;
             // Base Mixing 1: Glossy Specular's hue tints the reflection too
             // (its strength is the IOR, `specular_ior`).
             let hue = if specular_mode { specular_hue(mat) } else { [1.0; 3] };
@@ -1583,8 +1591,14 @@ impl Ocs<'_> {
             // The diffuse part of a weighted mix: its gloss is the mix's
             // other material.
         } else if mirror || (!specular_mode && (metallic >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some())) {
-            let ch = if mirror { None } else { Some("Metallic Weight") };
-            self.float_or_map(i, "metallic", mat, ch, metallic.max(0.0));
+            // Iray's metal reflects at w² (`metal_shares`); a map squared
+            // too, by twice its gamma (its 1 / k at the channel's value).
+            let m = metal_shares(metallic).0;
+            match (mirror, mat.image("Metallic Weight").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t))) {
+                (false, Some(asset)) => self.image_pin(i, "metallic", &asset, true, 2.0 * data_gamma(mat, "Metallic Weight"), m),
+                (false, None) => self.float_pin(i, "metallic", m),
+                (true, _) => self.float_pin(i, "metallic", metallic.max(0.0)),
+            }
         }
 
         // Iray refraction takes the glossy layer's colour and roughness unless
@@ -1652,7 +1666,10 @@ impl Ocs<'_> {
         // specular, which caps at 1 (Calib-Glossy, r 1: 0.74 × Iray, also
         // at specular 2); the excess 2r − 1 as a clear coating at the gloss's
         // roughness brought it to 1.08, like its neighbours' 1.11 – 1.16.
-        let excess = if mirror || specular_mode || glossy <= 0.0 || weighted.is_some() { 0.0 } else { glossy.min(1.0) * glossy_excess(mat.float("Glossy Reflectivity")) };
+        // Over a metal only the base's share of it: Iray's gloss is inside
+        // the base (1 − w), none at all on a full metal (Calib-Map-Metal's
+        // Reflectivity 1 metal: 2.14 × Iray with it).
+        let excess = if mirror || specular_mode || glossy <= 0.0 || weighted.is_some() { 0.0 } else { glossy.min(1.0) * glossy_excess(mat.float("Glossy Reflectivity")) * (1.0 - metal_w.clamp(0.0, 1.0)) };
         if coat <= 0.0 && excess > 0.0 {
             self.rgb_pin(i, "coating", gloss_color.map(|c| c * excess));
             self.float_pin(i, "coatingRoughness", rough.clamp(0.0, 1.0));
@@ -2324,6 +2341,23 @@ fn iray_roughness(mat: &Material, r: f32, from_glossiness: bool) -> f32 {
 
 /// `Ocs::gloss_roughness`'s curve.
 const GGX_ROUGHNESS_CURVE: f32 = 1.85;
+
+/// Iray's metal at Metallic Weight w (DAZ's MDL, `metallic_layered_base`):
+/// a `weighted_layer` at w of a metal coat that is itself at weight w over
+/// black — DAZ passes the same w to both (its .mi export) — over the
+/// dielectric base: w² metal + (1 − w) base, the rest lost. Universal's
+/// `metallic` m blends m metal + (1 − m) base, and its metal takes the
+/// albedo's colour too, so both albedo and specular × k with m k = w² and
+/// (1 − m) k = 1 − w: k = 1 − w + w², m = w² / k. Scaling only the base
+/// (m = w², albedo × 1 / (1 + w)) darkened the metal: Calib-PBRSkin's
+/// metals 0.9 / 0.75 went from 1.01 / 1.24 to 0.55 / 0.74 × Iray. At m = w
+/// Calib-Map-Metal's red spheres at 0.25 / 0.5 / 0.75 rendered 1.23 / 1.38
+/// / 1.39 × Iray (#59). Returns (m, k).
+fn metal_shares(w: f32) -> (f32, f32) {
+    let w = w.clamp(0.0, 1.0);
+    let k = 1.0 - w + w * w;
+    (w * w / k, k)
+}
 
 /// Metallic Weight below this (without a map) is left out: see `universal`.
 const NEGLIGIBLE_METALLIC: f32 = 0.05;

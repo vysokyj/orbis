@@ -638,6 +638,19 @@ Every material input (20007) is filled — Octane doesn't convert
   metal too (0.55 without). With translucency (mesh hair) the diffuse map
   is brightened by `weighted_mix` as before. Base Mixing 1 with the wall
   map as Diffuse and Glossy Color renders like a flat one (1.12 – 1.14).
+- **Metallic Weight w → `metallic` w² / k, albedo and specular × k,**
+  k = 1 − w + w² (a map: squared by twice its gamma, k from the
+  channel's value); the glossy excess coating × (1 − w). Iray's metal is a
+  coat at weight w inside a layer at weight w (DAZ passes w to both, its
+  .mi export): w² metal + (1 − w) base. Universal's metal takes the
+  albedo's colour, so the scale has to be shared.
+
+  Why: Calib-Map-Metal's red spheres at 0.25 / 0.5 / 0.75 went from 1.23
+  / 1.38 / 1.39 to 1.12 / 1.16 / 1.22 × Iray (the full metal 1.19), the
+  0.5 metal without gloss 1.51 → 1.06, a Reflectivity 1 metal 2.14 →
+  1.28; Calib-DataGamma's metal 0.5 1.41 → 1.09; Calib-PBRSkin's 0.75 /
+  0.9 metals 1.24 / 1.01 → 1.02 / 0.93. The metallic map at gamma 1
+  (G5) 1.38 → 1.43 (#59).
 - **Metallic Weight under 0.05** (no map) is left out: the GSOV4 jacket's
   0.0107 turned Octane's gloss off — black velvet (0.02× Iray) beside the
   same leather's trousers.
