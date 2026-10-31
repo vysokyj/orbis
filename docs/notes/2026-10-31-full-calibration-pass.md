@@ -71,3 +71,32 @@ T3 1.03 – 1.04, T4 1.04 – 1.05 × Iray. Iray's Fresnel spheres show no
 reflection at all, which doesn't fit DAZ's MDL (`fresnel_layer`). Since
 5561 materials use it, it waits for a check on a real material in the next
 Iray Server batch.
+
+## Colour effects (#27)
+
+Calib-ColorEffect per sphere (mean R G B, Octane / Iray):
+
+| Sphere | before | after |
+|---|---|---|
+| C1 Base Color Effect 0 | 0.87 1.00 1.01 | same |
+| C2 Base Color Effect 1 | 1.22 1.11 0.82 | same |
+| C3 Base Color Effect 2 | 0.48 0.85 0.99 | 1.01 1.01 0.95 |
+| C4 / C5 glass, Glossy Color Effect 0 / 1 | 0.86 1.28 0.16 | same |
+| C6 / C7 top coat, Color Effect 0 / 1 | 0.98 – 1.13 | same |
+| C8 Base Mixing 1, Glossy Specular 0.9 / 0.3 / 0.2 | 0.35 2.61 4.39 | 1.03 2.62 4.38 |
+
+- C3 needed Base Color Effect 2's own diffuse / transmission shares.
+  Tried 0.7 / 1.5 (0.94 0.82 0.70), 0.9 / 1.4 (0.84 0.91 0.90),
+  0.95 / 1.7 (1.20 1.07 0.95); kept 0.95 / 1.55.
+- C8: Glossy Specular's hue was divided by its luminance and clipped at 1,
+  so red turned white. Over its strongest channel (IOR from that channel
+  too) the reflection is Iray's red. The blue base still shows through
+  2.6 – 4.4× too much in green and blue. Calib-SpecMode's greys didn't
+  move (1.00 – 1.13).
+- In Iray Glossy / Top Coat Color Effect 0 vs 1 change nothing visible on
+  these spheres (C4 = C5, C6 ≈ C7). C4 / C5's blue 0.16 is the red glass's
+  near-zero blue; their absolute B is 0 in both.
+- One batch render of ColorEffect and SpecMode together came out with
+  every ColorEffect sphere default grey (materials not applied). Rendered
+  alone, the same export was right. Octane's import into its open project
+  probably went wrong once; watch for it.

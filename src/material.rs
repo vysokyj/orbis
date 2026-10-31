@@ -1354,9 +1354,20 @@ impl Ocs<'_> {
         // cards (thin-walled, w 0.3 – 0.65, Translucency Color white /
         // the diffuse / dark, lit from the front or behind) 0.98 – 1.02 ×
         // Iray; at the default shares 1.8 – 2.5 ×. The Genesis EyeSocket's
-        // caruncle is such a surface (#20, #45).
-        let scatter_transmit = transmit > 0.0 && mat.float("Base Color Effect").unwrap_or(0.0) as i32 == 1;
-        let diffuse_weight = (1.0 - refraction) * (1.0 - transmit) * if scatter_transmit { SCATTER_TRANSMIT_DIFFUSE } else { 1.0 } * film_dimming(mat);
+        // caruncle is such a surface (#20, #45). Base Color Effect 2
+        // (Scatter & Transmit Intensity: the same split, the diffuse weight
+        // greyed) 0.95 and 1.55: Calib-ColorEffect's C3 1.00 / 1.00 / 0.95 ×
+        // Iray, taken as effect 0 0.48 / 0.85 / 0.99 (#27).
+        let (diffuse_share, transmit_share) = if transmit > 0.0 {
+            match mat.float("Base Color Effect").unwrap_or(0.0) as i32 {
+                1 => (SCATTER_TRANSMIT_DIFFUSE, SCATTER_TRANSMIT_TRANSMISSION),
+                2 => (SCATTER_TRANSMIT_INTENSITY_DIFFUSE, SCATTER_TRANSMIT_INTENSITY_TRANSMISSION),
+                _ => (1.0, 1.0),
+            }
+        } else {
+            (1.0, 1.0)
+        };
+        let diffuse_weight = (1.0 - refraction) * (1.0 - transmit) * diffuse_share * film_dimming(mat);
 
         // Iray "Base Mixing" 1 (specular/glossiness) ignores Metallic Weight;
         // a black base under a strong white gloss there is a mirror —
@@ -1406,7 +1417,7 @@ impl Ocs<'_> {
             // passes twice as much in Iray: Calib-Leaf's card 0.48 × Iray at
             // w, 0.81 at min(2w, 1); a closed sphere stays at w (1.25 – 1.38
             // at 2w).
-            let share = if mat.open && !thin { (2.0 * transmit).min(1.0) } else { transmit } * if scatter_transmit { SCATTER_TRANSMIT_TRANSMISSION } else { 1.0 };
+            let share = if mat.open && !thin { (2.0 * transmit).min(1.0) } else { transmit } * transmit_share;
             match mat.image("Translucency Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
                 Some(asset) => self.overlaid_pin(i, "transmission", mat, "Translucency Color", &asset, share, tc),
                 None => self.rgb_pin(i, "transmission", tc.map(|c| c * share)),
@@ -1440,7 +1451,7 @@ impl Ocs<'_> {
             // Base Mixing 1: Glossy Specular's hue tints the reflection too
             // (its strength is the IOR, `specular_ior`).
             let hue = if specular_mode { specular_hue(mat) } else { [1.0; 3] };
-            let gloss_color = [0, 1, 2].map(|k| (gloss_color[k] * hue[k]).min(1.0));
+            let gloss_color = [0, 1, 2].map(|k| gloss_color[k] * hue[k]);
             // A coloured gloss map tints the reflection: the HS CB braids'
             // brown gloss rendered as a grey sheen with Universal's white
             // default (Octane1, probe 60).
@@ -1668,14 +1679,15 @@ const DUAL_LOBE_2_ROUGHNESS: f32 = 2.0;
 /// Iray Base Mixing 1 (specular / glossiness): Glossy Specular is the gloss's
 /// head-on reflectance F0, Fresnel to white at grazing, and the diffuse
 /// takes what it leaves. Octane's dielectric layer does that by its IOR:
-/// n = (1 + √F0) / (1 − √F0) from Glossy Specular's luminance (a material
+/// n = (1 + √F0) / (1 − √F0) from Glossy Specular's strongest channel, its
+/// hue the reflection's tint (`specular_hue`; a grey's is its luminance; a material
 /// without the channel: F0 0.04, IOR 1.5). Calib-SpecMode (#52): Glossy
 /// Specular 0 / 0.2 / 0.5 / 1, 0.5 at weight 0.5, and Morgan Hair's gloss
 /// without and with its top coat rendered 1.26 / 1.13 / 0.74 / 0.35 / 0.84 /
 /// 0.55 / 0.55 × Iray at the default IOR; 1.01 – 1.10 so (S1, mode 0: 1.08).
 /// Black reflects nothing head-on: floored at F0 0.04 it stayed 1.26.
 fn specular_ior(mat: &Material) -> f32 {
-    let f0 = mat.color("Glossy Specular").map_or(0.04, luminance).clamp(0.0, 0.95);
+    let f0 = mat.color("Glossy Specular").map_or(0.04, max_channel).clamp(0.0, 0.95);
     let s = f0.sqrt();
     (1.0 + s) / (1.0 - s)
 }
@@ -1706,19 +1718,21 @@ fn film_dimming(mat: &Material) -> f32 {
     dim("Top Coat Thin Film", "Top Coat Thin Film IOR", coat) * dim("Base Thin Film", "Base Thin Film IOR", gloss)
 }
 
-/// Rec. 709 luminance of a linear colour.
-fn luminance(c: [f32; 3]) -> f32 {
-    0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
-}
-
-/// Glossy Specular's hue (the colour over its luminance):
-/// it tints a Base Mixing 1 gloss — Morgan Hair's beige specular is Iray's
-/// golden sheen.
+/// Glossy Specular's hue (the colour over its strongest channel, whose F0
+/// `specular_ior` takes): it tints a Base Mixing 1 gloss — Morgan Hair's
+/// beige specular is Iray's golden sheen. Over the luminance the hue went
+/// past 1 and was clipped: Calib-ColorEffect's red specular (0.9, 0.3, 0.2)
+/// rendered a white reflection over the blue base, Iray's a red mirror (#27).
 fn specular_hue(mat: &Material) -> [f32; 3] {
     match mat.color("Glossy Specular") {
-        Some(c) if luminance(c) > 1e-3 => c.map(|x| x / luminance(c)),
+        Some(c) if max_channel(c) > 1e-3 => c.map(|x| x / max_channel(c)),
         _ => [1.0; 3],
     }
+}
+
+/// The largest of a colour's channels.
+fn max_channel(c: [f32; 3]) -> f32 {
+    c.iter().copied().fold(0.0, f32::max)
 }
 
 /// Iray's volume absorption as an absorption coefficient per channel (1/m):
@@ -1748,6 +1762,9 @@ const REFRACTION_ROUGHNESS_SCALE: f32 = 0.3;
 /// transmission shares. See `universal`.
 const SCATTER_TRANSMIT_DIFFUSE: f32 = 0.4;
 const SCATTER_TRANSMIT_TRANSMISSION: f32 = 2.0;
+/// Base Color Effect 2 (Scatter & Transmit Intensity): see `universal`.
+const SCATTER_TRANSMIT_INTENSITY_DIFFUSE: f32 = 0.95;
+const SCATTER_TRANSMIT_INTENSITY_TRANSMISSION: f32 = 1.55;
 
 /// Whether Iray's Top Coat is in Layering Mode 1 (Weighted) and on: see
 /// `Ocs::weighted_coat_material`.
@@ -3131,6 +3148,32 @@ mod tests {
         // by the glossy map.
         let spec = &x[x.find("<pin name='specular'>").expect("tinted gloss")..];
         assert!(spec[..200].contains("light.png"), "{spec}");
+    }
+
+    #[test]
+    fn colour_effects_split_and_tint() {
+        // Base Mixing 1: Glossy Specular's hue over its strongest channel,
+        // not clipped — a red specular stays red.
+        let red = mat(json!([{"channel": {"id": "Glossy Specular", "current_value": [0.9, 0.3, 0.2]}}]));
+        let hue = specular_hue(&red);
+        assert!((hue[0] - 1.0).abs() < 1e-6 && hue[1] < 0.2 && hue[2] < 0.1, "{hue:?}");
+        let grey = mat(json!([{"channel": {"id": "Glossy Specular", "current_value": [0.5, 0.5, 0.5]}}]));
+        assert_eq!(specular_hue(&grey), [1.0; 3]);
+        // Base Color Effect 2 shares out diffuse and translucency like 1,
+        // by its own weights.
+        let effect = |e: i32| {
+            let m = mat(json!([
+                {"channel": {"id": "diffuse", "current_value": [0.5, 0.5, 0.5]}},
+                {"channel": {"id": "Translucency Weight", "current_value": 0.5}},
+                {"channel": {"id": "Base Color Effect", "current_value": e}},
+            ]));
+            let (x, _) = material_inputs(&[("Card".into(), m, 1.0)], &[], HashMap::new(), 7000, SkinShader::None);
+            let albedo = &x[x.find("<pin name='albedo'>").unwrap()..];
+            albedo[albedo.find("type='8'>").unwrap() + 9..].split(' ').next().unwrap().parse::<f32>().unwrap()
+        };
+        let (e0, e1, e2) = (effect(0), effect(1), effect(2));
+        assert!((e1 / e0 - SCATTER_TRANSMIT_DIFFUSE).abs() < 1e-3, "{e0} {e1}");
+        assert!((e2 / e0 - SCATTER_TRANSMIT_INTENSITY_DIFFUSE).abs() < 1e-3, "{e0} {e2}");
     }
 
     #[test]

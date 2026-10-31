@@ -505,7 +505,11 @@ Every material input (20007) is filled — Octane doesn't convert
   (`SCATTER_TRANSMIT_DIFFUSE` / `_TRANSMISSION`) — the same cards 0.98 –
   1.02 ×, at the default shares 1.8 – 2.5 ×. The share is a scalar (each
   channel 0.40 – 0.41), not the base colour again (× D on the
-  transmission: 0.28 – 0.95). The Genesis EyeSocket is such a material: its
+  transmission: 0.28 – 0.95). **Base Color Effect 2** (Scatter & Transmit
+  Intensity, 278 translucent materials installed; 3685 use 1) by its own
+  shares, 0.95 and 1.55 (`SCATTER_TRANSMIT_INTENSITY_*`): Calib-ColorEffect's
+  C3 1.00 / 1.00 / 0.95 × Iray, before (as effect 0) 0.48 / 0.85 / 0.99
+  (#27). The Genesis EyeSocket is such a material: its
   caruncle rendered 4.6 × Iray, now 1.00 (Calib-Eye, #20). Found by
   switching the EyeSocket's other channels off one at a time in Iray on the
   cards (SSS Amount / Direction / Tint, Transmitted Color, its gloss, Top
@@ -607,11 +611,12 @@ Every material input (20007) is filled — Octane doesn't convert
 - Base Mixing 1 ignores Metallic Weight; a black base under a strong white
   gloss becomes a gloss-coloured metal (mirrors).
 - **Base Mixing 1 (specular / glossiness): Glossy Specular is F0.** Iray
-  reflects Glossy Specular's luminance head-on, with Fresnel to white at
-  grazing, and the diffuse takes what is left. The export uses the
-  dielectric layer's `ior` = (1 + √F0) / (1 − √F0); the refraction's IOR
-  wins when Refraction Weight ≥ 0.5. `specular` = Glossy Color × Glossy
-  Specular's hue × the layer's weight. A material without the channel takes
+  reflects Glossy Specular head-on (a colour, per channel), with Fresnel to
+  white at grazing, and the diffuse takes what is left. The export uses the
+  dielectric layer's `ior` = (1 + √F0) / (1 − √F0), F0 Glossy Specular's
+  strongest channel; the refraction's IOR wins when Refraction Weight ≥
+  0.5. `specular` = Glossy Color × Glossy Specular's hue (the colour over
+  that channel, so at most 1) × the layer's weight. A material without the channel takes
   F0 0.04 (IOR 1.5), and DAZ's default 0.2314 is that too. Black reflects
   nothing head-on (IOR 1).
 
@@ -620,7 +625,13 @@ Every material input (20007) is filled — Octane doesn't convert
   1.13 / 0.74 / 0.35 / 0.84 / 0.55 / 0.55 × Iray at the default IOR. With
   F0 as the IOR they render 1.01 – 1.10 (S1, mode 0: 1.08). At 1, Iray's
   sphere is a mirror. 289 materials in 41 of the user's scenes are in this
-  mode, mostly hair and brows (#52).
+  mode, mostly hair and brows (#52). The hue over the luminance went past
+  1 and was clipped: Calib-ColorEffect's C8 (Glossy Specular 0.9 / 0.3 /
+  0.2 over a blue base) rendered a white reflection where Iray's is a red
+  mirror (R 0.35 → 1.03 × Iray). Its green and blue stay 2.6 / 4.4 ×: in
+  Iray the blue base hardly shows through, in Octane 1 − F0 of it does
+  (#27). 506 installed materials have Base Mixing 1 with a Glossy Specular
+  above 0.06 or a map.
 - **Refraction** (glass, water) → `transmission` = Refraction Weight ×
   the refraction's colour, IOR on `ior` (Dielectric IOR — Universal has no
   `index4`, probe 82; `ior` 2.0 brightened Calib-Materials' gloss 1.08 →
