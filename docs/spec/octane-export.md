@@ -559,19 +559,30 @@ Every material input (20007) is filled — Octane doesn't convert
   Squared` (default on) — Iray squares the slider, Octane doesn't:
   highlights went from 31 / 17 / 6 px to 48 / 24 / 22 against Iray's
   56 / 26 / 20 (#10).
-- **Thin films dim the diffuse.** Top Coat Thin Film over the coat and
-  Base Thin Film over the glossy layer leave 1 − (0.053 + 1.6 R) × the
-  layer's weight of the albedo, with R = ((n − 1) / (n + 1))² at the
-  film's IOR. The thickness hardly matters. Octane's own film
-  (`filmwidth`, `filmIor`) is not used.
+- **Thin films tint what is under them.** DAZ's MDL (`add_thin_film`) does
+  not layer a film: it multiplies the whole BSDF under it — diffuse,
+  gloss, metal, refraction — by `df::directional_factor` between an RGB
+  tint head-on and one at grazing angles, (1 − cos θ)^1.1 apart, the tints
+  from NVIDIA's `legacy_thin_film::compute_refl` at cos 0.99 and 0.10.
+  Base Thin Film is over the base, Top Coat Thin Film over everything,
+  coat included (only when there is a coat); no layer weight scales them.
+  The export ports `compute_refl` and multiplies Universal's `albedo`,
+  `specular` and `transmission` (both films) and `coating` (the coat's)
+  by a Mix texture of the two tints by a Falloff Map (normal vs. eye ray,
+  skew 1.92: (θ / 90°)^1.92 fits (1 − cos θ)^1.1 within 0.015). The
+  specular is then written even when it is Universal's white default.
+  Octane's own film (`filmwidth`, `filmIor`) is not used. Metallic Flakes
+  Thin Film waits for the flakes (#30).
 
-  Why: Calib-FilmIOR. Coat films of 500 nm, 2 µm and 194 µm at IOR 1.91,
-  194 µm at 1.5 and 1.3, and glossy films of 500 nm and 194 µm at 1.91
-  left 0.77 / 0.76 / 0.81 / 0.87 / 0.92 / 0.74 / 0.78 of a matte grey in
-  Iray. Octane rendered those spheres 1.19 – 1.47 × Iray, and now 1.09 –
-  1.20 (the plain sphere: 1.09). Octane's film only dims the specular, and
-  hard: Calib-ThinFilm's black glossy spheres, which Iray's films barely
-  change, went from 1.04 – 1.10 to 0.55 – 0.73 × Iray with it (#31).
+  Why: Calib-ThinFilm. Iray's black glossy spheres are tinted warm
+  (300 nm), olive (500 nm, also on a coat and a metal), purple (800 nm)
+  and blue (500 nm at IOR 1.3), most at the rim — as the tints predict.
+  Octane rendered them 1.08 – 1.82 × Iray untinted, and 1.08 – 1.12 now
+  (800 nm 1.28; the plain sphere 1.08). Octane's film only dims the
+  specular, and hard: 0.55 – 0.73 × Iray with it. Calib-FilmIOR (films
+  over a matte grey): the head-on tint at IOR 1.91 is 0.77 – 0.83, the
+  diffuse Iray leaves 0.77 – 0.81; 1.09 – 1.20 × Iray with the earlier
+  fitted albedo dimming, 0.96 – 1.14 now (#31).
 - **Top Coat** → Universal `coating` = Top Coat Color × weight,
   `coatingRoughness` (Top Coat Roughness, or 1 − Top Coat Glossiness in
   modes 1 / 2, squared likewise), `coatingIor`: the top-coated sphere's

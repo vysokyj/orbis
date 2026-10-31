@@ -55,10 +55,10 @@ thing at a time.
 | `Calib-ColorEffect` | colour effects, Glossy Specular | — | [#27](https://github.com/vysokyj/orbis/issues/27) |
 | `Calib-SpecMode` | Base Mixing 1: Glossy Specular as F0, Morgan Hair's gloss and top coat | done (F0 → IOR) | [#52](https://github.com/vysokyj/orbis/issues/52) |
 | `Calib-CoatEffect` | colour effects of a top coat / glossy layer over an opaque base | done (no tint) | [#27](https://github.com/vysokyj/orbis/issues/27) |
-| `Calib-FilmIOR` | thin films with an IOR contrast: what they leave of the diffuse | done (albedo dimming) | [#31](https://github.com/vysokyj/orbis/issues/31) |
+| `Calib-FilmIOR` | thin films with an IOR contrast: what they leave of the diffuse | done (film tint) | [#31](https://github.com/vysokyj/orbis/issues/31) |
 | `Calib-Backscatter` | backscattering lobe | — | [#29](https://github.com/vysokyj/orbis/issues/29) |
 | `Calib-Flakes` | metallic flakes | — | [#30](https://github.com/vysokyj/orbis/issues/30) |
-| `Calib-ThinFilm` | thin film | — | [#31](https://github.com/vysokyj/orbis/issues/31) |
+| `Calib-ThinFilm` | thin film | done (film tint, Iray's MDL) | [#31](https://github.com/vysokyj/orbis/issues/31) |
 | `Calib-Diffuse` | diffuse roughness, strength, overlay | — | [#32](https://github.com/vysokyj/orbis/issues/32) |
 | `Calib-Dispersion` | dispersion (Abbe) | — | [#33](https://github.com/vysokyj/orbis/issues/33) |
 

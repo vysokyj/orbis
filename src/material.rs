@@ -538,6 +538,11 @@ struct Ocs<'a> {
     thin_glass_ior_one: bool,
     /// `Tuning::max_transmission`.
     max_transmission: f32,
+    /// The current material's Iray thin films (`Film::of`): `pin_open`
+    /// multiplies its colour pins by their tint.
+    film: Option<Film>,
+    /// Per open pin, whether `pin_open` wrapped it in the film's Multiply.
+    pin_wraps: Vec<bool>,
 }
 
 fn esc(s: &str) -> String {
@@ -564,12 +569,51 @@ impl Ocs<'_> {
         self.next_id
     }
 
+    /// Opens a pin; under a thin film (`Film`) a colour pin gets
+    /// Multiply(film tint, what follows), closed again by `pin_close`.
     fn pin_open(&mut self, indent: usize, name: &str) {
         let _ = writeln!(self.out, "{:indent$}<pin name='{name}'>", "");
+        let tint = if self.pin_wraps.contains(&true) { None } else { self.film.and_then(|f| f.tint(name)) };
+        self.pin_wraps.push(tint.is_some());
+        if let Some(t) = tint {
+            self.film_tint_open(indent + 1, t);
+        }
     }
 
     fn pin_close(&mut self, indent: usize) {
+        if self.pin_wraps.pop() == Some(true) {
+            let i = indent + 1;
+            let _ = writeln!(self.out, "{:i$} </pin>\n{:i$}</node>", "", "");
+        }
         let _ = writeln!(self.out, "{:indent$}</pin>", "");
+    }
+
+    /// A Multiply texture (39) of Iray's film tint — a Mix (38) of the
+    /// head-on and the grazing tint by a Falloff Map (50, normal vs. eye
+    /// ray) — and the pin's own value, left open in `texture2`.
+    fn film_tint_open(&mut self, i: usize, t: FilmTint) {
+        let id = self.id();
+        let _ = writeln!(self.out, "{:i$}<node id='{id}' type='39'>", "");
+        self.pin_open(i + 1, "texture1");
+        let mid = self.id();
+        let j = i + 2;
+        let _ = writeln!(self.out, "{:j$}<node id='{mid}' type='38'>", "");
+        self.pin_open(j + 1, "amount");
+        let fid = self.id();
+        let k = j + 2;
+        let _ = writeln!(self.out, "{:k$}<node id='{fid}' type='50'>", "");
+        self.value_pin(k + 1, "normal", 6, 8, "0 0 0");
+        self.value_pin(k + 1, "grazing", 6, 8, "1 0 0");
+        self.value_pin(k + 1, "falloff index", 6, 8, &format!("{} 0 0", num(FILM_FALLOFF_SKEW)));
+        let _ = writeln!(self.out, "{:k$}</node>", "");
+        self.pin_close(j + 1);
+        // Amount 1 is `texture2`: the other way round, Calib-ThinFilm's
+        // spheres took the rim's tint in the middle.
+        self.rgb_pin(j + 1, "texture1", t.normal);
+        self.rgb_pin(j + 1, "texture2", t.grazing);
+        let _ = writeln!(self.out, "{:j$}</node>", "");
+        self.pin_close(i + 1);
+        let _ = writeln!(self.out, "{:i$} <pin name='texture2'>", "");
     }
 
     /// `<pin name><node type><attr name='value' type>value</attr></node></pin>`
@@ -672,6 +716,9 @@ impl Ocs<'_> {
             Some(asset) => self.image_pin(i, "amount", &asset, true, 1.0, coat),
             None => self.float_pin(i, "amount", coat),
         }
+        // The coat is over the base's film, under its own.
+        let film = self.film;
+        self.film = film.map(|f| Film { under: FilmTint::NONE, ..f });
         self.pin_open(i, "material1");
         let cid = self.id();
         let j = i + 1;
@@ -693,6 +740,7 @@ impl Ocs<'_> {
         }
         let _ = writeln!(self.out, "{:j$}</node>", "");
         self.pin_close(i);
+        self.film = film;
         self.pin_open(i, "material2");
         self.in_coat_mix = true;
         self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
@@ -1369,7 +1417,7 @@ impl Ocs<'_> {
         } else {
             (1.0, 1.0)
         };
-        let diffuse_weight = (1.0 - refraction) * (1.0 - transmit) * diffuse_share * film_dimming(mat);
+        let diffuse_weight = (1.0 - refraction) * (1.0 - transmit) * diffuse_share;
 
         // Iray "Base Mixing" 1 (specular/glossiness) ignores Metallic Weight;
         // a black base under a strong white gloss there is a mirror —
@@ -1473,7 +1521,8 @@ impl Ocs<'_> {
                 // GSOV4 leather's 0.33 gloss with a seam mask rendered 3.4×
                 // Iray's sheen with Universal's full white one (Fetroom).
                 self.image_pin(i, "specular", &asset, true, data_gamma(mat, "Glossy Layered Weight"), weight);
-            } else if weight < 1.0 || gloss_color != [1.0; 3] {
+            } else if weight < 1.0 || gloss_color != [1.0; 3] || self.film.is_some() {
+                // (Universal's default is white; a film tints it.)
                 self.rgb_pin(i, "specular", gloss_color.map(|c| c * weight));
             }
         } else if let Some(dl) = dual_lobe.filter(|_| !mirror && refraction == 0.0) {
@@ -1482,7 +1531,7 @@ impl Ocs<'_> {
             // layer's, × its weight; lobe 1's part of it here, lobe 2's the
             // coating below (or all of it, when a Top Coat takes that).
             let weight = if coat > 0.0 { dl.share } else { dl.share * dl.lobe1 };
-            if weight < 1.0 {
+            if weight < 1.0 || self.film.is_some() {
                 self.rgb_pin(i, "specular", [weight; 3]);
             }
         }
@@ -1703,30 +1752,118 @@ fn specular_ior(mat: &Material) -> f32 {
     (1.0 + s) / (1.0 - s)
 }
 
-/// What Iray's thin films (Top Coat Thin Film over the coat, Base Thin Film
-/// over the glossy layer) leave of the diffuse under them: 1 − (0.053 +
-/// 1.6 R), R = ((n − 1) / (n + 1))² at the film's IOR n, scaled by the
-/// layer's weight; nearly independent of the thickness. Octane's film
-/// (`filmwidth`) only dims the specular — Calib-ThinFilm's black spheres
-/// went from 1.04 – 1.10 to 0.55 – 0.73 × Iray — so the export dims the
-/// albedo instead. Calib-FilmIOR (#31): a coat film of 500 nm / 2 µm /
-/// 194 µm at IOR 1.91, 194 µm at 1.5 / 1.3, and glossy films of 500 nm /
-/// 194 µm at 1.91 left 0.77 / 0.76 / 0.81 / 0.87 / 0.92 / 0.74 / 0.78 of
-/// the matte grey; the fit gives 0.79 / 0.79 / 0.79 / 0.88 / 0.92 / 0.79.
-/// Morgan Hair's coat film (194 µm at 1.91) darkened its hair 0.5 – 0.7 ×
-/// through its layers of cards (#52).
-fn film_dimming(mat: &Material) -> f32 {
-    let dim = |thickness: &str, ior: &str, weight: f32| {
-        if mat.float(thickness).unwrap_or(0.0) <= 0.0 || weight <= 0.0 {
-            return 1.0;
-        }
-        let n = mat.float(ior).unwrap_or(1.5);
-        let r = ((n - 1.0) / (n + 1.0)).powi(2);
-        1.0 - (0.053 + 1.6 * r) * weight.min(1.0)
+/// Iray's thin-film tint seen head-on and at grazing angles: what DAZ's
+/// `add_thin_film` multiplies the layers under a film by.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct FilmTint {
+    normal: [f32; 3],
+    grazing: [f32; 3],
+}
+
+impl FilmTint {
+    const NONE: Self = Self { normal: [1.0; 3], grazing: [1.0; 3] };
+
+    /// A film of `thickness` nm at `ior`: `compute_refl` at cos 0.99 and
+    /// 0.10, as `add_thin_film` takes them.
+    fn of(thickness: f32, ior: f32) -> Self {
+        Self { normal: film_reflectance(ior, thickness, 0.99), grazing: film_reflectance(ior, thickness, 0.10) }
+    }
+
+    fn times(self, o: Self) -> Self {
+        Self { normal: [0, 1, 2].map(|k| self.normal[k] * o.normal[k]), grazing: [0, 1, 2].map(|k| self.grazing[k] * o.grazing[k]) }
+    }
+}
+
+/// Iray's thin films on an Iray Uber material. DAZ's MDL
+/// (`irayubermaterial.mdl`, `add_thin_film`) does not layer a film: it
+/// multiplies the whole BSDF under it — diffuse, gloss, metal, refraction
+/// — by `df::directional_factor` between an RGB tint head-on and one at
+/// grazing angles, (1 − cos θ)^1.1 apart. Base Thin Film is over the base
+/// (under the flakes and the coat), Top Coat Thin Film over everything,
+/// coat included (only with a coat). Octane's film (`filmwidth`) only dims
+/// the specular — Calib-ThinFilm's black spheres went from 1.04 – 1.10 to
+/// 0.55 – 0.73 × Iray — so the export multiplies the colour pins by the
+/// tint instead (`Ocs::pin_open`). Calib-ThinFilm: Iray's spheres are
+/// tinted warm (300 nm), olive (500), purple (800) and blue (500 at IOR
+/// 1.3) as the tints predict; Calib-FilmIOR: the head-on tint at IOR 1.91
+/// is 0.77 – 0.83, the diffuse Iray leaves 0.77 – 0.81 (#31). Metallic
+/// Flakes Thin Film waits for the flakes (#30).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Film {
+    /// Over the base: every colour pin but the coating.
+    under: FilmTint,
+    /// Over the coat: every colour pin.
+    coat: FilmTint,
+}
+
+impl Film {
+    fn of(mat: &Material) -> Option<Self> {
+        let film = |thickness: &str, ior: &str| {
+            let d = mat.float(thickness).unwrap_or(0.0);
+            (d > 0.0).then(|| FilmTint::of(d, mat.float(ior).unwrap_or(1.5)))
+        };
+        let base = film("Base Thin Film", "Base Thin Film IOR");
+        let coat = film("Top Coat Thin Film", "Top Coat Thin Film IOR").filter(|_| mat.float("Top Coat Weight").unwrap_or(0.0) > 0.0);
+        (base.is_some() || coat.is_some()).then(|| Self { under: base.unwrap_or(FilmTint::NONE), coat: coat.unwrap_or(FilmTint::NONE) })
+    }
+
+    /// The tint of Universal's colour pin `pin`, if it has one.
+    fn tint(self, pin: &str) -> Option<FilmTint> {
+        let t = match pin {
+            "coating" => self.coat,
+            "albedo" | "specular" | "transmission" => self.under.times(self.coat),
+            _ => return None,
+        };
+        (t != FilmTint::NONE).then_some(t)
+    }
+}
+
+/// Octane's Falloff Map maps the angle to (θ / 90°)^skew; 1.92 fits Iray's
+/// (1 − cos θ)^1.1 within 0.015, weighted by a sphere's projected area.
+const FILM_FALLOFF_SKEW: f32 = 1.92;
+
+/// NVIDIA's `legacy_thin_film::compute_refl` (DAZ's
+/// `nvidia/legacy_thin_film.mdl`), which Iray Uber's films use: the
+/// interference of a film of `thickness` nm at `ior` over 16 wavelengths,
+/// in linear sRGB, at the cosine `kh` to the normal.
+fn film_reflectance(ior: f32, thickness: f32, kh: f32) -> [f32; 3] {
+    const CIE_XYZ: [[f32; 3]; 16] = [
+        [0.02986, 0.00310, 0.13609], [0.20715, 0.02304, 0.99584], [0.36717, 0.06469, 1.89550], [0.28549, 0.13661, 1.67236],
+        [0.08233, 0.26856, 0.76653], [0.01723, 0.48621, 0.21889], [0.14400, 0.77341, 0.05886], [0.40957, 0.95850, 0.01280],
+        [0.74201, 0.97967, 0.00060], [1.03325, 0.84591, 0.0], [1.08385, 0.62242, 0.0], [0.79203, 0.36749, 0.0],
+        [0.38751, 0.16135, 0.0], [0.13401, 0.05298, 0.0], [0.03531, 0.01375, 0.0], [0.00817, 0.00317, 0.0],
+    ];
+    if thickness <= 0.0 || ior <= 0.0 {
+        return [1.0; 3];
+    }
+    let eta = ior.min(1.0) / ior;
+    let cos_refr = (1.0 - (eta * eta - kh * kh * eta * eta)).sqrt();
+    let phase_shift = ior * cos_refr * 2.0 * thickness;
+    // Fresnel at the film's IOR.
+    let n = 1.0 / eta;
+    let c = 1.0 - (1.0 - kh * kh) / (n * n);
+    let f = if c < 0.0 {
+        1.0
+    } else {
+        let c = c.sqrt();
+        let (rp, ro) = ((c - kh * n) / (c + kh * n), (kh - c * n) / (kh + c * n));
+        (0.5 * (rp * rp + ro * ro)).clamp(0.0, 1.0)
     };
-    let coat = mat.float("Top Coat Weight").unwrap_or(0.0);
-    let gloss = mat.float("Glossy Layered Weight").unwrap_or(0.0);
-    dim("Top Coat Thin Film", "Top Coat Thin Film IOR", coat) * dim("Base Thin Film", "Base Thin Film IOR", gloss)
+    let mut xyz = [0.0f32; 3];
+    for (i, w) in CIE_XYZ.iter().enumerate() {
+        let lambda = 400.0 + i as f32 * 18.75;
+        let intensity = (std::f32::consts::TAU * phase_shift / lambda).cos();
+        for k in 0..3 {
+            xyz[k] += w[k] * intensity / 16.0;
+        }
+    }
+    let rgb = [
+        7.4753 * xyz[0] - 3.5459 * xyz[1] - 1.1501 * xyz[2],
+        -2.8365 * xyz[0] + 5.4915 * xyz[1] + 0.12149 * xyz[2],
+        0.17036 * xyz[0] - 0.62395 * xyz[1] + 3.2329 * xyz[2],
+    ];
+    let (i0, i1) = (f, 1.0 - f);
+    rgb.map(|v| (i0 * i0 + i1 * i1 + 2.0 * i0 * i1 * v).max(0.0))
 }
 
 /// Glossy Specular's hue (the colour over its strongest channel, whose F0
@@ -2169,7 +2306,7 @@ pub struct LightEmitter {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0 };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new() };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -2341,7 +2478,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, volumes: &
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0 };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new() };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -2488,7 +2625,7 @@ pub fn environment_texture(
     textures: &mut Textures,
     first_id: u32,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0 };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new() };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -2548,7 +2685,7 @@ pub fn material_inputs(
 ) -> (String, Textures) {
     let Shading { skin, thin_glass_ior_one, max_transmission } = shading.into();
     let mut textures = Textures { layered, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one, max_transmission };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new() };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -2559,7 +2696,9 @@ pub fn material_inputs(
         );
         w.out.push_str("    <attr name='group' type='10'></attr>\n    <attr name='description' type='10'></attr>\n");
         w.pin_open(4, "input");
+        w.film = Film::of(mat);
         w.universal(5, name, mat, *area, skin);
+        w.film = None;
         w.pin_close(4);
         w.out.push_str("   </node>\n");
     }
@@ -2997,17 +3136,30 @@ mod tests {
             let pin = &x[x.find("<pin name='ior'>").expect("F0 as the IOR")..];
             assert!(pin[..pin.len().min(200)].contains(&format!("<attr name='value' type='6'>{ior}")), "{pin}");
         }
-        // A coat's thin film at IOR 1.5 (R 0.04) leaves 0.883 of a white
-        // diffuse: 1 − (0.053 + 1.6 · 0.04).
+        // A thin film tints what is under it, head-on and grazing, as
+        // NVIDIA's legacy_thin_film (Calib-ThinFilm's 500 nm: olive head-on,
+        // the blue gone at the rim; at IOR 1.3 blue at the rim).
+        let close = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.002);
+        assert!(close(film_reflectance(1.5, 500.0, 0.99), [0.8232, 0.9574, 0.8898]));
+        assert!(close(film_reflectance(1.5, 500.0, 0.10), [0.9674, 0.7746, 0.0466]));
+        assert!(close(film_reflectance(1.3, 500.0, 0.10), [0.0579, 0.1068, 0.9155]));
+        // The coat's film tints the coating and the base, the base's film
+        // only the base.
         let filmed = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 1}},
+            {"channel": {"id": "Glossy Reflectivity", "current_value": 0.5}},
+            {"channel": {"id": "Base Thin Film", "current_value": 500}},
             {"channel": {"id": "Top Coat Weight", "current_value": 1}},
-            {"channel": {"id": "Top Coat Thin Film", "current_value": 500}},
-            {"channel": {"id": "Top Coat Thin Film IOR", "current_value": 1.5}},
         ]));
         let (fx, _) = material_inputs(&[("Film".into(), filmed, 1.0)], &dirs, HashMap::new(), 8940, SkinShader::None);
-        let albedo = &fx[fx.find("<pin name='albedo'>").unwrap()..];
-        assert!(albedo[..200].contains("0.883 0.883 0.883"), "{albedo}");
+        for pin in ["albedo", "specular"] {
+            let p = &fx[fx.find(&format!("<pin name='{pin}'>")).expect(&fx)..];
+            assert!(p[..120].contains("type='39'") && p[..1200].contains("type='50'") && p[..1600].contains("0.823211 0.957422 0.889831"), "{p}");
+        }
+        let coating = &fx[fx.find("<pin name='coating'>").unwrap()..];
+        assert!(!coating[..120].contains("type='39'"), "{coating}");
+        assert_eq!(fx.matches("<pin").count(), fx.matches("</pin>").count());
         // A translucent prop: half its diffuse passes through.
         let wax = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},
