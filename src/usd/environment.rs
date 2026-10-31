@@ -154,6 +154,7 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
         // What DAZ hands Iray (`crate::iray::environment`, verified against
         // its .mi export).
         let iray = crate::iray::environment(&ch);
+        let setup = crate::iray::dome_setup(&ch);
         let dome = match iray {
             crate::iray::Environment::Dome { intensity } => intensity / crate::iray::DOME_INTENSITY_SCALE,
             _ => num("Environment Intensity").unwrap_or(1.0) * num("Environment Map").unwrap_or(1.0),
@@ -162,12 +163,11 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
             map,
             // Intensity × the map channel's own value.
             intensity: dome,
-            rotation_deg: num("Dome Rotation").unwrap_or(0.0),
+            rotation_deg: setup.rotation_turns * 360.0,
             orientation_deg: ["X", "Y", "Z"].map(|a| num(&format!("Dome Orientation {a}")).unwrap_or(0.0)),
             scene_only: num("Environment Mode") == Some(3.0),
-            ground_shadow: (ch.get("Draw Ground").and_then(Value::as_bool).unwrap_or(true) && num("Environment Mode") != Some(3.0))
-                .then(|| num("Ground Shadow Intensity").unwrap_or(1.0)),
-            ground_origin_y: (num("Ground Position Mode") == Some(1.0)).then(|| num("Ground Origin Y").unwrap_or(0.0)),
+            ground_shadow: (setup.ground && num("Environment Mode") != Some(3.0)).then_some(setup.ground_shadow),
+            ground_origin_y: (num("Ground Position Mode") == Some(1.0)).then_some(setup.ground_y),
             draw_dome: ch.get("Draw Dome").and_then(Value::as_bool).unwrap_or(true),
             scene_lights: !matches!(num("Environment Mode").map(|m| m as i64), Some(1 | 2)),
             sun_sky: match &iray {

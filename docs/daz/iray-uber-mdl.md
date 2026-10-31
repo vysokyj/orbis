@@ -88,7 +88,9 @@ Found beyond it:
 - **Environment** (`iray::environment`): an HDRI dome at Environment
   Intensity × Environment Map × 10 000; Scene Only none; sun-sky's
   multiplier, haze, disk intensity / scale, saturation, horizon as they
-  are, ground colour linear. The sun's direction: a steering node's
+  are, ground colour linear. The dome (`iray::dome_setup`): Dome Rotation
+  in turns about Y, orientation Rz · Rx · Ry of Dome Orientation Z / X /
+  Y, Environment Tint linear, the ground as set. The sun's direction: a steering node's
   position as is, else the solar position — ours (`usd::sun_direction`)
   within 0.1° of DAZ's.
 - **PBRSkin** (`iray::pbrskin`; its channel defaults from DAZ's

@@ -863,6 +863,44 @@ pub enum Environment {
     SunSky { args: BTreeMap<&'static str, f64>, ground_color: [f64; 3] },
 }
 
+/// The dome's placement and colour DAZ hands Iray in every mode but Scene
+/// Only (Calib-L-Mi-Dome-turned): `environment_dome_rotation_angle` = Dome
+/// Rotation in turns about Y, `environment_function_orientation` = Rz · Rx ·
+/// Ry of Dome Orientation Z / X / Y (degrees, row-major), the tint linear,
+/// and the shadow-catching ground.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DomeSetup {
+    pub rotation_turns: f64,
+    pub orientation: [f64; 9],
+    pub tint: [f64; 3],
+    pub ground: bool,
+    /// The ground's height (cm) in Manual position mode, else 0.
+    pub ground_y: f64,
+    pub ground_shadow: f64,
+    pub ground_glossiness: f64,
+    pub ground_reflectivity: [f64; 3],
+}
+
+pub fn dome_setup(ch: &NodeChannels) -> DomeSetup {
+    let deg = |k: &str| ch_num(ch, k, 0.0).to_radians();
+    let (x, y, z) = (deg("Dome Orientation X"), deg("Dome Orientation Y"), deg("Dome Orientation Z"));
+    let rx = [[1.0, 0.0, 0.0], [0.0, x.cos(), -x.sin()], [0.0, x.sin(), x.cos()]];
+    let ry = [[y.cos(), 0.0, y.sin()], [0.0, 1.0, 0.0], [-y.sin(), 0.0, y.cos()]];
+    let rz = [[z.cos(), -z.sin(), 0.0], [z.sin(), z.cos(), 0.0], [0.0, 0.0, 1.0]];
+    let mul = |a: [[f64; 3]; 3], b: [[f64; 3]; 3]| -> [[f64; 3]; 3] { std::array::from_fn(|i| std::array::from_fn(|j| (0..3).map(|k| a[i][k] * b[k][j]).sum())) };
+    let m = mul(mul(rz, rx), ry);
+    DomeSetup {
+        rotation_turns: ch_num(ch, "Dome Rotation", 0.0) / 360.0,
+        orientation: std::array::from_fn(|i| m[i / 3][i % 3]),
+        tint: ch_colour(ch, "Environment Tint", [1.0; 3]),
+        ground: ch_bool(ch, "Draw Ground", true),
+        ground_y: if ch_num(ch, "Ground Position Mode", 0.0) == 1.0 { ch_num(ch, "Ground Origin Y", 0.0) } else { 0.0 },
+        ground_shadow: ch_num(ch, "Ground Shadow Intensity", 1.0),
+        ground_glossiness: ch_num(ch, "Ground Glossiness", 0.1),
+        ground_reflectivity: ch_colour(ch, "Ground Reflectivity", [0.0; 3]),
+    }
+}
+
 /// Iray's dome brightness per unit of DAZ's Environment Intensity × map value.
 pub const DOME_INTENSITY_SCALE: f64 = 10_000.0;
 
@@ -1215,6 +1253,22 @@ mod tests {
                 }
             }
             if let Some(ch) = by_id(&nodes, "Environment Options") {
+                let o = &mi["options"];
+                let d = dome_setup(ch);
+                check(format!("{scene} dome rotation"), num(&o["environment_dome_rotation_angle"]), d.rotation_turns);
+                for i in 0..9 {
+                    check(format!("{scene} dome orientation {i}"), num(&o["environment_function_orientation"][i]), d.orientation[i]);
+                }
+                for i in 0..3 {
+                    check(format!("{scene} dome tint {i}"), num(&o["environment_function_tint"][i]), d.tint[i]);
+                    check(format!("{scene} ground reflectivity {i}"), num(&o["environment_dome_ground_reflectivity"][i]), d.ground_reflectivity[i]);
+                }
+                check(format!("{scene} ground"), f64::from(u8::from(o["environment_dome_ground"].as_bool().unwrap_or(false))), f64::from(u8::from(d.ground)));
+                // The ground's height: its position's y, with DAZ's 1 mm drop at 0.
+                let gy = num(&o["environment_dome_ground_position"][1]);
+                check(format!("{scene} ground height"), if d.ground_y == 0.0 { gy + 0.001 } else { gy }, d.ground_y);
+                check(format!("{scene} ground shadow"), num(&o["environment_dome_ground_shadow_intensity"]), d.ground_shadow);
+                check(format!("{scene} ground glossiness"), num(&o["environment_dome_ground_glossiness"]), d.ground_glossiness);
                 let env = &mi["environment"];
                 match environment(ch) {
                     Environment::None => check(format!("{scene} no environment"), 1.0, f64::from(u8::from(env.is_null()))),
