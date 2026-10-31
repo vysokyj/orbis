@@ -560,10 +560,11 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   1). Not reached: lobe 2 at 0.9 (Iray 3.3, Octane 6.6 at 1), and lobe 1
   above ~0.3 (#56). On a skin the ratio moves little: Victoria's forehead
   0.92 × with all of it on lobe 2, 1.00 on lobe 1 (Iray).
-- **Roughness** by Base Mixing: 0 → `Glossy Roughness`, 1 and 2 →
+- **Roughness** by Base Mixing: 0 and 2 → `Glossy Roughness`, 1 →
   1 − `Glossiness` (both channels are always saved; Calib-Materials:
   Glossiness 0.8 beside Glossy Roughness 0.5 rendered Iray's sharp
-  highlight), then **squared** when `Roughness Squared` / `Glossiness
+  highlight; Weighted reads Glossy Roughness — DAZ's .mi export,
+  `src/iray.rs`, #62), then **squared** when `Roughness Squared` / `Glossiness
   Squared` (default on) — Iray squares the slider, Octane doesn't:
   highlights went from 31 / 17 / 6 px to 48 / 24 / 22 against Iray's
   56 / 26 / 20 (#10).
@@ -609,7 +610,8 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   a black Glossy Specular (that sphere 0.91 → 1.00).
 - **Top Coat** → Universal `coating` = Top Coat Color × weight,
   `coatingRoughness` (Top Coat Roughness, or 1 − Top Coat Glossiness in
-  modes 1 / 2, squared likewise), `coatingIor`: the top-coated sphere's
+  mode 1 — verified; mode 2 not yet, it keeps Glossiness — squared
+  likewise), `coatingIor`: the top-coated sphere's
   highlight 0 → 19 px (Iray 17). `coatingIor` by Top Coat Layering Mode:
   0 Reflectivity (the cornea; 2128 materials in My Library) reflects F0 =
   0.08 × Reflectivity head-on (0.5 → 0.04, IOR 1.5) — Calib-TopCoat's
@@ -1066,9 +1068,10 @@ Discs take the rect's factor. **Sphere lights** take a quarter of the
 point's (`IRAY_SPHERE_SHARE`): Iray lights the floor with 0.250 of a point
 light of the same flux, at 20 and 50 cm alike (Calib-L-Sphere-d20/-d50) —
 its flux as if from a disc of its radius. **Non-photometric lights**: 1000 π
-lm × Intensity, Intensity Scale ignored as Iray does (Calib-L-Point-legacy:
-Intensity 1 / 2 at scale 1000, 1 at scale 3000 → 3146 / 6281 / 3146 lm
-equivalent; the former 15 000 lm × Intensity × Scale was 4800× too bright
+lm × Intensity, Intensity Scale ignored, no colour temperature — exactly
+what DAZ hands Iray (`iray::light`, its .mi export: 3141.59 / 6283.19 lm);
+renders had matched it (Calib-L-Point-legacy: Intensity 1 / 2 at scale
+1000, 1 at scale 3000 → 3146 / 6281 / 3146 lm equivalent; the former 15 000 lm × Intensity × Scale was 4800× too bright
 at the default scale 1000).
 
 **Iray-side checks** (the Calib-L-* scenes, exposure undone from shutter /

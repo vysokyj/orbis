@@ -275,6 +275,36 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     out.insert("top_coat_layer_mode", Arg::Enum(if coat > 0.0 { MODES[mode] } else { MODES[0] }));
     out.insert("top_coat_curve_strength", Arg::Float(if coat > 0.0 && mode == 0 { REFLECTIVITY_SCALE * ch.float("Reflectivity", 0.5) } else { 0.04 }));
 
+
+    // Branches no fixture covers yet are left out — unverified, not
+    // guessed: the other lobes' roughness outside Base Mixing 0, the top
+    // coat's and the metal under Weighted mixing.
+    let mut unverified: Vec<&str> = Vec::new();
+    if mixing != 0 {
+        if lobes > 0.0 {
+            unverified.extend(["dual_lobe_specular_roughness_1", "dual_lobe_specular_roughness_2"]);
+        }
+        if backscattering > 0.0 {
+            unverified.push("backscattering_roughness");
+        }
+        if on {
+            unverified.push("metallic_flakes_roughness");
+        }
+        if own {
+            unverified.push("refraction_roughness");
+        }
+    }
+    if mixing == 2 {
+        if coat > 0.0 {
+            unverified.push("top_coat_roughness");
+        }
+        if ch.float("Metallic Weight", 0.0) > 0.0 {
+            unverified.extend(["metallic_weight", "metallic_enable", "metallic_custom_curve_normal", "metallic_directional_color_enable", "metallic_directional_normal_color"]);
+        }
+    }
+    for k in unverified {
+        out.remove(k);
+    }
     out
 }
 
@@ -374,7 +404,7 @@ pub struct Light {
 
 /// Flux of a non-photometric DAZ light per unit of Intensity, lumens:
 /// 1000 π, whatever its Intensity Scale (Calib-L-Point-legacy: 3141.59 at
-/// Intensity 1, 6283.19 at 2).
+/// Intensity 1, 6283.19 at 2; renders had fitted 3146 / 6281 lm).
 pub const LEGACY_LUMENS: f32 = 1000.0 * std::f32::consts::PI;
 
 /// A scene light (not the camera headlamp) from its channels (definition
@@ -418,6 +448,141 @@ pub fn light(kind: LightKind, channels: &std::collections::HashMap<String, Value
     Light { mdl, args, shape }
 }
 
+/// The MDL default of a parameter [`uber`] produces (irayubermaterial.mdl,
+/// `iray_uber_unified`): what Iray takes when DAZ doesn't pass it.
+pub fn uber_default(param: &str) -> Option<Arg> {
+    Some(match param {
+        "base_mixing" => Arg::Enum("blm_normalized"),
+        "diffuse_color" => Arg::Color([0.5; 3]),
+        "diffuse_enable" => Arg::Bool(true),
+        "diffuse_weight" => Arg::Float(1.0),
+        "glossy_weight" => Arg::Float(0.0),
+        "glossy_layered_weight" => Arg::Float(1.0),
+        "glossy_enable" | "glossy_roughness_enable" | "metallic_enable" => Arg::Bool(false),
+        "glossy_color" => Arg::Color([0.5; 3]),
+        "glossy_roughness" | "metallic_weight" => Arg::Float(0.0),
+        "glossy_reflectivity" | "dual_lobe_specular_reflectivity" | "top_coat_curve_strength" => Arg::Float(0.04),
+        "metallic_custom_curve_normal" => Arg::Float(0.0),
+        "metallic_directional_color_enable" | "translucency_enable" | "invert_transmission_normal" | "backscattering_enable" | "refraction_enable" | "dispersion_enable" | "thin_walled" | "top_coat_enable" => {
+            Arg::Bool(false)
+        }
+        "metallic_directional_normal_color" | "top_coat_color" => Arg::Color([1.0; 3]),
+        "translucency_weight" | "backscattering_weight" | "backscattering_roughness" => Arg::Float(0.5),
+        "translucency_color" => Arg::Color([0.5; 3]),
+        "dual_lobe_specular_weight" => Arg::Float(1.0),
+        "dual_lobe_uniform_specular_weight" | "refraction_weight" | "top_coat_roughness" => Arg::Float(0.0),
+        "dual_lobe_specular_roughness_1" => Arg::Float(0.3),
+        "dual_lobe_specular_roughness_2" => Arg::Float(0.03),
+        "dual_lobe_specular_roughness_ratio" => Arg::Float(0.85),
+        "glossy_ior" => Arg::Float(1.5),
+        "abbe_number" => Arg::Float(55.0),
+        "refraction_reflection_enable" => Arg::Bool(true),
+        "full_refraction_reflection_enable" | "absorption_enable" => Arg::Bool(false),
+        "transmitted_color" => Arg::Color([1.0; 3]),
+        "transmitted_distance_of_measurement" | "scattering_distance_of_measurement" => Arg::Float(1.0),
+        "sub_surface_scattering_direction" => Arg::Float(0.3),
+        "sub_surface_enable" | "logarithmic_scatter_enable" => Arg::Bool(false),
+        "sub_surface_scattering_amount" => Arg::Color([0.0; 3]),
+        "top_coat_thin_film_thickness" | "base_thin_film_thickness" | "metallic_flakes_thin_film_thickness" => Arg::Float(300.0),
+        "top_coat_thin_film_ior" | "base_thin_film_ior" | "metallic_flakes_thin_film_ior" => Arg::Float(3.0),
+        "top_coat_thin_film_enable" | "top_coat_anisotropy_enable" | "glossy_anisotropy_enable" | "base_thin_film_enable" | "diffuse_overlay_enable" | "metallic_flakes_enable" => Arg::Bool(false),
+        "top_coat_anisotropy" | "glossy_anisotropy" | "glossy_anisotropy_rotation" | "diffuse_overlay_weight" | "diffuse_overlay_roughness" | "diffuse_roughness" | "metallic_flakes_weight" | "metallic_flakes_roughness" => Arg::Float(0.0),
+        "top_coat_color_transmit_enable" | "glossy_color_transmit_enable" | "diffuse_overlay_color_transmit_enable" | "diffuse_color_transmit_enable" | "metallic_flakes_color_transmit_enable" => Arg::Int(0),
+        "diffuse_overlay_color" => Arg::Color([0.5; 3]),
+        "metallic_flakes_size" | "metallic_flakes_strength" | "metallic_flakes_density" => Arg::Float(1.0),
+        "metallic_flakes_color" => Arg::Color([1.0; 3]),
+        "refraction_color" | "backscattering_color" => Arg::Color([0.5; 3]),
+        "refraction_roughness" => Arg::Float(0.0),
+        "glossy_directional_color_enable" | "emission_enable" | "two_sided_area" => Arg::Bool(false),
+        "glossy_directional_normal_color" | "emission_tint" => Arg::Color([1.0; 3]),
+        "emission_temperature" => Arg::Float(6000.0),
+        "emission_scene_unit_size" => Arg::Float(0.01),
+        "emission_flux" => Arg::Color([500.0; 3]),
+        "emission_mode" => Arg::Enum("intensity_radiant_exitance"),
+        "top_coat_weight" => Arg::Float(1.0),
+        "top_coat_layer_mode" => Arg::Enum("tcw_principled_specular"),
+        _ => return None,
+    })
+}
+
+
+/// An Iray Uber material's MDL arguments as DAZ passes them, with the MDL
+/// defaults for the rest: what the Octane side reads instead of the
+/// channels wherever this module covers them.
+pub struct Uber(BTreeMap<&'static str, Arg>);
+
+impl Uber {
+    /// None unless the material is an Iray Uber one.
+    pub fn of(mat: &Material) -> Option<Self> {
+        is_uber(mat).then(|| Uber(uber(mat)))
+    }
+
+    /// The argument, or its MDL default when DAZ doesn't pass it; None
+    /// where `uber` left it out as unverified.
+    fn arg(&self, param: &str) -> Option<Arg> {
+        match self.0.get(param) {
+            Some(a) => Some(a.clone()),
+            None if MAY_BE_UNVERIFIED.contains(&param) => None,
+            None => uber_default(param),
+        }
+    }
+
+    /// A float argument; None where it is unverified or a map.
+    pub fn float(&self, param: &str) -> Option<f32> {
+        match self.arg(param)? {
+            Arg::Float(f) => Some(f),
+            _ => None,
+        }
+    }
+
+    pub fn color(&self, param: &str) -> Option<[f32; 3]> {
+        match self.arg(param)? {
+            Arg::Color(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    /// An enum argument (`intensity_power`).
+    pub fn mode(&self, param: &str) -> Option<&'static str> {
+        match self.arg(param)? {
+            Arg::Enum(e) => Some(e),
+            _ => None,
+        }
+    }
+
+    pub fn bool(&self, param: &str) -> Option<bool> {
+        match self.arg(param)? {
+            Arg::Bool(b) => Some(b),
+            _ => None,
+        }
+    }
+}
+
+/// Parameters [`uber`] leaves out in branches no fixture covers (see its
+/// end): absent means unverified for these, not the MDL default.
+const MAY_BE_UNVERIFIED: &[&str] = &[
+    "dual_lobe_specular_roughness_1",
+    "dual_lobe_specular_roughness_2",
+    "backscattering_roughness",
+    "metallic_flakes_roughness",
+    "refraction_roughness",
+    "top_coat_roughness",
+    "metallic_weight",
+    "metallic_enable",
+    "metallic_custom_curve_normal",
+    "metallic_directional_color_enable",
+    "metallic_directional_normal_color",
+    "emission_flux",
+    "emission_mode",
+];
+
+/// Whether DAZ renders the material with Iray Uber: its channels (Base
+/// Mixing among them), not PBRSkin's (its "… Enable" switches) nor a brick
+/// graph's.
+pub fn is_uber(mat: &Material) -> bool {
+    mat.mdl.is_empty() && mat.channels.contains_key("Base Mixing") && !mat.channels.contains_key("Dual Lobe Specular Enable")
+}
+
 #[cfg(test)]
 mod tests {
     //! Every rule against DAZ's own `.mi` export of the calibration scenes.
@@ -425,63 +590,6 @@ mod tests {
     use crate::daz_material::{image_library, Material};
     use std::collections::HashMap;
     use std::path::Path;
-
-    /// The MDL default of a parameter `uber` produces (irayubermaterial.mdl,
-    /// `iray_uber_unified`): the .mi leaves those out.
-    fn mdl_default(param: &str) -> Arg {
-        match param {
-            "base_mixing" => Arg::Enum("blm_normalized"),
-            "diffuse_color" => Arg::Color([0.5; 3]),
-            "diffuse_enable" => Arg::Bool(true),
-            "diffuse_weight" => Arg::Float(1.0),
-            "glossy_weight" => Arg::Float(0.0),
-            "glossy_layered_weight" => Arg::Float(1.0),
-            "glossy_enable" | "glossy_roughness_enable" | "metallic_enable" => Arg::Bool(false),
-            "glossy_color" => Arg::Color([0.5; 3]),
-            "glossy_roughness" | "metallic_weight" => Arg::Float(0.0),
-            "glossy_reflectivity" | "dual_lobe_specular_reflectivity" | "top_coat_curve_strength" => Arg::Float(0.04),
-            "metallic_custom_curve_normal" => Arg::Float(0.0),
-            "metallic_directional_color_enable" | "translucency_enable" | "invert_transmission_normal" | "backscattering_enable" | "refraction_enable" | "dispersion_enable" | "thin_walled" | "top_coat_enable" => {
-                Arg::Bool(false)
-            }
-            "metallic_directional_normal_color" | "top_coat_color" => Arg::Color([1.0; 3]),
-            "translucency_weight" | "backscattering_weight" | "backscattering_roughness" => Arg::Float(0.5),
-            "translucency_color" => Arg::Color([0.5; 3]),
-            "dual_lobe_specular_weight" => Arg::Float(1.0),
-            "dual_lobe_uniform_specular_weight" | "refraction_weight" | "top_coat_roughness" => Arg::Float(0.0),
-            "dual_lobe_specular_roughness_1" => Arg::Float(0.3),
-            "dual_lobe_specular_roughness_2" => Arg::Float(0.03),
-            "dual_lobe_specular_roughness_ratio" => Arg::Float(0.85),
-            "glossy_ior" => Arg::Float(1.5),
-            "abbe_number" => Arg::Float(55.0),
-            "refraction_reflection_enable" => Arg::Bool(true),
-            "full_refraction_reflection_enable" | "absorption_enable" => Arg::Bool(false),
-            "transmitted_color" => Arg::Color([1.0; 3]),
-            "transmitted_distance_of_measurement" | "scattering_distance_of_measurement" => Arg::Float(1.0),
-            "sub_surface_scattering_direction" => Arg::Float(0.3),
-            "sub_surface_enable" | "logarithmic_scatter_enable" => Arg::Bool(false),
-            "sub_surface_scattering_amount" => Arg::Color([0.0; 3]),
-            "top_coat_thin_film_thickness" | "base_thin_film_thickness" | "metallic_flakes_thin_film_thickness" => Arg::Float(300.0),
-            "top_coat_thin_film_ior" | "base_thin_film_ior" | "metallic_flakes_thin_film_ior" => Arg::Float(3.0),
-            "top_coat_thin_film_enable" | "top_coat_anisotropy_enable" | "glossy_anisotropy_enable" | "base_thin_film_enable" | "diffuse_overlay_enable" | "metallic_flakes_enable" => Arg::Bool(false),
-            "top_coat_anisotropy" | "glossy_anisotropy" | "glossy_anisotropy_rotation" | "diffuse_overlay_weight" | "diffuse_overlay_roughness" | "diffuse_roughness" | "metallic_flakes_weight" | "metallic_flakes_roughness" => Arg::Float(0.0),
-            "top_coat_color_transmit_enable" | "glossy_color_transmit_enable" | "diffuse_overlay_color_transmit_enable" | "diffuse_color_transmit_enable" | "metallic_flakes_color_transmit_enable" => Arg::Int(0),
-            "diffuse_overlay_color" => Arg::Color([0.5; 3]),
-            "metallic_flakes_size" | "metallic_flakes_strength" | "metallic_flakes_density" => Arg::Float(1.0),
-            "metallic_flakes_color" => Arg::Color([1.0; 3]),
-            "refraction_color" | "backscattering_color" => Arg::Color([0.5; 3]),
-            "refraction_roughness" => Arg::Float(0.0),
-            "glossy_directional_color_enable" | "emission_enable" | "two_sided_area" => Arg::Bool(false),
-            "glossy_directional_normal_color" | "emission_tint" => Arg::Color([1.0; 3]),
-            "emission_temperature" => Arg::Float(6000.0),
-            "emission_scene_unit_size" => Arg::Float(0.01),
-            "emission_flux" => Arg::Color([500.0; 3]),
-            "emission_mode" => Arg::Enum("intensity_radiant_exitance"),
-            "top_coat_weight" => Arg::Float(1.0),
-            "top_coat_layer_mode" => Arg::Enum("tcw_principled_specular"),
-            _ => panic!("no MDL default for {param}"),
-        }
-    }
 
     /// `node label/surface` → the scene's merged material, as the export
     /// reads it (definition + the scene's own channels).
@@ -574,7 +682,7 @@ mod tests {
                 for (param, ours) in uber(mat) {
                     let theirs = match mi["args"].get(param) {
                         Some(v) => fixture_arg(v, &ours),
-                        None => Some(mdl_default(param)),
+                        None => uber_default(param),
                     };
                     checked += 1;
                     if !theirs.as_ref().is_some_and(|t| close(t, &ours)) {

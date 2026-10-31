@@ -166,6 +166,9 @@ impl Material {
     /// (its .mi export): ignored, Calib-Map-Effect's strength 0.5 sphere
     /// rendered 1.52 × Iray (#32).
     pub fn base_color(&self) -> [f32; 3] {
+        if let Some(c) = crate::iray::Uber::of(self).and_then(|u| u.color("diffuse_color")) {
+            return c;
+        }
         let strength = self.float("Diffuse Strength").unwrap_or(1.0).max(0.0);
         self.color("diffuse").unwrap_or([0.8; 3]).map(|c| c * strength)
     }
@@ -186,12 +189,12 @@ impl Material {
                 return (Some("Specular Lobe 1 Roughness"), r, false);
             }
         }
-        // Base Mixing 1 (specular / glossiness) and 2 (weighted) take their
-        // gloss from Glossiness, 0 (metallicity / roughness) from Glossy
-        // Roughness — both channels are always saved (Calib-Materials:
-        // Glossiness 0.8 with Glossy Roughness 0.5 rendered a sharp Iray
-        // highlight, a weighted sphere at the default Glossiness 1 a mirror).
-        let glossiness_mode = matches!(self.float("Base Mixing").unwrap_or(0.0) as i32, 1 | 2);
+        // Base Mixing 1 (specular / glossiness) takes its gloss from
+        // Glossiness, 0 (metallicity / roughness) and 2 (weighted) from
+        // Glossy Roughness — both channels are always saved (DAZ's .mi
+        // export: Calib-Mixing's weighted spheres at Glossy Roughness 0.5,
+        // Glossiness 1 get 0.25; #62).
+        let glossiness_mode = self.float("Base Mixing").unwrap_or(0.0) as i32 == 1;
         if !glossiness_mode {
             if let Some(r) = self.float("Glossy Roughness") {
                 return (Some("Glossy Roughness"), r, false);

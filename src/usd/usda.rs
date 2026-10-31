@@ -278,7 +278,7 @@ pub(super) fn write_preview_material(o: &mut String, name: &str, mat: &crate::da
     o.push_str(")\n                float inputs:roughness = ");
     push_num(o, mat.roughness().clamp(0.0, 1.0), 4);
     o.push_str("\n                float inputs:metallic = ");
-    push_num(o, mat.metallic().clamp(0.0, 1.0), 4);
+    push_num(o, crate::iray::Uber::of(mat).and_then(|u| u.float("metallic_weight")).unwrap_or_else(|| mat.metallic()).clamp(0.0, 1.0), 4);
     o.push_str("\n                float inputs:opacity = ");
     push_num(o, mat.opacity().clamp(0.0, 1.0), 4);
     o.push_str("\n                token outputs:surface\n            }\n        }\n");

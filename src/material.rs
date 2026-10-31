@@ -47,6 +47,12 @@ const EMISSION_POWER_FACTOR: f64 = 1.0 / 3.4;
 pub fn iray_emission_watts(mat: &Material, area_m2: f64) -> f64 {
     let l = mat.float("Luminance").unwrap_or(1500.0) as f64;
     let per = |factor: f64| l * factor / 2.0 / DAZ_LUMENS_PER_WATT * EMISSION_POWER_FACTOR;
+    // The flux Iray gets: per m² (radiant exitance) or in total (power).
+    let u = iray(mat).filter(|u| u.bool("emission_enable") == Some(true));
+    if let (Some(Some(flux)), Some(mode)) = (u.as_ref().map(|u| u.color("emission_flux")), u.as_ref().and_then(|u| u.mode("emission_mode"))) {
+        let total = flux[0] as f64 / 2.0 / DAZ_LUMENS_PER_WATT * EMISSION_POWER_FACTOR;
+        return if mode == "intensity_power" { total } else { total * area_m2 };
+    }
     match mat.float("Luminance Units").unwrap_or(0.0) as i64 {
         1 => per(1000.0) * area_m2,
         2 => per(10.764) * area_m2,
@@ -713,7 +719,7 @@ impl Ocs<'_> {
         self.brdf_pin(j + 1);
         let (rough_ch, rough, inverted) = mat.roughness_source();
         let rough_ch = if inverted { None } else { rough_ch };
-        let rough = self.gloss_roughness(iray_roughness(mat, rough, inverted));
+        let rough = self.gloss_roughness(iray_gloss_roughness(mat).unwrap_or_else(|| iray_roughness(mat, rough, inverted)));
         self.float_or_map(j + 1, "roughness", mat, rough_ch, rough.clamp(0.0, 1.0));
         if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(j + 1, "normal", &asset, false, 1.0, 1.0);
@@ -798,7 +804,7 @@ impl Ocs<'_> {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
         let i = indent + 1;
-        let r = iray_roughness(mat, mat.float("Backscattering Roughness").unwrap_or(0.0), false);
+        let r = iray(mat).and_then(|u| u.float("backscattering_roughness")).unwrap_or_else(|| iray_roughness(mat, mat.float("Backscattering Roughness").unwrap_or(0.0), false));
         self.float_pin(i, "amount", backscatter_weight(mat));
         self.pin_open(i, "material1");
         let bid = self.id();
@@ -1273,7 +1279,7 @@ impl Ocs<'_> {
         // The dual lobe as Universal's (see `DualLobe`): lobe 2 the coating,
         // or under a Top Coat both lobes' roughness blended.
         let dual_lobe = DualLobe::of(mat).filter(|_| glossy <= 0.0);
-        let mut rough = iray_roughness(mat, rough, inverted);
+        let mut rough = iray_gloss_roughness(mat).unwrap_or_else(|| iray_roughness(mat, rough, inverted));
         if let Some(dl) = dual_lobe.filter(|_| coat && rough_ch.and_then(|c| mat.image(c)).is_none()) {
             rough = dl.blended_roughness(rough);
         }
@@ -1281,7 +1287,7 @@ impl Ocs<'_> {
         let lobe1 = dual_lobe.filter(|_| !coat).map_or(1.0, |dl| dl.lobe1);
         let (weight, ch) = match dual_lobe {
             Some(dl) => (dl.share, "Dual Lobe Specular Reflectivity"),
-            None => (glossy.min(1.0) * reflectivity_share(mat.float("Glossy Reflectivity")), "Glossy Reflectivity"),
+            None => (glossy.min(1.0) * reflectivity_share(glossy_reflectivity(mat)), "Glossy Reflectivity"),
         };
         let lobe = if glossy > 0.0 { glossy } else { mat.float("Dual Lobe Specular Weight").unwrap_or(0.0) }.min(1.0);
         match mat.image(ch).map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
@@ -1524,7 +1530,7 @@ impl Ocs<'_> {
         // Skin isn't metallic: the Gladio outfit is PBRSkin with translucency
         // and a metallic map throughout — as skin its metal was lost and the
         // open cloak rendered grey instead of red (Gladiator).
-        let metal = mat.metallic() >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some();
+        let metal = metallic(mat) >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some();
         // Nor is it on a prop: Gladiator's grass (Iray Uber, translucent, not
         // thin-walled) rendered as grey cards.
         // Nor in the eye: Genesis irises, pupils and sclera are translucent
@@ -1617,10 +1623,10 @@ impl Ocs<'_> {
         // Base Mixing 1 with a coloured gloss: see `specular_diffuse_share`.
         let share = if specular_mode && !mirror && weighted.is_none() { specular_diffuse_share(mat, gloss.min(1.0), gloss_color) } else { [1.0; 3] };
         // Under a partial metal albedo and gloss scale (`metal_shares`).
-        let metal_w = if mirror || specular_mode || weighted.is_some() || !(mat.metallic() >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some()) {
+        let metal_w = if mirror || specular_mode || weighted.is_some() || !(metallic(mat) >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some()) {
             0.0
         } else {
-            mat.metallic()
+            metallic(mat)
         };
         let base_keep = metal_shares(metal_w).1;
         let share = share.map(|s| s * base_keep);
@@ -1688,7 +1694,7 @@ impl Ocs<'_> {
             // specular × min(2r, 1) — Calib-Glossy, r 0 / 0.25: 2.42 / 1.54
             // × Iray at Universal's default, 1.21 / 1.14 so, like the matte
             // sphere's 1.13 (r 1: see `glossy_excess`).
-            let refl = if specular_mode { 1.0 } else { reflectivity_share(mat.float("Glossy Reflectivity")) };
+            let refl = if specular_mode { 1.0 } else { reflectivity_share(glossy_reflectivity(mat)) };
             let weight = glossy.min(1.0) * refl * base_keep;
             // Base Mixing 1: Glossy Specular's hue tints the reflection too
             // (its strength is the IOR, `specular_ior`).
@@ -1722,7 +1728,7 @@ impl Ocs<'_> {
             }
         }
 
-        let metallic = if mirror { 1.0 } else if specular_mode { 0.0 } else { mat.metallic() };
+        let metallic = if mirror { 1.0 } else if specular_mode { 0.0 } else { metallic(mat) };
         // A trace of metallicity (the GSOV4 jacket's 0.0107) turned Octane's
         // gloss off — black velvet where Iray shows leather (Fetroom).
         if weighted.is_some() {
@@ -1759,7 +1765,11 @@ impl Ocs<'_> {
         };
         // A glossiness map would need inverting; use its value only.
         let rough_ch = if inverted { None } else { rough_ch };
-        let mut rough = iray_roughness(mat, rough, inverted);
+        let mut rough = match iray_gloss_roughness(mat).filter(|_| !refraction_rough) {
+            Some(r) => r,
+            None if refraction_rough => iray(mat).and_then(|u| u.float("refraction_roughness")).unwrap_or_else(|| iray_roughness(mat, rough, inverted)),
+            None => iray_roughness(mat, rough, inverted),
+        };
         // Octane blurs a refraction ~3× more at the same roughness: Iray's
         // Refraction Roughness 0.3 (0.09 squared) matched Octane's 0.02 –
         // 0.03, not 0.09 (frosted) (Calib-Glass R6).
@@ -1807,7 +1817,7 @@ impl Ocs<'_> {
         // Over a metal only the base's share of it: Iray's gloss is inside
         // the base (1 − w), none at all on a full metal (Calib-Map-Metal's
         // Reflectivity 1 metal: 2.14 × Iray with it).
-        let excess = if mirror || specular_mode || glossy <= 0.0 || weighted.is_some() { 0.0 } else { glossy.min(1.0) * glossy_excess(mat.float("Glossy Reflectivity")) * (1.0 - metal_w.clamp(0.0, 1.0)) };
+        let excess = if mirror || specular_mode || glossy <= 0.0 || weighted.is_some() { 0.0 } else { glossy.min(1.0) * glossy_excess(glossy_reflectivity(mat)) * (1.0 - metal_w.clamp(0.0, 1.0)) };
         if coat <= 0.0 && excess > 0.0 {
             self.rgb_pin(i, "coating", gloss_color.map(|c| c * excess));
             self.float_pin(i, "coatingRoughness", rough.clamp(0.0, 1.0));
@@ -1914,11 +1924,16 @@ impl DualLobe {
             Some(mult) => (1.0 - mat.float("Dual Lobe Specular Ratio").unwrap_or(0.15), mat.float("Specular Lobe 1 Roughness").unwrap_or(0.6) * mult),
             None => (mat.float("Dual Lobe Specular Ratio").unwrap_or(0.85), mat.float("Specular Lobe 2 Roughness").unwrap_or(0.0)),
         };
+        // Iray Uber: what DAZ passes — F0 = 0.08 r, lobe 2's roughness
+        // squared.
+        let u = iray(mat);
+        let r = u.as_ref().and_then(|u| u.float("dual_lobe_specular_reflectivity")).map(|f0| f0 / crate::iray::REFLECTIVITY_SCALE).or(r);
+        let r2_squared = u.as_ref().and_then(|u| u.float("dual_lobe_specular_roughness_2")).unwrap_or(r2 * r2);
         Some(DualLobe {
             share: weight * reflectivity_share(r),
             lobe1: lobe1.clamp(0.0, 1.0),
-            lobe2_roughness: (DUAL_LOBE_2_ROUGHNESS * r2 * r2).clamp(0.0, 1.0),
-            ior: r.filter(|r| *r > 0.5).map(|r| ior_from_f0(0.08 * r)),
+            lobe2_roughness: (DUAL_LOBE_2_ROUGHNESS * r2_squared).clamp(0.0, 1.0),
+            ior: r.filter(|r| *r > 0.5).map(|r| ior_from_f0(crate::iray::REFLECTIVITY_SCALE * r)),
         })
     }
 
@@ -1951,7 +1966,7 @@ const DUAL_LOBE_2_ROUGHNESS: f32 = 2.0;
 /// 0.55 / 0.55 × Iray at the default IOR; 1.01 – 1.10 so (S1, mode 0: 1.08).
 /// Black reflects nothing head-on: floored at F0 0.04 it stayed 1.26.
 fn specular_ior(mat: &Material) -> f32 {
-    let f0 = mat.color("Glossy Specular").map_or(0.04, max_channel).clamp(0.0, 0.95);
+    let f0 = specular_f0(mat).clamp(0.0, 0.95);
     let s = f0.sqrt();
     ((1.0 + s) / (1.0 - s)).max(SPECULAR_MIN_IOR)
 }
@@ -2033,8 +2048,11 @@ fn diffuse_overlay(mat: &Material) -> Option<([f32; 3], f32)> {
     if w <= 0.0 || mat.image("Diffuse Overlay Weight").is_some() || mat.image("Diffuse Overlay Color").is_some() {
         return None;
     }
-    let w = if mat.float("Diffuse Overlay Weight Squared").unwrap_or(0.0) > 0.0 { w * w } else { w };
-    let (colour, w) = color_effect(mat, "Diffuse Overlay Color Effect", mat.color("Diffuse Overlay Color").unwrap_or([0.5; 3]), w);
+    let (w, colour) = match iray(mat) {
+        Some(u) => (u.float("diffuse_overlay_weight").unwrap_or(0.0), u.color("diffuse_overlay_color").unwrap_or([0.5; 3])),
+        None => (if mat.float("Diffuse Overlay Weight Squared").unwrap_or(0.0) > 0.0 { w * w } else { w }, mat.color("Diffuse Overlay Color").unwrap_or([0.5; 3])),
+    };
+    let (colour, w) = color_effect(mat, "Diffuse Overlay Color Effect", colour, w);
     Some((colour, w.clamp(0.0, 1.0)))
 }
 
@@ -2049,7 +2067,7 @@ fn diffuse_overlay(mat: &Material) -> Option<([f32; 3], f32)> {
 /// (1 − w·F0·t) 1.08, R / G / B 1.05 / 0.82 / 0.94. A grey gloss keeps 1
 /// (#27).
 fn specular_diffuse_share(mat: &Material, w: f32, gloss_color: [f32; 3]) -> [f32; 3] {
-    let f0 = mat.color("Glossy Specular").map_or(0.04, max_channel).clamp(0.0, 0.95) * w.clamp(0.0, 1.0);
+    let f0 = specular_f0(mat).clamp(0.0, 0.95) * w.clamp(0.0, 1.0);
     let hue = specular_hue(mat);
     [0, 1, 2].map(|k| (1.0 - f0) / (1.0 - f0 * hue[k] * gloss_color[k].clamp(0.0, 1.0)).max(1e-3))
 }
@@ -2174,10 +2192,19 @@ fn film_reflectance(ior: f32, thickness: f32, kh: f32) -> [f32; 3] {
 /// past 1 and was clipped: Calib-ColorEffect's red specular (0.9, 0.3, 0.2)
 /// rendered a white reflection over the blue base, Iray's a red mirror (#27).
 fn specular_hue(mat: &Material) -> [f32; 3] {
+    if let Some(hue) = iray(mat).and_then(|u| u.color("glossy_directional_normal_color")).filter(|_| mat.float("Base Mixing").unwrap_or(0.0) as i32 == 1) {
+        return hue;
+    }
     match mat.color("Glossy Specular") {
         Some(c) if max_channel(c) > 1e-3 => c.map(|x| x / max_channel(c)),
         _ => [1.0; 3],
     }
+}
+
+/// Base Mixing 1's head-on reflectance: the strongest channel of Glossy
+/// Specular, linear — what DAZ passes Iray as `glossy_reflectivity`.
+fn specular_f0(mat: &Material) -> f32 {
+    iray(mat).and_then(|u| u.float("glossy_reflectivity")).filter(|_| mat.float("Base Mixing").unwrap_or(0.0) as i32 == 1).unwrap_or_else(|| mat.color("Glossy Specular").map_or(0.04, max_channel))
 }
 
 /// The largest of a colour's channels.
@@ -2191,8 +2218,11 @@ fn max_channel(c: [f32; 3]) -> f32 {
 /// and means none (Calib-Glass: the clear spheres stayed clear), as does
 /// white or a zero distance.
 fn absorption(mat: &Material) -> Option<[f32; 3]> {
-    let colour = mat.color("Transmitted Color")?;
-    let distance_m = mat.float("Transmitted Measurement Distance").unwrap_or(0.0) * CM_PER_M_INV;
+    let (colour, distance_m) = match iray(mat) {
+        // Iray's volume: only inside a closed surface that lets light in.
+        Some(u) => (u.color("transmitted_color")?, u.float("transmitted_distance_of_measurement")?),
+        None => (mat.color("Transmitted Color")?, mat.float("Transmitted Measurement Distance").unwrap_or(0.0) * CM_PER_M_INV),
+    };
     let (lo, hi) = colour.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &c| (lo.min(c), hi.max(c)));
     (distance_m > 0.0 && hi > 0.0 && lo < 1.0).then(|| colour.map(|c| -c.clamp(1e-4, 1.0).ln() / distance_m))
 }
@@ -2205,6 +2235,18 @@ fn absorption(mat: &Material) -> Option<[f32; 3]> {
 /// Amount 0.3 at 0.5 cm under a blue-grey absorption) rendered 0.67 ×
 /// Iray; at the full σs 1.47, × 0.5 / 0.25 / 0.1 1.14 / 0.93 / 0.79 (#28).
 fn scattering(mat: &Material) -> Option<[f32; 3]> {
+    if let Some(u) = iray(mat) {
+        // What DAZ passes: the amount (mono, clamped to 1) or the SSS
+        // Color (chromatic, logarithmic), none without SSS Amount.
+        if !u.bool("sub_surface_enable")? {
+            return None;
+        }
+        let distance_m = u.float("scattering_distance_of_measurement")?;
+        let amount = u.color("sub_surface_scattering_amount")?;
+        let log = u.bool("logarithmic_scatter_enable")?;
+        let sigma = amount.map(|a| if log { -a.clamp(1e-4, 1.0).ln() } else { a.max(0.0) } / distance_m * REFRACTIVE_SCATTERING_SCALE);
+        return sigma.iter().any(|s| *s > 0.0).then_some(sigma);
+    }
     let amount = mat.float("SSS Amount")?;
     let distance_m = mat.float("Scattering Measurement Distance").unwrap_or(0.0) * CM_PER_M_INV;
     if distance_m <= 0.0 {
@@ -2255,6 +2297,9 @@ fn weighted_top_coat(mat: &Material) -> bool {
 /// The top coat's roughness as Octane takes it: Top Coat Glossiness under
 /// Base Mixing 1 and 2, else Top Coat Roughness, as Iray squares it.
 fn top_coat_roughness(mat: &Material) -> f32 {
+    if let Some(r) = iray(mat).and_then(|u| u.float("top_coat_roughness")) {
+        return r.clamp(0.0, 1.0);
+    }
     let (r, inv) = match (mat.float("Base Mixing").unwrap_or(0.0) as i32, mat.float("Top Coat Glossiness")) {
         (1 | 2, Some(g)) => (1.0 - g, true),
         _ => (mat.float("Top Coat Roughness").unwrap_or(0.0), false),
@@ -2275,7 +2320,7 @@ fn top_coat_roughness(mat: &Material) -> f32 {
 /// grazing by (1 − cos θ)^5 (`CURVE_COAT_IOR`, #25).
 fn top_coat_ior(mat: &Material) -> f32 {
     match mat.float("Top Coat Layering Mode").unwrap_or(0.0) as i32 {
-        0 => ior_from_f0(0.08 * mat.float("Reflectivity").unwrap_or(0.5)),
+        0 => ior_from_f0(iray(mat).and_then(|u| u.float("top_coat_curve_strength")).unwrap_or_else(|| 0.08 * mat.float("Reflectivity").unwrap_or(0.5))),
         3 => CURVE_COAT_IOR,
         _ => 1.5,
     }
@@ -2585,6 +2630,38 @@ fn weighted_gloss(mat: &Material) -> Option<f32> {
 fn iray_roughness(mat: &Material, r: f32, from_glossiness: bool) -> f32 {
     let channel = if from_glossiness { "Glossiness Squared" } else { "Roughness Squared" };
     if mat.float(channel).unwrap_or(1.0) > 0.0 { r * r } else { r }
+}
+
+/// The parameters DAZ hands Iray for an Iray Uber material, where
+/// `crate::iray` has verified them: the Octane side reads those instead of
+/// converting the channels itself (#62). None for other shaders and for
+/// branches no `.mi` fixture covers — the callers then fall back.
+fn iray(mat: &Material) -> Option<crate::iray::Uber> {
+    crate::iray::Uber::of(mat)
+}
+
+/// The roughness Iray gets (squared) for the lobe `roughness_source`
+/// picks: the dual lobe's lobe 1 when there is one, else the glossy
+/// layer's from the channel Base Mixing reads.
+fn iray_gloss_roughness(mat: &Material) -> Option<f32> {
+    let u = iray(mat)?;
+    match mat.roughness_source().0 {
+        Some("Specular Lobe 1 Roughness") => u.float("dual_lobe_specular_roughness_1"),
+        _ => u.float("glossy_roughness"),
+    }
+}
+
+/// Glossy Reflectivity as DAZ's 0–1 slider r, from the F0 = 0.08 r Iray gets.
+fn glossy_reflectivity(mat: &Material) -> Option<f32> {
+    match iray(mat).and_then(|u| u.float("glossy_reflectivity")).filter(|_| mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0) {
+        Some(f0) => Some(f0 / crate::iray::REFLECTIVITY_SCALE),
+        None => mat.float("Glossy Reflectivity"),
+    }
+}
+
+/// Iray's metallic weight (Base Mixing 1 has none).
+fn metallic(mat: &Material) -> f32 {
+    iray(mat).and_then(|u| u.float("metallic_weight")).unwrap_or_else(|| mat.metallic())
 }
 
 /// `Ocs::gloss_roughness`'s curve.

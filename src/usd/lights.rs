@@ -115,13 +115,6 @@ fn render_setting(duf: &Value, id: &str) -> Option<f64> {
 /// sphere as a point but needs it for the intensity).
 pub(super) const POINT_RADIUS_M: f64 = 0.01;
 
-/// Flux of a non-photometric DAZ light per unit of Intensity: Iray lights
-/// it as 1000 π lm × Intensity, whatever its Intensity Scale
-/// (Calib-L-Point-legacy: Intensity 1 / 2 at scale 1000, 1 at 3000 → 3146
-/// / 6281 / 3146 lm against a 5000 lm photometric light; the old 15 000 lm
-/// × Intensity × Scale was a guess, 4800× too bright at the default scale).
-pub(super) const LEGACY_LUMENS: f64 = 1000.0 * std::f64::consts::PI;
-
 /// The scene's lights that DAZ renders: visible, switched on, illuminating.
 pub(super) fn scene_lights(lib: &mut Library) -> Vec<SceneLight> {
     let nodes = lib.duf.pointer("/scene/nodes").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -161,46 +154,48 @@ pub(super) fn scene_lights(lib: &mut Library) -> Vec<SceneLight> {
         }
         transform[3][3] = 1.0;
 
-        let cm = |k: &str| num(k).unwrap_or(10.0) * CM as f64;
-        let shape = if def.get("directional").is_some() {
-            LightShape::Distant
+        // What DAZ hands Iray (`crate::iray::light`, verified against its
+        // .mi export): flux, temperature, colour, emitter size, spot.
+        let kind = if def.get("spot").is_some() {
+            crate::iray::LightKind::Spot
+        } else if def.get("directional").is_some() {
+            crate::iray::LightKind::Distant
         } else {
-            match num("Light Geometry").unwrap_or(0.0) as i64 {
-                1 => LightShape::Rect { width: cm("Width"), height: cm("Height") },
-                2 => LightShape::Disk { radius: cm("Height") / 2.0 },
-                3 => LightShape::Sphere { radius: cm("Height") / 2.0 },
-                _ => LightShape::Point,
-            }
+            crate::iray::LightKind::Point
         };
-        let cone_deg = def.get("spot").map(|spot| {
-            num("Spread Angle")
-                .map(|a| a / 2.0)
-                .or_else(|| spot.get("falloff_angle").and_then(Value::as_f64))
-                .unwrap_or(30.0)
-        });
-        let color = ch
-            .get("Color")
-            .or_else(|| def.get("color"))
-            .and_then(Value::as_array)
-            .map(|a| [0, 1, 2].map(|i| crate::daz_material::colour_to_linear(a.get(i).and_then(Value::as_f64).unwrap_or(1.0) as f32) as f64))
-            .unwrap_or([1.0; 3]);
-        // Photometric (Iray) lights emit their Flux; Intensity and its scale
-        // belong to the non-photometric mode.
-        let photometric = flag("Photometric Mode").unwrap_or(false);
-        let lumens = if photometric {
-            num("Flux").unwrap_or(1500.0)
-        } else {
-            LEGACY_LUMENS * num("Intensity").unwrap_or(1.0)
+        let iray = crate::iray::light(kind, &ch);
+        let arg = |k: &str| match iray.args.get(k) {
+            Some(crate::iray::Arg::Float(f)) => Some(*f as f64),
+            _ => None,
         };
-        let two_sided = matches!(shape, LightShape::Rect { .. } | LightShape::Disk { .. }) && flag("Two Sided") == Some(true);
+        let m = |cm: f32| cm as f64 * CM as f64;
+        let shape = match iray.shape {
+            crate::iray::LightShape::Distant => LightShape::Distant,
+            crate::iray::LightShape::Rectangle { width, height } => LightShape::Rect { width: m(width), height: m(height) },
+            crate::iray::LightShape::Disc { radius } => LightShape::Disk { radius: m(radius) },
+            crate::iray::LightShape::Sphere { radius } => LightShape::Sphere { radius: m(radius) },
+            crate::iray::LightShape::Point => LightShape::Point,
+        };
+        // Spot: half of Spread Angle, which Iray gets whole
+        // (`spot_spread_angle`); a light without the channel keeps its
+        // definition's falloff angle.
+        let cone_deg = def.get("spot").map(|spot| num("Spread Angle").map(|a| a / 2.0).or_else(|| spot.get("falloff_angle").and_then(Value::as_f64)).unwrap_or(30.0));
+        let color = match iray.args.get("emission_color") {
+            Some(crate::iray::Arg::Color(c)) => c.map(f64::from),
+            _ => [1.0; 3],
+        };
+        let lumens = arg("flux").unwrap_or(1500.0);
+        // A non-photometric light has no colour temperature (0).
+        let kelvin = arg("temperature").filter(|t| *t > 0.0);
+        let two_sided = matches!(iray.args.get("two_sided_area"), Some(crate::iray::Arg::Bool(true)));
         out.push(SceneLight {
             label,
             transform,
             shape,
             cone_deg,
-            beam_exponent: num("Beam Exponent").filter(|e| *e > 0.0).unwrap_or(1.0),
+            beam_exponent: arg("spot_exponent").filter(|e| *e > 0.0).unwrap_or(1.0),
             color,
-            kelvin: if photometric { num("Temperature") } else { None },
+            kelvin,
             lumens,
             euler_deg,
             rotation_order: order.to_string(),

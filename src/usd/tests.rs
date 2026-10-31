@@ -878,8 +878,9 @@ fn iray_light_flux_rules() {
     let point = light_watts(&light(LightShape::Point, 5000.0));
     let sphere = light_watts(&light(LightShape::Sphere { radius: 0.1 }, 5000.0));
     assert!((sphere / point - 0.25).abs() < 1e-12);
-    // Non-photometric: 1000 π lm per unit of Intensity.
-    assert!((LEGACY_LUMENS - 3141.59).abs() < 0.01);
+    // Non-photometric: 1000 π lm per unit of Intensity (renders matched
+    // it before DAZ's .mi export showed it exactly).
+    assert!((crate::iray::LEGACY_LUMENS - 3141.59).abs() < 0.01);
 }
 
 #[test]
