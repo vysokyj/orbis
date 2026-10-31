@@ -587,14 +587,18 @@ Every material input (20007) is filled — Octane doesn't convert
   ones, nor the skins' Standard Surface / OpenPBR) use GGX energy
   preserving (`brdf` 6; plain GGX lost light on rough lobes: Calib-Glossy
   roughness 0.6 1.17 → 1.01 × Iray, DualLobe2's r 0.36 1.25 → 1.08) at
-  roughness r + 1.85 r², r = Iray's roughness after its squaring; the
+  roughness min(r + 1.85 r², √r), r = Iray's roughness after its squaring; the
   coating too. Iray's lobes are Phong (2 / r², MDL `simple_glossy_bsdf`);
   Octane's default BSDF kept rough highlights sharp and bright.
 
   Why: Calib-DualLobe2's rough lobes went from 1.47 – 1.99 to 1.02 – 1.25
   × Iray with Iray's highlight spread, Calib-Glossy's spheres 1.06 – 1.21
   → 1.02 – 1.16 (roughness 0.6: 1.47 → 1.17); GGX at r stays sharp above
-  r ≈ 0.3, at √r too broad below it; Beckmann stays sharp (#56).
+  r ≈ 0.3, at √r too broad below it; Beckmann stays sharp (#56). Above
+  r 0.36 the curve passes √r, which caps it: Calib-Map-SpecMode's
+  Glossiness 0.3 sphere (r 0.49) 0.53 → 0.86 × Iray (#52). A specular-
+  mode IOR is at least 1.1: Iray's curve still rises to 1 at grazing over
+  a black Glossy Specular (that sphere 0.91 → 1.00).
 - **Top Coat** → Universal `coating` = Top Coat Color × weight,
   `coatingRoughness` (Top Coat Roughness, or 1 − Top Coat Glossiness in
   modes 1 / 2, squared likewise), `coatingIor`: the top-coated sphere's

@@ -176,3 +176,16 @@ Per channel (R G B, Octane / Iray) before → after:
   effect 1) 1.17 1.11 1.17 → 1.09 1.09 1.16.
 - Calib-Mixing, TopCoat, ColorEffect within 0.05 of before (ColorEffect's
   C5 glass gloss effect 1 0.89 → 0.84).
+
+## #52: rough specular-mode gloss
+
+Map-SpecMode S7 (Glossy Specular 0.5, Glossiness 0.3 → r 0.49): Iray
+reflects more on it than on the smooth S3 (G / B 0.27 / 0.31 against
+0.14 / 0.19); Octane at the GGX curve's 0.93 less (0.09 / 0.10), 0.53 ×.
+Variants on S7: roughness 0.49 1.22 – 1.29, 0.7 0.83 – 0.95, IOR 4 0.74 –
+0.82. 0.7 = √0.49, and the curve crosses √r at 0.36, so the curve is
+capped at √r: S7 0.86 (spread 1.2 as Iray's), DualLobe2 E8 (unsquared
+0.6) 0.77 → 1.03, the rest unchanged (Glossy, Mixing, TopCoat; SpecMode's
+Morgan spheres 1.03 → 0.96 / 0.97). S1 (black Glossy Specular) had no
+reflection at IOR 1 where Iray's curve reaches 1 at grazing: IOR ≥ 1.1,
+0.91 → 1.00 (at 1.07 its G / B went 0.65 / 0.42 → 0.80 / 0.64).

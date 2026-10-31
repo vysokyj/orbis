@@ -590,7 +590,11 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:indent$}</pin>", "");
     }
 
-    /// Iray's (MDL) roughness `r` as Universal's under GGX: r + 1.85 r².
+    /// Iray's (MDL) roughness `r` as Universal's under GGX: r + 1.85 r²,
+    /// at most √r (they cross at r 0.36; above, the curve made Calib-Map-
+    /// SpecMode's Glossiness 0.3 sphere, r 0.49 → 0.93, 0.53 × Iray, √r
+    /// 0.7 0.86 with Iray's spread; Calib-DualLobe2's unsquared 0.6 lobe
+    /// 0.77 → 1.03).
     /// Iray's Uber lobes are Phong with exponent 2 / r² (MDL
     /// `simple_glossy_bsdf`), Octane's default BSDF ("Octane") kept a sharp
     /// peak on rough highlights: Calib-DualLobe2's lobes at r 0.36 / 0.81
@@ -606,7 +610,7 @@ impl Ocs<'_> {
     /// (clamped at 1: 0.69) and Calib-ColorEffect's C8 (Base Mixing 1, red
     /// Glossy Specular: 1.35 → 1.77, #27). Beckmann stayed sharp (#56).
     fn gloss_roughness(&self, r: f32) -> f32 {
-        if self.gloss_ggx { (r + GGX_ROUGHNESS_CURVE * r * r).clamp(0.0, 1.0) } else { r }
+        if self.gloss_ggx { (r + GGX_ROUGHNESS_CURVE * r * r).min(r.max(0.0).sqrt()).clamp(0.0, 1.0) } else { r }
     }
 
     /// Universal's `brdf` GGX energy preserving (6; probe 104: 0 Octane,
@@ -1832,8 +1836,14 @@ const DUAL_LOBE_2_ROUGHNESS: f32 = 2.0;
 fn specular_ior(mat: &Material) -> f32 {
     let f0 = mat.color("Glossy Specular").map_or(0.04, max_channel).clamp(0.0, 0.95);
     let s = f0.sqrt();
-    (1.0 + s) / (1.0 - s)
+    ((1.0 + s) / (1.0 - s)).max(SPECULAR_MIN_IOR)
 }
+
+/// Iray's specular-mode curve still rises to 1 at grazing when Glossy
+/// Specular is black (DAZ passes it as the curve's head-on value): Calib-
+/// Map-SpecMode's black specular sphere had G / B 0.65 / 0.42 × Iray at
+/// IOR 1 (no reflection), 0.80 / 0.64 at 1.07 (#52).
+const SPECULAR_MIN_IOR: f32 = 1.1;
 
 /// A layer's colour and weight under Iray's Color Effect (DAZ's MDL,
 /// `transmit_color_calc`): 0 (Scatter Only) as they are; 1 and 2 (Scatter
@@ -3078,7 +3088,7 @@ mod tests {
         assert!((dl.lobe2_roughness - 0.72).abs() < 1e-6, "{dl:?}");
         let (x, _) = material_inputs(&[("Uber".into(), uber.clone(), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
         assert!(x.contains("<pin name='specular'>") && x.contains(">0.25 0.25 0.25<"), "lobe 1's share: {x}");
-        assert!(x.contains(">0.75 0.75 0.75<") && x[x.find("<pin name='coatingRoughness'>").unwrap()..][..200].contains("type='6'>1</attr>"), "lobe 2 as the coating (GGX curve of 0.72, clamped): {x}");
+        assert!(x.contains(">0.75 0.75 0.75<") && x[x.find("<pin name='coatingRoughness'>").unwrap()..][..200].contains("type='6'>0.848528</attr>"), "lobe 2 as the coating (√0.72 below the GGX curve): {x}");
 
         // PBRSkin: the ratio weighs lobe 2, its roughness lobe 1's × the mult.
         let pbr = mat(json!([
@@ -3102,7 +3112,7 @@ mod tests {
         ]));
         let (x, _) = material_inputs(&[("Coated".into(), coated, 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
         assert!(!x.contains(">0.75 0.75 0.75<") && !x.contains("<pin name='specular'>"), "full lobe share: {x}");
-        let ggx = |r: f32| (r + GGX_ROUGHNESS_CURVE * r * r).min(1.0);
+        let ggx = |r: f32| (r + GGX_ROUGHNESS_CURVE * r * r).min(r.sqrt()).min(1.0);
         let blended = ggx(0.25 * 0.09 + 0.75 * 0.72);
         assert!(x.contains(&format!(">{}<", num(blended))), "blended roughness {blended} (GGX curve): {x}");
         assert!(DualLobe::of(&mat(json!([]))).is_none());
