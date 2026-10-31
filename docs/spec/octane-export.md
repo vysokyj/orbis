@@ -567,10 +567,20 @@ Every material input (20007) is filled — Octane doesn't convert
   highlight 0 → 19 px (Iray 17). `coatingIor` by Top Coat Layering Mode:
   0 Reflectivity (the cornea; 2128 materials in My Library) reflects F0 =
   0.08 × Reflectivity head-on (0.5 → 0.04, IOR 1.5) — Calib-TopCoat's
-  Reflectivity 1 sphere 0.75 → 1.09 × Iray (0.5: 1.11); the other modes
-  Top Coat IOR, which Iray doesn't follow (#25: Weighted renders a mirror
-  blended by the weight, Octane 0.10 – 0.15; Fresnel 1.5 / 2 and both
-  Custom Curves hardly show a coat in Iray, Octane 2.2 – 4.2).
+  Reflectivity 1 sphere 0.75 → 1.09 × Iray (0.5: 1.11); Fresnel and Custom
+  Curve Top Coat IOR, which Iray doesn't follow (#25: in Iray Fresnel 1.5 /
+  2 show no coat at all and a base half as bright, both Custom Curves
+  about Reflectivity's; Octane 2.1 – 2.5). Unchecked on a real material
+  yet, and 5561 materials in the installed library use Fresnel, 196 Custom
+  Curve, so they're left as they are.
+- **Weighted top coat** (Top Coat Layering Mode 1; 2176 materials): DAZ's
+  MDL lays the coat's glossy reflection over the rest by `weighted_layer`
+  — the weight, no Fresnel. → a Mix material (19): `amount` = Top Coat
+  Weight (or its map), `material1` a Universal metal in Top Coat Color at
+  the top coat's roughness (`weighted_coat_material`), `material2` the
+  surface without its coat; the mix carries the displacement. Calib-TopCoat
+  weighted 1 / 0.4: 1.03 – 1.05 × Iray (as a coating 0.05 – 0.10; Iray's
+  weight-1 sphere is a chrome mirror).
 - **Thin-walled refraction with its own inputs** (Share Glossy Inputs off:
   the cornea, the tear film) takes the glossy layer's roughness, not the
   refraction's — a thin wall's straight-through transmission doesn't blur

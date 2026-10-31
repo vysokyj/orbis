@@ -47,3 +47,27 @@ Pale and mid skins are mostly within ±15 % under the front light. The
 HDRI tips them blue (B 1.2 – 1.25). Monique (dark) comes out too blue and
 Zurie (pale grey) too red, as in #19. The back light leaves the face too
 dark for stable ratios.
+
+## Top Coat layering modes (#25)
+
+The installed library (26 814 files that carry a top coat channel)
+counts materials with the coat on by mode: Reflectivity 6230, Fresnel 5561,
+Weighted 2176 and Custom Curve 196. Base Mixing 0 dominates in every
+mode.
+
+In Iray (Calib-TopCoat; median R G B, linear):
+
+| Sphere | Iray | Octane before |
+|---|---|---|
+| T1 Reflectivity 0.5 | 0.053 0.008 0.010 | 0.060 0.008 0.012 |
+| T3 Weighted 1 | 0.157 0.187 0.255 (chrome mirror) | 0.055 0.008 0.012 |
+| T4 Weighted 0.4 | 0.082 0.074 0.101 | 0.045 0.004 0.005 |
+| T7 Custom Curve 0.04 / 1 / 5 | 0.036 0.008 0.011 | 0.045 0.008 0.012 |
+| T8 Custom Curve 0.3 / 0.3 | 0.033 0.008 0.011 | 0.049 0.022 0.030 |
+| T5 / T6 Fresnel 1.5 / 2 | 0.027 0 0 / 0.024 0 0 (no coat) | 0.037 / 0.034, coated |
+
+Weighted, a Mix of a top-coat-coloured metal and the uncoated surface:
+T3 1.03 – 1.04, T4 1.04 – 1.05 × Iray. Iray's Fresnel spheres show no
+reflection at all, which doesn't fit DAZ's MDL (`fresnel_layer`). Since
+5561 materials use it, it waits for a check on a real material in the next
+Iray Server batch.

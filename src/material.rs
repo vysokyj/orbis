@@ -529,6 +529,9 @@ struct Ocs<'a> {
     tiling: Option<[f32; 4]>,
     /// Writing the diffuse part of Iray's weighted mixing (`weighted_mix_material`).
     in_mix: bool,
+    /// Writing the surface under a weighted top coat (`weighted_coat_material`):
+    /// the mix carries the coat and the displacement.
+    in_coat_mix: bool,
     /// Thin-walled glass at IOR 1 (`Tuning::thin_glass_ior_one`).
     thin_glass_ior_one: bool,
     /// `Tuning::max_transmission`.
@@ -644,6 +647,55 @@ impl Ocs<'_> {
         self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
         self.in_mix = false;
         self.pin_close(i);
+        if !self.in_coat_mix {
+            self.displacement_pin(i, mat);
+        }
+        let _ = writeln!(self.out, "{:indent$}</node>", "");
+    }
+
+    /// Iray's Top Coat in Layering Mode 1 (Weighted): `weighted_layer` in
+    /// DAZ's MDL — the coat's glossy reflection at the coat weight, with no
+    /// Fresnel, over the rest at 1 − weight. A Mix material (19) of a
+    /// mirror-like metal in the top coat colour and roughness (`material1`,
+    /// `amount` = the weight or its map) and the surface without its coat
+    /// (`material2`). As Universal's coating (Fresnel by IOR) Calib-TopCoat's
+    /// weighted spheres rendered 0.05 – 0.10 × Iray: Iray's at weight 1 is a
+    /// chrome mirror, Octane's plain lacquered red (#25).
+    fn weighted_coat_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
+        let id = self.id();
+        let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
+        let i = indent + 1;
+        let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
+        match mat.image("Top Coat Weight").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
+            Some(asset) => self.image_pin(i, "amount", &asset, true, 1.0, coat),
+            None => self.float_pin(i, "amount", coat),
+        }
+        self.pin_open(i, "material1");
+        let cid = self.id();
+        let j = i + 1;
+        let _ = writeln!(self.out, "{:j$}<node id='{cid}' type='130' name='{} top coat'>", "", esc(name));
+        let _ = writeln!(self.out, "{:j$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
+        let colour = mat.color("Top Coat Color").unwrap_or([1.0; 3]);
+        match mat.image("Top Coat Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
+            Some(asset) => self.tinted_image_pin(j + 1, "albedo", &asset, 1.0, colour),
+            None => self.rgb_pin(j + 1, "albedo", colour),
+        }
+        self.float_pin(j + 1, "metallic", 1.0);
+        self.float_pin(j + 1, "roughness", top_coat_roughness(mat));
+        if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
+            self.image_pin(j + 1, "normal", &asset, false, 1.0, 1.0);
+        }
+        let opacity = mat.opacity().clamp(0.0, 1.0);
+        if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
+            self.float_or_map(j + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
+        }
+        let _ = writeln!(self.out, "{:j$}</node>", "");
+        self.pin_close(i);
+        self.pin_open(i, "material2");
+        self.in_coat_mix = true;
+        self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
+        self.in_coat_mix = false;
+        self.pin_close(i);
         self.displacement_pin(i, mat);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
@@ -749,7 +801,7 @@ impl Ocs<'_> {
     /// Universal's coating.
     fn top_coat(&mut self, i: usize, mat: &Material, min_roughness: f32) {
         let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
-        if coat <= 0.0 {
+        if coat <= 0.0 || self.in_coat_mix {
             return;
         }
         let colour = mat.color("Top Coat Color").unwrap_or([1.0; 3]);
@@ -759,11 +811,7 @@ impl Ocs<'_> {
             Some(asset) => self.image_pin(i, "coating", &asset, true, 1.0, coat),
             None => self.rgb_pin(i, "coating", colour.map(|c| c * coat)),
         }
-        let (r, inv) = match (mat.float("Base Mixing").unwrap_or(0.0) as i32, mat.float("Top Coat Glossiness")) {
-            (1 | 2, Some(g)) => (1.0 - g, true),
-            _ => (mat.float("Top Coat Roughness").unwrap_or(0.0), false),
-        };
-        self.float_pin(i, "coatingRoughness", iray_roughness(mat, r, inv).max(min_roughness).clamp(0.0, 1.0));
+        self.float_pin(i, "coatingRoughness", top_coat_roughness(mat).max(min_roughness).clamp(0.0, 1.0));
         self.float_pin(i, "coatingIor", top_coat_ior(mat));
     }
 
@@ -1276,6 +1324,9 @@ impl Ocs<'_> {
         if skin != SkinShader::None && translucency > 0.0 && !refractive && !emissive && !cutout && !thin && !metal && !mat.prop && !is_eye(name) && mat.image("diffuse").is_some() {
             return self.standard_surface(indent, name, mat, translucency, skin == SkinShader::OpenPbr);
         }
+        if !self.in_coat_mix && weighted_top_coat(mat) {
+            return self.weighted_coat_material(indent, name, mat, area_m2, skin);
+        }
         if !self.in_mix {
             if let Some(share) = weighted_gloss(mat) {
                 return self.weighted_mix_material(indent, name, mat, area_m2, skin, share);
@@ -1534,7 +1585,7 @@ impl Ocs<'_> {
             self.image_pin(i, "bump", &asset, true, 1.0, 1.0);
         }
         // In a weighted mix the mix material carries it.
-        if !self.in_mix {
+        if !self.in_mix && !self.in_coat_mix {
             self.displacement_pin(i, mat);
         }
 
@@ -1697,6 +1748,22 @@ const REFRACTION_ROUGHNESS_SCALE: f32 = 0.3;
 /// transmission shares. See `universal`.
 const SCATTER_TRANSMIT_DIFFUSE: f32 = 0.4;
 const SCATTER_TRANSMIT_TRANSMISSION: f32 = 2.0;
+
+/// Whether Iray's Top Coat is in Layering Mode 1 (Weighted) and on: see
+/// `Ocs::weighted_coat_material`.
+fn weighted_top_coat(mat: &Material) -> bool {
+    mat.float("Top Coat Layering Mode").unwrap_or(0.0) as i32 == 1 && (mat.float("Top Coat Weight").unwrap_or(0.0) > 0.0 || mat.image("Top Coat Weight").is_some())
+}
+
+/// The top coat's roughness as Octane takes it: Top Coat Glossiness under
+/// Base Mixing 1 and 2, else Top Coat Roughness, as Iray squares it.
+fn top_coat_roughness(mat: &Material) -> f32 {
+    let (r, inv) = match (mat.float("Base Mixing").unwrap_or(0.0) as i32, mat.float("Top Coat Glossiness")) {
+        (1 | 2, Some(g)) => (1.0 - g, true),
+        _ => (mat.float("Top Coat Roughness").unwrap_or(0.0), false),
+    };
+    iray_roughness(mat, r, inv).clamp(0.0, 1.0)
+}
 
 /// Universal's `coatingIor` for Iray's Top Coat. Layering Mode 0
 /// (Reflectivity, the most common: the cornea, 2128 materials in My
@@ -2065,7 +2132,7 @@ pub struct LightEmitter {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, thin_glass_ior_one: false, max_transmission: 1.0 };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0 };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -2237,7 +2304,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, volumes: &
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, thin_glass_ior_one: false, max_transmission: 1.0 };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0 };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -2384,7 +2451,7 @@ pub fn environment_texture(
     textures: &mut Textures,
     first_id: u32,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, thin_glass_ior_one: false, max_transmission: 1.0 };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one: false, max_transmission: 1.0 };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -2444,7 +2511,7 @@ pub fn material_inputs(
 ) -> (String, Textures) {
     let Shading { skin, thin_glass_ior_one, max_transmission } = shading.into();
     let mut textures = Textures { layered, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, thin_glass_ior_one, max_transmission };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, thin_glass_ior_one, max_transmission };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -3064,6 +3131,35 @@ mod tests {
         // by the glossy map.
         let spec = &x[x.find("<pin name='specular'>").expect("tinted gloss")..];
         assert!(spec[..200].contains("light.png"), "{spec}");
+    }
+
+    #[test]
+    fn weighted_top_coat_is_a_mix_with_a_mirror() {
+        let coated = mat(json!([
+            {"channel": {"id": "diffuse", "current_value": [0.8, 0.1, 0.1]}},
+            {"channel": {"id": "Top Coat Weight", "current_value": 0.4}},
+            {"channel": {"id": "Top Coat Layering Mode", "current_value": 1}},
+            {"channel": {"id": "Top Coat Color", "current_value": [1, 0.9, 0.8]}},
+            {"channel": {"id": "Top Coat Roughness", "current_value": 0.1}},
+        ]));
+        let (x, _) = material_inputs(&[("Ball".into(), coated, 1.0)], &[], HashMap::new(), 5000, SkinShader::None);
+        assert!(x.contains("type='19' name='Ball'"), "{x}");
+        let amount = &x[x.find("<pin name='amount'>").unwrap()..];
+        assert!(amount[..200].contains("type='6'>0.4</attr>"), "{amount}");
+        // The coat: a metal in the top coat colour (linear), roughness 0.1².
+        let coat = &x[x.find("name='Ball top coat'").unwrap()..];
+        let coat = &coat[..coat.find("name='Ball base'").unwrap()];
+        assert!(coat.contains("<pin name='metallic'>") && coat.contains("type='6'>0.01</attr>"), "{coat}");
+        // The base keeps no coating of its own.
+        let base = &x[x.find("name='Ball base'").unwrap()..];
+        assert!(!base.contains("<pin name='coating'>"), "{base}");
+        assert_eq!(x.matches("<node ").count(), x.matches("</node>").count());
+        // Layering Mode 0 stays Universal's coating.
+        let reflectivity = mat(json!([
+            {"channel": {"id": "Top Coat Weight", "current_value": 0.4}},
+        ]));
+        let (y, _) = material_inputs(&[("Ball".into(), reflectivity, 1.0)], &[], HashMap::new(), 6000, SkinShader::None);
+        assert!(!y.contains("type='19'") && y.contains("<pin name='coating'>"), "{y}");
     }
 
     #[test]
