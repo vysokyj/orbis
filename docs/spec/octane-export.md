@@ -823,9 +823,16 @@ its Translucency Color map carries the subsurface part), open in #28.
   figures and isn't read. The distances alone don't change α (Zurie's are
   half Victoria's, her factor 1).
 - × **`SKIN_HUE_OPENPBR` (1.16, 0.83, 0.68)** to the power of the smooth
-  colour's saturation ÷ 0.75: the eight figures came out 0.86 / 1.20 /
-  1.48 × Iray per channel without it; at full strength the pale grey Zurie
-  turned orange.
+  colour's saturation ÷ 0.75, below 0.75 falling linearly to 0 at 0.45
+  (`SKIN_HUE_SAT_FLOOR`): the eight figures came out 0.86 / 1.20 / 1.48 ×
+  Iray per channel without it; at full strength the pale grey Zurie turned
+  orange, and at saturation ÷ 0.75 she was still 0.89 / 0.75 / 0.64 (0.81 /
+  0.83 / 0.80 with the floor; Angel's blue 1.06 → 1.24, the others within
+  0.90 – 1.07 under the front light; #19). Open: Monique (dark) stays 1.03 /
+  1.14 / 1.45 — not her darkness alone (Twosret, as dark, is 0.92 / 0.90 /
+  1.00), and a stronger `SKIN_DARK_GAIN` (0.4) pulled the mid skins' green
+  to 0.8. Under the HDRI every figure is ~0.2 bluer than under the front
+  light: the light's colour, not the material.
 - × (smooth colour / 0.3)^**0.2** (`SKIN_DARK_GAIN`): the random walk
   brightens dark colours against mid ones (Monique 1.15 × her colour as a
   plain diffuse, Victoria 0.91). From the smooth colour so pores and

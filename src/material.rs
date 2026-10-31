@@ -205,8 +205,9 @@ impl Textures {
     /// - colour = `a · D + b · Tc · Tc_low` — Tc · Tc_low, not Tc²: squared,
     ///   the map's texture came out at twice its contrast (Calib-Skin);
     /// - × `SKIN_HUE_OPENPBR` to the power of the smooth colour's saturation
-    ///   (÷ 0.75): fitted on saturated skins, a pale grey one takes less of it
-    ///   (Zurie came out orange at full strength);
+    ///   ÷ 0.75 — below 0.75 falling to 0 at `SKIN_HUE_SAT_FLOOR`: fitted on
+    ///   saturated skins, a pale grey one takes less of it (Zurie came out
+    ///   orange at full strength, 0.89 / 0.75 / 0.64 × Iray at sat ÷ 0.75);
     /// - × (smooth colour / 0.3)^`SKIN_DARK_GAIN`: the random walk brightens
     ///   dark colours against mid ones (Monique ×1.15 over her colour as a
     ///   plain diffuse, Victoria ×0.91); per texel it turned pores and
@@ -243,7 +244,8 @@ impl Textures {
             let colour = |d: [u8; 3], t: [u8; 3], t2: [u8; 3]| [0, 1, 2].map(|k| a[k] * decode(d[k]) + b[k] * decode(t[k]) * decode(t2[k]));
             let (v, vl) = (colour(dp, tp, tl), colour(dl, tl, tl));
             let (lo, hi) = (vl.iter().copied().fold(f32::MAX, f32::min), vl.iter().copied().fold(0.0f32, f32::max));
-            let e = if hi > 0.0 { ((1.0 - lo / hi) / 0.75).clamp(0.0, 1.3) } else { 0.0 };
+            let sat = if hi > 0.0 { 1.0 - lo / hi } else { 0.0 };
+            let e = if sat >= 0.75 { (sat / 0.75).min(1.3) } else { ((sat - SKIN_HUE_SAT_FLOOR) / (0.75 - SKIN_HUE_SAT_FLOOR)).max(0.0) };
             image::Rgb([0, 1, 2].map(|k| {
                 let hue = SKIN_HUE_OPENPBR[k].powf(e);
                 encode(v[k] * hue * ((vl[k] * hue).max(1e-4) / 0.3).powf(SKIN_DARK_GAIN))
@@ -2067,6 +2069,11 @@ const SKIN_SSS_SHARE: f32 = 0.55;
 const SKIN_HUE_OPENPBR: [f32; 3] = [1.16, 0.83, 0.68];
 /// See `Textures::derived_skin`: Calib-Skin 0.2 (0.11 left Monique at 1.25).
 const SKIN_DARK_GAIN: f32 = 0.2;
+/// See `Textures::derived_skin`: the saturation where the hue offset stops.
+/// Calib-Skin's eight figures, front light, worst channel's |log| median
+/// 0.10 → 0.085 (Zurie 0.89 / 0.75 / 0.64 → 0.81 / 0.83 / 0.80 × Iray,
+/// Gabriela's blue 0.88 → 0.97; Angel's 1.06 → 1.24); 0.3 0.102 (#19).
+const SKIN_HUE_SAT_FLOOR: f32 = 0.45;
 
 /// Octane's random-walk skin comes out bluer than Iray's at the same tint:
 /// over nine regions of five figures (Genesis 8 Female, Fleur, Charity,

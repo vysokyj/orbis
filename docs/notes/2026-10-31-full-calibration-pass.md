@@ -122,3 +122,34 @@ transmission colour. At 0.7 red sits 0.71 – 0.96 and green / blue 0.87 –
 Calib-Eye, Calib-Hair-socket, Calib-Leaf and Victoria's front skin are
 unchanged within noise. Calib-Eye's first try in a batch rendered empty
 (#58); alone it was the same as before.
+
+## Skin hue (#19)
+
+Octane / Iray, median over face regions, R G B, front light. The rows are
+before; dark gain 0.4 with a floor 0.45; floor 0.45 (kept); floor 0.3.
+
+| Figure | before | gain 0.4 | floor 0.45 | floor 0.3 |
+|---|---|---|---|---|
+| Zurie | 0.89 0.75 0.64 | 0.77 0.75 0.69 | 0.81 0.83 0.80 | 0.86 0.78 0.72 |
+| Victoria | 1.04 0.98 0.96 | 1.08 0.96 0.91 | 1.00 1.02 1.07 | 1.03 1.00 1.04 |
+| Gabriela | 1.01 0.90 0.88 | 0.97 0.81 0.75 | 0.97 0.95 0.97 | 1.01 0.93 0.91 |
+| Angel | 1.10 1.10 1.06 | 1.06 1.10 1.07 | 1.05 1.17 1.24 | 1.08 1.13 1.14 |
+| Nishi | 1.04 0.95 0.97 | 1.04 0.79 0.79 | 1.01 0.95 1.00 | 1.03 0.95 0.97 |
+| Kayo | 1.06 0.97 0.93 | 1.02 0.78 0.80 | 1.05 0.97 0.97 | 1.06 0.94 0.97 |
+| Twosret | 0.92 0.90 1.00 | 0.80 0.73 0.79 | 0.92 0.90 1.00 | 0.91 0.90 1.00 |
+| Monique | 1.03 1.14 1.45 | 0.82 0.91 1.18 | 1.03 1.14 1.45 | 1.03 1.14 1.45 |
+
+The worst channel's |log| had a median of 0.10 / 0.24 / 0.085 / 0.102
+across the columns. The baked colours (from the exports' `_skin.png`,
+median) against Iray's rendered skin explain part of it.
+
+| Figure | baked R G B | Iray R G B |
+|---|---|---|
+| Victoria | 0.542 0.198 0.092 | 0.41 0.142 0.090 |
+| Zurie | 0.190 0.109 0.066 | 0.208 0.133 0.114 |
+| Monique | 0.038 0.013 0.007 | 0.060 0.025 0.015 |
+| Twosret | 0.078 0.013 0.005 | 0.109 0.038 0.022 |
+
+Octane's render over its bake rises steeply as a channel gets darker
+(roughly bake^0.6). Zurie's blue is wrong already in the bake. Monique and
+Twosret have similar dark bakes, but only Monique comes out blue.
