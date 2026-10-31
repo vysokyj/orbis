@@ -1,0 +1,72 @@
+{
+ "Anisotropic Roughness": true,
+ "Azimuthal Roughness": 0.2,
+ "Azimuthal Roughness Tip": 0.2,
+ "Base Color Root to Tip Blend Mode": 0,
+ "Cutout Opacity": 1,
+ "Diffuse Strength": 0.8,
+ "Enable Opacity": false,
+ "Exclude From White Mode": false,
+ "Fiber UV Orientation": 1,
+ "Hair Dye Root to Tip Blend Mode": 0,
+ "Hair Root Color": [
+  1,
+  1,
+  1
+ ],
+ "Hair Tip Color": [
+  1,
+  1,
+  1
+ ],
+ "Highlight Root Color": [
+  1,
+  1,
+  1
+ ],
+ "Highlight Weight": 0,
+ "Horizontal Offset": 0,
+ "Horizontal Tiles": 1,
+ "IOR": 1.55,
+ "Line End Width": 0.1,
+ "Line Preview Color": [
+  0,
+  0,
+  0
+ ],
+ "Line Start Width": 0.1,
+ "Line UV Width": 0,
+ "Melanin": 0.5,
+ "Melanin Presets": 7,
+ "Melanin Redness": 0.5,
+ "Normal Map": 1,
+ "Opacity Threshold": 0,
+ "OutlineColorID": [
+  0,
+  0,
+  0
+ ],
+ "Propagate Priority": false,
+ "Render Priority": 3,
+ "Root To Tip Bias": 0.5,
+ "Root to Tip Gain": 0.15,
+ "Roughness": 0.2,
+ "Roughness Root to Tip Blend Mode": 0,
+ "Roughness Tip": 0.2,
+ "Smooth Angle": 89.9,
+ "Smooth On": true,
+ "Specular Reflection Shift": 3,
+ "Tags": "",
+ "Tip Highlight Color": [
+  1,
+  1,
+  1
+ ],
+ "Vertical Offset": 0,
+ "Vertical Tiles": 1,
+ "diffuse": [
+  0.5019608,
+  0.5019608,
+  0.5019608
+ ]
+}

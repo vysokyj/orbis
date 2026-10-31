@@ -98,6 +98,22 @@ Found beyond it:
   Reflectivity, not Uber's Reflectivity); `translucency_weight` = 1 −
   Translucency Weight (inverted in the MDL); lobe 2's roughness the Mult.
   The "… Enable" switches reach the MDL as expressions, not values.
+- **DAZ Default shader** (`iray::daz_default_as_uber`; the export
+  converts it on load): DAZ renders it as Iray Uber — diffuse ×
+  diffuse_strength; glossy weight = the specular colour's strongest
+  channel (linear) × specular_strength, its hue the glossy colour; roughness
+  (1 − glossiness)^1.7; refraction at refraction_strength, own colour and
+  IOR (`iray_uber`, closed); transparency as Cutout Opacity. Ambient,
+  reflection and the lighting model don't reach Iray. The old 3Delight
+  presets (dzGlossy, dzMetal, …) are other shaders, not covered.
+- **Blended Dual Lobe Hair** (`iray::blended_hair`): the Root colours only
+  (hair, transmission, highlight — the Tip ones never reach Iray),
+  roughnesses raw, the rest as is.
+- **OmniHair Root-Tip Blend** (`iray::omni_hair`): root and tip blended
+  along the strand (`blend_colors`, gain 0.15); Diffuse Strength the base
+  colour's weight, Highlight Weight the diffuse reflection's.
+- **Brick graphs** (Shader Mixer, even on Uber's bricks) aren't these
+  conversions: `iray::is_uber` leaves them out (#21).
 - **Emission:** `emission_flux` and mode by Luminance Units (above);
   the temperature once the colour is non-black.
 

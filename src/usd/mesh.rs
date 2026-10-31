@@ -197,7 +197,9 @@ pub(super) fn scene_materials(lib: &mut Library, instance_id: &str) -> HashMap<S
         for c in mat.channels.values_mut() {
             c.gamma = c.image.as_ref().and_then(|i| gammas.get(i)).copied();
         }
-        let mat = Rc::new(mat);
+        // DAZ's default shader renders as the Iray Uber material DAZ makes
+        // of it (`crate::iray::daz_default_as_uber`).
+        let mat = Rc::new(crate::iray::daz_default_as_uber(&mat).unwrap_or(mat));
         for g in m.get("groups").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
             out.insert(g.to_string(), mat.clone());
         }

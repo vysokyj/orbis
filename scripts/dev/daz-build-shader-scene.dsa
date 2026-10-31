@@ -1,0 +1,42 @@
+// ORBIS: a calibration scene with DAZ shader presets on its spheres, for
+// DAZ's .mi export (#62) — built headless (scripts/dev/daz-script.sh with
+// DONE_FILE=<out>.done). Arguments: base .duf (eight spheres), out .duf,
+// up to eight shader preset .duf files (one per sphere, left to right;
+// "-" leaves a sphere as it is), "--", then the content directories.
+// Each sphere is labelled after its preset. ECMAScript 3, ASCII only.
+(function () {
+    var a = App.scriptArgs;
+    var sBase = a[0], sOut = a[1], aPresets = [], i = 2;
+    for (; i < a.length && a[i] != "--"; i++) aPresets.push(a[i]);
+    var oContent = App.getContentMgr();
+    for (i++; i < a.length; i++) oContent.addContentDirectory(a[i], false);
+    var sLog = "";
+    function done(s) {
+        var f = new DzFile(sOut + ".done");
+        f.open(DzFile.WriteOnly | DzFile.Truncate);
+        f.write(s + "\n" + sLog);
+        f.close();
+        App.delayedExit();
+    }
+    if (!oContent.openFile(sBase, false)) { done("base not opened"); return; }
+    var aSpheres = [];
+    for (var n = 0; n < Scene.getNumNodes(); n++) {
+        var oNode = Scene.getNode(n);
+        if (oNode.getName().indexOf("pSphere") == 0) aSpheres.push(oNode);
+    }
+    aSpheres.sort(function (p, q) { return p.getXPosControl().getValue() - q.getXPosControl().getValue(); });
+    for (var k = 0; k < aSpheres.length && k < aPresets.length; k++) {
+        if (aPresets[k] == "-") continue;
+        var oSphere = aSpheres[k];
+        var sName = aPresets[k].replace(/^.*\//, "").replace(/\.duf$/, "");
+        oSphere.setLabel("S" + (k + 1) + " " + sName);
+        Scene.selectAllNodes(false);
+        oSphere.select(true);
+        Scene.setPrimarySelection(oSphere);
+        // A shader preset applies to the selected node's selected surfaces.
+        var oShape = oSphere.getObject().getCurrentShape();
+        for (var m = 0; m < oShape.getNumMaterials(); m++) oShape.getMaterial(m).select(true);
+        sLog += sName + ": " + oContent.openFile(aPresets[k], true) + "\n";
+    }
+    done("saved " + Scene.saveScene(sOut));
+})();

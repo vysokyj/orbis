@@ -1440,8 +1440,10 @@ impl Ocs<'_> {
                 None => mat.base_color(),
             }
         };
-        let (root, tip) = (colour("Hair Root Color"), colour("Hair Tip Color"));
-        let (root_t, tip_t) = (colour("Root Transmission Color"), colour("Tip Transmission Color"));
+        // DAZ hands Iray the Root colours only (`crate::iray::blended_hair`):
+        // its Blended Dual Lobe Hair graph never reads the Tip ones.
+        let (root, root_t) = (colour("Hair Root Color"), colour("Root Transmission Color"));
+        let (tip, tip_t) = if crate::iray::is_blended_hair(mat) { (root, root_t) } else { (colour("Hair Tip Color"), colour("Tip Transmission Color")) };
         self.value_pin(i, "hairMode", 57, 2, "0"); // albedo
         self.rgb_pin(i, "albedo", [0, 1, 2].map(|k| HAIR_COLOUR_SHARE * (root[k] + tip[k]) / 2.0 + HAIR_TRANSMISSION_SHARE * (root_t[k] + tip_t[k]) / 2.0));
         let gloss = mat.float("Glossy Layer Weight").unwrap_or(1.0).clamp(0.0, 1.0);

@@ -20,6 +20,8 @@ python3 scripts/dev/fetch-nvidia-docs.py   # NVIDIA Iray / MDL docs mirror → d
 DONE_FILE=<out dir>/export-mi.done scripts/dev/daz-script.sh $PWD/scripts/dev/daz-export-mi.dsa <out dir> <scene.duf>... --   # scenes → Iray .mi (MDL arguments DAZ passes)
 python3 scripts/dev/mi-args.py [--param <regex>] <scene.mi>...   # those arguments per material (Calib-Map-* scenes sweep the channels)
 python3 scripts/dev/daz-defaults.py <definition.dsf> > calib/references/daz-defaults/<Name>.json   # a DAZ shader's channel defaults (values only) for src/iray.rs's tests
+DONE_FILE=<out>.done scripts/dev/daz-script.sh $PWD/scripts/dev/daz-build-shader-scene.dsa <base.duf> <out.duf> <preset.duf>... --   # shader presets on a scene's spheres (.mi sweeps)
+python3 scripts/dev/make-mi-shader-scenes.py   # Calib-Mi-Hair / -DzDefault2: channel variants of those
 python3 scripts/dev/mi-oracle.py --out calib/references/mi <scene.mi>...   # .mi → JSON fixtures (options, camera, environment, lights, materials) for src/iray.rs's test
 python3 scripts/dev/highlight-spread.py [--vs <iray.png>] <render.png>...   # per-sphere highlight spread (p99 / median) and luminance vs Iray (#56)
 scripts/dev/daz-render.sh <scene.duf> <out.png> [secs] [samples]   # unattended capped Iray render (one DAZ instance that stays open; --stop quits it)

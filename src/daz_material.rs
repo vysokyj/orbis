@@ -36,6 +36,8 @@ pub struct Material {
     /// A DAZ brick shader's MDL materials, as `module::name` (e.g.
     /// `nvidia::metal_examples::cast_iron`): what its graph renders with.
     pub mdl: Vec<String>,
+    /// A DAZ brick (Shader Mixer) graph, whatever it names.
+    pub brick: bool,
 }
 
 impl Material {
@@ -79,6 +81,7 @@ impl Material {
                 }
             }
             if e.get("type").and_then(Value::as_str) == Some("studio/material/daz_brick") {
+                self.brick = true;
                 let mut found = Vec::new();
                 mdl_callables(e, &mut found);
                 for f in found {
@@ -193,8 +196,14 @@ impl Material {
         // Glossiness, 0 (metallicity / roughness) and 2 (weighted) from
         // Glossy Roughness — both channels are always saved (DAZ's .mi
         // export: Calib-Mixing's weighted spheres at Glossy Roughness 0.5,
-        // Glossiness 1 get 0.25; #62).
-        let glossiness_mode = self.float("Base Mixing").unwrap_or(0.0) as i32 == 1;
+        // Glossiness 1 get 0.25; #62). A brick graph on Uber's weighted
+        // base keeps reading Glossiness: what DAZ makes of a graph isn't
+        // verified (HFGG's terrain).
+        let glossiness_mode = match self.float("Base Mixing").unwrap_or(0.0) as i32 {
+            1 => true,
+            2 => self.brick,
+            _ => false,
+        };
         if !glossiness_mode {
             if let Some(r) = self.float("Glossy Roughness") {
                 return (Some("Glossy Roughness"), r, false);

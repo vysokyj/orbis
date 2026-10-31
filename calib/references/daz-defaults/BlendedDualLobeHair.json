@@ -1,0 +1,76 @@
+{
+ "Anisotropy": 1,
+ "Anisotropy Rotations": 0,
+ "Bump Mode": 0,
+ "Bump Strength": 1,
+ "Cutout Opacity": 1,
+ "Glossy Layer Weight": 0.5,
+ "Hair Root Color": [
+  1,
+  1,
+  1
+ ],
+ "Hair Tip Color": [
+  0.7297401,
+  0.5325205,
+  0.3511192
+ ],
+ "Highlight Root Color": [
+  1,
+  1,
+  1
+ ],
+ "Highlight Weight": 0.11,
+ "Horizontal Offset": 0,
+ "Horizontal Tiles": 1,
+ "Line End Width": 0.1,
+ "Line Preview Color": [
+  0,
+  0,
+  0
+ ],
+ "Line Start Width": 0.1,
+ "Line UV Width": 0,
+ "Maximum Displacement": 0.1,
+ "Minimum Displacement": -0.1,
+ "OutlineColorID": [
+  0,
+  0,
+  0
+ ],
+ "Propagate Priority": false,
+ "Render Priority": 3,
+ "Root To Tip Bias": 0.5,
+ "Root Transmission Color": [
+  1,
+  1,
+  1
+ ],
+ "Root to Tip Gain": 0.5,
+ "Roughness Squared": true,
+ "Smooth Angle": 89.9,
+ "Smooth On": true,
+ "SubD Displacement Level": 0,
+ "Tags": "",
+ "Tip Highlight Color": [
+  1,
+  1,
+  1
+ ],
+ "Tip Transmission Color": [
+  1,
+  1,
+  1
+ ],
+ "Vertical Offset": 0,
+ "Vertical Tiles": 1,
+ "base_roughness": 0.2,
+ "diffuse": [
+  0,
+  0,
+  0
+ ],
+ "highlight_roughness": 0.1,
+ "separation": 0.1,
+ "strength": 1
+}

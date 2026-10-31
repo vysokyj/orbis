@@ -580,9 +580,124 @@ impl Uber {
 
 /// Whether DAZ renders the material with Iray Uber: its channels (Base
 /// Mixing among them), not PBRSkin's (its "… Enable" switches) nor a brick
-/// graph's.
+/// graph's — even one on Uber's own bricks (HFGG's terrain, OOT's hair):
+/// what DAZ makes of a graph isn't this conversion.
 pub fn is_uber(mat: &Material) -> bool {
-    mat.mdl.is_empty() && mat.channels.contains_key("Base Mixing") && !mat.channels.contains_key("Dual Lobe Specular Enable")
+    !mat.brick && mat.mdl.is_empty() && mat.channels.contains_key("Base Mixing") && !mat.channels.contains_key("Dual Lobe Specular Enable")
+}
+
+/// Whether the material is DAZ's default shader (its channels at the top
+/// level: `specular_strength`, `glossiness`, …).
+pub fn is_daz_default(mat: &Material) -> bool {
+    !mat.brick && !mat.channels.contains_key("Base Mixing") && mat.channels.contains_key("specular_strength") && mat.channels.contains_key("glossiness")
+}
+
+/// DAZ's default shader as the Iray Uber material DAZ renders it with
+/// (Calib-Mi-DzDefault2): diffuse × diffuse_strength; a glossy layer at
+/// the specular colour's strongest channel (linear) × specular_strength,
+/// its hue as the glossy colour, roughness (1 − glossiness)^1.7; refraction
+/// at refraction_strength in its own colour and IOR (Share Glossy Inputs
+/// off then: `iray_uber`), closed when it refracts; transparency as Cutout Opacity. Ambient,
+/// reflection and the lighting model don't reach Iray. None for other
+/// shaders.
+pub fn daz_default_as_uber(mat: &Material) -> Option<Material> {
+    if !is_daz_default(mat) {
+        return None;
+    }
+    let ch = Channels(mat);
+    let mut out = mat.clone();
+    let mut set = |id: &str, v: Value| {
+        let image = out.channels.get(id).and_then(|c| c.image.clone());
+        out.channels.insert(id.to_string(), crate::daz_material::Channel { value: v, image, gamma: None });
+    };
+    let spec = ch.color("specular", [0.6f32.powf(COLOUR_GAMMA); 3]);
+    let peak = spec.into_iter().fold(0.0, f32::max);
+    let strength = ch.float("specular_strength", 1.0);
+    let (weight, hue) = if peak * strength > 0.0 { (peak * strength, spec.map(|c| c / peak)) } else { (0.0, spec) };
+    // Back to DAZ's gamma-encoded colour, which `uber` linearises.
+    let encode = |c: [f32; 3]| Value::from(c.map(|x| f64::from(x.max(0.0).powf(1.0 / COLOUR_GAMMA))).to_vec());
+    let refraction = ch.float("refraction_strength", 0.0);
+    set("Base Mixing", Value::from(0));
+    set("Diffuse Strength", Value::from(f64::from(ch.float("diffuse_strength", 1.0))));
+    set("Glossy Layered Weight", Value::from(f64::from(weight)));
+    set("Glossy Color", encode(hue));
+    set("Glossy Roughness", Value::from(f64::from((1.0 - ch.float("glossiness", 1.0)).clamp(0.0, 1.0).powf(DAZ_DEFAULT_ROUGHNESS_POWER))));
+    set("Roughness Squared", Value::from(false));
+    set("Refraction Weight", Value::from(f64::from(refraction)));
+    set("Refraction Color", encode(ch.color("refraction", [1.0; 3])));
+    set("Refraction Index", Value::from(f64::from(ch.float("ior", 1.5))));
+    set("Share Glossy Inputs", Value::from(refraction <= 0.0));
+    set("Thin Walled", Value::from(refraction <= 0.0));
+    set("Cutout Opacity", Value::from(f64::from(ch.float("transparency", 1.0))));
+    Some(out)
+}
+
+/// See [`daz_default_as_uber`]: Calib-Mi-DzDefault2's glossiness 0.3 / 0.5 /
+/// 0.7 / 0.9 / 0.95 gave 0.5453 / 0.3078 / 0.1292 / 0.0200 / 0.0061.
+pub const DAZ_DEFAULT_ROUGHNESS_POWER: f32 = 1.7;
+
+/// What DAZ hands Iray for its Blended Dual Lobe Hair shader (a brick graph
+/// on `dual_lobe_hair.mdl`, Calib-Mi-Hair), by the graph's argument path:
+/// the Root colours only, linear (the Tip ones don't reach Iray);
+/// roughnesses raw (the MDL squares them); the rest as is.
+pub fn blended_hair(mat: &Material) -> BTreeMap<&'static str, Arg> {
+    let ch = Channels(mat);
+    let mut out = BTreeMap::new();
+    out.insert("base.hair_color", Arg::Color(ch.color("Hair Root Color", [0.5; 3])));
+    out.insert("base.base.surface.scattering.tint", Arg::Color(ch.color("Root Transmission Color", [0.5; 3])));
+    out.insert("base.hightlight_color", Arg::Color(ch.color("Highlight Root Color", [1.0; 3])));
+    for (param, channel, default) in [
+        ("base.hair_weight", "Glossy Layer Weight", 0.5),
+        ("base.base_roughness.roughness", "base_roughness", 0.2),
+        ("base.highlight_roughness.roughness", "highlight_roughness", 0.1),
+        ("base.highlight_weight", "Highlight Weight", 0.11),
+        ("base.separation", "separation", 0.1),
+        ("base.anisotropy", "Anisotropy", 1.0),
+        ("base.anisotropy_rotation", "Anisotropy Rotations", 0.0),
+        ("base.cutout_opacity", "Cutout Opacity", 1.0),
+    ] {
+        out.insert(param, Arg::Float(ch.float(channel, default)));
+    }
+    out
+}
+
+/// Whether the material is DAZ's Blended Dual Lobe Hair shader.
+pub fn is_blended_hair(mat: &Material) -> bool {
+    mat.channels.contains_key("Glossy Layer Weight") && mat.channels.contains_key("Hair Root Color") && mat.channels.contains_key("separation")
+}
+
+/// What DAZ hands Iray for its OmniHair Root-Tip Blend shader (a brick
+/// graph on `OmniSurface::OmniHairBase`, Calib-Mi-Hair), by argument path:
+/// root and tip blended along the strand (`color_1` root, `color_2` tip),
+/// colours linear; Diffuse Strength as the base colour's weight, Highlight
+/// Weight as the diffuse reflection's.
+pub fn omni_hair(mat: &Material) -> BTreeMap<&'static str, Arg> {
+    let ch = Channels(mat);
+    let mut out = BTreeMap::new();
+    out.insert("base_color.s.color_1", Arg::Color(ch.color("Hair Root Color", [1.0; 3])));
+    out.insert("base_color.s.color_2", Arg::Color(ch.color("Hair Tip Color", [1.0; 3])));
+    out.insert("diffuse_reflection_color.s.color_1", Arg::Color(ch.color("Highlight Root Color", [1.0; 3])));
+    out.insert("diffuse_reflection_color.s.color_2", Arg::Color(ch.color("Tip Highlight Color", [1.0; 3])));
+    out.insert("diffuse_reflection_weight.a", Arg::Color([ch.float("Highlight Weight", 0.0); 3]));
+    for (param, channel, default) in [
+        ("base_color_weight", "Diffuse Strength", 1.0),
+        ("melanin_concentration", "Melanin", 0.5),
+        ("melanin_redness", "Melanin Redness", 0.5),
+        ("specular_reflection_roughness.s.color_1.value", "Roughness", 0.2),
+        ("specular_reflection_roughness.s.color_2.value", "Roughness Tip", 0.2),
+        ("specular_reflection_azimuthal_roughness.s.color_1.value", "Azimuthal Roughness", 0.2),
+        ("specular_reflection_azimuthal_roughness.s.color_2.value", "Azimuthal Roughness Tip", 0.2),
+        ("specular_reflection_shift", "Specular Reflection Shift", 3.0),
+        ("geometry_opacity", "Cutout Opacity", 1.0),
+    ] {
+        out.insert(param, Arg::Float(ch.float(channel, default)));
+    }
+    out
+}
+
+/// Whether the material is DAZ's OmniHair Root-Tip Blend shader.
+pub fn is_omni_hair(mat: &Material) -> bool {
+    mat.channels.contains_key("Melanin") && mat.channels.contains_key("Specular Reflection Shift")
 }
 
 /// What DAZ hands Iray for a PBRSkin material (`pbr_skin.mdl`): the
@@ -903,6 +1018,8 @@ mod tests {
                     continue;
                 }
                 let mat = mats.get(key).unwrap_or_else(|| panic!("{scene}: no material {key}"));
+                let converted = daz_default_as_uber(mat);
+                let mat = converted.as_ref().unwrap_or(mat);
                 checked += 1;
                 if mi["mdl"] != uber_entry(mat) {
                     wrong.push(format!("MDL entry: {scene} {key}: DAZ {}, ours {}", mi["mdl"], uber_entry(mat)));
@@ -1196,5 +1313,65 @@ mod tests {
         }
         wrong.sort();
         assert!(checked > 0 && wrong.is_empty(), "{} of {checked} PBRSkin arguments differ from DAZ's .mi:\n{}", wrong.len(), wrong.join("\n"));
+    }
+
+    /// A brick graph's leaf values by argument path (`pass_*` unwrapped).
+    fn graph_leaves(v: &Value, path: &str, out: &mut HashMap<String, Value>) {
+        let join = |k: &str| if path.is_empty() { k.to_string() } else { format!("{path}.{k}") };
+        match v["mdl"].as_str() {
+            Some(m) if m.starts_with("daz_3d::basic::pass_") && !v["args"]["v"].is_object() => {
+                out.insert(path.to_string(), v["args"]["v"].clone());
+            }
+            Some(_) => {
+                for (k, a) in v["args"].as_object().into_iter().flatten() {
+                    graph_leaves(a, &join(k), out);
+                }
+            }
+            None if !v.is_object() => {
+                out.insert(path.to_string(), v.clone());
+            }
+            None => {}
+        }
+    }
+
+    #[test]
+    fn hair_shaders_match_daz_mi_export() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let defaults = |name: &str| {
+            let d: serde_json::Map<String, Value> = serde_json::from_str(&std::fs::read_to_string(root.join(format!("calib/references/daz-defaults/{name}.json"))).unwrap()).unwrap();
+            let channels: Vec<Value> = d.into_iter().map(|(id, v)| serde_json::json!({"channel": {"id": id, "current_value": v}})).collect();
+            Material::from_dson(&serde_json::json!({"extra": [{"channels": channels}]}), &HashMap::new())
+        };
+        let (blended, omni) = (defaults("BlendedDualLobeHair"), defaults("OmniHairRootTipBlend"));
+        let (mut checked, mut wrong) = (0, Vec::new());
+        let scene = "Calib-Mi-Hair";
+        let fixture: Value = serde_json::from_str(&std::fs::read_to_string(root.join(format!("calib/references/mi/{scene}.json"))).unwrap()).unwrap();
+        let doc: Value = serde_json::from_str(&crate::dson::decompress_scene(&std::fs::read(root.join(format!("calib/scenes/{scene}.duf"))).unwrap()).unwrap()).unwrap();
+        let mut label = HashMap::new();
+        for n in doc.pointer("/scene/nodes").and_then(Value::as_array).into_iter().flatten() {
+            for g in n["geometries"].as_array().into_iter().flatten() {
+                label.insert(g["id"].as_str().unwrap_or("").to_string(), n["label"].as_str().unwrap_or("").to_string());
+            }
+        }
+        for m in doc.pointer("/scene/materials").and_then(Value::as_array).into_iter().flatten() {
+            let url = m["url"].as_str().unwrap_or("");
+            let mut mat = if url.contains("Blended%20Dual%20Lobe") { blended.clone() } else if url.contains("OmniHair") { omni.clone() } else { continue };
+            mat.merge(m, &HashMap::new());
+            let ours = if is_blended_hair(&mat) { blended_hair(&mat) } else if is_omni_hair(&mat) { omni_hair(&mat) } else { panic!("{url}: not recognised") };
+            let node = &label[m["geometry"].as_str().unwrap().rsplit('#').next().unwrap()];
+            let key = format!("{node}/Default");
+            let mut theirs = HashMap::new();
+            graph_leaves(&fixture["materials"][&key]["args"]["v"], "", &mut theirs);
+            // The Blended hair graph sits under `replace_scattering(base: …)`.
+            for (param, arg) in ours {
+                checked += 1;
+                let t = theirs.get(param).or_else(|| theirs.get(&format!("base.{param}"))).and_then(|v| fixture_arg(v, &arg));
+                if !t.as_ref().is_some_and(|t| close(t, &arg)) {
+                    wrong.push(format!("{param}: {key}: DAZ {t:?}, ours {arg:?}"));
+                }
+            }
+        }
+        wrong.sort();
+        assert!(checked > 0 && wrong.is_empty(), "{} of {checked} hair arguments differ from DAZ's .mi:\n{}", wrong.len(), wrong.join("\n"));
     }
 }
