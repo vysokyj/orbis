@@ -10,14 +10,18 @@ here=$(cd "$(dirname "$0")" && pwd)
 docs="$HOME/Library/Containers/com.otoy.rndrviewer/Data/Documents"
 mkdir -p "$out"
 : > "$docs/orbis_jobs.txt"
+# Job files named per run: with the same orbis_job_<i>.orbx every run, the
+# first import of a batch now and then came out with the previous run's
+# job 0 left over (default-grey spheres, an empty frame; #58).
+run=$(date +%s)
 i=0
 for scene in "$@"; do
     name=$(basename "$scene" .orbx)
-    ln -f "$scene" "$docs/orbis_job_$i.orbx"
+    job="orbis_job_${run}_$i"
+    ln -f "$scene" "$docs/$job.orbx"
     # The tone LUT, if any, beside it (octane-render.lua loads it by path).
-    rm -f "$docs/orbis_job_$i.cube"
-    "$here/../../target/release/examples/orbx_ocs" file "$scene" assets/tone.cube "$docs/orbis_job_$i.cube" 2>/dev/null || true
-    printf '%s\t%s\t%s\n' "orbis_job_$i.orbx" "$name" "$samples" >> "$docs/orbis_jobs.txt"
+    "$here/../../target/release/examples/orbx_ocs" file "$scene" assets/tone.cube "$docs/$job.cube" 2>/dev/null || true
+    printf '%s\t%s\t%s\n' "$job.orbx" "$name" "$samples" >> "$docs/orbis_jobs.txt"
     rm -f "$docs/orbis_job_$name.png"
     i=$((i + 1))
 done
@@ -25,6 +29,7 @@ done
 cat "$docs/orbis_probe_render.txt"
 for scene in "$@"; do
     name=$(basename "$scene" .orbx)
-    [ -f "$docs/orbis_job_$name.png" ] && cp "$docs/orbis_job_$name.png" "$out/$name.png"
+    [ -f "$docs/orbis_job_$name.png" ] && mv "$docs/orbis_job_$name.png" "$out/$name.png"
 done
+# Nothing of the run stays in Octane's sandbox.
 rm -f "$docs"/orbis_job_*.orbx "$docs"/orbis_job_*.cube
