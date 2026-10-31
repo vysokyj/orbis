@@ -9,6 +9,7 @@ Then, depending on what you need:
 | [calibration.md](calibration.md) | How the export is checked against Iray: the principle, the calibration scenes and what each measures, the scripts, the references. | You calibrate a feature, add a test scene or re-check a rule. |
 | [notes/](notes/README.md) | Dated lab notebook of calibration sessions: every attempt, the numbers, dead ends, process lessons. Not normative. | You re-open a rule or wonder how it was found. |
 | [daz/iray.md](daz/iray.md) | Iray in DAZ Studio: the Uber material's channels, lights, environment, tone mapping. | You need to know what a DAZ channel means. |
+| [daz/pbrskin.md](daz/pbrskin.md) | PBRSkin (Genesis 9 / 8.1 skins): how its MDL layers diffuse, translucency, makeup, dual lobe and volume. | You map or calibrate a PBRSkin skin (#57). |
 | [daz/files.md](daz/files.md) | `.duf` / `.dsf`, how DAZ Studio builds what it renders (subdivision, grafts, shells), headless DAZ Studio. | You read scene files or the scene dump. |
 | [daz/content.md](daz/content.md) | Content library layout, content types, figure compatibility. | You resolve assets or metadata. |
 | [daz/script-api.md](daz/script-api.md) | The DAZ Script API ORBIS uses (dialogs, geometry, processes). | You change the DAZ Studio script. |
