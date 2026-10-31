@@ -1,0 +1,35 @@
+// ORBIS: export scenes to Iray's .mi (DzMIExporter), headless through
+// scripts/dev/daz-script.sh. The .mi holds the
+// MDL argument values DAZ Studio computes from the Uber channels — the
+// compiled channel -> parameter mapping (docs/daz/iray-uber-mdl.md).
+// Arguments: out dir, scene .duf files, "--", then the content directories
+// (daz-script.sh appends them); writes <out dir>/<scene>.mi each and
+// <out dir>/export-mi.done (DONE_FILE) with a log.
+// ECMAScript 3, ASCII only.
+(function () {
+    var a = App.scriptArgs;
+    var sOut = a[0], aScenes = [], i = 1;
+    for (; i < a.length && a[i] != "--"; i++) aScenes.push(a[i]);
+    var oContent = App.getContentMgr();
+    for (i++; i < a.length; i++) oContent.addContentDirectory(a[i], false);
+    var sLog = "args " + a.length + ": " + a.join(" | ") + "\n";
+    function log(s) { sLog += s + "\n"; }
+    var oMgr = App.getExportMgr();
+    var oExporter = null;
+    for (var e = 0; e < oMgr.getNumExporters(); e++) {
+        if (oMgr.getExporter(e).className() == "DzMIExporter") oExporter = oMgr.getExporter(e);
+    }
+    for (var k = 0; oExporter && k < aScenes.length; k++) {
+        var sName = aScenes[k].replace(/^.*\//, "").replace(/\.duf$/, "");
+        if (!oContent.openFile(aScenes[k], false)) { log(sName + ": not opened"); continue; }
+        var sMi = sOut + "/" + sName + ".mi";
+        var oResult = oExporter.writeFile(sMi);
+        log(sName + ": " + oResult + ", " + (new DzFile(sMi).exists() ? "written" : "missing"));
+        Scene.clear();
+    }
+    var f = new DzFile(sOut + "/export-mi.done");
+    f.open(DzFile.WriteOnly | DzFile.Truncate);
+    f.write((oExporter ? "" : "no DzMIExporter\n") + sLog);
+    f.close();
+    App.delayedExit();
+})();

@@ -531,6 +531,64 @@ uber_spheres('Calib-Dispersion', [0.6, 0.6, 0.6], GL, [
     ('X8 ior 1.33 abbe 55', {'Refraction Index': 1.33, 'Abbe': 55.0}),
 ])
 
+# --- Channel -> MDL mapping (docs/daz/iray-uber-mdl.md): scenes exported to
+# Iray's .mi only (scripts/dev/daz-export-mi.dsa, scripts/dev/mi-args.py),
+# no Iray references — what DAZ Studio passes to the Uber MDL per channel.
+RED = [0.6, 0.1, 0.05]
+uber_spheres('Calib-Map-Metal', RED, GLOSS, [
+    ('M1 metal 0.25', {'Metallic Weight': 0.25}),
+    ('M2 metal 0.5', {'Metallic Weight': 0.5}),
+    ('M3 metal 0.75', {'Metallic Weight': 0.75}),
+    ('M4 metal 1', {'Metallic Weight': 1.0}),
+    ('M5 metal 1 refl 1', {'Metallic Weight': 1.0, 'Glossy Reflectivity': 1.0}),
+    ('M6 metal 1 blue gloss', {'Metallic Weight': 1.0, 'Glossy Color': [0.1, 0.3, 0.9]}),
+    ('M7 metal 0.5 no gloss', {'Metallic Weight': 0.5, 'Glossy Layered Weight': 0.0}),
+    ('M8 metal 0.5 spec mode', {'Metallic Weight': 0.5, 'Base Mixing': 1, 'Glossy Specular': [0.5, 0.5, 0.5], 'Glossiness': 0.7}),
+])
+COATED = {**GLOSS, 'Top Coat Weight': 1.0, 'Top Coat Roughness': 0.2}
+uber_spheres('Calib-Map-TopCoat', RED, COATED, [
+    ('C1 refl 0.25', {'Top Coat Layering Mode': 0, 'Reflectivity': 0.25}),
+    ('C2 refl 1 w0.5', {'Top Coat Layering Mode': 0, 'Reflectivity': 1.0, 'Top Coat Weight': 0.5}),
+    ('C3 weighted red', {'Top Coat Layering Mode': 1, 'Top Coat Color': [0.9, 0.2, 0.1]}),
+    ('C4 fresnel 1.8', {'Top Coat Layering Mode': 2, 'Top Coat IOR': 1.8}),
+    ('C5 curve', {'Top Coat Layering Mode': 3, 'Top Coat Curve Normal': 0.1, 'Top Coat Curve Grazing': 0.8, 'Top Coat Curve Exponent': 3.0}),
+    ('C6 refl specular', {'Top Coat Layering Mode': 0, 'Reflectivity': 0.5, 'Top Coat Specular': [0.2, 0.5, 0.9]}),
+    ('C7 effect 1', {'Top Coat Layering Mode': 2, 'Top Coat Color': [0.9, 0.2, 0.1], 'Top Coat Color Effect': 1}),
+    ('C8 effect 2', {'Top Coat Layering Mode': 2, 'Top Coat Color': [0.9, 0.2, 0.1], 'Top Coat Color Effect': 2}),
+])
+TRANSL = {'Translucency Weight': 0.5, 'Translucency Color': [0.2, 0.6, 0.9]}
+uber_spheres('Calib-Map-Effect', RED, GLOSS, [
+    ('E1 base effect 1', {**TRANSL, 'Base Color Effect': 1}),
+    ('E2 base effect 2', {**TRANSL, 'Base Color Effect': 2}),
+    ('E3 gloss effect 1', {'Glossy Color': [0.9, 0.3, 0.2], 'Glossy Color Effect': 1}),
+    ('E4 gloss effect 2', {'Glossy Color': [0.9, 0.3, 0.2], 'Glossy Color Effect': 2}),
+    ('E5 diffuse strength 0.5', {'Diffuse Strength': 0.5}),
+    ('E6 overlay effect 1', {'Diffuse Overlay Weight': 0.5, 'Diffuse Overlay Color': [0.1, 0.3, 0.9], 'Diffuse Overlay Color Effect': 1}),
+    ('E7 overlay squared', {'Diffuse Overlay Weight': 0.5, 'Diffuse Overlay Weight Squared': True, 'Diffuse Overlay Color': [0.1, 0.3, 0.9]}),
+    ('E8 transl 0.5', TRANSL),
+])
+SPECM = {'Base Mixing': 1, 'Glossy Layered Weight': 1.0, 'Glossiness': 0.7, 'Glossy Color': [1.0, 1.0, 1.0]}
+uber_spheres('Calib-Map-SpecMode', RED, SPECM, [
+    ('S1 spec 0', {'Glossy Specular': [0.0, 0.0, 0.0]}),
+    ('S2 spec 0.2', {'Glossy Specular': [0.2, 0.2, 0.2]}),
+    ('S3 spec 0.5', {'Glossy Specular': [0.5, 0.5, 0.5]}),
+    ('S4 spec 1', {'Glossy Specular': [1.0, 1.0, 1.0]}),
+    ('S5 spec red', {'Glossy Specular': [0.9, 0.3, 0.2]}),
+    ('S6 spec 0.5 w0.5', {'Glossy Specular': [0.5, 0.5, 0.5], 'Glossy Layered Weight': 0.5}),
+    ('S7 glossiness 0.3', {'Glossy Specular': [0.5, 0.5, 0.5], 'Glossiness': 0.3}),
+    ('S8 weighted mode', {'Base Mixing': 2, 'Glossy Weight': 0.4, 'Diffuse Weight': 0.8}),
+])
+uber_spheres('Calib-Map-Misc', RED, GLOSS, [
+    ('X1 backscatter blue', {'Backscattering Weight': 0.5, 'Backscattering Color': [0.1, 0.3, 0.9], 'Backscattering Roughness': 0.3}),
+    ('X2 backscatter unshared', {'Backscattering Weight': 0.5, 'Backscattering Color': [0.1, 0.3, 0.9], 'Share Glossy Inputs': False}),
+    ('X3 dual lobe', {'Dual Lobe Specular Weight': 0.8, 'Dual Lobe Specular Reflectivity': 0.6, 'Specular Lobe 1 Roughness': 0.4, 'Specular Lobe 2 Roughness': 0.2, 'Dual Lobe Specular Ratio': 0.7}),
+    ('X4 abbe 30', {'Refraction Weight': 1.0, 'Refraction Index': 1.6, 'Abbe': 30.0}),
+    ('X5 refraction rough', {'Refraction Weight': 0.7, 'Refraction Roughness': 0.3, 'Share Glossy Inputs': False}),
+    ('X6 aniso', {'Glossy Anisotropy': 0.6, 'Glossy Anisotropy Rotations': 0.25}),
+    ('X7 volume', {'Thin Walled': False, 'Refraction Weight': 1.0, 'Transmitted Color': [0.5, 0.7, 0.9], 'Transmitted Measurement Distance': 2.0, 'SSS Amount': 0.3, 'Scattering Measurement Distance': 0.5, 'SSS Direction': 0.4}),
+    ('X8 flakes', {'Metallic Flakes Weight': 0.5, 'Metallic Flakes Color': [0.9, 0.8, 0.3], 'Metallic Flakes Size': 0.01, 'Metallic Flakes Roughness': 0.2}),
+])
+
 # --- Displacement (#24): uniform maps (synthetic, ours) push the whole
 # sphere along its normals, so the silhouette measures the amount: Strength
 # × the map's value between Minimum and Maximum Displacement (cm), and

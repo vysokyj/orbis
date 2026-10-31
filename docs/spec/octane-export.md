@@ -594,7 +594,10 @@ Every material input (20007) is filled — Octane doesn't convert
   2 show no coat at all and a base half as bright, both Custom Curves
   about Reflectivity's; Octane 2.1 – 2.5). Unchecked on a real material
   yet, and 5561 materials in the installed library use Fresnel, 196 Custom
-  Curve, so they're left as they are.
+  Curve, so they're left as they are. Why Iray ignores them: DAZ Studio
+  doesn't pass Top Coat IOR nor the Curve Normal / Grazing / Exponent to
+  the MDL at all (the .mi export, `docs/daz/iray-uber-mdl.md`) — Fresnel
+  is always IOR 1.5, Custom Curve head-on 0, grazing 1, exponent 5.
 - **Weighted top coat** (Top Coat Layering Mode 1; 2176 materials): DAZ's
   MDL lays the coat's glossy reflection over the rest by `weighted_layer`
   — the weight, no Fresnel. → a Mix material (19): `amount` = Top Coat

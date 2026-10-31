@@ -17,21 +17,39 @@ versions, search by name.
 The MDL entry point (`iray_uber`, wrapped by `iray_uber_unified`) takes
 parameters such as `glossy_reflectivity` or `top_coat_curve_strength`,
 not DAZ channels. DAZ Studio fills them in compiled code
-(`PlugIns/libdsp_dzirayrenderer.dylib` holds the parameter names, no
-formulas). So these stay empirical:
+(`PlugIns/libdsp_dzirayrenderer.dylib`). Its result can be read without
+touching that code: DAZ's **.mi exporter** (`DzMIExporter`, Iray's scene
+format) writes every material as its MDL call with the arguments that
+differ from the defaults. `scripts/dev/daz-export-mi.dsa` exports scenes
+headless, `scripts/dev/mi-args.py` tabulates the arguments; the
+`Calib-Map-*` scenes (`make-calib-scenes.py`) sweep the channels for it.
+The .mi also carries Iray's render options (environment, tone mapping,
+path lengths).
 
-- scales: Glossy / Top Coat Reflectivity → the curve's head-on value
-  (calibrated: 0.5 → 0.04, i.e. × 0.08; spec "Top Coat");
-- `Roughness Squared` / `Glossiness Squared`: the file has a
-  `conditional_square_roughness` helper, so DAZ squares the slider before
-  it reaches the BSDF;
-- which colour feeds a parameter that has no channel of its own — the
-  metal's colour reaches `metallic_directional_normal_color` (the metal
-  lobe itself is white);
-- the `*_enable` flags (a film is on when its thickness > 0, a coat when
-  its weight > 0, …), and `Base Mixing` 1 (specular / glossiness), which
-  the MDL doesn't have: its enum knows only layered (0) and normalized
-  (DAZ's Weighted, 2). Mode 1 is converted to layered parameters in DAZ.
+Observed (DAZ Studio 6, 2026-10-31):
+
+| channel(s) | MDL argument |
+|---|---|
+| any colour (Base, Glossy, Top Coat, Translucency, Transmitted, Overlay, Flakes) | the value to the power 2.2 (linear) |
+| Diffuse Strength | multiplies the linear `diffuse_color` |
+| Glossy / Top Coat / Dual Lobe Reflectivity r | `glossy_reflectivity` / `top_coat_curve_strength` / `dual_lobe_specular_reflectivity` = 0.08 r |
+| every roughness (Glossy, Top Coat, Lobe 1 / 2, Backscattering, Refraction, Flakes) | squared (with Roughness Squared on, the default) |
+| Metallic Weight w, base colour c | `metallic_weight` = w; `metallic_custom_curve_normal` = max(c); `metallic_directional_normal_color` = c / max(c) (enabled); `diffuse_enable` off at w = 1. Glossy colour and reflectivity don't reach the metal |
+| Base Mixing 1, Glossy Specular s | `blm_layered` with `glossy_reflectivity` = max(s^2.2), its hue as `glossy_directional_normal_color`; Glossiness → roughness; Metallic Weight dropped |
+| Base Mixing 2 | `blm_normalized`, `diffuse_weight` / `glossy_weight` as set |
+| Top Coat Layering Mode 0 / 1 / 2 / 3 | `tcw_principled_specular` / `tcw_weighted` / `tcw_fresnel` / `tcw_custom_curve` |
+| **Top Coat IOR, Top Coat Curve Normal / Grazing / Exponent, Top Coat Specular** | **not passed**: Fresnel mode always reflects at IOR 1.5, Custom Curve at the MDL defaults (head-on 0, grazing 1, exponent 5). Calib-TopCoat's Iray spheres at IOR 1.5 and 2 render alike |
+| Color Effect (Base, Glossy, Top Coat, Overlay) | `*_color_transmit_enable` = the mode (0 / 1 / 2); the colour unchanged |
+| Diffuse Overlay Weight Squared | `diffuse_overlay_weight` squared |
+| Translucency on | `translucency_enable`, and `invert_transmission_normal` always on |
+| Backscattering with Share Glossy Inputs on (default) | Backscattering Color not passed (the MDL takes Glossy Color) |
+| Share Glossy Inputs off | `refraction_glossy_unified_enable` false, `backscattering_color` / `refraction_color` passed |
+| Transmitted / Scattering Measurement Distance, Flakes Size (cm) | × 0.01 (metres) |
+| SSS Amount | as is (not linearised) |
+| Abbe a > 0 | `dispersion_enable`, `abbe_number` = a |
+
+Still empirical: anything a channel feeds through a texture (maps pass as
+texture calls, not values) and the `*_enable` flags beyond these.
 
 ## The stack, bottom to top
 
@@ -85,9 +103,10 @@ Bottom to top:
   off.
 - **Metal**: `weighted_layer` at Metallic Weight over all that. The metal
   lobe is itself a custom-curve coat over **black** at weight Metallic
-  Weight (curve head-on / grazing / exponent from the metallic
-  parameters, glossy roughness, white tint with directional colours) — so
-  its reflection scales with **Metallic Weight²**, not Metallic Weight.
+  Weight (head-on = the base colour's strongest channel, grazing 1,
+  exponent 5, its hue as the directional colour, glossy roughness) — DAZ
+  passes the same weight to both, so the reflection scales with
+  **Metallic Weight²** (#59).
 - **Refraction**: `weighted_layer` at Refraction Weight over everything:
   one glossy (or specular) BSDF in reflect + transmit mode at
   `glossy_ior` — its reflection is the BSDF's own Fresnel. It is split
