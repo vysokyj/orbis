@@ -1,0 +1,50 @@
+// ORBIS calibration: an eye close-up of another figure, built headless from
+// Calib-Eye (Genesis 8 Female, the camera on her left eye; scripts/dev/
+// daz-script.sh with DONE_FILE=<out>.done). Arguments: Calib-Eye .duf, the
+// figure's .duf (e.g. People/Genesis 9/Genesis 9.duf), out .duf, "--",
+// then the content directories. Genesis 8 and what follows her go; the
+// figure comes in at her place, its eyes where hers were, and the camera
+// stays as it is. ECMAScript 3, ASCII only.
+(function () {
+    var a = App.scriptArgs;
+    var sBase = a[0], sFigure = a[1], sOut = a[2];
+    var oContent = App.getContentMgr();
+    for (var i = 4; i < a.length; i++) oContent.addContentDirectory(a[i], false);
+    var sLog = "";
+    function done(s) {
+        var f = new DzFile(sOut + ".done");
+        f.open(DzFile.WriteOnly | DzFile.Truncate);
+        f.write(s + "\n" + sLog);
+        f.close();
+        App.delayedExit();
+    }
+    function figureWith(sLabelStart) {
+        for (var n = 0; n < Scene.getNumNodes(); n++) {
+            var o = Scene.getNode(n);
+            if (o.inherits("DzFigure") && o.getLabel().indexOf(sLabelStart) == 0 && !o.getFollowTarget()) return o;
+        }
+        return null;
+    }
+    if (!oContent.openFile(sBase, false)) { done("base not opened"); return; }
+    var oOld = figureWith("Genesis 8");
+    if (!oOld) { done("no Genesis 8 figure"); return; }
+    var vPlace = oOld.getWSPos();
+    // The old figure and everything fitted to it.
+    var aGone = [];
+    for (var k = 0; k < Scene.getNumNodes(); k++) {
+        var o = Scene.getNode(k);
+        if (o == oOld || (o.inherits("DzFigure") && o.getFollowTarget() == oOld)) aGone.push(o);
+    }
+    for (var g = 0; g < aGone.length; g++) Scene.removeNode(aGone[g]);
+    sLog += "removed " + aGone.length + "\n";
+    Scene.selectAllNodes(false);
+    sLog += "figure " + oContent.openFile(sFigure, true) + "\n";
+    var oNew = null;
+    for (var m = 0; m < Scene.getNumNodes(); m++) {
+        var p = Scene.getNode(m);
+        if (p.inherits("DzFigure") && !p.getFollowTarget() && p != oOld) oNew = p;
+    }
+    if (!oNew) { done("figure not loaded"); return; }
+    oNew.setWSPos(vPlace);
+    done("saved " + Scene.saveScene(sOut));
+})();

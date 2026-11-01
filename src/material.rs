@@ -176,6 +176,31 @@ impl Textures {
 }
 
 impl Textures {
+    /// Two colour maps mixed per pixel, `wa` · a + `wb` · b in linear light,
+    /// written sRGB-encoded (gamma 2.2) at `a`'s size.
+    fn blend(&mut self, dirs: &[PathBuf], a: &str, b: &str, wa: f32, wb: f32) -> Option<String> {
+        let key = format!("blend|{a}|{b}|{wa}|{wb}");
+        if let Some(asset) = self.by_source.get(&key) {
+            return Some(asset.clone());
+        }
+        let open = |src: &str| dirs.iter().map(|d| d.join(src.trim_start_matches('/'))).find(|p| p.is_file()).and_then(|f| image::open(f).ok()).map(|i| i.to_rgb8());
+        let (ia, ib) = (open(a)?, open(b)?);
+        let ib = if ib.dimensions() == ia.dimensions() { ib } else { image::imageops::resize(&ib, ia.width(), ia.height(), image::imageops::FilterType::Triangle) };
+        let lin = |c: u8| crate::daz_material::colour_to_linear(f32::from(c) / 255.0);
+        let out = image::RgbImage::from_fn(ia.width(), ia.height(), |x, y| {
+            let (pa, pb) = (ia.get_pixel(x, y).0, ib.get_pixel(x, y).0);
+            image::Rgb([0, 1, 2].map(|k| ((wa * lin(pa[k]) + wb * lin(pb[k])).clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0 + 0.5) as u8))
+        });
+        let mut png = Vec::new();
+        out.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+        let base = Path::new(a.trim_start_matches('/')).file_stem().and_then(|n| n.to_str()).unwrap_or("map");
+        let safe: String = base.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect();
+        let asset = format!("assets/tex/{:04}_{safe}_blend.png", self.files.len() + self.generated.len());
+        self.generated.push((asset.clone(), png));
+        self.by_source.insert(key, asset.clone());
+        Some(asset)
+    }
+
     /// An image derived from a map's luminance: each texel's luminance `l`
     /// (decoded at gamma 2.2) → `f(l)` (linear RGB), written as a PNG
     /// encoded at `gamma` — MDL's `file_texture` offsets and scales baked in.
@@ -1605,7 +1630,12 @@ impl Ocs<'_> {
         // 0.91 – 0.96 and 1.23 (like its neighbours). Not on metal (the
         // transmission swallowed P8's metallic 0.75: 0.23) nor in weighted
         // mixing, whose weights `weighted_mix` already shares out.
-        let transmit = if metal || refractive || mat.float("Base Mixing").unwrap_or(0.0) as i32 == 2 { 0.0 } else { translucency.min(self.max_transmission) };
+        // Genesis 9's eye (PBRSkin, a closed ball): Iray scatters its
+        // translucency — the iris — just under the surface (scattering
+        // distance 0.15 mm), so it shows as colour, not light through the
+        // ball; as Universal's transmission the whole eye glowed milky.
+        let eye_volume = is_eye(name) && crate::iray::is_pbrskin(mat) && translucency > 0.0 && !thin;
+        let transmit = if metal || refractive || eye_volume || mat.float("Base Mixing").unwrap_or(0.0) as i32 == 2 { 0.0 } else { translucency.min(self.max_transmission) };
         // Base Color Effect 1 (Scatter & Transmit): Iray reflects 0.4 of
         // that diffuse and passes twice the translucency — Calib-Thin's
         // cards (thin-walled, w 0.3 – 0.65, Translucency Color white /
@@ -1676,8 +1706,20 @@ impl Ocs<'_> {
         let tint = [0, 1, 2].map(|k| tint[k] * share[k]);
         // The weighted blend scales the diffuse map (not a translucency
         // map standing in for a missing one — the HS CB cap went grey).
+        let eye_albedo = if eye_volume {
+            match (mat.image("diffuse"), mat.image("Translucency Color")) {
+                (Some(d), Some(t)) => self.textures.blend(self.dirs, d, t, 1.0 - translucency, translucency),
+                _ => None,
+            }
+        } else {
+            None
+        };
         if mirror {
             self.rgb_pin(i, "albedo", gloss_color);
+        } else if let Some(asset) = eye_albedo {
+            // The diffuse's share of the colour map and the translucency's of
+            // its map, mixed per pixel (sRGB-encoded, as the maps are).
+            self.image_pin(i, "albedo", &asset, false, 2.2, 1.0);
         } else {
             match diffuse.and_then(|t| self.textures.asset(self.dirs, &t)) {
                 Some(asset) if self.has_damp_or_ao(mat) => self.damp_ao_albedo(i, mat, &asset, diffuse_weight * mix, tint),

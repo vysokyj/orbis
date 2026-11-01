@@ -100,16 +100,19 @@ pub fn composite(img: &LayeredImage, dirs: &[PathBuf]) -> Result<(RgbaImage, Vec
             _ => None,
         });
     }
-    let [w, h] = img
+    let [nominal_w, _] = img
         .size
         .filter(|[w, h]| *w > 0 && *h > 0)
         .or_else(|| loaded.iter().flatten().next().map(|i| [i.width(), i.height()]))
         .ok_or_else(|| anyhow!("layered image without a size or an image layer"))?;
-    // Prefer the base image's resolution over a small nominal map_size.
+    let [w, h] = img.size.filter(|[w, h]| *w > 0 && *h > 0).unwrap_or_else(|| loaded.iter().flatten().next().map_or([nominal_w, nominal_w], |i| [i.width(), i.height()]));
+    // Prefer the base image's resolution over a small nominal map_size; the
+    // layers' pixels scale with it.
     let [w, h] = match loaded.iter().flatten().next() {
         Some(first) if first.width() > w => [first.width(), first.height()],
         _ => [w, h],
     };
+    let ratio = w as f32 / nominal_w.max(1) as f32;
 
     let mut out = RgbaImage::from_pixel(w, h, Rgba([0, 0, 0, 0]));
     for (l, layer_img) in img.layers.iter().zip(loaded) {
@@ -118,23 +121,23 @@ pub fn composite(img: &LayeredImage, dirs: &[PathBuf]) -> Result<(RgbaImage, Vec
         }
         let layer = match (layer_img, l.color) {
             (Some(mut li), _) => {
-                // Layer pixels sit at `offset`, scaled; a layer of another
-                // resolution is fitted to the result first.
-                if li.width() != w || li.height() != h {
-                    li = imageops::resize(&li, w, h, imageops::FilterType::Triangle);
-                }
+                // Layer pixels sit at `offset` at their own size, scaled, as
+                // DAZ composes them: Julius 9's 4096 × 2048 iris layer fills
+                // the top half of his 4096 × 4096 eye map (DAZ's temp image
+                // for Iray) — stretched over all of it, the irises missed
+                // the eyes' UVs.
                 if l.mirror[0] {
                     imageops::flip_horizontal_in_place(&mut li);
                 }
                 if l.mirror[1] {
                     imageops::flip_vertical_in_place(&mut li);
                 }
-                if l.scale != [1.0, 1.0] || l.offset != [0.0, 0.0] {
-                    let sw = ((w as f32) * l.scale[0]).round().max(1.0) as u32;
-                    let sh = ((h as f32) * l.scale[1]).round().max(1.0) as u32;
-                    let scaled = imageops::resize(&li, sw, sh, imageops::FilterType::Triangle);
+                let sw = (li.width() as f32 * ratio * l.scale[0]).round().max(1.0) as u32;
+                let sh = (li.height() as f32 * ratio * l.scale[1]).round().max(1.0) as u32;
+                if [sw, sh, li.width(), li.height()] != [w, h, w, h] || l.offset != [0.0, 0.0] {
+                    let scaled = if [sw, sh] == [li.width(), li.height()] { li } else { imageops::resize(&li, sw, sh, imageops::FilterType::Triangle) };
                     let mut placed = RgbaImage::from_pixel(w, h, Rgba([0, 0, 0, 0]));
-                    imageops::overlay(&mut placed, &scaled, l.offset[0] as i64, l.offset[1] as i64);
+                    imageops::overlay(&mut placed, &scaled, (l.offset[0] * ratio) as i64, (l.offset[1] * ratio) as i64);
                     li = placed;
                 }
                 li
@@ -219,5 +222,32 @@ mod tests {
         ]});
         let (out, _) = composite(&LayeredImage::from_dson(&entry), &[]).unwrap();
         assert_eq!(out.get_pixel(0, 0), &Rgba([128, 0, 128, 255]));
+    }
+
+    /// Julius 9's eye map against the image DAZ composed of it for Iray
+    /// (its temp folder): only where both are on this machine.
+    #[test]
+    fn layers_of_another_size_sit_at_their_own_size() {
+        let lib = std::path::PathBuf::from("/Volumes/Data/DAZ 3D/Studio/My DAZ 3D Library");
+        let daz = std::path::Path::new(&std::env::var("HOME").unwrap_or_default())
+            .join("Library/Application Support/DAZ 3D/Studio6 [orbisrender]/temp/d3_Eye Color-1_c70935dd-b561-d7d9-38d8-a0bded824185 2.png");
+        if !lib.is_dir() || !daz.is_file() {
+            eprintln!("skipped: no DAZ content / temp image");
+            return;
+        }
+        let entry = serde_json::json!({"id": "eye", "map_size": [4096, 4096], "map": [
+            {"label": "Base", "active": true, "color": [1, 1, 1], "transparency": 1, "operation": "blend_source_over"},
+            {"url": "/Runtime/Textures/DAZ/Characters/Genesis9/Base/Eyes/Split/Genesis9_Eyes_Sclera_04.jpg", "active": true, "transparency": 1, "operation": "blend_source_over"},
+            {"url": "/Runtime/Textures/Daz/Characters/Genesis9/Julius9/Julius9_Eyes_Iris_D_1001.png", "active": true, "transparency": 1, "operation": "blend_source_over"},
+        ]});
+        let (ours, missing) = composite(&LayeredImage::from_dson(&entry), &[lib]).unwrap();
+        assert!(missing.is_empty(), "{missing:?}");
+        let theirs = image::open(&daz).unwrap().to_rgba8();
+        let mut diff = 0u64;
+        for (a, b) in ours.pixels().step_by(997).zip(theirs.pixels().step_by(997)) {
+            diff += (0..3).map(|k| (i32::from(a.0[k]) - i32::from(b.0[k])).unsigned_abs() as u64).sum::<u64>();
+        }
+        let n = (ours.width() * ours.height() / 997) as u64 * 3;
+        assert!(diff / n < 4, "mean channel difference {}", diff / n);
     }
 }
