@@ -1724,6 +1724,12 @@ impl Ocs<'_> {
             self.rgb_pin(i, "specular", [0.0; 3]);
         } else if !mirror && refraction == 0.0 && glossy <= 0.0 && dual_lobe.is_none() && mat.image("Glossy Layered Weight").is_none() {
             self.rgb_pin(i, "specular", [0.0; 3]);
+        } else if iray(mat).and_then(|u| u.bool("refraction_reflection_enable")) == Some(false) {
+            // Iray's refraction reflects through the glossy layer only: without
+            // one DAZ switches its reflection off (`refraction_reflection_enable`,
+            // the .mi export) — Calib-Dispersion's glass spheres show no sky
+            // nor sun on their surface in Iray.
+            self.rgb_pin(i, "specular", [0.0; 3]);
         } else if !mirror && glossy > 0.0 {
             // Iray's Glossy Reflectivity r scales the reflection (r 0.5 is
             // the default, Universal's full specular); Octane matched it at
