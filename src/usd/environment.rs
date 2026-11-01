@@ -11,6 +11,8 @@ pub struct SceneEnvironment {
     pub intensity: f64,
     /// Dome rotation about the vertical axis, degrees.
     pub rotation_deg: f64,
+    /// Environment Tint, linear (`crate::iray::dome_setup`).
+    pub tint: [f64; 3],
     /// Dome orientation (tilt) about X / Y / Z, degrees.
     pub orientation_deg: [f64; 3],
     /// Iray "Scene Only": no dome light at all.
@@ -164,6 +166,7 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
             // Intensity × the map channel's own value.
             intensity: dome,
             rotation_deg: setup.rotation_turns * 360.0,
+            tint: setup.tint,
             orientation_deg: ["X", "Y", "Z"].map(|a| num(&format!("Dome Orientation {a}")).unwrap_or(0.0)),
             scene_only: num("Environment Mode") == Some(3.0),
             ground_shadow: (setup.ground && num("Environment Mode") != Some(3.0)).then_some(setup.ground_shadow),

@@ -428,7 +428,7 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     // just under y = 0 so a room's floor hides it.
     // Auto: the scene's lowest point; Manual: Ground Origin Y (cm).
     let low = Mesh { points: vec![[0.0, 0.25, 0.0], [1.0, -0.03, 0.0]], ..Default::default() };
-    let mut e = SceneEnvironment { map: None, intensity: 1.0, rotation_deg: 0.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None };
+    let mut e = SceneEnvironment { map: None, intensity: 1.0, tint: [1.0; 3], rotation_deg: 0.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None };
     assert!((ground_height(&e, &[low]) + 0.03).abs() < 1e-6);
     assert_eq!(ground_height(&e, &[]), 0.0);
     e.ground_origin_y = Some(12.0);
@@ -542,7 +542,7 @@ fn iray_tone_mapping_drives_the_imager() {
 
 #[test]
 fn dome_rotation_is_a_u_shift() {
-    let env = |rot: f64, oy: f64| SceneEnvironment { map: None, intensity: 1.0, rotation_deg: rot, orientation_deg: [0.0, oy, 0.0], scene_only: false, ground_shadow: None, ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None };
+    let env = |rot: f64, oy: f64| SceneEnvironment { map: None, intensity: 1.0, tint: [1.0; 3], rotation_deg: rot, orientation_deg: [0.0, oy, 0.0], scene_only: false, ground_shadow: None, ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None };
     assert_eq!(env(0.0, 0.0).dome_u_shift(), 0.25);
     assert!((env(110.0, 0.0).dome_u_shift() - (0.25 + 110.0 / 360.0)).abs() < 1e-12);
     assert_eq!(env(270.0, 0.0).dome_u_shift(), 0.0);
@@ -562,7 +562,7 @@ fn iray_environment_becomes_an_hdri_texture_environment() {
     });
     let mut lib = Library::new(vec![], duf);
     let env = scene_environment(&mut lib).unwrap();
-    assert_eq!(env, SceneEnvironment { map: Some("/Environments/HDRI/sky 1.hdr".into()), intensity: 4.0, rotation_deg: 90.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None });
+    assert_eq!(env, SceneEnvironment { map: Some("/Environments/HDRI/sky 1.hdr".into()), intensity: 4.0, tint: [1.0; 3], rotation_deg: 90.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None });
 
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("Environments/HDRI")).unwrap();

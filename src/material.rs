@@ -3136,6 +3136,16 @@ pub fn environment_texture(
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
+            // Environment Tint multiplies the map (Iray's
+            // `environment_function_tint`, the .mi export).
+            let tint = env.map_or([1.0; 3], |e| e.tint).map(|c| c as f32);
+            if tint != [1.0; 3] {
+                let mid = w.id();
+                let _ = writeln!(w.out, "        <node id='{mid}' type='39'>\n         <pin name='texture2'>");
+                let cid = w.id();
+                let _ = writeln!(w.out, "          <node id='{cid}' type='33'>\n           <attr name='value' type='8'>{} {} {}</attr>\n          </node>", num(tint[0]), num(tint[1]), num(tint[2]));
+                w.out.push_str("         </pin>\n         <pin name='texture1'>\n");
+            }
             let id = w.id();
             let _ = writeln!(w.out, "        <node id='{id}' type='34'>");
             let _ = writeln!(w.out, "         <attr name='filename' type='11'>{}</attr>", esc(&asset));
@@ -3153,6 +3163,9 @@ pub fn environment_texture(
             w.out.push_str("          </node>\n");
             w.pin_close(9);
             w.out.push_str("        </node>\n");
+            if tint != [1.0; 3] {
+                w.out.push_str("         </pin>\n        </node>\n");
+            }
         }
         None => {
             let id = w.id();
