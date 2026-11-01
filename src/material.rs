@@ -1624,7 +1624,14 @@ impl Ocs<'_> {
         } else {
             (1.0, 1.0)
         };
-        let diffuse_weight = (1.0 - refraction) * (1.0 - transmit) * diffuse_share;
+        // On metal the translucency isn't transmitted (above), yet Iray dims
+        // the surface's non-metal part by it: light goes into the volume and
+        // only partly comes back. Calib-PBRSkin-MetalTL (PBRSkin metal × its
+        // translucency): without it metal 0.3 / a grey metallic map at
+        // translucency 0.85 rendered 1.32 / 1.38 × Iray, with all of the
+        // translucency's share taken 0.71 / 0.66, metal 0.75 0.53.
+        let dimmed = if metal && !refractive { METAL_TRANSLUCENCY_LOSS * translucency } else { 0.0 };
+        let diffuse_weight = (1.0 - refraction) * (1.0 - transmit) * (1.0 - dimmed) * diffuse_share;
 
         // Iray "Base Mixing" 1 (specular/glossiness) ignores Metallic Weight;
         // a black base under a strong white gloss there is a mirror —
@@ -2767,6 +2774,10 @@ fn metal_shares(w: f32) -> (f32, f32) {
     let k = 1.0 - w + w * w;
     (w * w / k, k)
 }
+
+/// The share of a translucent metal's non-metal diffuse its translucency
+/// takes, per unit of Translucency Weight: see `universal`.
+const METAL_TRANSLUCENCY_LOSS: f32 = 0.35;
 
 /// Metallic Weight below this (without a map) is left out: see `universal`.
 const NEGLIGIBLE_METALLIC: f32 = 0.05;
