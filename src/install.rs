@@ -15,6 +15,10 @@ const SCRIPT: &str = include_str!("../daz/Scripts/ORBIS/Export to Octane.dsa");
 const SCRIPT_ICON: &[u8] = include_bytes!("../daz/Scripts/ORBIS/Export to Octane.png");
 /// The folder's thumbnail: `Scripts/ORBIS.png`.
 const FOLDER_ICON: &[u8] = include_bytes!("../daz/Scripts/ORBIS.png");
+/// The options dialog's header (1x, 2x), beside `bin/`: out of the
+/// Content Library's sight. The script finds it from the binary's path.
+const BANNER: &[u8] = include_bytes!("../daz/banner.png");
+const BANNER_2X: &[u8] = include_bytes!("../daz/banner@2x.png");
 
 /// Where an install puts things.
 #[derive(Debug, Clone)]
@@ -56,6 +60,9 @@ pub fn install(paths: &InstallPaths, binary: &Path) -> Result<PathBuf> {
         let data = std::fs::read(binary).with_context(|| format!("reading {}", binary.display()))?;
         write_via_tmp(&paths.binary, &data)?;
     }
+    let support = paths.binary.parent().and_then(Path::parent).ok_or_else(|| anyhow!("no folder above {}", paths.binary.display()))?;
+    write_via_tmp(&support.join("banner.png"), BANNER)?;
+    write_via_tmp(&support.join("banner@2x.png"), BANNER_2X)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -138,6 +145,7 @@ mod tests {
         assert!(script.contains(r#"var sDefaultOutputDir = "/Users/Ji\u0159\u00ed \"J\"/Documents/ORBIS";"#));
         assert!(plugin.join("Export to Octane.png").is_file());
         assert!(paths.library.join("Scripts/ORBIS.png").is_file());
+        assert!(root.path().join("Support/ORBIS/banner@2x.png").is_file());
         assert!(!plugin.join("bin").exists());
         assert_eq!(std::fs::read(&paths.binary).unwrap(), b"#!/bin/sh\n");
         #[cfg(unix)]

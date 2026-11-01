@@ -236,37 +236,46 @@
         wDlg.exec();
     }
 
-    // The options dialog; fills oOpt and returns true on Export. Plain
-    // widgets with label headings: group boxes in DAZ Studio 6 squeeze
-    // their contents into scroll areas.
+    // The options dialog; fills oOpt and returns true on Export. One page
+    // widget with its own margins and spacing (DzBasicDialog's own layout
+    // has neither to speak of): the banner, then sections -- a bold heading
+    // over indented options. Plain widgets: group boxes in DAZ Studio 6
+    // squeeze their contents into scroll areas.
     function optionsDialog(oOpt) {
         var wDlg = new DzBasicDialog();
         wDlg.caption = sTitle + " - Export to Octane";
         wDlg.setAcceptButtonText("Export");
 
-        wDlg.addWidget(heading(wDlg, "Save the .orbx"));
+        var wPage = new DzWidget(wDlg);
+        var lPage = new DzVBoxLayout(wPage);
+        lPage.margin = 16;
+        lPage.spacing = 4;
+        var sBanner = new DzFileInfo(new DzFileInfo(sBin).path()).path() + "/banner.png";
+        if (new DzFileInfo(sBanner).exists()) {
+            var wBanner = new DzLabel(wPage);
+            // Rich text finds banner@2x.png on a Retina screen.
+            wBanner.text = "<img src=\"" + sBanner + "\">";
+            lPage.addWidget(wBanner);
+            lPage.addSpacing(10);
+        }
+
         // Radio buttons sharing a parent are exclusive.
-        var wOutput = new DzWidget(wDlg);
-        var lOutput = new DzVBoxLayout(wOutput);
-        lOutput.margin = 0;
-        var wBeside = new DzRadioButton(wOutput);
-        wBeside.text = "Beside the scene";
-        lOutput.addWidget(wBeside);
-        var wInFolder = new DzRadioButton(wOutput);
-        wInFolder.text = "In this folder:";
-        lOutput.addWidget(wInFolder);
-        var wRow = new DzWidget(wOutput);
+        var oOutput = section(wPage, lPage, "Save the .orbx");
+        var wBeside = radio(oOutput, "Beside the scene");
+        var wInFolder = radio(oOutput, "In this folder:");
+        var wRow = new DzWidget(oOutput.widget);
         var lRow = new DzHBoxLayout(wRow);
         lRow.margin = 0;
+        lRow.spacing = 6;
+        lRow.addSpacing(22);
         var wPath = new DzLineEdit(wRow);
         wPath.text = oOpt.outputDir;
-        wPath.minWidth = 360;
+        wPath.minWidth = 340;
         lRow.addWidget(wPath, 1);
         var wChoose = new DzPushButton(wRow);
         wChoose.text = "Choose...";
         lRow.addWidget(wChoose);
-        lOutput.addWidget(wRow);
-        wDlg.addWidget(wOutput);
+        oOutput.layout.addWidget(wRow);
         wBeside.checked = oOpt.besideScene;
         wInFolder.checked = !oOpt.besideScene;
         var syncRow = function () {
@@ -279,37 +288,25 @@
             if (sDir) wPath.text = sDir;
         });
 
-        wDlg.addSpacing(8);
-        wDlg.addWidget(heading(wDlg, "Octane"));
-        var wPreview = new DzCheckBox(wDlg);
-        wPreview.text = "Fast preview (direct lighting, no subsurface)";
-        wPreview.checked = oOpt.preview;
-        wDlg.addWidget(wPreview);
-        var wGround = new DzCheckBox(wDlg);
-        wGround.text = "Shadow-catching ground (when Iray draws one)";
-        wGround.checked = oOpt.ground;
-        wDlg.addWidget(wGround);
-        var wDenoise = new DzCheckBox(wDlg);
-        wDenoise.text = "Denoise (Octane's AI denoiser)";
-        wDenoise.checked = oOpt.denoise;
-        wDlg.addWidget(wDenoise);
+        lPage.addSpacing(12);
+        var oOctane = section(wPage, lPage, "Octane");
+        var wPreview = check(oOctane, "Fast preview (direct lighting, no subsurface)", oOpt.preview);
+        var wGround = check(oOctane, "Shadow-catching ground (when Iray draws one)", oOpt.ground);
+        var wDenoise = check(oOctane, "Denoise (Octane's AI denoiser)", oOpt.denoise);
 
-        wDlg.addSpacing(8);
-        wDlg.addWidget(heading(wDlg, "Look"));
-        // Radio buttons sharing a parent are exclusive.
-        var wLook = new DzWidget(wDlg);
-        var lLook = new DzVBoxLayout(wLook);
-        lLook.margin = 0;
-        var wEnhanced = new DzRadioButton(wLook);
-        wEnhanced.text = "Enhanced: Octane's take where it is more natural (OpenPBR skin, warm low sun)";
-        lLook.addWidget(wEnhanced);
-        var wFaithful = new DzRadioButton(wLook);
-        wFaithful.text = "Faithful: as close to Iray as possible";
-        lLook.addWidget(wFaithful);
-        wDlg.addWidget(wLook);
+        lPage.addSpacing(12);
+        var oLook = section(wPage, lPage, "Look");
+        var wEnhanced = radio(oLook, "Enhanced");
+        hint(oLook, "Octane's take where it is more natural: OpenPBR skin, warm low sun");
+        var wFaithful = radio(oLook, "Faithful");
+        hint(oLook, "As close to Iray as possible");
         wEnhanced.checked = !oOpt.faithful;
         wFaithful.checked = oOpt.faithful;
 
+        wDlg.addWidget(wPage);
+        // Exactly its contents' size: no spare room, no stretching.
+        var oHint = wDlg.getWidget().minimumSizeHint;
+        wDlg.setFixedSize(oHint.width, oHint.height);
         centerOnMainWindow(wDlg);
         if (!wDlg.exec()) {
             return false;
@@ -321,6 +318,48 @@
         oOpt.faithful = wFaithful.checked;
         oOpt.denoise = wDenoise.checked;
         return true;
+    }
+
+    // A section of the options page: a heading, then a widget for its
+    // options, indented under it: {widget, layout} (add them with
+    // radio/check/hint).
+    function section(wPage, lPage, sTitle) {
+        lPage.addWidget(heading(wPage, sTitle));
+        var wIndent = new DzWidget(wPage);
+        var lIndent = new DzHBoxLayout(wIndent);
+        lIndent.margin = 0;
+        lIndent.spacing = 0;
+        lIndent.addSpacing(14);
+        var wBody = new DzWidget(wIndent);
+        var lBody = new DzVBoxLayout(wBody);
+        lBody.margin = 0;
+        lBody.spacing = 2;
+        lIndent.addWidget(wBody, 1);
+        lPage.addWidget(wIndent);
+        return { widget: wBody, layout: lBody };
+    }
+
+    function radio(oSec, sText) {
+        var wRadio = new DzRadioButton(oSec.widget);
+        wRadio.text = sText;
+        oSec.layout.addWidget(wRadio);
+        return wRadio;
+    }
+
+    function check(oSec, sText, bChecked) {
+        var wCheck = new DzCheckBox(oSec.widget);
+        wCheck.text = sText;
+        wCheck.checked = bChecked;
+        oSec.layout.addWidget(wCheck);
+        return wCheck;
+    }
+
+    // A line explaining the option above it, dimmed and lined up with its text.
+    function hint(oSec, sText) {
+        var wHint = new DzLabel(oSec.widget);
+        wHint.text = "<div style=\"margin-left:22px; color:#9a9a9a\">" + sText + "</div>";
+        oSec.layout.addWidget(wHint);
+        return wHint;
     }
 
     // Put a dialog in the middle of DAZ Studio's window (a DzBasicDialog
