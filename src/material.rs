@@ -1664,7 +1664,7 @@ impl Ocs<'_> {
         } else {
             metallic(mat)
         };
-        let base_keep = metal_shares(metal_w).1;
+        let base_keep = metal_mix(mat, metal_w).1;
         let share = share.map(|s| s * base_keep);
         let tint = [0, 1, 2].map(|k| tint[k] * share[k]);
         // The weighted blend scales the diffuse map (not a translucency
@@ -1779,9 +1779,12 @@ impl Ocs<'_> {
         } else if mirror || (!specular_mode && (metallic >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some())) {
             // Iray's metal reflects at w² (`metal_shares`); a map squared
             // too, by twice its gamma (its 1 / k at the channel's value).
-            let m = metal_shares(metallic).0;
+            let m = metal_mix(mat, metallic).0;
+            // Iray Uber's map is squared with its weight (twice its gamma);
+            // PBRSkin's is read as is.
+            let squared = !crate::iray::is_pbrskin(mat);
             match (mirror, mat.image("Metallic Weight").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t))) {
-                (false, Some(asset)) => self.image_pin(i, "metallic", &asset, true, 2.0 * data_gamma(mat, "Metallic Weight"), m),
+                (false, Some(asset)) => self.image_pin(i, "metallic", &asset, true, if squared { 2.0 } else { 1.0 } * data_gamma(mat, "Metallic Weight"), m),
                 (false, None) => self.float_pin(i, "metallic", m),
                 (true, _) => self.float_pin(i, "metallic", metallic.max(0.0)),
             }
@@ -2746,6 +2749,14 @@ const GGX_ROUGHNESS_CURVE: f32 = 1.85;
 /// metals 0.9 / 0.75 went from 1.01 / 1.24 to 0.55 / 0.74 × Iray. At m = w
 /// Calib-Map-Metal's red spheres at 0.25 / 0.5 / 0.75 rendered 1.23 / 1.38
 /// / 1.39 × Iray (#59). Returns (m, k).
+/// Universal's (metallic, base scale) for a material's metal: Iray Uber's
+/// `metal_shares`; PBRSkin's metal is one `weighted_layer` at Metallicity
+/// (`pbr_skin.mdl`: the base colour's tint over the dual lobe specular, the
+/// rest at 1 − w), so Universal's own blend at w, the base unscaled.
+fn metal_mix(mat: &Material, w: f32) -> (f32, f32) {
+    if crate::iray::is_pbrskin(mat) { (w.clamp(0.0, 1.0), 1.0) } else { metal_shares(w) }
+}
+
 fn metal_shares(w: f32) -> (f32, f32) {
     let w = w.clamp(0.0, 1.0);
     let k = 1.0 - w + w * w;
