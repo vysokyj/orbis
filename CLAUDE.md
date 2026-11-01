@@ -95,7 +95,64 @@ the loop, references in `calib/references`): `docs/calibration.md`.
 - `cargo fmt` is not enforced (the code uses long lines); match the surrounding style.
 - Plans and to-dos go into GitHub issues, not docs.
 
+## Working agreements (rules the user set for Claude)
+- **Ask before rendering.** One short question right before any Octane
+  render/probe (`octane-render.sh`, `octane-run.sh`) or headless DAZ run
+  (`daz-script.sh`, `daz-dump.sh`, `make-skin-*`): the render lock only
+  covers our scripts, not what the user starts by hand (an earlier batch
+  interrupted one). "It's free, don't ask" holds for that app for that
+  session only. Otherwise Claude may start, quit and kill Octane X / DAZ
+  Studio freely; when the user says they work in an app, hands off.
+- **No local CPU Iray** (`daz-render.sh`) without asking — it takes the whole
+  CPU; the user prefers Iray Server and starts it themselves. Octane may
+  render alongside the Iray Server queue (`iray-queue.sh`), never alongside
+  a local Iray render.
+- **The Iray Server queue (`~/Library/Caches/orbis/calib/queue`) is the
+  user's** (paid time, another session may own a batch): propose scenes and
+  an order, queue only after a yes, never reorder (no backdated mtimes).
+  Stalled queue + DAZ log "Server refused connection: session handler
+  rejected the session" = the server reset its password; tell the user, they
+  fix it and restart the queue script (it retries every 30 s).
+- **A failed Octane render/probe: leave Octane X open** so the user can read
+  its error dialog (#50). Big scenes (the teens scene, 1.2 M faces) in a
+  series of full renders froze the Mac — experiment on small Calib-* scenes
+  or half resolution.
+- **Clean up the cache**: `.orbx` exports in `~/Library/Caches/orbis` filled
+  107 GB. After each export → render → compare loop,
+  `find ~/Library/Caches/orbis -name '*.orbx' -delete`; keep Iray
+  references, dumps, PNG renders and reports (re-export from cached dumps).
+- **Reinstall after an export fix**: the DAZ script exports with
+  `~/Library/Application Support/ORBIS/bin/orbis`, not `target/release`.
+  Run `scripts/install.sh` after committing and tell the user to re-export.
+- **Octane probes** run from Octane's sandbox: `scripts/dev/octane-run.sh`
+  copies `scripts/dev/octane-probe.lua` to
+  `~/Library/Containers/com.otoy.rndrviewer/Data/Documents/ORBIS Scripts/ORBIS probe.lua`;
+  `os.getenv("HOME")` there is the container, so probe logs/PNGs land in
+  `~/Library/Containers/com.otoy.rndrviewer/Data/Documents/`.
+- **Lab notes**: every calibration session gets a dated note in `docs/notes/`
+  (all attempts incl. failed ones, ratio tables, timings, process lessons),
+  written as findings land and committed with the fix, linked from
+  `docs/notes/README.md`. The spec keeps only the winning rule.
+- **Octane over Iray**: match Iray's light amounts and what the scene means,
+  but where Octane is more plausible (warm low sun, gloss layering, soft spot
+  edges) leave it — 100 % Iray compatibility is not the goal (spec, Look).
+- **PBRSkin gets a direct OpenPBR mapping** (decided 2026-10-31, #57), not
+  the Uber-fitted skin rules (skin_albedo, volume_factor, skin_tint,
+  SKIN_HUE). After the Uber base skin (#28): read `pbr_skin.mdl`, map
+  parameters directly, no fitted constants, verify on 2–3 G9 figures (±15 %).
+  #19 (skin hue) stalled for missing knowledge — don't resume by tuning
+  constants.
+- **Language**: the user writes Czech (informal); everything in the repo is
+  English.
+
 ## Watch out for
+- **Private scenes are never in git** — neither renders nor data: the user's
+  own scenes (teens, Gladiator and copies such as Calib-Hair-Teens). Use them
+  freely for local calibration. Renders (not data) of calibration scenes
+  that wear DAZ Store figures/hair (Calib-Skin-*, Calib-Hair-*) may go in;
+  store assets and scene files with store content never. Reference renders
+  go in via `keep-refs.py`, committed as they come during a long run (not at
+  its end); `keep-refs.py` takes only scenes in `calib/scenes`.
 - **Verified DAZ → Iray conversions outrank calibration.** `src/iray.rs`
   reproduces DAZ's own `.mi` export (`calib/references/mi/*.json`, test in
   the module). Never change it to fit a render; tune the Octane side
@@ -106,9 +163,7 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   references checked (DAZ built-ins / primitives only).
 - Iray references go into git (`calib/references/iray`, with `renders.tsv`)
   as they are rendered, through `keep-refs.py` — only renders of
-  `calib/scenes`, never of the user's own scenes, the Calib-Skin-* /
-  Calib-Hair-* scenes (DAZ Store figures and hair) or anything with store
-  content.
+  `calib/scenes` (see the private-scenes rule above).
 - **Nothing third-party-copyrighted in the repo**: no OTOY manual text, no
   Octane sample files (the ORBX round-trip test reads `cornell.orbx` from the
   installed app and skips without it), no DAZ store content in fixtures —
