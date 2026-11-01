@@ -711,7 +711,7 @@ pub fn pbrskin(mat: &Material) -> BTreeMap<&'static str, Arg> {
     let on = |k: &str| ch.bool(k, false);
     let mut out = BTreeMap::new();
     out.insert("pbr_material.basecolor", ch.color_or_map("diffuse", [0.5; 3], 1.0));
-    out.insert("pbr_material.metallic", Arg::Float(ch.float("Metallic Weight", 0.0)));
+    out.insert("pbr_material.metallic", ch.float_or_map("Metallic Weight", 0.0));
     out.insert("pbr_material.diffuse_roughness", Arg::Float(ch.float("Diffuse Roughness", 0.0)));
     out.insert("pbr_material.dual_lobe_specular_weight", Arg::Float(ch.float("Dual Lobe Specular Weight", 1.0)));
     out.insert("pbr_material.specularlevel", Arg::Float(REFLECTIVITY_SCALE * ch.float("Dual Lobe Specular Reflectivity", 0.5)));
@@ -1314,6 +1314,10 @@ mod tests {
                 Some(n) if (n.contains("pbr_") || n.contains("::add_")) && !n.contains("normal") => flatten_pbr(a, out),
                 Some(n) if n.starts_with("daz_3d::basic::pass_") && !a["args"]["v"].is_object() => {
                     out.insert(format!("{func}.{k}"), a["args"]["v"].clone());
+                }
+                // A map: the whole texture call (`fixture_map` reads it).
+                Some(n) if n.starts_with("base::texture_return") => {
+                    out.insert(format!("{func}.{k}"), a.clone());
                 }
                 Some(_) => {}
                 None => {

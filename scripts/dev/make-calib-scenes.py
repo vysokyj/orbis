@@ -100,24 +100,57 @@ made = []
 
 # --- PBRSkin spheres (renamed in the copy only: the other variants keep the
 # base's labels, which the shared dump matches by)
-d = copy.deepcopy(base)
 geo_of = {n['id']: n['geometries'][0]['id'] for n in spheres}
-d_nodes = {n['id']: n for n in d['scene']['nodes']}
-pbr_labels = []
-for s0, (label, colour, over) in zip(spheres, VARIANTS):
-    n = d_nodes[s0['id']]
-    n['label'] = label
-    pbr_labels.append(label)
-    lib = next(l for l in d['node_library'] if '#' + l['id'].replace('(', '%28').replace(')', '%29') == n['url'])
-    lib['label'] = label
-    m = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[n['id']])
-    channels = []
-    for k, v in {**OFF, **over}.items():
-        set_channel(channels, k, v, TYPES[type(v)])
-    m['url'] = PBRSKIN
-    m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': colour}}
-    m['extra'] = [{'type': 'studio/material/daz_brick'}, {'type': 'studio_material_channels', 'channels': channels}]
-made.append((save(d, 'Calib-PBRSkin'), pbr_labels))
+
+
+def pbr_spheres(name, variants):
+    d = copy.deepcopy(base)
+    d_nodes = {n['id']: n for n in d['scene']['nodes']}
+    labels = []
+    for s0, (label, colour, over) in zip(spheres, variants):
+        n = d_nodes[s0['id']]
+        n['label'] = label
+        labels.append(label)
+        lib = next(l for l in d['node_library'] if '#' + l['id'].replace('(', '%28').replace(')', '%29') == n['url'])
+        lib['label'] = label
+        m = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[n['id']])
+        channels = []
+        for k, v in {**OFF, **over}.items():
+            if isinstance(k, tuple):
+                # A map on the channel (its value from `over`), listed in
+                # image_library, as DAZ saves it.
+                c = next(c['channel'] for c in channels if c['channel']['id'] == k[0])
+                c['image_file'] = v
+                images = d.setdefault('image_library', [])
+                if not any(i['id'] == v for i in images):
+                    images.append({'id': v, 'name': os.path.basename(v), 'map_gamma': 0, 'map': [{'url': v, 'label': os.path.basename(v)}]})
+            else:
+                set_channel(channels, k, v, TYPES[type(v)])
+        m['url'] = PBRSKIN
+        m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': colour}}
+        m['extra'] = [{'type': 'studio/material/daz_brick'}, {'type': 'studio_material_channels', 'channels': channels}]
+    made.append((save(d, name), labels))
+
+
+pbr_spheres('Calib-PBRSkin', VARIANTS)
+
+# PBRSkin metal under translucency (Gladiator's armour: metal 0.75 by map,
+# translucency 0.85): how much of the diffuse share the translucency takes
+# in Iray, with and without a metallic map (our own synthetic greys).
+ARM = {**DL, 'Metallicity Enable': True, 'Specular Lobe 1 Roughness': 0.4, 'Translucency Color': GREY}
+MAPS = '/Runtime/Textures/ORBIS/'
+pbr_spheres('Calib-PBRSkin-MetalTL', [
+    ('M1 metal 0.75', GREY, {**ARM, 'Metallic Weight': 0.75}),
+    ('M2 metal 0.75 tl 0.85', GREY, {**ARM, 'Metallic Weight': 0.75, 'Translucency Enable': True, 'Translucency Weight': 0.85}),
+    ('M3 metal 0.75 tl 0.5', GREY, {**ARM, 'Metallic Weight': 0.75, 'Translucency Enable': True, 'Translucency Weight': 0.5}),
+    ('M4 metal 0.3 tl 0.85', GREY, {**ARM, 'Metallic Weight': 0.3, 'Translucency Enable': True, 'Translucency Weight': 0.85}),
+    ('M5 metal 0 tl 0.85', GREY, {**ARM, 'Metallic Weight': 0.0, 'Translucency Enable': True, 'Translucency Weight': 0.85}),
+    ('M6 white map tl 0.85', GREY, {**ARM, 'Metallic Weight': 0.75, ('Metallic Weight', 'image'): MAPS + 'calib-disp-white.png',
+                                    'Translucency Enable': True, 'Translucency Weight': 0.85}),
+    ('M7 grey map tl 0.85', GREY, {**ARM, 'Metallic Weight': 0.75, ('Metallic Weight', 'image'): MAPS + 'calib-disp-grey.png',
+                                   'Translucency Enable': True, 'Translucency Weight': 0.85}),
+    ('M8 grey map', GREY, {**ARM, 'Metallic Weight': 0.75, ('Metallic Weight', 'image'): MAPS + 'calib-disp-grey.png'}),
+])
 
 # --- Iray Uber gloss (#15: Glossy Reflectivity is set in 128 scenes and not
 # read): the spheres' own Uber materials, red, PBR metallicity / roughness.
