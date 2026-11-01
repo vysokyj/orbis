@@ -2318,7 +2318,12 @@ const REFRACTIVE_SCATTERING_SCALE: f32 = 0.3;
 /// Pupils, Sclera; Cornea and EyeMoisture are refractive anyway).
 fn is_eye(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
+    // Genesis 9 keeps the whole eye (sclera, iris, pupil) in one surface per
+    // eye, `Eye_Left` / `Eye_Right`: as skin its random walk laid a milky
+    // veil over the iris (Gladiator looked blind).
     ["iris", "irises", "pupil", "sclera"].iter().any(|e| n.ends_with(e) || n.ends_with(&format!("{e}s")) || n.contains(&format!("_{e}")))
+        || n.ends_with("eye_left")
+        || n.ends_with("eye_right")
 }
 
 /// See the roughness in `universal`.
@@ -4119,5 +4124,13 @@ mod tests {
         let l = crate::daz_material::colour_to_linear(128.0 / 255.0);
         let want = ggx_roughness((1.0 - l * 0.6).powi(2));
         assert!((f32::from(px) / 255.0 - want).abs() < 1.5 / 255.0, "{px} vs {want}");
+    }
+
+    #[test]
+    fn genesis_eyes_are_not_skin() {
+        for n in ["Genesis_8_Female_Irises", "Body_Sclera", "Genesis_9_Eyes_Eye_Left", "Genesis_9_Eyes_Eye_Right"] {
+            assert!(is_eye(n), "{n}");
+        }
+        assert!(!is_eye("Genesis_9_Face") && !is_eye("Genesis_9_Eyes_EyeMoisture_Left") && !is_eye("Genesis_9_Eyelashes_Eyelashes_Upper"));
     }
 }
