@@ -25,6 +25,9 @@ from PIL import Image, ImageDraw
 
 home = os.path.expanduser('~/Library/Caches/orbis/calib')
 iray_dir = os.path.join(home, 'iray')
+if len(sys.argv) > 1 and sys.argv[1] in ('-h', '--help'):
+    print(__doc__)
+    sys.exit(0)
 oct_dir = sys.argv[1] if len(sys.argv) > 1 else os.path.join(home, 'octane')
 out_dir = os.path.join(oct_dir, 'compare')
 os.makedirs(out_dir, exist_ok=True)
