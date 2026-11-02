@@ -1,6 +1,6 @@
 ---
 name: status
-description: State of ORBIS's long-running processes - Iray Server queue (waiting/active/done/ETA, stalled server), Octane X last job, DAZ/Octane processes, render lock, git/CI, cache size. Use when the user writes "status" or "stav", asks what is running / how far the render is, or before starting any render.
+description: State of ORBIS's long-running processes - Iray Server queue (waiting/active/done/ETA, stalled server), Octane X last job, DAZ/Octane processes, render lock, git/CI, cache size. Use when the user writes "status", asks what is running / how far the render is, or before starting any render.
 ---
 
 # Status
@@ -13,4 +13,4 @@ Add one line for each `!!` warning, nothing else:
 - Tiny PNGs -> black renders.
 - Leftover `.orbx` -> `scripts/dev/clean-cache.sh`.
 
-Run it also before proposing any render (lock free? queue busy? app running?). When the user wrote "status"/"stav" during a long run, keep answering that way until they say stop.
+Run it also before proposing any render (lock free? queue busy? app running?). When the user wrote "status" during a long run, keep answering that way until they say stop.
