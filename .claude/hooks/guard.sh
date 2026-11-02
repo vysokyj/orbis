@@ -4,6 +4,27 @@
 # user's OK. Paths are matched, never hardcoded, so the repo can live anywhere.
 input=$(cat)
 tool=$(printf '%s' "$input" | jq -r '.tool_name // empty')
+session=$(printf '%s' "$input" | jq -r '.session_id // "none"')
+# Render/probe/headless-DAZ scripts ask once per session: the marker is written
+# by `guard.sh post` (PostToolUse) after the user let the first one run.
+marker="$HOME/Library/Caches/orbis/guard/$session.render"
+is_render() {
+    case $1 in
+    *octane-render.sh*|*octane-run.sh*|*daz-script.sh*|*daz-dump.sh*|*calib-variants.sh*|*calib-octane-batch.sh*|*make-skin-variants.py*|*make-skin-scenes.py*|*daz-export-batch.sh*) return 0 ;;
+    esac
+    return 1
+}
+if [ "${1:-}" = post ]; then
+    if [ "$tool" = Bash ]; then
+        cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty')
+        if is_render "$cmd"; then mkdir -p "${marker%/*}" && : > "$marker"; fi
+    fi
+    exit 0
+fi
+allow() {
+    jq -n --arg r "$1" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",permissionDecisionReason:$r}}'
+    exit 0
+}
 deny() {
     jq -n --arg r "$1" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
     exit 0
@@ -15,6 +36,10 @@ ask() {
 case $tool in
 Bash)
     cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty')
+    if is_render "$cmd"; then
+        [ -f "$marker" ] && allow "Render/probe run already confirmed in this session."
+        ask "Render/probe/headless DAZ run: ask the user whether Octane X / DAZ Studio is free (Working agreements: Ask before rendering). Asked once per session."
+    fi
     case $cmd in
     *git\ commit*)
         # Scenes and DAZ content never enter git, except the generated calib/scenes;
@@ -25,8 +50,6 @@ Bash)
         bad=$(printf '%s\n' "$staged" | grep -E '^demo/' | grep -vE '^demo/(README\.md|scenes\.toml|references/iray/(renders\.tsv|[^/]+\.png))$' | head -3)
         [ -z "$bad" ] || deny "demo/ may hold only README, scenes.toml and reference PNGs + renders.tsv: $bad" ;;
     *git\ push*--force*|*git\ push*\ -f\ *|*git\ push*-f) ask "Force push: the workspace rules say always ask." ;;
-    *octane-render.sh*|*octane-run.sh*|*daz-script.sh*|*daz-dump.sh*|*calib-variants.sh*|*calib-octane-batch.sh*|*make-skin-variants.py*|*make-skin-scenes.py*|*daz-export-batch.sh*)
-        ask "Render/probe/headless DAZ run: ask the user whether Octane X / DAZ Studio is free (Working agreements: Ask before rendering)." ;;
     *daz-render.sh*)
         ask "Local CPU Iray takes the whole CPU. The user prefers Iray Server; ask first." ;;
     *iray-queue.sh*)
