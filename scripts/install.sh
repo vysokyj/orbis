@@ -6,4 +6,4 @@ case ${1:-} in -h|--help) sed -n '2,4p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; e
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cargo build --release --bin orbis
-target/release/orbis install "$@"
+"$(scripts/dev/target-dir.sh)/release/orbis" install "$@"

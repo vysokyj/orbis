@@ -17,7 +17,7 @@ for scene in "$@"; do
     DONE_FILE="$tmp/$name.json.done" "$here/daz-script.sh" "$root/daz/Scripts/ORBIS/Export to Octane.dsa" \
         --dump "$scene" "$tmp/$name.json" >/dev/null 2>&1 || true
     if [ "$(cat "$tmp/$name.json.done" 2>/dev/null)" = ok ]; then
-        "$root/target/release/orbis" export "$scene" --dump "$tmp/$name.json" -o "$out/$name.orbx" | grep -E "meshes|skipped" || true
+        "$("$here/target-dir.sh")/release/orbis" export "$scene" --dump "$tmp/$name.json" -o "$out/$name.orbx" | grep -E "meshes|skipped" || true
         echo "$name: ok in $(( $(date +%s) - start )) s"
     else
         echo "$name: dump FAILED"

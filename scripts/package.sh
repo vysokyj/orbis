@@ -24,7 +24,7 @@ for t in aarch64-apple-darwin x86_64-apple-darwin; do
 done
 if [ ${#targets[@]} -eq 0 ]; then
   cargo build --release --bin orbis
-  cp target/release/orbis "${stage}/orbis"
+  cp "$(scripts/dev/target-dir.sh)/release/orbis" "${stage}/orbis"
 else
   bins=()
   for t in "${targets[@]}"; do

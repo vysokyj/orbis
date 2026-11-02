@@ -19,7 +19,7 @@ import os, re, subprocess, sys
 import numpy as np
 
 here = os.path.dirname(os.path.abspath(__file__))
-tool = os.path.join(here, '../../target/release/examples/orbx_ocs')
+tool = os.path.join(subprocess.check_output([os.path.join(here, 'target-dir.sh')], text=True).strip(), 'release/examples/orbx_ocs')
 SPHERES = ['S1_opaque', 'S2_transl_0_5', 'S3_transl_1', 'S4_thin_walled', 'S7_chromatic', 'S8_short_scatter', 'S5_red_transmit', 'S6_sss_amount']
 # Linear colours, one per sphere: greys, then two skin tones (light, dark).
 COLOURS = [(0.05,) * 3, (0.1,) * 3, (0.2,) * 3, (0.4,) * 3, (0.6,) * 3, (0.8,) * 3, (0.6, 0.35, 0.25), (0.15, 0.07, 0.04)]

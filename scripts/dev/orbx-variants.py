@@ -62,7 +62,7 @@ if any(a in ('-h', '--help') for a in _sys.argv[1:]):
 import math, os, re, subprocess, sys
 
 root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..')
-tool = os.path.join(root, 'target/release/examples/orbx_ocs')
+tool = os.path.join(subprocess.check_output([os.path.join(root, 'scripts/dev/target-dir.sh')], text=True).strip(), 'release/examples/orbx_ocs')
 
 # Material (prefix of its name in project.ocs) → the Iray reflectivity it
 # was built with (Calib-Glossy G*, Calib-PBRSkin P*; see make-calib-scenes.py).

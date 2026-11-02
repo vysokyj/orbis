@@ -15,7 +15,7 @@ All paths below are relative to the repo root; scripts find each other via their
 4. Needs an unlocked screen (Octane X has no Script menu behind a lock).
 
 ## Steps
-1. `cargo build --release` (the scripts use `target/release/orbis`).
+1. `cargo build --release` (scripts find the binary through `scripts/dev/target-dir.sh`, wherever cargo builds).
 2. A scene needs a cached dump: `scripts/dev/daz-dump.sh <out dir> <scene.duf>...` (headless DAZ, ask first).
 3. One or all variants (Look x mode: enhanced-final, faithful-final, enhanced-preview, faithful-preview). Start with **enhanced-final**:
    `scripts/dev/calib-variants.sh [-s samples] enhanced-final -- <scene>...`

@@ -36,7 +36,7 @@ for v in $variants; do
     for scene in "$@"; do
         case $scene in *.duf) duf=$scene ;; *) duf="$library/Scenes/$scene.duf" ;; esac
         name=$(basename "$duf" .duf)
-        "$root/target/release/orbis" export "$duf" -o "$calib/orbx/$v/$name.orbx" --look "$look" $mode >/dev/null 2>&1 \
+        "$("$here/target-dir.sh")/release/orbis" export "$duf" -o "$calib/orbx/$v/$name.orbx" --look "$look" $mode >/dev/null 2>&1 \
             || echo "$v $name: export FAILED (no cached dump?)" >&2
     done
     set +f
