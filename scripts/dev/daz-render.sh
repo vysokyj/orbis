@@ -8,6 +8,7 @@
 # queue-local) is started on the first render and kept; --stop quits it.
 # App Nap is off for DAZ Studio (in the background it crawled, 18 of 36
 # iterations taking 17 minutes).
+case ${1:-} in -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 app="/Applications/DAZ 3D/DAZStudio6 64-bit/DAZStudio.app/Contents/MacOS/DAZStudio"

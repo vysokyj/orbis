@@ -2,6 +2,7 @@
 # Render ORBIS exports in Octane X unattended, each as exported:
 #   scripts/dev/octane-render.sh <out dir> [samples] <scene.orbx>...
 # Writes <out dir>/<scene>.png. Needs an unlocked screen (octane-run.sh).
+case ${1:-} in -h|--help) sed -n '2,4p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 set -eu
 out=$1; shift
 samples=400

@@ -23,6 +23,10 @@ light measured in the bottom 10–20 % of the range. Here:
 Existing scenes are kept (--force rewrites): calib-render.py tunes their
 exposure in place. Dump and export them with scripts/dev/daz-dump.sh.
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import gzip, json, os, sys
 
 scenes = next((a for a in sys.argv[1:] if not a.startswith('--')), None) or '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes'

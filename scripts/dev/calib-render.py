@@ -11,6 +11,10 @@ scene's Exposure Value (written into the .duf, which the ORBIS export reads
 too) so the 99th percentile sits at 85 % of white: nothing clips, nothing
 lives in the bottom few levels.
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import gzip, json, math, os, subprocess, sys
 import numpy as np
 from PIL import Image

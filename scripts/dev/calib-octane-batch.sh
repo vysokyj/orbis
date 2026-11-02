@@ -4,6 +4,7 @@
 # hypothesis variants, rendered as exported, then compared with the Iray
 # references.
 #   scripts/dev/calib-octane-batch.sh [samples]
+case ${1:-} in -h|--help) sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 calib="$HOME/Library/Caches/orbis/calib"

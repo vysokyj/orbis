@@ -4,6 +4,10 @@ Usage: python3 scripts/dev/fetch-octane-docs.py docs/octane/manual <cache dir>
 Needs `beautifulsoup4` and `markdownify`. The page list comes from the
 manual's HelpNDoc `_toc.json` (fetched into the cache dir when missing).
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import json, os, re, sys, time, urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from bs4 import BeautifulSoup

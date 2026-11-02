@@ -5,6 +5,10 @@ JSON: the facts src/iray.rs's tests need from DAZ's own definitions
 
   python3 scripts/dev/daz-defaults.py <definition.dsf> > calib/references/daz-defaults/<Name>.json
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import gzip, json, sys
 
 raw = open(sys.argv[1], "rb").read()

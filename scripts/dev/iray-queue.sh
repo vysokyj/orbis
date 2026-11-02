@@ -7,6 +7,7 @@
 # Samples set and no time or quality stop (Boost for Daz: Max Time 0, or
 # the streamed render is cut off); its render lands in <out dir>/<scene>.png
 # (default ~/Library/Caches/orbis/calib/iray, beside the CPU references).
+case ${1:-} in -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 set -eu
 queue="$HOME/Library/Caches/orbis/calib/queue"
 out="$HOME/Library/Caches/orbis/calib/iray"

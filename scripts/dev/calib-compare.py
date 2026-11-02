@@ -12,6 +12,10 @@ imager response (403). `ORBIS_OCTANE_SRGB=1` decodes Octane renders exported
 before that (sRGB response 401) with the sRGB curve. 1920 × 1080 renders from the Calib-* scenes' camera. No numpy /
 Pillow: PNGs are converted to BMP with macOS `sips`.
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import collections
 import math
 import os

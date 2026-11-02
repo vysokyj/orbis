@@ -12,6 +12,10 @@ Names lose DAZ's per-export ids: materials are "<node label>/<surface>",
 lights and the camera their node label. Texture paths are content-relative
 ("/Runtime/Textures/...") or "<daz>/..." under the DAZ Studio app.
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import json, os, re, sys
 
 ID = re.compile(r"(_[0-9a-f]+)?_\d+$")

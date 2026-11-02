@@ -16,6 +16,10 @@
 
 Needs Pillow and numpy. The PNGs are sRGB (Octane's imager response 401).
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import sys
 
 import numpy as np

@@ -10,6 +10,10 @@ surface, in world space — pose, morphs, SubD, as Iray gets them.
 transform, which is world -> object (row vectors): world = (p - t) R^T.
 Our USD is in metres; the .mi in DAZ's cm.
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import math, re, struct, sys, zipfile
 
 

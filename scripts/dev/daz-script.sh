@@ -6,6 +6,7 @@
 # With DONE_FILE the instance is killed as soon as that file appears:
 # quitting a big scene took DAZ 2 minutes of cleanup (intake.duf).
 # Never alongside an Octane render (Iray / DAZ take the whole CPU).
+case ${1:-} in -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 set -eu
 # Absolute: DAZ Studio starts through `open`, in another directory.
 script=$(cd "$(dirname "$1")" && pwd)/$(basename "$1"); shift

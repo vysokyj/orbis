@@ -4,6 +4,7 @@
 #   scripts/dev/daz-dump.sh <out dir> <scene.duf>...
 # Writes <out dir>/<scene>.orbx; the dump becomes the scene's cached one.
 # Never alongside an Octane render.
+case ${1:-} in -h|--help) sed -n '2,6p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 set -eu
 out=$1; shift
 here=$(cd "$(dirname "$0")" && pwd)

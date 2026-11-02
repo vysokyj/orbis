@@ -55,6 +55,10 @@ Hypotheses (by the Iray channels the variants stand for):
 The channel values come from the scene materials' names (Calib-Glossy /
 Calib-PBRSkin label their spheres with them) via HYPOTHESES below.
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import math, os, re, subprocess, sys
 
 root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..')

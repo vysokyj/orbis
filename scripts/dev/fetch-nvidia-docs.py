@@ -9,6 +9,10 @@ PDF names carry a release date (manual.261007.A4.pdf); they are found on
 each section's index page, so a new release is picked up. Already
 downloaded files are kept (delete one to fetch it again).
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import html, logging, os, re, subprocess, sys, time, urllib.parse
 from pypdf import PdfReader
 

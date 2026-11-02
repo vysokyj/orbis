@@ -10,6 +10,10 @@ Iray shows what one channel does to a real skin. The scenes use DAZ Store
 skins: they stay in My Library, like the scenes they come from. Without
 variants: all of them.
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import copy, gzip, json, os, sys
 
 SCENES = '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes'

@@ -11,6 +11,10 @@ src/ (what the export can read). The report lists, per kind of owner, the
 channels set in any scene: in how many scenes, an example value, handled
 or not — unhandled ones first.
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import collections, glob, gzip, json, os, re, sys
 
 root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..')

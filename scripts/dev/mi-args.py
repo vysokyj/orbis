@@ -9,6 +9,10 @@ mapping, observed (docs/daz/iray-uber-mdl.md).
 Only arguments that differ from the MDL defaults are in the file; a
 missing one is at its default. Textures show as the texture's name.
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import re, sys
 
 

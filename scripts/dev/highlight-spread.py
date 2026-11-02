@@ -6,6 +6,10 @@ eight spheres (the disc found from Calib-Glossy's red Iray spheres), lower
   python3 scripts/dev/highlight-spread.py [--vs <iray.png>] <render.png>...
 --vs adds each sphere's mean luminance over the reference's (render / Iray).
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import os, sys
 import numpy as np
 from PIL import Image

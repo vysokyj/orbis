@@ -21,6 +21,10 @@ then deterministic, so the tone variants share their noise pixel for pixel.
 Existing scenes are kept (--force rewrites); dump and export the new ones
 with scripts/dev/daz-dump.sh.
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import copy, glob, gzip, json, os, subprocess, sys
 
 src = next((a for a in sys.argv[1:] if a.endswith('.duf')), None) or '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes/Calib-Materials.duf'

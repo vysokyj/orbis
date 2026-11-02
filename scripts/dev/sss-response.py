@@ -11,6 +11,10 @@ is given.
 scripts/dev/octane-render.sh, then `measure` prints each sphere's colour
 over its matte Universal twin (variant `uni`), per channel.
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import os, re, subprocess, sys
 import numpy as np
 

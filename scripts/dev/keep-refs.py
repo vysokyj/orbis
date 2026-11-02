@@ -14,6 +14,10 @@ Samples and the time cap come from the capped copy of the scene the render
 was made from (beside the png, or in the queue's done/ folder); the render
 time from the queue log or the <png>.run.txt that daz-render.sh leaves.
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import csv, datetime, filecmp, gzip, json, os, re, shutil, sys
 
 repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

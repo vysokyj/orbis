@@ -10,6 +10,10 @@ Read through DAZ's .mi export, not rendered.
 - Calib-Mi-DzDefault2 (from Calib-Mi-DzDefault, DS Defaults presets): the
   DAZ Default shader's channels, which DAZ turns into Iray Uber.
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import gzip, json, os, sys
 
 scenes = sys.argv[1] if len(sys.argv) > 1 else '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes'

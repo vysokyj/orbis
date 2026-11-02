@@ -10,6 +10,10 @@ Default shader (from a scene that uses it). "Read" = the channel id appears
 as a string literal in src/ (as in channel-audit.py); "scenes" = how many
 scenes set it away from its default (channel-audit.py's count).
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import collections, glob, gzip, json, os, re, subprocess, sys
 
 root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..')

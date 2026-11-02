@@ -7,6 +7,7 @@
 #
 # The binary carries the DAZ Studio script and icons; `./orbis install` sets
 # up the plugin. Usage: scripts/package.sh
+case ${1:-} in -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

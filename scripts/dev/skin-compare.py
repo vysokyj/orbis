@@ -11,6 +11,10 @@ r/g and b/g = Octane's channel ratio over Iray's (1.00 = same hue; b/g
 above 1 = bluer than Iray). The grey sphere checks the light, the skin
 sphere is the Torso material on a prop.
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import glob, os, sys
 import numpy as np
 from PIL import Image

@@ -6,6 +6,7 @@
 # Writes <out dir>/<scene>.orbx and <out dir>/orbis-batch.txt (ok / error,
 # orbis's report). Install first (scripts/install.sh). Never alongside an
 # Octane render.
+case ${1:-} in -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 set -eu
 scene=$1
 out=$2

@@ -9,6 +9,7 @@
 # (scripts/dev/daz-dump.sh). Writes ~/Library/Caches/orbis/calib/
 # orbx/<variant>/, octane/<variant>/ and octane/<variant>/report.md.
 # Needs an unlocked screen; never during a DAZ render.
+case ${1:-} in -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 root="$here/../.."

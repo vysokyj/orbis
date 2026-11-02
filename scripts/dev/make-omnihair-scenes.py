@@ -22,6 +22,10 @@ URL and channels swapped, its strand widths kept. Variants:
 The scenes wear a DAZ Store hair: they stay in My Library, never in
 calib/scenes. Existing scenes are kept (--force rewrites).
 """
+import sys as _sys
+if any(a in ('-h', '--help') for a in _sys.argv[1:]):
+    print(__doc__)
+    _sys.exit(0)
 import copy, gzip, json, os, sys
 
 SCENES = '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes'

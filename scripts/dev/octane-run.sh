@@ -10,6 +10,7 @@
 # quits it, killed if it doesn't quit in 30 s). Output lands in the
 # sandbox's Documents. It waits for the render lock (render-lock.sh): never
 # beside a DAZ Studio render, Iray takes the whole CPU.
+case ${1:-} in -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 set -eu
 probe=$1
 scene=${2:-}
