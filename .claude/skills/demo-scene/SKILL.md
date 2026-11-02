@@ -9,7 +9,7 @@ description: Work with the user's hand-made Demo-* DAZ scenes (realistic test sc
 
 | In git (`demo/`) | Never in git |
 |---|---|
-| `scenes/Demo-*.duf` - sanitised copy (`demo.py sync` blanks the contributor author/e-mail/website) | the store assets, textures, geometry; dumps, `.mi`, `.usdz`/`.orbx` exports (derived from store geometry/materials) |
+| `scenes/Demo-*.duf` - sanitised copy (`demo.py update` blanks the contributor author/e-mail/website) | the store assets, textures, geometry; dumps, `.mi`, `.usdz`/`.orbx` exports (derived from store geometry/materials) |
 | `scenes.toml` manifest (purpose, issue) | |
 | `references/iray/*.png` + `renders.tsv` (with `scene_sha256` of the library original) | |
 
