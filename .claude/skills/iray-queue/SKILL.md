@@ -11,5 +11,5 @@ description: Propose and run Iray Server renders through the ORBIS render queue.
 3. Never reorder, no backdated mtimes. `--stop` asks the queue to stop (only on request).
 4. The user starts the queue-side DAZ themselves; Octane may render alongside it.
 5. Stalled queue + DAZ log "Server refused connection: session handler rejected the session" = the server reset its password. **Tell the user**; they fix it and restart the queue script (it retries every 30 s). DAZ log: `~/Library/Application Support/DAZ 3D/Studio6/log.txt`.
-6. Finished renders -> `iray-refs` skill. Status: `stav` skill.
+6. Finished renders -> `iray-refs` skill. Status: `status` skill.
 Principles: `docs/calibration.md`.
