@@ -23,4 +23,4 @@ median over a region) unless a note says otherwise; 1.00 = equal.
 | [2026-10-30 node flags](2026-10-30-node-flags.md) | Renderable, hidden surfaces and facet groups (NGV8 shells, `WG_<k>_` graft facets), Cast Shadows as an Octane object layer (#36) |
 | [2026-10-30 skin volume](2026-10-30-sss-volume.md) | SSS Color / Mode / Amount on Calib-Skin's variants (Victoria, Monique, Zurie): diffusion reflectance factor on the baked skin, mono skins with Base Color Effect 0 baked (#28) |
 | [2026-11-01 G9 eye (WIP)](2026-11-01-g9-eye-wip.md) | Genesis 9 eye: PBRSkin translucency as colour, layered-image layers at their own size, where calibration stood (#66) |
-| [2026-11-02 option scenes](2026-11-02-option-scenes.md) | 40 scenes for tonemapper, environment, render-setting and light options (#35 #37 #38 #43 #65), timings, headless DAZ, workflow lessons |
+| [2026-11-02 slow Iray render](2026-11-02-option-scenes.md) | Calib-RS-Bloom took 1433 s at 5000 samples (usual 105–112 s), other slow option scenes |
