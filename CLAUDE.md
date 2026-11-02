@@ -125,14 +125,16 @@ the loop, references in `calib/references`): `docs/calibration.md`.
 ## Watch out for
 - **Scenes by prefix** (skill `demo-scene`): `Calib-*` = generated from
   DAZ built-ins, scene + renders in git (`calib/`). `Demo-*` = the user's
-  hand-made realistic scenes (store content): **only manifest and Iray
-  reference renders** in git (`demo/`), never the `.duf`, dumps, `.mi` or
-  exports; the prefix is the user's consent to publish renders. Anything
-  else (teens, Gladiator, Calib-Hair-Teens...) is private: neither renders
-  nor data in git; use it freely for local calibration. Scripts and Claude
-  only read `Demo-*`/private scenes. References go in through
+  hand-made realistic scenes (store content): the **scene source** (a copy in
+  `demo/scenes/` with the contributor name blanked, by `demo.py sync`), the
+  manifest and the Iray reference renders go in git (the user's decision,
+  2026-11-02); the prefix is their consent. **Never** the assets themselves
+  or what is derived from their geometry/materials: dumps, `.mi`, `.usdz`,
+  `.orbx`. Anything else (teens, Calib-Hair-Teens...) is private: neither
+  scene nor renders in git; use it freely for local calibration. Scripts and
+  Claude only read the library originals. References go in through
   `keep-refs.py` (`--demo` for `Demo-*`), committed as they come during a
-  long run; `demo.py check` shows references gone stale.
+  long run; `demo.py check` shows stale references and outdated copies.
 - **Verified DAZ → Iray conversions outrank calibration.** `src/iray.rs`
   reproduces DAZ's own `.mi` export (`calib/references/mi/*.json`, test in
   the module). Never change it to fit a render; tune the Octane side

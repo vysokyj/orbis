@@ -43,3 +43,4 @@ __pycache__/
 *.duf
 !/calib/scenes/*.duf
 *.dbz
+!/demo/scenes/*.duf

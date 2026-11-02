@@ -8,7 +8,7 @@ Review `git diff` (or the range given) for violations of these rules and report 
 1. Behaviour change in the export without the matching update to docs/spec/octane-export.md (the spec is normative).
 2. src/iray.rs changed without new/updated calib/references/mi fixtures proving it (#62); tests in that module must still cover every fixture.
 3. Anything third-party-copyrighted added: OTOY manual text, Octane sample files, NVIDIA doc text, DAZ store content, scene files with store content; docs/octane/manual or docs/nvidia un-ignored.
-4. Anything under demo/ other than README.md, scenes.toml, reference PNGs and renders.tsv; a Demo-* render whose scene is not in the manifest. Private scenes (teens, Gladiator, Calib-Hair-Teens) or user's own Calib-*.duf in calib/, or references from scenes in neither calib/scenes nor the Demo manifest.
+4. Anything under demo/ other than README.md, scenes.toml, scenes/Demo-*.duf (contributor fields must be blank), reference PNGs and renders.tsv; a Demo-* render whose scene is not in the manifest. Private scenes (teens, Gladiator, Calib-Hair-Teens) or user's own Calib-*.duf in calib/, or references from scenes in neither calib/scenes nor the Demo manifest.
 5. Personal data (name, e-mail, address, phone, absolute /Users/<name> paths) in files, commit messages, issues; changed git author identity.
 6. DAZ script not ES3-compatible (let/const/arrow functions, non-ASCII literals); format_version bumped on only one side.
 7. Fitted constants added to PBRSkin (decision: direct OpenPBR mapping, #57).

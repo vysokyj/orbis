@@ -45,10 +45,10 @@ Bash)
         # Scenes and DAZ content never enter git, except the generated calib/scenes;
         # demo/ keeps only the manifest, the README and the reference renders.
         staged=$(cd "${CLAUDE_PROJECT_DIR:-.}" 2>/dev/null && git diff --cached --name-only 2>/dev/null)
-        bad=$(printf '%s\n' "$staged" | grep -E '\.(duf|dsf|dsa|dbz|mi)$|(^|/)Demo-.*\.(duf|mi|usdz|orbx)$' | grep -vE '^(calib/scenes/|calib/references/mi/|scripts/|daz/Scripts/)' | head -3)
+        bad=$(printf '%s\n' "$staged" | grep -E '\.(duf|dsf|dsa|dbz|mi)$|(^|/)Demo-.*\.(duf|mi|usdz|orbx)$' | grep -vE '^(calib/scenes/|demo/scenes/Demo-[^/]+\.duf$|calib/references/mi/|scripts/|daz/Scripts/)' | head -3)
         [ -z "$bad" ] || deny "Staged DAZ scene/content files outside calib/scenes (store content must not enter this public repo): $bad"
-        bad=$(printf '%s\n' "$staged" | grep -E '^demo/' | grep -vE '^demo/(README\.md|scenes\.toml|references/iray/(renders\.tsv|[^/]+\.png))$' | head -3)
-        [ -z "$bad" ] || deny "demo/ may hold only README, scenes.toml and reference PNGs + renders.tsv: $bad" ;;
+        bad=$(printf '%s\n' "$staged" | grep -E '^demo/' | grep -vE '^demo/(README\.md|scenes\.toml|scenes/Demo-[^/]+\.duf|references/iray/(renders\.tsv|[^/]+\.png))$' | head -3)
+        [ -z "$bad" ] || deny "demo/ may hold only README, scenes.toml, scenes/Demo-*.duf and reference PNGs + renders.tsv: $bad" ;;
     *git\ push*--force*|*git\ push*\ -f\ *|*git\ push*-f) ask "Force push: the workspace rules say always ask." ;;
     *daz-render.sh*)
         ask "Local CPU Iray takes the whole CPU. The user prefers Iray Server; ask first." ;;
