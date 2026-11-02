@@ -1,0 +1,2 @@
+# Demo scenes: name = the .duf in My Library/Scenes (without extension).
+# python3 scripts/dev/demo.py add <Demo-Name> "<purpose>" [issue]

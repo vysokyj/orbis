@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """ORBIS calibration: keep Iray renders of the generated scenes in git.
 
-  python3 scripts/dev/keep-refs.py [--sample] [--renderer NAME] [--queue-log LOG] <render.png>...
+  python3 scripts/dev/keep-refs.py [--demo] [--renderer NAME] [--queue-log LOG] <render.png>...
 
---sample: renders of Sample- scenes (sample/scenes.toml), kept in sample/references/iray with the scene's sha256
+--demo: renders of Demo- scenes (demo/scenes.toml), kept in demo/references/iray with the scene's sha256
 
 Copies each render into calib/references/iray/ and records how it was made in
 calib/references/iray/renders.tsv (samples, time cap, renderer, date, render
@@ -29,14 +29,14 @@ calib = os.path.expanduser('~/Library/Caches/orbis/calib')
 FIELDS = ['scene', 'samples', 'max_time', 'renderer', 'rendered', 'seconds']
 
 args = sys.argv[1:]
-sample = '--sample' in args
-if sample:
-    # Sample- scenes: store content stays in the library, only renders are kept.
-    args.remove('--sample')
-    refs = os.path.join(repo, 'sample', 'references', 'iray')
+demo = '--demo' in args
+if demo:
+    # Demo- scenes: store content stays in the library, only renders are kept.
+    args.remove('--demo')
+    refs = os.path.join(repo, 'demo', 'references', 'iray')
     FIELDS = FIELDS + ['scene_sha256']
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import sample as sample_lib
+    import demo as demo_lib
 tsv = os.path.join(refs, 'renders.tsv')
 renderer = 'DAZ Studio Iray (CPU)'
 logs = []
@@ -85,11 +85,11 @@ if os.path.exists(tsv):
 changed = 0
 for png in pngs:
     name = os.path.basename(png)[:-4]
-    if sample:
-        if name not in sample_lib.entries():
-            print(f'skip {name}: not in sample/scenes.toml (python3 scripts/dev/sample.py add)')
+    if demo:
+        if name not in demo_lib.entries():
+            print(f'skip {name}: not in demo/scenes.toml (python3 scripts/dev/demo.py add)')
             continue
-        lib_scene = sample_lib.scene_path(name)
+        lib_scene = demo_lib.scene_path(name)
         if not os.path.exists(lib_scene) or os.path.getmtime(lib_scene) > os.path.getmtime(png):
             print(f'skip {name}: the scene was saved after this render, so the render is stale')
             continue
@@ -114,8 +114,8 @@ for png in pngs:
     rows[name] = {'scene': name, 'samples': samples, 'max_time': c.get('Max Time', ''), 'renderer': renderer,
                   'rendered': datetime.datetime.fromtimestamp(os.path.getmtime(png)).strftime('%Y-%m-%d %H:%M'),
                   'seconds': seconds(name, png)}
-    if sample:
-        rows[name]['scene_sha256'] = sample_lib.sha256(lib_scene)
+    if demo:
+        rows[name]['scene_sha256'] = demo_lib.sha256(lib_scene)
     changed += 1
     print(f'kept {name}: {samples} samples, {renderer}')
 with open(tsv, 'w', newline='') as f:

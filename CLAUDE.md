@@ -18,7 +18,7 @@ cargo run --release -- export <scene.duf> -o <out.orbx|out.usdz> [--preview] [--
 Everything else (calibration, DAZ/Octane runs, Iray queue, `.mi` fixtures,
 references, lab notes) is a **project skill** in `.claude/skills/` - use it
 instead of remembering the commands: `calib-loop`, `ship-fix`, `lab-note`,
-`iray-refs`, `sample-scene`, `iray-queue`, `mi-fixture`, `octane-probe`, `daz-script-dev`,
+`iray-refs`, `demo-scene`, `iray-queue`, `mi-fixture`, `octane-probe`, `daz-script-dev`,
 `docs-first`, `status`. Subagents in `.claude/agents/` (`calib-analyst`,
 `spec-guard`, `doc-researcher`); hooks in `.claude/settings.json` enforce the
 ask-first rules below. The scripts are in `scripts/dev/` (each has its usage
@@ -49,7 +49,7 @@ attaches the zip to a GitHub release.
 | `assets/icon/` | Thumbnail sources: `globe.svg` (folder), `orbx.svg` (script) |
 | `scripts/package.sh` | Builds the release zip: the (universal) binary + docs |
 | `scripts/dev/` | Calibration tools: Octane Lua probes, render comparison, manual mirror |
-| `sample/` | `Sample-*` scenes: manifest (`scenes.toml`) + Iray references with the scene's sha256; the scenes stay in My Library |
+| `demo/` | `Demo-*` scenes: manifest (`scenes.toml`) + Iray references with the scene's sha256; the scenes stay in My Library |
 | `calib/scenes/` | Calibration scenes the scripts generated (Calib-PBRSkin, -Glossy, -Tone-*, -DOF-*, -L-*): copies of `My Library/Scenes`, exposure as tuned; DAZ built-ins and primitives only |
 
 ## Documentation
@@ -123,16 +123,16 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   English.
 
 ## Watch out for
-- **Scenes by prefix** (skill `sample-scene`): `Calib-*` = generated from
-  DAZ built-ins, scene + renders in git (`calib/`). `Sample-*` = the user's
+- **Scenes by prefix** (skill `demo-scene`): `Calib-*` = generated from
+  DAZ built-ins, scene + renders in git (`calib/`). `Demo-*` = the user's
   hand-made realistic scenes (store content): **only manifest and Iray
-  reference renders** in git (`sample/`), never the `.duf`, dumps, `.mi` or
+  reference renders** in git (`demo/`), never the `.duf`, dumps, `.mi` or
   exports; the prefix is the user's consent to publish renders. Anything
   else (teens, Gladiator, Calib-Hair-Teens...) is private: neither renders
   nor data in git; use it freely for local calibration. Scripts and Claude
-  only read `Sample-*`/private scenes. References go in through
-  `keep-refs.py` (`--sample` for `Sample-*`), committed as they come during a
-  long run; `sample.py check` shows references gone stale.
+  only read `Demo-*`/private scenes. References go in through
+  `keep-refs.py` (`--demo` for `Demo-*`), committed as they come during a
+  long run; `demo.py check` shows references gone stale.
 - **Verified DAZ → Iray conversions outrank calibration.** `src/iray.rs`
   reproduces DAZ's own `.mi` export (`calib/references/mi/*.json`, test in
   the module). Never change it to fit a render; tune the Octane side

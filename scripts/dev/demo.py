@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""ORBIS Sample scenes (hand-made, store content, never in git): manifest and freshness.
+"""ORBIS Demo scenes (hand-made, store content, never in git): manifest and freshness.
 
-  python3 scripts/dev/sample.py list
-  python3 scripts/dev/sample.py add <Sample-Name> "<purpose>" [issue]
-  python3 scripts/dev/sample.py check
+  python3 scripts/dev/demo.py list
+  python3 scripts/dev/demo.py add <Demo-Name> "<purpose>" [issue]
+  python3 scripts/dev/demo.py check
 
 The scene is read from <library>/Scenes/<name>.duf (ORBIS_LIBRARY, default
 "/Volumes/Data/DAZ 3D/Studio/My Library"); it is never written. `check`
 compares the sha256 of each scene with the one its Iray reference was
-rendered from (sample/references/iray/renders.tsv): a re-saved scene makes
+rendered from (demo/references/iray/renders.tsv): a re-saved scene makes
 the reference stale, and nothing is overwritten silently.
 """
 import csv, hashlib, os, re, sys, tomllib
 
 repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-manifest = os.path.join(repo, 'sample', 'scenes.toml')
-tsv = os.path.join(repo, 'sample', 'references', 'iray', 'renders.tsv')
+manifest = os.path.join(repo, 'demo', 'scenes.toml')
+tsv = os.path.join(repo, 'demo', 'references', 'iray', 'renders.tsv')
 library = os.environ.get('ORBIS_LIBRARY', '/Volumes/Data/DAZ 3D/Studio/My Library')
 
 
@@ -63,8 +63,8 @@ def main(argv):
         sys.exit(1 if bad else 0)
     elif cmd == 'add' and len(argv) >= 3:
         name, purpose = argv[1], argv[2]
-        if not re.fullmatch(r'Sample-[A-Za-z0-9_.-]+', name):
-            sys.exit('the name must start with Sample-')
+        if not re.fullmatch(r'Demo-[A-Za-z0-9_.-]+', name):
+            sys.exit('the name must start with Demo-')
         if not os.path.exists(scene_path(name)):
             sys.exit(f'no such scene: {scene_path(name)}')
         if name in entries():
