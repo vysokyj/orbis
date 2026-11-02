@@ -31,7 +31,8 @@ if ! grep -q started "$queue/queue.log" 2>/dev/null; then
 fi
 # A "started" line outlives the DAZ that wrote it: the queue only runs while
 # the connected DAZ Studio does. Tell the user instead of filling a dead queue.
-if ! pgrep -q -f DAZStudio; then
+# The headless helper instance (orbis-render) is not the connected DAZ.
+if ! pgrep -fl "DAZStudio" | grep -qv "instanceName orbis-render"; then
     echo "the queue script was started, but DAZ Studio is not running: ask the user to start DAZ and the Iray Server queue" >&2
     exit 1
 fi

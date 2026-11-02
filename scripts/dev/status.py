@@ -80,7 +80,7 @@ else:
     print(f"queue script in DAZ: {'started' if started else 'NOT started'}; log updated {ago(log)}")
     print(f"waiting {waiting}, active {active}, done {done}")
     stale = time.time() - os.path.getmtime(log) > 900
-    if started and stale and (waiting or active) and not run("pgrep", "-f", "DAZStudio"):
+    if started and stale and (waiting or active) and not [l for l in run("pgrep", "-fl", "DAZStudio").splitlines() if "instanceName orbis-render" not in l]:
         print("!! STALLED: queue has work but DAZ Studio is not running and the log is quiet - the user starts the queue script (daz-render-queue.dsa) again.")
     elif started and stale and (waiting or active):
         print("!! quiet for over 15 min with work left - check the DAZ log / server connection.")
