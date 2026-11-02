@@ -83,15 +83,12 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   session only. Otherwise Claude may start, quit and kill Octane X / DAZ
   Studio freely; when the user says they work in an app, hands off.
 - **No local CPU Iray** (`daz-render.sh`) without asking — it takes the whole
-  CPU; the user prefers Iray Server and starts it themselves. Octane may
-  render alongside the Iray Server queue (`iray-queue.sh`), never alongside
-  a local Iray render.
-- **The Iray Server queue (`~/Library/Caches/orbis/calib/queue`) is the
-  user's** (paid time, another session may own a batch): propose scenes and
-  an order, queue only after a yes, never reorder (no backdated mtimes).
-  Stalled queue + DAZ log "Server refused connection: session handler
-  rejected the session" = the server reset its password; tell the user, they
-  fix it and restart the queue script (it retries every 30 s).
+  CPU. Octane may never render alongside it.
+- **Iray only on the Iray Server, in big batches** (skill `iray-queue`):
+  prepare the whole batch first, then one call to the user to start the
+  server; queue the announced batch after their "server runs", never reorder,
+  never add unannounced scenes. Octane may render alongside it. Stalled queue
+  / "session handler rejected the session" = tell the user.
 - **A failed Octane render/probe: leave Octane X open** so the user can read
   its error dialog (#50). Big scenes (the teens scene, 1.2 M faces) in a
   series of full renders froze the Mac — experiment on small Calib-* scenes

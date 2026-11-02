@@ -1,15 +1,21 @@
 ---
 name: iray-queue
-description: Propose and run Iray Server renders through the ORBIS render queue. Use when Iray references are needed, or the queue seems stalled.
+description: Prepare and run Iray Server renders through the ORBIS render queue - big batch first, one call to the user to start the server. Use when Iray references are needed, or the queue seems stalled.
 ---
 
 # Iray Server queue (`scripts/dev/iray-queue.sh`)
 
-**The queue is the user's** (paid server time; another session may own a running batch).
-1. Propose scenes and an order. Wait for a yes.
-2. Only then: `scripts/dev/iray-queue.sh [-s samples] [-o out dir] <scene.duf>...` (default samples 400; references use 5000).
-3. Never reorder, no backdated mtimes. `--stop` asks the queue to stop (only on request).
-4. The user starts the queue-side DAZ themselves; Octane may render alongside it.
-5. Stalled queue + DAZ log "Server refused connection: session handler rejected the session" = the server reset its password. **Tell the user**; they fix it and restart the queue script (it retries every 30 s). DAZ log: `~/Library/Application Support/DAZ 3D/Studio6/log.txt`.
-6. Finished renders -> `iray-refs` skill. Status: `status` skill.
+**The queue and the server are the user's** (paid time; another session may own a running batch). Iray renders go **only** to the Iray Server, never local CPU Iray (`daz-render.sh`) without asking. The server's time is the scarce resource, ours is cheap: the user starts the server once, so one call must cover as much work as possible.
+
+## Agreement (2026-11-02)
+1. **Prepare the whole batch first.** Before asking, have everything ready: generated scenes (`make-*.py`, `daz-build-*.dsa`; DAZ built-ins/primitives only for calib/scenes), checked that they open and that their dumps/references exist. Add what will probably be needed next, not only what is needed now. Write the ordered list (scene, samples, why) and an ETA from `python3 scripts/dev/status.py` (avg s/scene).
+2. **One call:** "Batch ready: N scenes, ~X min. Start the Iray Server." Nothing is queued before that.
+3. **After the user says the server runs**, queue the announced batch in one go: `scripts/dev/iray-queue.sh [-s samples] [-o out dir] <scene.duf>...` (default 400; references use 5000). Their go-ahead covers exactly that announced batch; anything beyond it is a new question. The guard hook still asks - that is intended.
+4. **While it runs, work on Octane** (Octane may render beside the Iray Server queue; never beside a local CPU Iray render) and on anything else; check `status` instead of polling.
+5. Never reorder (no backdated mtimes). The next batch goes after the running one, or ask. `--stop` only on request.
+6. Finished renders -> `iray-refs` skill.
+
+## Stalls
+- `status` shows `STALLED` or the DAZ log (`~/Library/Application Support/DAZ 3D/Studio6/log.txt`) shows "Server refused connection: session handler rejected the session" = the server reset its password. **Tell the user**; they fix it and restart the queue script in DAZ (it retries every 30 s). We never start the queue-side DAZ.
+- The script refuses to queue when no queue script is started ("open daz-render-queue.dsa in the connected DAZ Studio") - that is the moment to ask the user, not to retry.
 Principles: `docs/calibration.md`.
