@@ -115,7 +115,7 @@ for png in pngs:
                   'rendered': datetime.datetime.fromtimestamp(os.path.getmtime(png)).strftime('%Y-%m-%d %H:%M'),
                   'seconds': seconds(name, png)}
     if demo:
-        rows[name]['scene_sha256'] = demo_lib.sha256(lib_scene)
+        rows[name]['scene_sha256'] = demo_lib.sha256(demo_lib.copy_path(name))
     changed += 1
     print(f'kept {name}: {samples} samples, {renderer}')
 with open(tsv, 'w', newline='') as f:

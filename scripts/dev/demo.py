@@ -4,17 +4,22 @@
   python3 scripts/dev/demo.py list
   python3 scripts/dev/demo.py add <Demo-Name> "<purpose>" [issue]
   python3 scripts/dev/demo.py check
-  python3 scripts/dev/demo.py sync
+  python3 scripts/dev/demo.py restore [<name>]
+  python3 scripts/dev/demo.py update [<name>]
 
-The scene is read from <library>/Scenes/<name>.duf (ORBIS_LIBRARY, default
-"/Volumes/Data/DAZ 3D/Studio/My Library"); it is never written. `add` and
-`sync` write a copy to demo/scenes/ (git holds the source too) with the
-contributor's author / e-mail / website blanked - no personal data in the repo. `check`
+The git copy demo/scenes/<name>.duf is the master (contributor author / e-mail
+/ website blanked - no personal data in the repo). The library file
+<library>/Scenes/<name>.duf (ORBIS_LIBRARY, default "/Volumes/Data/DAZ 3D/
+Studio/My Library") is only used by DAZ.
+- restore: put the git copy back into the library (the user's rule: git wins
+  unless they say "update"); a differing library file is backed up first to
+  ~/Library/Caches/orbis/demo-backup/, its mtime is kept.
+- update: only when the user asks - take the library file into git (sanitised). `check`
 compares the sha256 of each scene with the one its Iray reference was
 rendered from (demo/references/iray/renders.tsv): a re-saved scene makes
 the reference stale, and nothing is overwritten silently.
 """
-import csv, gzip, hashlib, json, os, re, sys, tomllib
+import csv, gzip, hashlib, json, os, re, shutil, sys, time, tomllib
 
 repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 manifest = os.path.join(repo, 'demo', 'scenes.toml')
@@ -66,17 +71,53 @@ def sync(name):
         print(f'synced {name} -> demo/scenes ({len(data) // 1024} KiB)')
 
 
+def has_contributor(path):
+    raw = open(path, 'rb').read()
+    d = json.loads(gzip.decompress(raw) if raw[:2] == b'\x1f\x8b' else raw)
+    c = d.get('asset_info', {}).get('contributor') or {}
+    return any(c.get(k) for k in ('author', 'email', 'website'))
+
+
+def restore(name):
+    cp, lp = copy_path(name), scene_path(name)
+    if not os.path.exists(cp):
+        sys.exit(f'{name}: no git copy (demo.py add)')
+    if os.path.exists(lp):
+        same = sanitized(name) == open(cp, 'rb').read()
+        if same and not has_contributor(lp):
+            return
+        if same:  # only the contributor details differ: nothing to back up
+            mtime = os.path.getmtime(lp)
+            shutil.copyfile(cp, lp)
+            os.utime(lp, (mtime, mtime))
+            print(f'restored {name} from git (contributor details removed from the library file)')
+            return
+        backup = os.path.expanduser('~/Library/Caches/orbis/demo-backup')
+        os.makedirs(backup, exist_ok=True)
+        shutil.copyfile(lp, os.path.join(backup, f'{name}-{time.strftime("%Y%m%d-%H%M%S")}.duf'))
+        mtime = os.path.getmtime(lp)
+    else:
+        mtime = None
+    shutil.copyfile(cp, lp)
+    if mtime:
+        os.utime(lp, (mtime, mtime))
+    print(f'restored {name} from git (the library file differed; old one in demo-backup/)' if mtime else f'restored {name} from git')
+
+
 def status(name):
+    cp = copy_path(name)
+    if not os.path.exists(cp):
+        return 'no git copy (demo.py add)'
     p = scene_path(name)
     if not os.path.exists(p):
-        return 'scene missing in the library'
-    cp = copy_path(name)
-    if not os.path.exists(cp) or open(cp, 'rb').read() != sanitized(name):
-        return 'repo copy outdated (demo.py sync)'
+        return 'library file missing (demo.py restore)'
     ref = refs().get(name)
+    differs = sanitized(name) != open(cp, 'rb').read()
+    if differs:
+        return 'library differs from git: git wins (demo.py restore) unless the user says update'
     if not ref:
         return 'no reference yet'
-    return 'fresh' if ref.get('scene_sha256') == sha256(p) else 'STALE (scene changed since the reference)'
+    return 'fresh' if ref.get('scene_sha256') == sha256(cp) else 'STALE (the git copy changed since the reference)'
 
 
 def main(argv):
@@ -84,10 +125,13 @@ def main(argv):
     if cmd == 'list':
         for name, e in entries().items():
             print(f'{name}\t{status(name)}\t{e.get("purpose", "")}')
-    elif cmd == 'sync':
-        for name in entries():
+    elif cmd in ('update', 'sync'):
+        for name in (argv[1:2] or entries()):
             if os.path.exists(scene_path(name)):
                 sync(name)
+    elif cmd == 'restore':
+        for name in (argv[1:2] or entries()):
+            restore(name)
     elif cmd == 'check':
         bad = 0
         for name in entries():

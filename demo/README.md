@@ -3,11 +3,11 @@
 Hand-made DAZ scenes (prefix `Demo-`) for testing the export on realistic
 content, beside the generated `Calib-*` scenes. They wear DAZ Store content
 but a `.duf` only references it: the originals stay in the user's My Library
-(the master copy), git holds a sanitised copy of the source and what is
-rendered from it. Never the assets, dumps, `.mi` or exports:
+(what DAZ opens), git holds the master copy of the source (sanitised) and
+what is rendered from it; `demo.py restore` puts the git version back, `demo.py update` takes the library one on request. Never the assets, dumps, `.mi` or exports:
 
 - `scenes/Demo-*.duf` - the scene source (a copy: contributor name blanked by
-  `demo.py sync`; no assets, textures or geometry).
+  `demo.py update`; no assets, textures or geometry).
 - `scenes.toml` - the manifest: what each scene is for, issue, products it
   needs (names only).
 - `references/iray/*.png` + `renders.tsv` - Iray Server references, with the
