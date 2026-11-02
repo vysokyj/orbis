@@ -1,2 +1,5 @@
 # Demo scenes: name = the .duf in My Library/Scenes (without extension).
 # python3 scripts/dev/demo.py add <Demo-Name> "<purpose>" [issue]
+
+[Demo-Gladiator]
+purpose = "Production-like scene: posed figure with wardrobe and hair, environment with volumetric haze, full lighting"
