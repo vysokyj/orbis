@@ -89,6 +89,12 @@ if [ "${QUIT_OCTANE:-}" != 1 ]; then
     echo "done (Octane X left running): $docs"
     exit 0
 fi
+# Never after a failed job: Octane X shows an error dialog the user wants to
+# read (#50). A probe/render log with an error or an unsaved image counts.
+if grep -qiE 'error|fail|saved false' "$docs"/orbis_probe*.txt 2>/dev/null; then
+    echo "the run reports a failure: Octane X left open for its error dialog (QUIT_OCTANE ignored)" >&2
+    exit 0
+fi
 osascript -e 'tell application "Octane X" to quit' >/dev/null 2>&1 || true
 i=0
 while pgrep -q -f "$bin" && [ $i -lt 15 ]; do sleep 2; i=$((i + 1)); done

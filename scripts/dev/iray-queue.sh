@@ -29,6 +29,16 @@ if ! grep -q started "$queue/queue.log" 2>/dev/null; then
     echo "no queue running: open daz-render-queue.dsa in the connected DAZ Studio" >&2
     exit 1
 fi
+# A "started" line outlives the DAZ that wrote it: the queue only runs while
+# the connected DAZ Studio does. Tell the user instead of filling a dead queue.
+if ! pgrep -q -f DAZStudio; then
+    echo "the queue script was started, but DAZ Studio is not running: ask the user to start DAZ and the Iray Server queue" >&2
+    exit 1
+fi
+if tail -n 300 "$HOME/Library/Application Support/DAZ 3D/Studio6/log.txt" 2>/dev/null | grep -q "session handler rejected the session"; then
+    echo "the Iray Server rejects the session (it reset its password): tell the user, they fix it and restart the queue script" >&2
+    exit 1
+fi
 for scene in "$@"; do
     name=$(basename "$scene" .duf)
     rm -f "$queue/$name.png" "$queue/done/$name.duf"

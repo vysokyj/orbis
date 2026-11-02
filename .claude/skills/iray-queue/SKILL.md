@@ -17,5 +17,6 @@ description: Prepare and run Iray Server renders through the ORBIS render queue 
 
 ## Stalls
 - `status` shows `STALLED` or the DAZ log (`~/Library/Application Support/DAZ 3D/Studio6/log.txt`) shows "Server refused connection: session handler rejected the session" = the server reset its password. **Tell the user**; they fix it and restart the queue script in DAZ (it retries every 30 s). We never start the queue-side DAZ.
-- The script refuses to queue when no queue script is started ("open daz-render-queue.dsa in the connected DAZ Studio") - that is the moment to ask the user, not to retry.
+- `iray-queue.sh` refuses (exit 1, nothing queued) when no queue script was started, when DAZ Studio is not running, or when the DAZ log shows the rejected session - the moment to tell the user, not to retry.
+- Older wording: the script refuses to queue when no queue script is started ("open daz-render-queue.dsa in the connected DAZ Studio") - that is the moment to ask the user, not to retry.
 Principles: `docs/calibration.md`.
