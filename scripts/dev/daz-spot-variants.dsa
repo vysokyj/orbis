@@ -1,10 +1,10 @@
 // ORBIS calibration (#7): Iray renders of Calib-Spot.duf with the spot's
 // beam parameters varied, to fit Iray's spot profile. Open Calib-Spot.duf,
 // then run this from Window > Panes > Script IDE (Open..., Execute). Renders
-// go to ~/Desktop/spotcal/, one PNG per variant; the spot is restored after.
+// go to /tmp/orbis-spotcal/, one PNG per variant; the spot is restored after.
 // ECMAScript 3 (QtScript): var only, ASCII only.
 
-var OUT = "/Users/jirka/Desktop/spotcal";
+var OUT = "/tmp/orbis-spotcal";
 var VARIANTS = [
     // [name, Beam Distribution, Beam Exponent, Spread Angle]
     ["d2_e1_s60", 2, 1, 60],
@@ -41,7 +41,7 @@ if (!spot) {
     var expo = prop(spot, "Beam Exponent");
     var spread = prop(spot, "Spread Angle");
     var saved = [dist.getValue(), expo.getValue(), spread.getValue()];
-    new DzDir("/Users/jirka/Desktop").mkdir("spotcal");
+    new DzDir("/tmp").mkdir("orbis-spotcal");
     var mgr = App.getRenderMgr();
     var opts = mgr.getRenderOptions();
     var savedTo = opts.renderImgToId;

@@ -9,43 +9,22 @@ sensualium pictus* (1658).
 
 ## Build / test / run
 ```sh
-cargo test                                     # unit tests (no DAZ content needed)
-cargo build --release                          # target/release/orbis
+cargo test                 # unit tests (no DAZ content needed)
+cargo build --release      # target/release/orbis
+scripts/install.sh         # build + `orbis install` into "My Library"
+scripts/package.sh         # plugin zip -> dist/ (git-ignored)
 cargo run --release -- export <scene.duf> -o <out.orbx|out.usdz> [--preview] [--no-ground] [--look enhanced|faithful] [--no-denoise]   # needs a cached dump
-scripts/install.sh                             # build + `orbis install` into "My Library"
-scripts/package.sh                             # plugin zip → dist/ (git-ignored)
-scripts/dev/render-icons.sh                    # assets/icon/*.svg → committed thumbnails
-python3 scripts/dev/fetch-octane-docs.py docs/octane/manual <cache dir>   # Octane manual mirror (git-ignored)
-python3 scripts/dev/fetch-nvidia-docs.py   # NVIDIA Iray / MDL docs mirror → docs/nvidia (git-ignored; needs pypdf)
-DONE_FILE=<out dir>/export-mi.done scripts/dev/daz-script.sh $PWD/scripts/dev/daz-export-mi.dsa <out dir> <scene.duf>... --   # scenes → Iray .mi (MDL arguments DAZ passes)
-python3 scripts/dev/mi-args.py [--param <regex>] <scene.mi>...   # those arguments per material (Calib-Map-* scenes sweep the channels)
-python3 scripts/dev/daz-defaults.py <definition.dsf> > calib/references/daz-defaults/<Name>.json   # a DAZ shader's channel defaults (values only) for src/iray.rs's tests
-DONE_FILE=<out>.done scripts/dev/daz-script.sh $PWD/scripts/dev/daz-build-shader-scene.dsa <base.duf> <out.duf> <preset.duf>... --   # shader presets on a scene's spheres (.mi sweeps)
-python3 scripts/dev/make-mi-shader-scenes.py   # Calib-Mi-Hair / -DzDefault2: channel variants of those
-python3 scripts/dev/mi-geometry.py <scene.mi> <export.usdz>   # our geometry vs DAZ's .mi: per object, distance to our surface (pose, morphs, SubD)
-python3 scripts/dev/mi-oracle.py --out calib/references/mi <scene.mi>...   # .mi → JSON fixtures (options, camera, environment, lights, materials) for src/iray.rs's test
-python3 scripts/dev/highlight-spread.py [--vs <iray.png>] <render.png>...   # per-sphere highlight spread (p99 / median) and luminance vs Iray (#56)
-scripts/dev/daz-render.sh <scene.duf> <out.png> [secs] [samples]   # unattended capped Iray render (one DAZ instance that stays open; --stop quits it)
-scripts/dev/octane-run.sh <probe.lua> [scene.orbx]   # unattended Octane X Lua probe (starts Octane X, leaves it running; QUIT_OCTANE=1 quits)
-scripts/dev/octane-render.sh <out dir> [samples] <scene.orbx>...   # unattended Octane renders of exports, as exported
-python3 scripts/dev/make-calib-scenes.py   # Calib-PBRSkin / Calib-Tone-* / Calib-DOF-* from Calib-Materials.duf
-python3 scripts/dev/make-vdb-scenes.py   # Calib-VDB-* (local: Calib-HDRI with Gladiator's DTAS haze VDB)
-python3 scripts/dev/make-omnihair-scenes.py   # Calib-OmniHair-* (local: Calib-Hair's strands on DAZ's OmniHair shader)
-python3 scripts/dev/make-skin-variants.py <figure> <light> [<variant>...]   # Calib-Skin-<figure>-<light>-<variant>: one channel set on the whole skin (local, store skins)
-python3 scripts/dev/make-light-scenes.py   # Calib-L-* light scenes from Calib-Point/-Area/-Spot/-Distant/-Emissive
-python3 scripts/dev/calib-render.py [--auto-ev] <scene.duf>...   # Iray references → ~/Library/Caches/orbis/calib/iray
-DONE_FILE=<out>.done scripts/dev/daz-script.sh scripts/dev/daz-build-leaf-scene.dsa <Calib-L-Distant-45.duf> <Iray Uber Base.duf> <out>   # Calib-Leaf (then make-calib-scenes.py tunes its cards)
-DONE_FILE=<out>.done scripts/dev/daz-script.sh scripts/dev/daz-build-sundir-scene.dsa <Calib-L-Mode-SunSky-off.duf> <out>   # Calib-L-Mode-SunSky-dir (sun steered by a node)
-scripts/dev/iray-queue.sh [-s samples] <scene.duf>...   # Iray Server renders via daz-render-queue.dsa in the connected DAZ (docs/calibration.md)
-python3 scripts/dev/keep-refs.py [--renderer NAME] [--queue-log LOG] <render.png>...   # renders of calib/scenes → calib/references/iray + renders.tsv (samples, renderer, time)
-scripts/dev/daz-export-batch.sh <scene.duf> <out dir>   # the installed DAZ script's whole export unattended (--batch: saved options, DzProcess, report to orbis-batch.txt)
-scripts/dev/daz-dump.sh <out dir> <scene.duf>...   # headless DAZ dump (the ORBIS script's --dump) + orbis export
-python3 scripts/dev/orbx-variants.py <in.orbx> <out dir> <hypothesis>...   # material-pin variants of an export (gloss-2r, gloss-ior, dl-ior)
-scripts/dev/calib-variants.sh all -- <scene>...   # export (cached dumps) + render + report per variant (Look × mode)
-scripts/dev/calib-octane-batch.sh   # Octane side of the calibration: render all exports + variants, report vs Iray
-python3 scripts/dev/channel-audit.py > audit.md   # DAZ channels set in My Library's scenes vs. read by the export (#15)
-python3 scripts/dev/shader-coverage.py > coverage.md   # every Iray Uber / PBRSkin / DAZ Default channel: default, read or not (#15)
 ```
+Everything else (calibration, DAZ/Octane runs, Iray queue, `.mi` fixtures,
+references, lab notes) is a **project skill** in `.claude/skills/` - use it
+instead of remembering the commands: `calib-loop`, `ship-fix`, `lab-note`,
+`iray-refs`, `iray-queue`, `mi-fixture`, `octane-probe`, `daz-script-dev`,
+`docs-first`, `stav`. Subagents in `.claude/agents/` (`calib-analyst`,
+`spec-guard`, `doc-researcher`); hooks in `.claude/settings.json` enforce the
+ask-first rules below. The scripts are in `scripts/dev/` (each has its usage
+in its header). The repo is location-independent: scripts find each other
+via their own path, hooks use `$CLAUDE_PROJECT_DIR`; keep it that way (no
+absolute home paths).
 CI (`.github/workflows/ci.yml`) tests and packages on every push; a `v*` tag
 attaches the zip to a GitHub release.
 
