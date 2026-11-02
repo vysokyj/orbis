@@ -1,0 +1,2 @@
+# Sample scenes: name = the .duf in My Library/Scenes (without extension).
+# python3 scripts/dev/sample.py add <Sample-Name> "<purpose>" [issue]

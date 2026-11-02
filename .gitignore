@@ -37,3 +37,9 @@ __pycache__/
 # Mirrored NVIDIA Iray / MDL documentation — NVIDIA's copyrighted text;
 # fetch locally with scripts/dev/fetch-nvidia-docs.py
 /docs/nvidia/
+
+# DAZ scenes and content stay out of this public repo, except the generated
+# calibration scenes (hook .claude/hooks/guard.sh checks staged files too)
+*.duf
+!/calib/scenes/*.duf
+*.dbz

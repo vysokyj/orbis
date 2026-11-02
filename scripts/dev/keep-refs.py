@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """ORBIS calibration: keep Iray renders of the generated scenes in git.
 
-  python3 scripts/dev/keep-refs.py [--renderer NAME] [--queue-log LOG] <render.png>...
+  python3 scripts/dev/keep-refs.py [--sample] [--renderer NAME] [--queue-log LOG] <render.png>...
+
+--sample: renders of Sample- scenes (sample/scenes.toml), kept in sample/references/iray with the scene's sha256
 
 Copies each render into calib/references/iray/ and records how it was made in
 calib/references/iray/renders.tsv (samples, time cap, renderer, date, render
@@ -23,11 +25,19 @@ import csv, datetime, filecmp, gzip, json, os, re, shutil, sys
 repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 scenes = os.path.join(repo, 'calib', 'scenes')
 refs = os.path.join(repo, 'calib', 'references', 'iray')
-tsv = os.path.join(refs, 'renders.tsv')
 calib = os.path.expanduser('~/Library/Caches/orbis/calib')
 FIELDS = ['scene', 'samples', 'max_time', 'renderer', 'rendered', 'seconds']
 
 args = sys.argv[1:]
+sample = '--sample' in args
+if sample:
+    # Sample- scenes: store content stays in the library, only renders are kept.
+    args.remove('--sample')
+    refs = os.path.join(repo, 'sample', 'references', 'iray')
+    FIELDS = FIELDS + ['scene_sha256']
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import sample as sample_lib
+tsv = os.path.join(refs, 'renders.tsv')
 renderer = 'DAZ Studio Iray (CPU)'
 logs = []
 pngs = []
@@ -75,7 +85,15 @@ if os.path.exists(tsv):
 changed = 0
 for png in pngs:
     name = os.path.basename(png)[:-4]
-    if not os.path.exists(os.path.join(scenes, name + '.duf')):
+    if sample:
+        if name not in sample_lib.entries():
+            print(f'skip {name}: not in sample/scenes.toml (python3 scripts/dev/sample.py add)')
+            continue
+        lib_scene = sample_lib.scene_path(name)
+        if not os.path.exists(lib_scene) or os.path.getmtime(lib_scene) > os.path.getmtime(png):
+            print(f'skip {name}: the scene was saved after this render, so the render is stale')
+            continue
+    elif not os.path.exists(os.path.join(scenes, name + '.duf')):
         print(f'skip {name}: not a generated scene in calib/scenes')
         continue
     copy = next((p for p in (png[:-4] + '.duf', os.path.join(calib, 'queue', 'done', name + '.duf'),
@@ -96,6 +114,8 @@ for png in pngs:
     rows[name] = {'scene': name, 'samples': samples, 'max_time': c.get('Max Time', ''), 'renderer': renderer,
                   'rendered': datetime.datetime.fromtimestamp(os.path.getmtime(png)).strftime('%Y-%m-%d %H:%M'),
                   'seconds': seconds(name, png)}
+    if sample:
+        rows[name]['scene_sha256'] = sample_lib.sha256(lib_scene)
     changed += 1
     print(f'kept {name}: {samples} samples, {renderer}')
 with open(tsv, 'w', newline='') as f:

@@ -113,6 +113,12 @@ else:
 done = f"{OCTANE_DOCS}/orbis_probe.done"
 print("last probe finished:", ago(done) if os.path.exists(done) else "never")
 
+section("Sample scenes")
+sl = run("python3", os.path.join(ROOT, "scripts/dev/sample.py"), "list")
+print(sl or "none registered")
+if "STALE" in sl:
+    print("!! stale Sample references: re-render them in the next Iray batch")
+
 section("Cache")
 print(run("du", "-sh", CACHE).split("\t")[0], f"in {CACHE}")
 orbx = len(run("find", CACHE, "-name", "*.orbx").splitlines())

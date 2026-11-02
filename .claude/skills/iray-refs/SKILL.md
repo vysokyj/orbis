@@ -10,6 +10,7 @@ copies renders into `calib/references/iray/` and records samples/renderer/time i
 
 Rules:
 - **Only scenes that exist in `calib/scenes`** (generated, DAZ built-ins and primitives). The script skips everything else - never work around it.
+- `Sample-*` scenes (user's hand-made, store content): `keep-refs.py --sample`, into `sample/references/iray` - see the `sample-scene` skill. Only when listed in `sample/scenes.toml`.
 - Never commit private scenes (teens, Gladiator, copies like Calib-Hair-Teens), store assets, or scene files with store content. Renders (not data) of Calib-Skin-* / Calib-Hair-* may go in.
 - Commit **as renders arrive during a long run**, not at its end.
 - References live in `~/Library/Caches/orbis/calib/iray` (5000 samples from Iray Server) and `iray-400` (400 samples); `calib/references/iray` is the git copy.
