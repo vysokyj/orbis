@@ -20,19 +20,18 @@ while dir=$(defaults read com.daz.Studio6 "ContentDir$i" 2>/dev/null); do
     i=$((i + 1))
 done
 defaults write com.daz.Studio6 NSAppSleepDisabled -bool YES
+# -headless: no window (the same flag Dazzle uses; #63). HEADLESS=0 starts a
+# normal instance for a script that needs the GUI. -noDefaultScene skips the
+# default scene's load.
+flags="-instanceName orbis-render -noPrompt"
+[ "${HEADLESS:-1}" = 0 ] || flags="-headless -noDefaultScene $flags"
 if [ -z "${DONE_FILE:-}" ]; then
-    exec "$app" -instanceName orbis-render -noPrompt "$@" "$script"
+    exec "$app" $flags "$@" "$script"
 fi
 rm -f "$DONE_FILE"
-# In the background (open -g): a new instance's window would take the focus
-# from whatever the user is doing. open returns at once; follow the instance
-# by its name.
-open -g -n -a "${app%/Contents/MacOS/DAZStudio}" --args -instanceName orbis-render -noPrompt "$@" "$script"
-pid=
-for _ in $(seq 60); do
-    pid=$(pgrep -n -f "DAZStudio -instanceName orbis-render" || true)
-    [ -n "$pid" ] && break
-    sleep 1
-done
+# In the background, started directly (not through open): a headless instance
+# has no window to take the focus from whatever the user is doing.
+"$app" $flags "$@" "$script" >/dev/null 2>&1 &
+pid=$!
 while [ -n "$pid" ] && kill -0 $pid 2>/dev/null && [ ! -f "$DONE_FILE" ]; do sleep 1; done
 [ -n "$pid" ] && kill -9 $pid 2>/dev/null || true
