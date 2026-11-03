@@ -107,6 +107,23 @@ on / off differ by > 4 / 255: Iray off − on −2.36 / +0.48 / +6.05, Octane
 −2.66 / +0.19 / +5.89 (|Δ| 0.44). Linear mean Octane / Iray: Default 1.037,
 on 1.035, off 1.033.
 
+## Saturation and white point (the other Calib-Tone option scenes)
+
+Rendered as exported, linear means over each renderer's own Default:
+
+| scene | Iray R G B | Octane R G B | chroma Iray / Octane |
+|---|---|---|---|
+| Sat0 | 1.104 0.984 0.818 | 1.114 0.991 0.824 | 0.000 / 0.000 |
+| Sat15 | 0.955 1.008 1.083 | 0.951 1.004 1.080 | 1.492 / 1.488 |
+| WhiteScale2 | 1.000 1.000 1.000 | 1.000 1.000 1.000 | — |
+| WhiteWarm | 0.651 1.062 2.001 | 0.785 1.031 1.360 | 3.35 / 1.95 |
+
+Saturation and White Point Scale match. White Point does not: Iray divides
+by the white point linearised (^2.2), k / wp^2.2 with k 0.650; Octane's white
+balance is not a per-channel division (raw: R/G 0.761, B/G 1.319 for 0.8 /
+1.333; tried wp^2.2 on the pin: 0.510 1.082 1.949, R too low). Reverted, open
+as [#70](https://github.com/vysokyj/orbis/issues/70).
+
 ## Lessons
 
 - The Iray references alone settled both Iray rules (vignetting exponent,

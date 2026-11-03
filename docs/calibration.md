@@ -72,7 +72,7 @@ thing at a time.
 | `Calib-ThinFilm` | thin film | done (film tint, Iray's MDL) | [#31](https://github.com/vysokyj/orbis/issues/31) |
 | `Calib-Diffuse` | diffuse roughness, strength, overlay | — | [#32](https://github.com/vysokyj/orbis/issues/32) |
 | `Calib-Dispersion` | dispersion (Abbe) | — | [#33](https://github.com/vysokyj/orbis/issues/33) |
-| `Calib-Tone-Vignette*`, `-BurnComp-*`, `-Sat*`, `-White*` | tonemapper: vignetting, per-component burn, saturation, white point (`make-option-scenes.py`) | — | [#38](https://github.com/vysokyj/orbis/issues/38) |
+| `Calib-Tone-Vignette*`, `-BurnComp-*`, `-Sat*`, `-White*` | tonemapper: vignetting, per-component burn, saturation, white point (`make-option-scenes.py`) | done but the white point (vignetting fitted, luminance burn as a 3D LUT) | [#38](https://github.com/vysokyj/orbis/issues/38), [#70](https://github.com/vysokyj/orbis/issues/70) |
 | `Calib-Env-*` | environment: tint, dome rotation / orientation, lighting blur / resolution, intensity, ground, matte fog, ground fog, dome modes | — | [#37](https://github.com/vysokyj/orbis/issues/37), [#65](https://github.com/vysokyj/orbis/issues/65) |
 | `Calib-RS-*` | render settings: caustics, path length, firefly filter, bloom, pixel filter, spectral | — | [#43](https://github.com/vysokyj/orbis/issues/43) |
 | `Calib-L-Opt-*` | light options: decay, shadow intensity / softness / colour, illumination, render emitter, cast shadows, temperature | — | [#35](https://github.com/vysokyj/orbis/issues/35) |
