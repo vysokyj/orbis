@@ -768,7 +768,25 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   1.24; Calib-CoatEffect's red gloss with effect R 1.19 → 1.05;
   Calib-Map-TopCoat's red weighted coat B 4.29 → 1.81, its Fresnel coat
   with effect 1 1.09 / 1.09 / 1.16. An overlay with maps is still left
-  out (#27).
+  out ([#71](https://github.com/vysokyj/orbis/issues/71)).
+- **Diffuse Roughness** σ (Iray's diffuse is Oren-Nayar at σ, DAZ's MDL;
+  the .mi export hands σ over as is) → where Universal has no gloss,
+  metal, refraction or transmission on its one `roughness` pin (Glossy
+  Layered Weight 0, no dual lobe, or the diffuse part of a weighted mix):
+  `diffuseBrdf` 2 (Oren-Nayar) and `roughness` σ. Elsewhere Lambertian,
+  the albedo × Oren-Nayar's A term 1 − 0.5 σ² / (σ² + 0.33). **Diffuse
+  Overlay Roughness** σ₀: the overlay's share × A(σ₀) (÷ A(σ) under
+  Oren-Nayar). Maps of either are left out; the skin path
+  (`standard_surface`) keeps its fitted albedo. **Diffuse Strength**
+  scales the base colour (as DAZ does before the MDL).
+
+  Why: on Calib-Diffuse (flat red spheres, smooth sphere 1.08 × Iray)
+  Iray's σ 0.5 / 1 keep 0.78 / 0.62 of the smooth one's light, A(σ)
+  0.78 / 0.62; Lambert rendered 1.26 / 1.49 × Iray, Octane's Oren-Nayar
+  at σ 1.02 / 0.97 (enum 0 / 1 render Lambertian, 3 brighter: 1.10 /
+  1.12; at roughness 0 Oren-Nayar is Lambert — the pin is shared). The
+  white overlay at σ₀ 1 1.40 → 0.89 (σ₀ 0: 1.04). Strength 0.5 1.09,
+  overlay squared 1.04, overlay 1 blue 0.97 (#32).
 - **Metallic flakes** → a Mix material: a metal in the flakes' colour
   (`edgeTint` the same, roughness 0.5: the flakes' scattered normals) at
   Flakes Weight × 0.4 × density^1.3 over the surface; the top coat lies
@@ -1305,7 +1323,7 @@ to calibrate on ([calibration](../calibration.md#the-scenes)):
   [#29](https://github.com/vysokyj/orbis/issues/29), flakes
   [#30](https://github.com/vysokyj/orbis/issues/30), thin film
   [#31](https://github.com/vysokyj/orbis/issues/31), diffuse overlay
-  [#32](https://github.com/vysokyj/orbis/issues/32), dispersion
+  maps [#71](https://github.com/vysokyj/orbis/issues/71), dispersion
   [#33](https://github.com/vysokyj/orbis/issues/33), DAZ Default shader
   [#41](https://github.com/vysokyj/orbis/issues/41), brick / MDL shaders
   [#21](https://github.com/vysokyj/orbis/issues/21), skin hue
