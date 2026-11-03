@@ -892,6 +892,18 @@ uber_spheres('Calib-Mi-Maps', [0.6, 0.6, 0.6], {'Glossy Layered Weight': 1.0, 'G
     ('P7 translucency map', {'Translucency Weight': 0.5, ('Translucency Color', 'image', 'float_color'): TILES, 'Translucency Color': [0.7, 0.7, 0.7]}),
     ('P8 bump and coat map', {('Bump Strength', 'image'): G, 'Bump Strength': 0.6, ('Top Coat Weight', 'image'): G, 'Top Coat Weight': 0.7}),
 ])
+# Map offsets (#65): Calib-Mi-Maps' 0.5 is a whole checker period, so it can't
+# tell the sign or scale of an offset. 0.125 / 0.375 are not periodic; with
+# tiles 1 (offset alone) and 2 x 2 (offset vs tile scale). Iray reference vs
+# Octane decides how material.rs writes the transform's translation.
+uber_spheres('Calib-Map-Offset', [0.6, 0.6, 0.6], {'Glossy Layered Weight': 1.0, 'Glossy Roughness': 0.3}, [
+    ('O1 none', {('diffuse', 'image'): TILES, 'diffuse': [0.8, 0.6, 0.4]}),
+    ('O2 U 0.125', {('diffuse', 'image'): TILES, 'diffuse': [0.8, 0.6, 0.4], 'Horizontal Offset': 0.125}),
+    ('O3 V 0.125', {('diffuse', 'image'): TILES, 'diffuse': [0.8, 0.6, 0.4], 'Vertical Offset': 0.125}),
+    ('O4 V -0.375', {('diffuse', 'image'): TILES, 'diffuse': [0.8, 0.6, 0.4], 'Vertical Offset': -0.375}),
+    ('O5 tiles 2 U V 0.125', {('diffuse', 'image'): TILES, 'diffuse': [0.8, 0.6, 0.4], 'Horizontal Tiles': 2.0, 'Vertical Tiles': 2.0, 'Horizontal Offset': 0.125, 'Vertical Offset': 0.125}),
+    ('O6 tiles 3x2 V 0.125', {('diffuse', 'image'): TILES, 'diffuse': [0.8, 0.6, 0.4], 'Horizontal Tiles': 3.0, 'Vertical Tiles': 2.0, 'Vertical Offset': 0.125}),
+])
 # Emission by Luminance Units: 0 cd/m², 1 kcd/m², 2 cd/ft², 3 kcd/ft², 4 lm, 5 W.
 uber_spheres('Calib-Mi-Emit', [0.6, 0.6, 0.6], {'Emission Color': [1.0, 0.9, 0.8], 'Luminance': 300.0}, [
     (f'E{u} units {u}', {'Luminance Units': u}) for u in range(6)
