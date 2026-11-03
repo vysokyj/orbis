@@ -83,13 +83,14 @@ Seen in samples ([orbx.md](orbx.md#scene-projectocs)) plus:
 | 53 / 54 | blackbody / texture emission | `power`, `temperature`, `normalize` |
 | 56 | render target | |
 | 67 | transform value | `rotationOrder`, `rotation` (degrees), `scale`, `translation` (m) |
+| 77 | Spherical projection | `transform` (3D), `positionType` 1 world / 3 object; on an image's `projection` pin |
 | 110 | plane (infinite) | pin `groundColor` takes a material |
 | 130 | Universal material | `specular` default = full white |
 | 145 | shadow catcher | pin `opacity` |
 | 147 | Hair material | `hairMode` 0 = albedo, `albedo`, `specular`, `roughness`, `roughnessV`, `ior`, `offset`, `opacity` |
 | 163 | OCIO colour space | `namedColorSpace`: 1 sRGB, 2 linear sRGB, 6 linear sRGB + legacy gamma |
 | 277 | Standard Surface | built-in random-walk SSS; pins `subsurface` 24, `radius` 26, `scale` 27, `roughness` 8 (= specular roughness) |
-| 402 | analytic light | `analyticLightType` QUAD 0, DISK 1, DIRECTIONAL 2, SPHERE 3, TUBE 4; `analyticLightSpreadAngle` (full cone); `normalize` |
+| 402 | analytic light | `analyticLightType` QUAD 0, DISK 1, DIRECTIONAL 2, SPHERE 3, TUBE 4; `analyticLightSpreadAngle` (full cone); `normalize`; `quadAnalyticLightSize` / `diskAnalyticLightSize` (x, y in the XY plane, normal +Z) |
 | 20007 | material input (USD import) | |
 
 - **Rotation order** names the **matrix product left to right**: `XYZ` =

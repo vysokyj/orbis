@@ -291,10 +291,10 @@ pub(super) fn octane_spots(lights: &[SceneLight]) -> Vec<crate::material::Octane
         .iter()
         .filter_map(|l| {
             let cone = l.cone_deg?;
-            let diameter = match l.shape {
-                LightShape::Disk { radius } | LightShape::Sphere { radius } => 2.0 * radius,
-                LightShape::Rect { width, height } => width.max(height),
-                _ => 2.0 * POINT_RADIUS_M,
+            let (size, quad) = match l.shape {
+                LightShape::Disk { radius } | LightShape::Sphere { radius } => ([2.0 * radius; 2], false),
+                LightShape::Rect { width, height } => ([width, height], true),
+                _ => ([2.0 * POINT_RADIUS_M; 2], false),
             };
             Some(crate::material::OctaneSpot {
                 name: l.label.clone(),
@@ -302,7 +302,8 @@ pub(super) fn octane_spots(lights: &[SceneLight]) -> Vec<crate::material::Octane
                 kelvin: l.kelvin,
                 color: l.color,
                 spread_deg: 2.0 * octane_cone_half(cone, l.beam_exponent),
-                diameter,
+                size,
+                quad,
                 euler_deg: l.euler_deg,
                 rotation_order: l.rotation_order.clone(),
                 translation: l.translation,

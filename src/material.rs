@@ -3000,8 +3000,10 @@ pub struct OctaneSpot {
     pub color: [f64; 3],
     /// Full cone angle of the Octane disk, degrees (fitted to Iray's beam).
     pub spread_deg: f64,
-    /// Emitter disk diameter, meters.
-    pub diameter: f64,
+    /// The emitter, meters: a quad width × height (Iray's rectangle), else
+    /// a disk of this diameter (both values).
+    pub size: [f64; 2],
+    pub quad: bool,
     pub euler_deg: [f64; 3],
     pub rotation_order: String,
     pub translation: [f64; 3],
@@ -3068,14 +3070,15 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, volumes: &
         let id = w.id();
         ids.push(id);
         let _ = writeln!(w.out, "    <node id='{id}' type='402' name='{}' position='{} -450'>", esc(&l.name), 300 + k * 200);
-        w.value_pin(5, "analyticLightType", 57, 2, "1"); // DISK
+        w.value_pin(5, "analyticLightType", 57, 2, if l.quad { "0" } else { "1" }); // QUAD / DISK
         w.value_pin(5, "analyticLightSpreadAngle", 6, 9, &format!("{} 0 0 0", num(l.spread_deg as f32)));
         // A soft cone, cos θ · cos²(θ · 90° / half): Iray's beam falls off
         // towards the edge (`octane_cone_half` fits the spread to it).
         w.value_pin(5, "analyticLightSpreadCutoffHardness", 6, 9, "0 0 0 0");
         w.value_pin(5, "normalize", 11, 1, "1");
-        let d = num(l.diameter as f32);
-        w.value_pin(5, "diskAnalyticLightSize", 6, 9, &format!("{d} {d} 0 0"));
+        // Both in the light's XY plane, shining along +Z (probe 111).
+        let [sx, sy] = l.size.map(|s| num(s as f32));
+        w.value_pin(5, if l.quad { "quadAnalyticLightSize" } else { "diskAnalyticLightSize" }, 6, 9, &format!("{sx} {sy} 0 0"));
         let eid = w.id();
         w.pin_open(5, "emission");
         let blackbody = l.kelvin.is_some_and(|k| k > 0.0);

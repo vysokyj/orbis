@@ -1110,8 +1110,11 @@ emission units keep their ratios (20 000 lm and 50 W against 5000 cd/m² on
   half round their X axis**: Octane's import emits them along +Z, not
   UsdLux's and DAZ's −Z (Calib-Area lit the floor behind the light; turned,
   every surface 6.8–7.3 × Iray — power still to fit, #6).
-- **Spots** → analytic disk lights (402) — UsdLux shaping is lost: disk of
-  the emitter size (2 cm for a point source), `normalize`, blackbody.
+- **Spots** → analytic lights (402) — UsdLux shaping is lost: a disk of
+  the emitter size (2 cm for a point source), for `Light Geometry`
+  Rectangle a quad (`analyticLightType` 0, `quadAnalyticLightSize` width ×
+  height in the light's XY plane, like Iray's `rectangle`; Calib-L-Mi-Spot-rect:
+  the 20 × 40 cm emitter as in Iray, peak 1.02 ×), `normalize`, blackbody.
   **Beam**: Iray lights cos(θ · 90°/half)^`Beam Exponent` (half = `Spread
   Angle` / 2; `Beam Distribution` changes nothing); the disk at
   `analyticLightSpreadCutoffHardness` 0 lights cos θ · cos²(θ · 90°/half′)

@@ -25,4 +25,4 @@ median over a region) unless a note says otherwise; 1.00 = equal.
 | [2026-11-01 G9 eye (WIP)](2026-11-01-g9-eye-wip.md) | Genesis 9 eye: PBRSkin translucency as colour, layered-image layers at their own size, where calibration stood (#66) |
 | [2026-11-02 slow Iray render](2026-11-02-option-scenes.md) | Calib-RS-Bloom took 1433 s at 5000 samples (usual 105–112 s), other slow option scenes |
 | [2026-11-03 map offsets](2026-11-03-map-offset.md) | UV offset sweep (Calib-Map-Offset): translation = (−offset_u / tiles_u, offset_v / tiles_v) (#65) |
-| [2026-11-03 dome tilt](2026-11-03-dome-tilt.md) | Dome Orientation X / Z as a Spherical projection (type 77) with Iray's Rz · Rx · Ry, order ZXY (#65) |
+| [2026-11-03 dome tilt, spot shapes](2026-11-03-dome-tilt.md) | Dome Orientation X / Z as a Spherical projection (type 77) with Iray's Rz · Rx · Ry, order ZXY; a rect spot as an Octane quad (#65) |
