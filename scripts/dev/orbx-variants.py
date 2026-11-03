@@ -38,6 +38,8 @@ Hypotheses (by the Iray channels the variants stand for):
 - `daylight=<model>,<power>,<sun>,<ground start>`: the Daylight
   environment's model, power, sunIntensity and groundStartAngle.
 - `turbidity=<t>`: the Daylight environment's turbidity.
+- `vignetting=<v>`: the imager's vignetting (#38).
+- `fov=<deg>`: the camera's field of view (to see what vignetting follows).
 - `absorb-x<k>`: every absorption medium's scale × k.
 - `thin-ior1`: thin-walled glass (transmissionType 2) at IOR 1.
 - `dl-ior`: the same for PBRSkin's Dual Lobe Specular Reflectivity.
@@ -217,6 +219,10 @@ def apply(ocs, hyp):
     if hyp == 'thin-ior1':
         pat = r"(<pin name='ior'>\s*<node[^>]*>\s*<attr name='value' type='6'>)[^<]*(</attr>\s*</node>\s*</pin>\s*<pin name='transmissionType'>\s*<node[^>]*>\s*<attr name='value' type='2'>2)"
         return re.sub(pat, lambda m: m.group(1) + '1' + m.group(2), ocs)
+    if hyp.startswith('vignetting='):
+        return re.sub(r"(<pin name='vignetting'>\s*<node id='\d+' type='6'>\s*<attr name='value' type='9'>)[^<]*", lambda m: m.group(1) + hyp.split('=')[1] + ' 0 0 0', ocs)
+    if hyp.startswith('fov='):
+        return re.sub(r"(<node id='\d*100010' type='6'>\s*<attr name='value' type='9'>)[^<]*", lambda m: m.group(1) + hyp.split('=')[1] + ' 0 0 0', ocs)
     if hyp.startswith('turbidity='):
         return re.sub(r"(<node id='100212' type='6'>\s*<attr name='value' type='9'>)[^<]*", lambda m: m.group(1) + hyp.split('=')[1] + ' 0 0 0', ocs)
     if hyp.startswith('daylight='):

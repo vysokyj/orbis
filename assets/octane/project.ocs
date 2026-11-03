@@ -1305,7 +1305,7 @@
        </pin>
        <pin name='vignetting'>
         <node id='100120' type='6'>
-         <attr name='value' type='9'>0 0 0 0</attr>
+         <attr name='value' type='9'>@VIGNETTING@</attr>
         </node>
        </pin>
        <pin name='white_balance'>

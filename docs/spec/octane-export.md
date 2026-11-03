@@ -411,6 +411,7 @@ Group pins carry `dynamicType='12'`.
 | imager exposure | **1.4** × 2^(13 − EV) × cm² (Variants) | **1.4** × 2^(13 − EV) × cm² |
 | imager response | **Gamma 2.2** (403) | same |
 | highlight compression | 0; Burn < 1, Crush > 0 or Gamma ≠ 2.2 → a tone LUT (below) | same |
+| vignetting | Iray's cos(θ)^v fitted as Octane's frame-space cone per camera (below) | same |
 | white balance / saturation | DAZ White Point × Scale / Saturation | same |
 | denoiser | off | **on**, during the render (`denoiserOnce` off, `maxDenoiserInterval` 20) |
 
@@ -464,6 +465,40 @@ curve applied to its linear render within +0.5 / 255 (+4 in the deepest
 shadows); end to end, every Calib-Tone-* export renders in Octane at
 Calib-Tone-Default's ratio to Iray (floor 1.01 – 1.05; the spheres differ
 by material, not by tone setting).
+
+**Burn Highlights Per Component** off (#38): Iray burns the Rec. 709
+luminance Y and keeps the chromaticity — c · burn(Y) / Y, then crush and
+gamma per channel. A 1D LUT can't do that, so such a scene (with Burn < 1)
+gets a **3D LUT** (`LUT_3D_SIZE` 33, the same input, not clipped at 1 — a
+clip inside a cell bent the interpolation by up to 4 / 255; trilinear error
+≤ 0.2 / 255). Why: Calib-Tone-BurnComp-off predicted from -on's Iray pixels
+(the per-channel curve inverted) within 0.44 / 255 where the two differ by
+3.1 (Rec. 601 weights as well; the channels' mean 0.7, maximum 2.7).
+Octane reads the 3D LUT: its render is the curve on its Default render
+within 0.55 / 255 (the 1D LUT 0.53), and Octane's off − on shift is
+−2.7 / +0.2 / +5.9 per channel against Iray's −2.4 / +0.5 / +6.1.
+
+**Vignetting** (#38): Iray darkens linear values by cos(θ)^v, θ the ray's
+angle to the camera axis (Calib-Tone-Vignette05 / 1 over -Default: the
+exponent 0.50 / 1.00 in every band of θ). Octane's imager `vignetting` v_o
+darkens by 1 − v_o · e, e = √(x² + y²) / √2 in the frame's coordinates
+(each −1 … 1; slope 1.00, power of e 1.00 at v_o 0.25 / 0.5 / 1, the same at
+FOV 40° and 69°): a cone that ignores FOV and aspect, where Iray's falloff is
+round and steeper for wide lenses. The export sets v_o per camera to the
+least-squares fit of 1 − v_o · e to cos(θ)^v over the frame
+(`ToneMapping::octane_vignetting`; Calib-Tone, 69° at 16:9: 0.5 → 0.086, 1 →
+0.165). Rendered over Calib-Tone-Default, Octane / Iray:
+
+| region | Iray 0.5 | Octane 0.5 | Iray 1 | Octane 1 |
+|---|---|---|---|---|
+| centre | 1.000 | 0.989 | 1.000 | 0.979 |
+| left / right edge | 0.923 | 0.945 | 0.850 | 0.895 |
+| top / bottom edge | 0.973 | 0.946 | 0.943 | 0.895 |
+| corners | 0.904 | 0.925 | 0.819 | 0.854 |
+
+Mean |Δ| 1.7 % / 2.7 % of the pixel, the frame's mean −0.3 % / −0.6 %: the
+amount matches, the shape can't (the cone, and Octane darkens the top edge
+as much as the side one).
 
 ## Materials
 
@@ -1266,8 +1301,7 @@ to calibrate on ([calibration](../calibration.md#the-scenes)):
   [#7](https://github.com/vysokyj/orbis/issues/7).
 - Scene: hidden surfaces and render flags
   [#36](https://github.com/vysokyj/orbis/issues/36), fog and finite dome
-  [#37](https://github.com/vysokyj/orbis/issues/37), vignetting
-  [#38](https://github.com/vysokyj/orbis/issues/38), smoothing and round
+  [#37](https://github.com/vysokyj/orbis/issues/37), smoothing and round
   corners [#40](https://github.com/vysokyj/orbis/issues/40), Iray render
   settings [#43](https://github.com/vysokyj/orbis/issues/43), Sun-Sky
   channels [#18](https://github.com/vysokyj/orbis/issues/18).

@@ -838,6 +838,13 @@ pub fn tone(ch: &NodeChannels) -> BTreeMap<&'static str, f64> {
     out
 }
 
+/// Whether Iray burns the highlights per channel
+/// (`mip_burn_highlights_per_component`, Burn Highlights Per Component);
+/// off, it compresses the luminance and keeps the chromaticity.
+pub fn burn_per_component(ch: &NodeChannels) -> bool {
+    ch_bool(ch, "Burn Highlights Per Component", true)
+}
+
 /// The white point Iray tone-maps to (`mip_whitepoint`): White Point ×
 /// White Point Scale, as entered (not linearised).
 pub fn white_point(ch: &NodeChannels) -> [f64; 3] {
@@ -1247,6 +1254,8 @@ mod tests {
                 for (param, v) in tone(ch) {
                     check(format!("{scene} {param}"), num(&mi["camera"][param]), v);
                 }
+                let flag = |b: Option<bool>| b.map_or(f64::NAN, |b| b as u8 as f64);
+                check(format!("{scene} burn per component"), flag(mi["camera"]["mip_burn_highlights_per_component"].as_bool()), flag(Some(burn_per_component(ch))));
                 let wp = white_point(ch);
                 for i in 0..3 {
                     check(format!("{scene} whitepoint {i}"), num(&mi["camera"]["mip_whitepoint"][i]), wp[i]);

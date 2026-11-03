@@ -245,11 +245,17 @@ pub struct ToneMapping {
     pub crush_blacks: f64,
     pub saturation: f64,
     pub gamma: f64,
+    /// Iray's `mip_vignetting`: linear values × cos(θ)^v, θ the ray's angle
+    /// to the camera axis (0 = off).
+    pub vignetting: f64,
+    /// Burn per channel (Iray's default); off, the burn compresses the
+    /// luminance and keeps the chromaticity.
+    pub burn_per_component: bool,
 }
 
 impl Default for ToneMapping {
     fn default() -> Self {
-        ToneMapping { exposure_value: 13.0, cm2_factor: 1.0, white_point: [1.0; 3], burn_highlights: 1.0, crush_blacks: 0.0, saturation: 1.0, gamma: 2.2 }
+        ToneMapping { exposure_value: 13.0, cm2_factor: 1.0, white_point: [1.0; 3], burn_highlights: 1.0, crush_blacks: 0.0, saturation: 1.0, gamma: 2.2, vignetting: 0.0, burn_per_component: true }
     }
 }
 
@@ -266,12 +272,70 @@ impl ToneMapping {
     /// (Calib-Tone: within 0.5 / 255 of Iray's pixels); the crush is a fit
     /// (`CRUSH_KNEE`).
     pub fn iray_curve(&self, c: f64) -> f64 {
+        self.after_burn(self.burn(c))
+    }
+
+    /// Iray's burn: c (1 + c b) / (1 + c).
+    fn burn(&self, c: f64) -> f64 {
         let b = self.burn_highlights.clamp(0.0, 1.0);
         let c = c.max(0.0);
-        let burnt = c * (1.0 + c * b) / (1.0 + c);
+        c * (1.0 + c * b) / (1.0 + c)
+    }
+
+    /// Iray's crush and gamma on a burnt value.
+    fn after_burn(&self, burnt: f64) -> f64 {
         let crush = self.crush_blacks.max(0.0);
         let crushed = if crush > 0.0 { burnt * burnt / (burnt + CRUSH_KNEE * crush) } else { burnt };
         crushed.powf(1.0 / self.gamma.max(0.1))
+    }
+
+    /// Octane's imager vignetting for Iray's cos(θ)^v through a camera of
+    /// this horizontal field of view and aspect (w / h). Octane darkens by
+    /// 1 − v_o · e, e = √(x² + y²) / √2 on the frame's coordinates (each
+    /// −1 … 1, the corner 1; Calib-Tone-Default at v_o 0.25 / 0.5 / 1: slope
+    /// 1.00 v_o, power of e 1.00, the same at FOV 40° and 69°) — a cone in
+    /// frame space, where Iray's falloff is round and follows the FOV. v_o
+    /// is the least-squares fit over the frame (Calib-Tone, 69°, 16:9: Iray
+    /// 0.5 → 0.086, 1 → 0.165).
+    pub fn octane_vignetting(&self, fov_deg: f64, aspect: f64) -> f64 {
+        if self.vignetting <= 0.0 {
+            return 0.0;
+        }
+        let t = (fov_deg.clamp(0.0, 179.0) / 2.0).to_radians().tan();
+        let (n, aspect) = (64, aspect.max(1e-3));
+        let (mut num, mut den) = (0.0, 0.0);
+        for j in 0..n {
+            for i in 0..n {
+                let (x, y) = ((i as f64 + 0.5) / n as f64 * 2.0 - 1.0, (j as f64 + 0.5) / n as f64 * 2.0 - 1.0);
+                let e = (x * x + y * y).sqrt() / std::f64::consts::SQRT_2;
+                let cos = 1.0 / (1.0 + (x * x + (y / aspect).powi(2)) * t * t).sqrt();
+                num += e * (1.0 - cos.powf(self.vignetting));
+                den += e * e;
+            }
+        }
+        (num / den).clamp(0.0, 1.0)
+    }
+
+    /// Iray's curve on a linear colour: per channel, or with Burn
+    /// Highlights Per Component off the burn of its Rec. 709 luminance Y
+    /// as c · burn(Y) / Y, then crush and gamma per channel (Calib-Tone-
+    /// BurnComp-off predicted from -on's pixels within 0.44 / 255 where the
+    /// two differ by 3.1; Rec. 601 weights do as well, the mean or the
+    /// maximum of the channels 0.7 / 2.7).
+    pub fn iray_rgb(&self, c: [f64; 3]) -> [f64; 3] {
+        if !self.luminance_burn() {
+            return c.map(|v| self.iray_curve(v));
+        }
+        let c = c.map(|v| v.max(0.0));
+        let y = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        let k = if y > 0.0 { self.burn(y) / y } else { 1.0 };
+        c.map(|v| self.after_burn(v * k))
+    }
+
+    /// Whether the burn goes by luminance (per component off and a burn
+    /// to do): Octane's imager then needs a 3D LUT.
+    fn luminance_burn(&self) -> bool {
+        !self.burn_per_component && self.burn_highlights < 1.0
     }
 
     /// Whether Octane's own imager reproduces this: the calibrated defaults
@@ -284,7 +348,25 @@ impl ToneMapping {
     /// the Gamma 2.2 response of c / `LUT_HEADROOM` (the exposure is
     /// divided by it, so highlights up to 16× white survive the response's
     /// clip at 1). Octane applies response, gamma, then LUT (`order` 0).
+    /// A luminance burn needs the channels together: a 3D LUT of
+    /// `LUT_3D_SIZE`³ entries (red fastest, as `.cube` orders them), not
+    /// clipped at 1 — a clip inside a cell bends what the interpolation
+    /// reads by up to 4 / 255 (48³), the display clips after it.
     pub fn cube_lut(&self) -> String {
+        if self.luminance_burn() {
+            let n = LUT_3D_SIZE;
+            let mut out = format!("TITLE \"ORBIS Iray tone mapping\"\nLUT_3D_SIZE {n}\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n");
+            let lin = |i: usize| (i as f64 / (n - 1) as f64).powf(2.2) * LUT_HEADROOM;
+            for b in 0..n {
+                for g in 0..n {
+                    for r in 0..n {
+                        let [r, g, b] = self.iray_rgb([lin(r), lin(g), lin(b)]);
+                        let _ = writeln!(out, "{r:.6} {g:.6} {b:.6}");
+                    }
+                }
+            }
+            return out;
+        }
         let mut out = format!("TITLE \"ORBIS Iray tone mapping\"\nLUT_1D_SIZE {LUT_SIZE}\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n");
         for i in 0..LUT_SIZE {
             let x = i as f64 / (LUT_SIZE - 1) as f64;
@@ -303,6 +385,11 @@ const CRUSH_KNEE: f64 = 0.3;
 
 /// Entries of the tone LUT.
 const LUT_SIZE: usize = 4096;
+
+/// Entries per axis of the 3D tone LUT (a luminance burn). The response
+/// makes Iray's curve nearly linear in the LUT's input, so trilinear
+/// interpolation stays within 0.2 / 255 (`luminance_burn_lut`).
+const LUT_3D_SIZE: usize = 33;
 
 /// How far above white the tone LUT reaches (see [`ToneMapping::cube_lut`]).
 pub const LUT_HEADROOM: f64 = 16.0;
@@ -345,6 +432,8 @@ pub(super) fn scene_tone_mapping(lib: &mut Library) -> ToneMapping {
             crush_blacks: p("mip_crush_blacks"),
             saturation: p("mip_saturation"),
             gamma: p("mip_gamma"),
+            vignetting: p("mip_vignetting"),
+            burn_per_component: crate::iray::burn_per_component(&ch),
         };
     }
     ToneMapping::default()

@@ -524,6 +524,16 @@ fn iray_tone_mapping_drives_the_imager() {
     let plain = ToneMapping { burn_highlights: 1.0, ..tone.clone() };
     let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &plain, false, None, true);
     assert!(ocs.contains("2.800000 0 0 0") && !ocs.contains("type='103'") && !ocs.contains("@TONE_LUT@"));
+    assert!(tone.burn_per_component && tone.vignetting == 0.0 && !ocs.contains("@VIGNETTING@"));
+    // Vignetting: Iray's cos(θ)^v as Octane's frame-space cone, fitted per
+    // camera (Calib-Tone: 68.7°, 16:9).
+    let vig = |v: f64, fov: f64| ToneMapping { vignetting: v, ..ToneMapping::default() }.octane_vignetting(fov, 16.0 / 9.0);
+    assert!((vig(0.5, 68.725571) - 0.0855).abs() < 0.001 && (vig(1.0, 68.725571) - 0.1653).abs() < 0.001, "{} {}", vig(0.5, 68.725571), vig(1.0, 68.725571));
+    assert!(vig(1.0, 30.0) < vig(1.0, 68.7) && vig(0.0, 68.7) == 0.0 && vig(50.0, 170.0) == 1.0);
+    let mut cams = cams.clone();
+    cams[0].1.fov_deg = 68.725571;
+    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1920, 1080), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &ToneMapping { vignetting: 1.0, ..plain }, false, None, true);
+    assert!(ocs.contains("<pin name='vignetting'>\n        <node id='100120' type='6'>\n         <attr name='value' type='9'>0.165"));
     assert_eq!(scene_tone_mapping(&mut Library::new(vec![], json!({"scene": {"nodes": []}}))), ToneMapping::default());
     // Iray exposes by shutter, f-number and ISO; DAZ's EV is only shown.
     let physical = |s: f64, n: f64, iso: f64| {
@@ -865,6 +875,57 @@ fn iray_tone_curve() {
     let mid: f64 = rows[2048].split(' ').next().unwrap().parse().unwrap();
     assert!((mid - want((2048.0f64 / 4095.0).powf(2.2) * 16.0)).abs() < 1e-6, "{mid}");
     assert!(lut.contains("LUT_1D_SIZE 4096"));
+}
+
+#[test]
+fn luminance_burn_lut() {
+    // Per component off: the luminance is burnt, the chromaticity kept.
+    let t = ToneMapping { burn_highlights: 0.5, burn_per_component: false, ..ToneMapping::default() };
+    let per = ToneMapping { burn_per_component: true, ..t.clone() };
+    let c = [2.0, 0.5, 0.1];
+    let y = 0.2126 * 2.0 + 0.7152 * 0.5 + 0.0722 * 0.1;
+    let k = (1.0 + 0.5 * y) / (1.0 + y);
+    let out = t.iray_rgb(c);
+    for i in 0..3 {
+        assert!((out[i] - (c[i] * k).powf(1.0 / 2.2)).abs() < 1e-12);
+    }
+    assert_ne!(out, per.iray_rgb(c));
+    // Burn 1 compresses nothing: the 1D LUT, Octane's own response.
+    assert!(ToneMapping { burn_highlights: 1.0, ..t.clone() }.cube_lut().contains("LUT_1D_SIZE"));
+    // The 3D LUT, trilinearly read at its input (the Gamma 2.2 response of
+    // c / 16) and clipped at white, stays within 0.2 / 255 of the curve.
+    let lut = t.cube_lut();
+    let n: usize = lut.lines().find_map(|l| l.strip_prefix("LUT_3D_SIZE ")).unwrap().parse().unwrap();
+    let rows: Vec<[f64; 3]> = lut.lines().filter(|l| l.starts_with(|c: char| c.is_ascii_digit())).map(|l| {
+        let v: Vec<f64> = l.split(' ').map(|x| x.parse().unwrap()).collect();
+        [v[0], v[1], v[2]]
+    }).collect();
+    assert_eq!(rows.len(), n * n * n);
+    let at = |r: usize, g: usize, b: usize| rows[r + n * (g + n * b)];
+    let read = |c: [f64; 3]| -> [f64; 3] {
+        let x = c.map(|v| (v / LUT_HEADROOM).powf(1.0 / 2.2) * (n - 1) as f64);
+        let i = x.map(|v| (v.floor() as usize).min(n - 2));
+        let f: Vec<f64> = (0..3).map(|k| x[k] - i[k] as f64).collect();
+        let mut out = [0.0; 3];
+        for corner in 0..8 {
+            let d = [corner & 1, (corner >> 1) & 1, corner >> 2];
+            let w: f64 = (0..3).map(|k| if d[k] == 1 { f[k] } else { 1.0 - f[k] }).product();
+            let v = at(i[0] + d[0], i[1] + d[1], i[2] + d[2]);
+            (0..3).for_each(|k| out[k] += w * v[k]);
+        }
+        out
+    };
+    let mut worst: f64 = 0.0;
+    for r in 0..20 {
+        for g in 0..20 {
+            for b in 0..20 {
+                let c = [r, g, b].map(|v| (v as f64 / 19.0).powi(2) * 1.5 + 0.003);
+                let (want, got) = (t.iray_rgb(c).map(|v| v.min(1.0)), read(c).map(|v| v.min(1.0)));
+                worst = (0..3).map(|k| (want[k] - got[k]).abs()).fold(worst, f64::max);
+            }
+        }
+    }
+    assert!(worst * 255.0 < 0.2, "{}", worst * 255.0);
 }
 
 #[test]

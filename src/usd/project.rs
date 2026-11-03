@@ -87,6 +87,7 @@ pub(super) fn project_ocs(
             .replace("@CAM_TARGET@", &v3(cam.target))
             .replace("@CAM_UP@", &v3(cam.up))
             .replace("@CAM_FOV@", &format!("{:.6} 0 0 0", cam.fov_deg))
+            .replace("@VIGNETTING@", &format!("{:.6} 0 0 0", tone.octane_vignetting(cam.fov_deg, w as f64 / h.max(1) as f64)))
             .replace("@CAM_AUTOFOCUS@", "0")
             .replace("@CAM_FOCAL_DEPTH@", &format!("{:.6} 0 0 0", cam.focal_depth))
             .replace("@CAM_APERTURE@", &format!("{:.6} 0 0 0", cam.aperture_cm))
