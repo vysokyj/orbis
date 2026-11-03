@@ -10,7 +10,7 @@ description: Prepare and run Iray Server renders through the ORBIS render queue 
 ## Agreement (2026-11-02)
 1. **Prepare the whole batch first.** Before asking, have everything ready: generated scenes (`make-*.py`, `daz-build-*.dsa`; DAZ built-ins/primitives only for calib/scenes), checked that they open and that their dumps/references exist. Add what will probably be needed next, not only what is needed now. Write the ordered list (scene, samples, why) and an ETA from `python3 scripts/dev/status.py` (avg s/scene).
 2. **One call:** "Batch ready: N scenes, ~X min. Start the Iray Server." Nothing is queued before that.
-3. **After the user says the server runs**, queue the announced batch in one go: `scripts/dev/iray-queue.sh [-s samples] [-o out dir] <scene.duf>...` (default 400; references use 5000). Their go-ahead covers exactly that announced batch; anything beyond it is a new question. The guard hook still asks - that is intended.
+3. **After the user says the server runs**, queue the announced batch in one go: `scripts/dev/iray-queue.sh [-s samples] [-o out dir] <scene.duf>...` (default 400; references use 5000). Their go-ahead covers exactly that announced batch; anything beyond it is a new question.
 4. **While it runs, work on Octane** (Octane may render beside the Iray Server queue; never beside a local CPU Iray render) and on anything else; check `progress` instead of polling.
 5. Never reorder (no backdated mtimes). The next batch goes after the running one, or ask. `--stop` only on request.
 6. Finished renders -> `iray-refs` skill.

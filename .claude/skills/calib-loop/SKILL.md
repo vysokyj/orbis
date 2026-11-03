@@ -9,7 +9,7 @@ Principle and scene families: `docs/calibration.md`. Winning rules go in `docs/s
 All paths below are relative to the repo root; scripts find each other via their own location, so the repo can live anywhere.
 
 ## Before anything
-1. **Ask the user, one short question**: is Octane X / DAZ Studio free? (A hook asks too, but ask in words first.) If they say they work in an app, hands off. "It's free, don't ask" lasts for that app for that session only.
+1. **Ask the user, one short question**: is Octane X / DAZ Studio free? If they say they work in an app, hands off. "It's free, don't ask" lasts for that app for that session only.
 2. Octane may render beside the Iray Server queue, **never beside a local CPU Iray render**.
 3. Prefer small `Calib-*` scenes or half resolution. Big scenes (teens, 1.2 M faces) in back-to-back full renders froze the Mac.
 4. Needs an unlocked screen (Octane X has no Script menu behind a lock).

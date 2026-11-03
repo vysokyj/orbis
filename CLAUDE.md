@@ -20,10 +20,10 @@ references, lab notes) is a **project skill** in `.claude/skills/` - use it
 instead of remembering the commands: `calib-loop`, `ship-fix`, `lab-note`,
 `iray-refs`, `demo-scene`, `iray-queue`, `mi-fixture`, `octane-probe`, `daz-script-dev`,
 `docs-first`, `progress`. Subagents in `.claude/agents/` (`calib-analyst`,
-`spec-guard`, `doc-researcher`); hooks in `.claude/settings.json` enforce the
-ask-first rules below. The scripts are in `scripts/dev/` (each has its usage
+`spec-guard`, `doc-researcher`); the
+ask-first rules below are kept by Claude itself (no hooks). The scripts are in `scripts/dev/` (each has its usage
 in its header). The repo is location-independent: scripts find each other
-via their own path, hooks use `$CLAUDE_PROJECT_DIR`; keep it that way (no
+via their own path; keep it that way (no
 absolute home paths).
 CI (`.github/workflows/ci.yml`) tests and packages on every push; a `v*` tag
 attaches the zip to a GitHub release.
