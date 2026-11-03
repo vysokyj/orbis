@@ -32,6 +32,14 @@ pub struct SceneEnvironment {
     /// Iray's procedural sun and sky ("Sun-Sky Only", Environment Mode 2):
     /// Octane's Daylight environment instead of the dome.
     pub sun_sky: Option<SunSky>,
+    /// Iray's ground fog (`crate::iray::ground_fog`): slabs of fog volume
+    /// (`ground_fog_slabs`).
+    pub ground_fog: Option<crate::iray::GroundFog>,
+    /// Dome Mode "Infinite Sphere w/ Ground" (and the finite ones with a
+    /// ground): the HDRI's lower half projected onto the ground from this
+    /// high above it — Ground Texture Scale, meters (Iray's
+    /// `environment_dome_ground_texturescale`).
+    pub dome_ground: Option<f64>,
 }
 
 /// DAZ's Iray Sun-Sky (the `SS …` channels of "Environment Options") as
@@ -107,6 +115,63 @@ pub fn sun_direction(lat: f64, lon: f64, day: f64, time_s: f64, utc_offset: f64)
     // Azimuth from north, clockwise (east 90°).
     let az = (-h.sin()).atan2(dec.tan() * phi.cos() - phi.sin() * h.cos());
     [az.sin() * el.cos(), el.sin(), -az.cos() * el.cos()]
+}
+
+/// A horizontal slab of uniform fog: heights (m) and Iray's extinction
+/// (per meter, per channel) there.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FogSlab {
+    pub y0: f64,
+    pub y1: f64,
+    pub extinction: [f64; 3],
+}
+
+/// Iray's ground fog is unbounded; Octane's volumes are boxes. Their half
+/// width around the camera and the depth of the uniform part below
+/// `height0`, meters.
+pub const FOG_RADIUS: f64 = 1000.0;
+/// The slabs that stand in for the exponential decay: each `FOG_SLAB_DECAYS`
+/// decay lengths thick (at most `FOG_SLABS`), up to where the density is
+/// `FOG_END` of the ground's. Fewer, thicker slabs rendered both closer to
+/// Iray and faster than many thin ones (Calib-Env-GroundFog: four of two
+/// decays floor 1.06 / below the plane 1.00 in 321 s, sixteen of half a
+/// decay 1.12 / 0.96 in 450 s); the width doesn't count.
+pub const FOG_SLAB_DECAYS: f64 = 2.0;
+pub const FOG_SLABS: usize = 16;
+pub const FOG_END: f64 = 1e-3;
+
+/// Iray's ground fog as slabs: below `height0` its density `density0`
+/// (`FOG_RADIUS` deep), above it the exponential decay (Iray manual 10.6,
+/// per channel) as slabs at their mean density — a uniform fog (equal
+/// densities) one slab `FOG_RADIUS` high.
+pub fn ground_fog_slabs(fog: &crate::iray::GroundFog) -> Vec<FogSlab> {
+    let mut out = vec![FogSlab { y0: fog.height0 - FOG_RADIUS, y1: fog.height0, extinction: fog.density0 }];
+    let decay = fog.decay();
+    if !decay.is_finite() {
+        out.push(FogSlab { y0: fog.height0, y1: fog.height0 + FOG_RADIUS, extinction: fog.density0 });
+        return out;
+    }
+    if decay <= 0.0 {
+        return out;
+    }
+    let span = decay * (1.0 / FOG_END).ln();
+    let n = ((span / (decay * FOG_SLAB_DECAYS)).ceil() as usize).clamp(1, FOG_SLABS);
+    let t = span / n as f64;
+    // Each channel's own decay; its mean over [a, b] above height0.
+    let channel = |k: usize| {
+        let (d0, d1) = (fog.density0[k], fog.density1[k].min(fog.density0[k]));
+        let r = if d0 > 0.0 && d1 > 0.0 { (d1 / d0).ln() } else { f64::NEG_INFINITY };
+        (d0, if r == 0.0 { f64::INFINITY } else { (fog.height0 - fog.height1) / r })
+    };
+    for i in 0..n {
+        let (a, b) = (i as f64 * t, (i + 1) as f64 * t);
+        let extinction = [0, 1, 2].map(|k| {
+            let (d0, l) = channel(k);
+            if !l.is_finite() { d0 } else if l <= 0.0 { 0.0 } else { d0 * l * ((-a / l).exp() - (-b / l).exp()) / (b - a) }
+        });
+        out.push(FogSlab { y0: fog.height0 + a, y1: fog.height0 + b, extinction });
+    }
+    out
 }
 
 impl SceneEnvironment {
@@ -205,6 +270,8 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
                 }),
                 _ => None,
             },
+            ground_fog: crate::iray::ground_fog(&ch),
+            dome_ground: { let d = crate::iray::dome_shape(&ch); d.projected_ground().then_some(d.ground_texture_scale * f64::from(CM)) },
         });
     }
     None

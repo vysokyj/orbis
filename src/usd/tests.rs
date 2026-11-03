@@ -413,7 +413,7 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     // Iray's cos(θ · 90°/30°)⁴ beam: a soft Octane disk 0.78 × as wide.
     assert!((spots[0].spread_deg - 46.8).abs() < 1.0 && spots[0].watts == 10.0, "{:?}", spots[0]);
     assert!((octane_cone_half(30.0, 1.0) - 37.8).abs() < 1.0, "a cos¹ beam: a wider soft disk");
-    let (nodes, mesh) = crate::material::scene_lights(&spots, None, &[], 500, 1439);
+    let (nodes, mesh) = crate::material::scene_lights(&spots, None, None, &[], 500, 1439);
     assert!(nodes.contains("type='402' name='SpotLight'") && nodes.contains("type='3' name='DAZ 3D lights'"));
     assert!(nodes.contains("<pin name='Input 1' dynamicType='12' connect='1439'/>"));
     // DAZ "XYZ" (X applied first) is Octane "ZYX" (enum 5).
@@ -428,19 +428,19 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     // just under y = 0 so a room's floor hides it.
     // Auto: the scene's lowest point; Manual: Ground Origin Y (cm).
     let low = Mesh { points: vec![[0.0, 0.25, 0.0], [1.0, -0.03, 0.0]], ..Default::default() };
-    let mut e = SceneEnvironment { map: None, intensity: 1.0, tint: [1.0; 3], rotation_deg: 0.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None };
+    let mut e = SceneEnvironment { map: None, intensity: 1.0, tint: [1.0; 3], rotation_deg: 0.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None, ground_fog: None, dome_ground: None };
     assert!((ground_height(&e, &[low]) + 0.03).abs() < 1e-6);
     assert_eq!(ground_height(&e, &[]), 0.0);
     e.ground_origin_y = Some(12.0);
     assert!((ground_height(&e, &[]) - 0.12).abs() < 1e-6);
-    let (lifted, _) = crate::material::scene_lights(&[], Some((0.8, 0.12)), &[], 500, 1439);
+    let (lifted, _) = crate::material::scene_lights(&[], Some((0.8, 0.12)), None, &[], 500, 1439);
     assert!(lifted.contains("<attr name='translation' type='8'>0 0.119 0</attr>"), "{lifted}");
-    let (g, gmesh) = crate::material::scene_lights(&[], Some((0.8, 0.0)), &[], 500, 1439);
+    let (g, gmesh) = crate::material::scene_lights(&[], Some((0.8, 0.0)), None, &[], 500, 1439);
     assert!(g.contains("type='4' name='DAZ ground'") && g.contains("<attr name='translation' type='8'>0 -0.001 0</attr>"), "{g}");
     assert!(g.contains("type='110' name='DAZ ground plane'") && g.contains("type='145'") && g.contains("<attr name='value' type='6'>0.712</attr>"), "{g}");
     assert!(g.contains("<pin name='Input 2' dynamicType='12' connect='501'/>") && gmesh != 1439, "{g}");
     assert_eq!(g.matches("<node ").count(), g.matches("</node>").count());
-    assert_eq!(crate::material::scene_lights(&[], None, &[], 500, 1439), (String::new(), 1439));
+    assert_eq!(crate::material::scene_lights(&[], None, None, &[], 500, 1439), (String::new(), 1439));
     assert_ne!(mesh, 1439);
     assert!(light_emitters(&lights).is_empty(), "no UsdLux emitter for a spot");
     // A point light stays UsdLux: 1500 lm × 0.58 / 15 000 = 0.058 W, glowing.
@@ -485,8 +485,8 @@ fn vdb_volume_goes_to_octane_not_as_its_box() {
     assert_eq!((v[0].grid.as_str(), v[0].transform), ("density", t));
     let near = |a: [f32; 3], b: [f32; 3]| (0..3).all(|k| (a[k] - b[k]).abs() < 0.1);
     assert!(near(v[0].scattering, [10000.0, 2176.38, 0.0]) && near(v[0].absorption, [2176.38; 3]), "{v:?}");
-    let ov = crate::material::OctaneVolume { name: "Haze".into(), asset: "assets/vdb/00_haze.vdb".into(), grid: "density".into(), transform: t.map(|x| x * 0.01), scattering: v[0].scattering, absorption: v[0].absorption, anisotropy: 0.85 };
-    let (x, mesh) = crate::material::scene_lights(&[], None, &[ov], 500, 1439);
+    let ov = crate::material::OctaneVolume { name: "Haze".into(), asset: Some("assets/vdb/00_haze.vdb".into()), grid: "density".into(), transform: t.map(|x| x * 0.01), scattering: v[0].scattering, absorption: v[0].absorption, anisotropy: 0.85 };
+    let (x, mesh) = crate::material::scene_lights(&[], None, None, &[ov], 500, 1439);
     assert!(x.contains("<attr name='transform' type='13'>0.001 0 0 0.05 0 0.001 0 -100 0 0 0.001 0</attr>"), "{x}");
     assert!(x.contains("type='91' name='Haze'") && x.contains("<attr name='filename' type='11'>assets/vdb/00_haze.vdb</attr>"), "{x}");
     // 10⁴ per meter: the density pin's 10⁴ × the grids' 1; a 10-voxel step
@@ -552,7 +552,7 @@ fn iray_tone_mapping_drives_the_imager() {
 
 #[test]
 fn dome_rotation_is_a_u_shift() {
-    let env = |rot: f64, oy: f64| SceneEnvironment { map: None, intensity: 1.0, tint: [1.0; 3], rotation_deg: rot, orientation_deg: [0.0, oy, 0.0], scene_only: false, ground_shadow: None, ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None };
+    let env = |rot: f64, oy: f64| SceneEnvironment { map: None, intensity: 1.0, tint: [1.0; 3], rotation_deg: rot, orientation_deg: [0.0, oy, 0.0], scene_only: false, ground_shadow: None, ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None, ground_fog: None, dome_ground: None };
     assert_eq!(env(0.0, 0.0).dome_u_shift(), 0.25);
     assert!((env(110.0, 0.0).dome_u_shift() - (0.25 + 110.0 / 360.0)).abs() < 1e-12);
     assert_eq!(env(270.0, 0.0).dome_u_shift(), 0.0);
@@ -562,7 +562,7 @@ fn dome_rotation_is_a_u_shift() {
 
 #[test]
 fn dome_tilt_is_a_spherical_projection_with_iray_orientation() {
-    let e = SceneEnvironment { map: None, intensity: 1.0, tint: [1.0; 3], rotation_deg: 30.0, orientation_deg: [10.0, 20.0, 5.0], scene_only: false, ground_shadow: None, ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None };
+    let e = SceneEnvironment { map: None, intensity: 1.0, tint: [1.0; 3], rotation_deg: 30.0, orientation_deg: [10.0, 20.0, 5.0], scene_only: false, ground_shadow: None, ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None, ground_fog: None, dome_ground: None };
     // Orientation Y moves from the U shift into the projection.
     assert_eq!(e.dome_tilt(), Some([10.0, 20.0, 5.0]));
     assert!((e.dome_u_shift() - (0.25 + 30.0 / 360.0)).abs() < 1e-12);
@@ -581,7 +581,7 @@ fn iray_environment_becomes_an_hdri_texture_environment() {
     });
     let mut lib = Library::new(vec![], duf);
     let env = scene_environment(&mut lib).unwrap();
-    assert_eq!(env, SceneEnvironment { map: Some("/Environments/HDRI/sky 1.hdr".into()), intensity: 4.0, tint: [1.0; 3], rotation_deg: 90.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None });
+    assert_eq!(env, SceneEnvironment { map: Some("/Environments/HDRI/sky 1.hdr".into()), intensity: 4.0, tint: [1.0; 3], rotation_deg: 90.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None, ground_fog: None, dome_ground: None });
 
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("Environments/HDRI")).unwrap();
@@ -1183,9 +1183,53 @@ fn render_emitter_sets_whether_the_camera_sees_a_light() {
     assert!(xml.contains("<attr name='value' type='1'>1</attr>"), "{xml}");
     // The spot (an analytic light): its own object layer.
     let spots = octane_spots(&lights);
-    let (nodes, _) = crate::material::scene_lights(&spots, None, &[], 500, 1439);
+    let (nodes, _) = crate::material::scene_lights(&spots, None, None, &[], 500, 1439);
     assert!(nodes.contains("<pin name='objectLayer'>") && nodes.contains("<pin name='camera_visibility'>"), "{nodes}");
     assert_eq!(nodes.matches("<node ").count(), nodes.matches("</node>").count());
-    let (shown_spot, _) = crate::material::scene_lights(&[crate::material::OctaneSpot { visible: true, ..spots[0].clone() }], None, &[], 500, 1439);
+    let (shown_spot, _) = crate::material::scene_lights(&[crate::material::OctaneSpot { visible: true, ..spots[0].clone() }], None, None, &[], 500, 1439);
     assert!(!shown_spot.contains("objectLayer"));
+}
+
+#[test]
+fn ground_fog_slabs_follow_iray_exponential_decay() {
+    // DAZ's default fog: 0.98 / m at the ground, 1e-4 at 0.9144 m.
+    let fog = crate::iray::GroundFog { albedo: [0.4; 3], density0: [0.98; 3], density1: [1e-4; 3], height0: 0.0, height1: 0.9144, mie: false, anisotropy: 0.0, particle_size: 0.0 };
+    let decay = fog.decay();
+    assert!((decay - 0.9144 / (0.98f64 / 1e-4).ln()).abs() < 1e-9);
+    let s = ground_fog_slabs(&fog);
+    // The uniform part below, then the decay up to 1/1000 of the ground's density.
+    assert_eq!((s[0].y0, s[0].y1, s[0].extinction), (-FOG_RADIUS, 0.0, [0.98; 3]));
+    assert!(s.len() - 1 <= FOG_SLABS && (s.last().unwrap().y1 - decay * 1000f64.ln()).abs() < 1e-9);
+    // Contiguous, thinning, and each slab's optical depth that of the decay over it.
+    for w in s[1..].windows(2) {
+        assert!((w[0].y1 - w[1].y0).abs() < 1e-12 && w[1].extinction[0] < w[0].extinction[0]);
+    }
+    for x in &s[1..] {
+        let exact = 0.98 * decay * ((-x.y0 / decay).exp() - (-x.y1 / decay).exp());
+        assert!((x.extinction[0] * (x.y1 - x.y0) - exact).abs() < 1e-9);
+    }
+    // Equal densities: uniform, unbounded upward (one tall slab).
+    let uniform = crate::iray::GroundFog { density1: [0.98; 3], ..fog };
+    assert_eq!(ground_fog_slabs(&uniform).len(), 2);
+    assert_eq!(crate::material::unit_box([-1.0, 0.0, -1.0], [1.0, 0.5, 1.0]), [2.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.25, 0.0, 0.0, 2.0, 0.0]);
+}
+
+#[test]
+fn dome_ground_is_an_emitting_slab_with_the_hdri_from_the_virtual_camera() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("Environments/HDRI")).unwrap();
+    std::fs::write(dir.path().join("Environments/HDRI/sky.hdr"), b"#?RADIANCE").unwrap();
+    let env = SceneEnvironment { map: Some("/Environments/HDRI/sky.hdr".into()), intensity: 2.0, tint: [1.0; 3], rotation_deg: 0.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: None, ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None, ground_fog: None, dome_ground: Some(1.0) };
+    let mut tex = crate::material::Textures::default();
+    let t = crate::material::projected_environment_texture(&env, &[dir.path().to_path_buf()], &mut tex, 10, [0.0, 1.25, 0.0]).unwrap();
+    // A world-space Spherical projection at the virtual camera, mirrored in X.
+    assert!(t.contains("type='77'") && t.contains("<attr name='translation' type='8'>0 1.25 0</attr>") && t.contains("<attr name='scale' type='8'>-1 1 1</attr>"), "{t}");
+    // The environment's own lookup stays unmirrored.
+    assert!(!crate::material::environment_texture(Some(&env), &[dir.path().to_path_buf()], &mut tex, 10).contains("-1 1 1"));
+    let g = crate::material::DomeGround { texture: t, height: 0.25, power: 2.0 };
+    let (x, mesh) = crate::material::scene_lights(&[], None, Some(&g), &[], 500, 1439);
+    assert!(mesh != 1439 && x.contains("type='296' name='DAZ dome ground slab'") && x.contains("type='54'") && x.contains("<attr name='value' type='8'>2 0 0</attr>"), "{x}");
+    // Its top 2 mm under the ground: 0.25 − 0.002 − 0.0005.
+    assert!(x.contains("<attr name='translation' type='8'>0 0.2475 0</attr>"), "{x}");
+    assert!(crate::material::projected_environment_texture(&SceneEnvironment { map: None, ..env }, &[], &mut tex, 10, [0.0; 3]).is_none());
 }

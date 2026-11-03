@@ -896,6 +896,9 @@ pub struct DomeSetup {
     pub ground_shadow: f64,
     pub ground_glossiness: f64,
     pub ground_reflectivity: [f64; 3],
+    /// Ground Visible from Below — DAZ hands it only with Draw Ground on
+    /// (Calib-Env-Mi-GroundBelow; Calib-Env-Mi-Box, ground off: true).
+    pub ground_visible_from_below: bool,
 }
 
 pub fn dome_setup(ch: &NodeChannels) -> DomeSetup {
@@ -915,7 +918,127 @@ pub fn dome_setup(ch: &NodeChannels) -> DomeSetup {
         ground_shadow: ch_num(ch, "Ground Shadow Intensity", 1.0),
         ground_glossiness: ch_num(ch, "Ground Glossiness", 0.1),
         ground_reflectivity: ch_colour(ch, "Ground Reflectivity", [0.0; 3]),
+        ground_visible_from_below: !ch_bool(ch, "Draw Ground", true) || ch_bool(ch, "Ground Visible from Below", true),
     }
+}
+
+/// The dome's shape (Calib-Env-DomeMode*, Calib-Env-Mi-Box / -SphereGround):
+/// `environment_dome_mode` for Dome Mode 0 – 5, the radius and box size in
+/// cm = Dome Radius / Width / Height / Depth × Dome Scale Multiplier, the
+/// position = Dome Origin (cm) as it is, `environment_dome_ground_texturescale`
+/// = Ground Texture Scale (cm). The sizes and position reach the .mi only for
+/// a finite dome; the texture scale always.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DomeShape {
+    pub mode: &'static str,
+    pub radius: f64,
+    pub size: [f64; 3],
+    pub position: [f64; 3],
+    pub ground_texture_scale: f64,
+    /// Visualize Finite Dome: Iray's false-colour overlay of the dome.
+    pub visualize: bool,
+}
+
+impl DomeShape {
+    /// The infinite modes ("infinite", "ground").
+    pub fn finite(&self) -> bool {
+        !matches!(self.mode, "infinite" | "ground")
+    }
+
+    /// The lower half of the HDRI projected onto a ground plane.
+    pub fn projected_ground(&self) -> bool {
+        self.mode == "ground" || self.mode.ends_with("_with_ground")
+    }
+}
+
+pub fn dome_shape(ch: &NodeChannels) -> DomeShape {
+    const MODES: [&str; 6] = ["infinite", "ground", "sphere", "sphere_with_ground", "box", "box_with_ground"];
+    let scale = ch_num(ch, "Dome Scale Multiplier", 100.0);
+    DomeShape {
+        mode: MODES[(ch_num(ch, "Dome Mode", 0.0).max(0.0) as usize).min(5)],
+        radius: ch_num(ch, "Dome Radius", 100.0) * scale,
+        size: [("Dome Width", 200.0), ("Dome Height", 200.0), ("Dome Depth", 200.0)].map(|(k, d)| ch_num(ch, k, d) * scale),
+        position: ["X", "Y", "Z"].map(|a| ch_num(ch, &format!("Dome Origin {a}"), 0.0)),
+        ground_texture_scale: ch_num(ch, "Ground Texture Scale", 100.0),
+        visualize: ch_bool(ch, "Visualize Finite Dome", false),
+    }
+}
+
+/// Iray's ground fog (`iray_ground_fog_*`, Calib-Env-GroundFog, -Mi-Fog,
+/// -Mi-FogHG), when Ground Fog is on: the densities (extinction per meter)
+/// are the linear Density Start / End colours × their scales, the heights
+/// (m) Decay Start and Decay Start + Decay Height — absolute, not from the
+/// ground (Calib-Env-Mi-Fog: the ground at 30 cm, the fog from 50 cm). The
+/// albedo linear; the anisotropy only for Henyey-Greenstein (0 under Mie),
+/// the particle size (µm) as it is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroundFog {
+    pub albedo: [f64; 3],
+    pub density0: [f64; 3],
+    pub density1: [f64; 3],
+    pub height0: f64,
+    pub height1: f64,
+    /// "approx_mie" (Scattering Type 1), else "hg".
+    pub mie: bool,
+    pub anisotropy: f64,
+    pub particle_size: f64,
+}
+
+impl GroundFog {
+    /// The density's exponential decay length (m) above `height0`, from
+    /// NVIDIA's `decay = (h0 − h1) / ln(d1 / d0)` (Iray manual 10.6), on
+    /// the densities' mean; infinite for a uniform fog.
+    pub fn decay(&self) -> f64 {
+        let mean = |d: [f64; 3]| d.iter().sum::<f64>() / 3.0;
+        let (d0, d1) = (mean(self.density0), mean(self.density1).min(mean(self.density0)));
+        if d1 <= 0.0 {
+            return 0.0;
+        }
+        let r = (d1 / d0).ln();
+        if r == 0.0 { f64::INFINITY } else { (self.height0 - self.height1) / r }
+    }
+}
+
+pub fn ground_fog(ch: &NodeChannels) -> Option<GroundFog> {
+    if !ch_bool(ch, "Ground Fog", false) {
+        return None;
+    }
+    let start = ch_num(ch, "Ground Fog Decay Start", 0.0);
+    let mie = ch_num(ch, "Ground Fog Scattering Type", 0.0) == 1.0;
+    let density = |k: &str, scale: &str, d: f64| ch_colour(ch, k, [d.powf(COLOUR_GAMMA as f64); 3]).map(|c| c * ch_num(ch, scale, 1.0));
+    Some(GroundFog {
+        albedo: ch_colour(ch, "Ground Fog Albedo", [0.6705883, 0.682353, 0.6901961].map(|c: f64| c.powf(COLOUR_GAMMA as f64))),
+        density0: density("Ground Fog Density Start", "Ground Fog Density Start Scale", 0.990859),
+        density1: density("Ground Fog Density End", "Ground Fog Density End Scale", 0.01519911),
+        height0: start / 100.0,
+        height1: (start + ch_num(ch, "Ground Fog Decay Height", 91.44)) / 100.0,
+        mie,
+        anisotropy: if mie { 0.0 } else { ch_num(ch, "Ground Fog Anisotropy", 0.0) },
+        particle_size: ch_num(ch, "Ground Fog Particle Size", 0.0),
+    })
+}
+
+/// Iray's matte fog (`matte_fog_*`, Calib-Env-MatteFog, -Mi-MatteFog), when
+/// Matte Fog is on: the visibility in meters as it is (Koschmieder's
+/// contrast distance), the tints linear, the brightness and its "relative
+/// to environment" switch as they are.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatteFog {
+    pub visibility: f64,
+    pub visibility_tint: [f64; 3],
+    pub brightness: f64,
+    pub relative: bool,
+    pub brightness_tint: [f64; 3],
+}
+
+pub fn matte_fog(ch: &NodeChannels) -> Option<MatteFog> {
+    ch_bool(ch, "Matte Fog", false).then(|| MatteFog {
+        visibility: ch_num(ch, "Matte Fog Visibility", 10_000.0),
+        visibility_tint: ch_colour(ch, "Matte Fog Visibility Tint", [1.0; 3]),
+        brightness: ch_num(ch, "Matte Fog Brightness", 1.0),
+        relative: ch_bool(ch, "Matte Fog Brightness Relative to Environment", true),
+        brightness_tint: ch_colour(ch, "Matte Fog Brightness Tint", [1.0; 3]),
+    })
 }
 
 /// Iray's dome brightness per unit of DAZ's Environment Intensity × map value.
@@ -1292,6 +1415,49 @@ mod tests {
                 check(format!("{scene} ground height"), if d.ground_y == 0.0 { gy + 0.001 } else { gy }, d.ground_y);
                 check(format!("{scene} ground shadow"), num(&o["environment_dome_ground_shadow_intensity"]), d.ground_shadow);
                 check(format!("{scene} ground glossiness"), num(&o["environment_dome_ground_glossiness"]), d.ground_glossiness);
+                let flag = |v: &Value| f64::from(u8::from(v.as_bool().unwrap_or(false)));
+                check(format!("{scene} ground visible from below"), flag(&o["environment_dome_ground_visible_from_below"]), f64::from(u8::from(d.ground_visible_from_below)));
+                // The dome's shape; sizes and position only for a finite one.
+                let s = dome_shape(ch);
+                check(format!("{scene} dome mode {}", s.mode), 1.0, f64::from(u8::from(o["environment_dome_mode"].as_str() == Some(s.mode))));
+                check(format!("{scene} dome visualize"), flag(&o["environment_dome_visualize"]), f64::from(u8::from(s.visualize)));
+                check(format!("{scene} ground texture scale"), num(&o["environment_dome_ground_texturescale"]), s.ground_texture_scale);
+                if s.mode.starts_with("sphere") {
+                    check(format!("{scene} dome radius"), num(&o["environment_dome_radius"]), s.radius);
+                }
+                if s.mode.starts_with("box") {
+                    for (i, k) in ["width", "height", "depth"].iter().enumerate() {
+                        check(format!("{scene} dome {k}"), num(&o[format!("environment_dome_{k}")]), s.size[i]);
+                    }
+                }
+                if s.finite() {
+                    for i in 0..3 {
+                        check(format!("{scene} dome position {i}"), num(&o["environment_dome_position"][i]), s.position[i]);
+                    }
+                }
+                check(format!("{scene} ground fog"), flag(&o["iray_ground_fog"]), f64::from(u8::from(ground_fog(ch).is_some())));
+                if let Some(g) = ground_fog(ch) {
+                    for i in 0..3 {
+                        check(format!("{scene} fog albedo {i}"), num(&o["iray_ground_fog_albedo"][i]), g.albedo[i]);
+                        check(format!("{scene} fog density0 {i}"), num(&o["iray_ground_fog_density0"][i]), g.density0[i]);
+                        check(format!("{scene} fog density1 {i}"), num(&o["iray_ground_fog_density1"][i]), g.density1[i]);
+                    }
+                    check(format!("{scene} fog height0"), num(&o["iray_ground_fog_height0"]), g.height0);
+                    check(format!("{scene} fog height1"), num(&o["iray_ground_fog_height1"]), g.height1);
+                    check(format!("{scene} fog mie"), f64::from(u8::from(o["iray_ground_fog_scattering_type"] == "approx_mie")), f64::from(u8::from(g.mie)));
+                    check(format!("{scene} fog anisotropy"), num(&o["iray_ground_fog_anisotropy"]), g.anisotropy);
+                    check(format!("{scene} fog particle size"), num(&o["iray_ground_fog_particle_size"]), g.particle_size);
+                }
+                check(format!("{scene} matte fog"), flag(&o["matte_fog"]), f64::from(u8::from(matte_fog(ch).is_some())));
+                if let Some(m) = matte_fog(ch) {
+                    check(format!("{scene} matte fog visibility"), num(&o["matte_fog_visibility"]), m.visibility);
+                    check(format!("{scene} matte fog brightness"), num(&o["matte_fog_brightness"]), m.brightness);
+                    check(format!("{scene} matte fog relative"), flag(&o["matte_fog_brightness_relative_to_environment"]), f64::from(u8::from(m.relative)));
+                    for i in 0..3 {
+                        check(format!("{scene} matte fog visibility tint {i}"), num(&o["matte_fog_visibility_tint"][i]), m.visibility_tint[i]);
+                        check(format!("{scene} matte fog brightness tint {i}"), num(&o["matte_fog_brightness_tint"][i]), m.brightness_tint[i]);
+                    }
+                }
                 let env = &mi["environment"];
                 match environment(ch) {
                     Environment::None => check(format!("{scene} no environment"), 1.0, f64::from(u8::from(env.is_null()))),

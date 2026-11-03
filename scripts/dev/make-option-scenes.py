@@ -8,7 +8,8 @@ DAZ Studio needed. Written into My Library/Scenes (ORBIS_LIBRARY or the
 argument) and copied into calib/scenes; existing scenes are kept (--force).
 - Calib-Tone-*  tonemapper: vignetting, per-component burn, saturation, white point (#38)
 - Calib-Env-*   environment: tint, dome rotation / orientation, lighting blur / resolution,
-                intensity, ground, matte fog, ground fog, dome modes (#37, #65)
+                intensity, ground, matte fog, ground fog, dome modes (#37, #65); Calib-Env-Mi-*
+                for DAZ's .mi export only (every fog / dome channel off its default, #37)
 - Calib-RS-*    render settings: caustics, path length, firefly, bloom, pixel filter, spectral (#43)
 - Calib-L-Opt-* light options on Calib-L-Point-5k: decay, shadow intensity / softness / colour,
                 illumination, render emitter, cast shadows (#35); Calib-L-Opt-Rect-* on
@@ -140,3 +141,23 @@ for name, over in [('Facing', SPOT_UP), ('Facing-EmitterOff', {**SPOT_UP, 'Rende
         else:
             set_channel(node_channels(d, 'SpotLight'), k, v)
     save(d, f'Calib-L-Opt-Spot-{name}')
+
+# .mi-only scenes (#37): every ground fog, matte fog and finite dome channel off its default, so
+# DAZ's .mi export shows how each reaches Iray (scales, heights, units). No Iray render needed.
+ENV_MI = [('Fog', {'Ground Fog': True, 'Ground Fog Decay Start': 50.0, 'Ground Fog Decay Height': 120.0,
+                   'Ground Fog Density Start': [0.5, 0.6, 0.7], 'Ground Fog Density Start Scale': 2.0,
+                   'Ground Fog Density End': [0.1, 0.2, 0.3], 'Ground Fog Density End Scale': 0.5,
+                   'Ground Fog Albedo': [0.9, 0.8, 0.7], 'Ground Fog Scattering Type': 1,
+                   'Ground Fog Particle Size': 8.0, 'Ground Fog Anisotropy': 0.3,
+                   'Ground Position Mode': 1, 'Ground Origin Y': 30.0}),
+          ('MatteFog', {'Matte Fog': True, 'Matte Fog Visibility': 50.0, 'Matte Fog Visibility Tint': [1.0, 0.5, 0.25],
+                        'Matte Fog Brightness': 0.5, 'Matte Fog Brightness Relative to Environment': False,
+                        'Matte Fog Brightness Tint': [0.8, 0.6, 0.4]}),
+          ('Box', {'Dome Mode': 5, 'Dome Width': 300.0, 'Dome Height': 250.0, 'Dome Depth': 400.0,
+                   'Dome Scale Multiplier': 50.0, 'Dome Origin X': 10.0, 'Dome Origin Y': 20.0, 'Dome Origin Z': 30.0,
+                   'Ground Texture Scale': 150.0, 'Ground Visible from Below': False, 'Visualize Finite Dome': True}),
+          ('SphereGround', {'Dome Mode': 3, 'Dome Radius': 70.0, 'Dome Scale Multiplier': 30.0}),
+          ('Box-NoGround', {'Dome Mode': 4}),
+          ('FogHG', {'Ground Fog': True, 'Ground Fog Anisotropy': 0.3}),
+          ('GroundBelow', {'Draw Ground': True, 'Ground Visible from Below': False})]
+variants('Calib-Tone-Default', 'Calib-Env-Mi', 'Environment Options', ENV_MI)

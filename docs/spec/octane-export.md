@@ -1320,7 +1320,74 @@ scene with a light.
   rotated by (X, Y, Z) in order ZXY — Iray's Rz · Rx · Ry as it is — and the
   U shift drops orientation Y: `0.25 + Dome Rotation / 360`
   (Calib-L-Mi-Dome-turned, sky correlation 0.95; `docs/notes/2026-11-03-dome-tilt.md`).
+- **Environment Tint** (linear, Iray's `environment_function_tint`)
+  multiplies the map: a Multiply texture (39) of the image and the colour.
+  Calib-Env-Tint (1, 0.5, 0.3): 1.04 × Iray everywhere, as untinted.
 - No HDRI → Octane's white environment.
+- **Dome Mode** (`crate::iray::dome_shape`, .mi: Calib-Env-DomeMode*,
+  Calib-Env-Mi-Box / -SphereGround). The modes **with a ground**
+  ("Infinite Sphere w/ Ground", "Finite Sphere / Box w/ Ground"): Iray
+  projects the HDRI's lower half onto the ground, looked up from a virtual
+  camera `Ground Texture Scale` (cm) above it. → a thin SDF box (296,
+  2 km × 1 mm × 2 km, `DOME_GROUND_SIZE`) whose top is `DOME_GROUND_DROP`
+  (2 mm) below Iray's ground height, under the shadow catcher; its
+  material a Diffuse (17) of albedo 0 emitting the HDRI (texture emission,
+  surface brightness on, power = the dome's × `DOME_GROUND_POWER` 1)
+  through a world-space Spherical projection at the virtual camera — the
+  same image node, U shift and tilt as the environment, the projection
+  mirrored in X (`scale` −1 1 1: on a surface Octane's lookup is the
+  environment's mirror image) (`projected_environment_texture`).
+  Calib-Env-DomeMode1: below the horizon 1.03 – 1.04 × Iray, as the rest of
+  the frame (without it 0.00 – 1.44). The infinite plane (110) renders an
+  emitting material black, hence the box. Not with Draw Dome off. With
+  Draw Ground on as well the shadow catcher sits above it (no reference).
+  The **finite** dome itself (sphere or box: Dome Radius / Width / Height /
+  Depth × Dome Scale Multiplier, Dome Origin) is **not mapped**: Octane's
+  texture environment is at infinity, and a 100 m sphere around the
+  Calib scene changed Iray's sky by 5 % and the scene by < 1 %
+  (Calib-Env-DomeMode2). Visualize Finite Dome is a viewport aid.
+- **Ground Fog** (`crate::iray::ground_fog`: densities = linear Density
+  Start / End × their scales per meter, heights = Decay Start and Decay
+  Start + Decay Height in m, absolute; Iray's extinction is `density0`
+  below `height0`, decaying exponentially above it,
+  `decay = (h0 − h1) / ln(d1 / d0)`) → Unit Volumes (295) of a Volume
+  medium (98), 2 km wide (`FOG_RADIUS` 1 km) around the render camera
+  (`ground_fog_slabs`): one 1 km deep below `height0` at `density0`, then
+  slabs of `FOG_SLAB_DECAYS` = 2 decay lengths (at most 16) up to 1/1000 of
+  the ground's density, each at the decay's mean over it per channel (its
+  optical depth exact); equal densities → one uniform slab 1 km high.
+  Scattering = albedo × extinction, absorption = (1 − albedo) × extinction
+  (`VOLUME_COEFFICIENT_SCALE`), the phase Iray's Henyey-Greenstein
+  anisotropy; ray-march step `UNIT_VOLUME_STEP` 0.1. Calib-Env-GroundFog:
+  floor 1.06, below the plane 0.94, spheres 1.06, horizon 1.03 × Iray
+  (the fog-free frame 1.04 – 1.06); at step 1.0 the floor 1.27 and below
+  0.49, sixteen half-decay slabs were slower and further off. Costly: ~15 ×
+  the fog-free render time in Octane (Iray 2.9 ×). Octane's **Post FX fog**
+  (same base level / half-density shape) crashed the render engine at once
+  (GPU memory full) and isn't used. The Approximate-Mie scattering type
+  (droplet size) isn't mapped: Octane's phase is Henyey-Greenstein only,
+  so Mie renders isotropic (DAZ hands an anisotropy of 0 then too). Not
+  in Scene Only mode.
+- **Matte Fog** (`crate::iray::matte_fog`): not mapped. Iray's matte fog
+  attenuates and brightens the scene by distance (Koschmieder: visibility
+  = the 2 % contrast distance) but leaves rays to the environment alone;
+  an Octane volume fogs everything it holds. A uniform box around scene
+  and camera (extinction ln 50 / visibility, albedo = brightness) at
+  Calib-Env-MatteFog's 100 m brightened the spheres 1.24 × Iray (Iray's own
+  fog +7 %) and the HDRI below the plane 1.90 ×, at 16 × the render time;
+  without it the frame is 0.99 – 1.04. DAZ's default visibility, 10 km,
+  is invisible at scene scale.
+- **Environment Lighting Resolution / Blur**: not mapped — Iray Photoreal
+  uses the baked environment only for importance sampling (NVIDIA's
+  manual); Calib-Env-Res128 rendered identical to 512, Calib-Env-Blur
+  within noise (< 0.3 %). Octane's importance sampling has no such knob.
+- **Ground Reflectivity / Glossiness** (Iray's ground reflects the scene,
+  Fresnel-weighted, roughness √(2 / glossiness)): not mapped — Octane's
+  shadow catcher (145) has opacity only, and no reference shows Iray's
+  ground reflection (the Calib scenes' plane covers it). **Ground Visible
+  from Below** (only handed over with Draw Ground on): not mapped — the
+  shadow catcher is transparent from below as well, i.e. Octane behaves
+  like the option off.
 
 ### Ground shadow
 

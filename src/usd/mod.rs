@@ -202,10 +202,11 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
         .collect();
     // The meshes are in the layer now; a big scene's (19.8 M points) held
     // beside it, its package and every texture peaked at 16 GB.
+    let iray_ground = environment.as_ref().map_or(0.0, |e| ground_height(e, &meshes));
     drop(meshes);
     // VDB volumes, each file packed once.
     let mut vdb_files: Vec<(String, PathBuf)> = Vec::new();
-    let octane_volumes: Vec<_> = volumes
+    let mut octane_volumes: Vec<_> = volumes
         .iter()
         .map(|v| {
             let asset = match vdb_files.iter().find(|(_, f)| *f == v.file) {
@@ -219,10 +220,32 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
                 }
             };
             // VDB units are DAZ's cm: the node's transform, in meters.
-            crate::material::OctaneVolume { name: v.label.clone(), asset, grid: v.grid.clone(), transform: v.transform.map(|x| x * f64::from(CM)), scattering: v.scattering, absorption: v.absorption, anisotropy: v.anisotropy }
+            crate::material::OctaneVolume { name: v.label.clone(), asset: Some(asset), grid: v.grid.clone(), transform: v.transform.map(|x| x * f64::from(CM)), scattering: v.scattering, absorption: v.absorption, anisotropy: v.anisotropy }
         })
         .collect();
-    let (scene_nodes, mesh_connect) = crate::material::scene_lights(&octane_spots(&lights), ground, &octane_volumes, 170_000, 1439);
+    // Iray's ground fog: slabs of uniform fog around the render camera.
+    let centre = cameras.first().map_or([0.0; 3], |(_, c)| c.pos);
+    if let Some(fog) = environment.as_ref().filter(|e| !e.scene_only).and_then(|e| e.ground_fog.as_ref()) {
+        for (k, s) in ground_fog_slabs(fog).iter().enumerate() {
+            let (min, max) = ([centre[0] - FOG_RADIUS, s.y0, centre[2] - FOG_RADIUS], [centre[0] + FOG_RADIUS, s.y1, centre[2] + FOG_RADIUS]);
+            octane_volumes.push(crate::material::OctaneVolume {
+                name: format!("DAZ ground fog {k}"),
+                asset: None,
+                grid: String::new(),
+                transform: crate::material::unit_box(min, max),
+                scattering: [0, 1, 2].map(|c| (fog.albedo[c] * s.extinction[c]) as f32),
+                absorption: [0, 1, 2].map(|c| ((1.0 - fog.albedo[c]) * s.extinction[c]) as f32),
+                anisotropy: fog.anisotropy as f32,
+            });
+        }
+    }
+    // Iray's dome ground: the HDRI projected from its virtual camera.
+    let dome_ground = environment.as_ref().filter(|e| !e.scene_only && e.draw_dome).and_then(|e| {
+        let height = iray_ground;
+        let texture = crate::material::projected_environment_texture(e, &lib.dirs, &mut textures, 175_000, [0.0, height + e.dome_ground?, 0.0])?;
+        Some(crate::material::DomeGround { texture, height, power: e.intensity })
+    });
+    let (scene_nodes, mesh_connect) = crate::material::scene_lights(&octane_spots(&lights), ground, dome_ground.as_ref(), &octane_volumes, 170_000, 1439);
     let tone = scene_tone_mapping(&mut lib);
     // Iray lights with a hidden dome (Draw Dome off) but shows black there;
     // "Scene Only" has no dome light to begin with (power 0, black anyway).

@@ -3104,6 +3104,28 @@ const SPOT_POWER_FACTOR: f64 = 0.039;
 /// calibration rather than physics.
 const GROUND_SHADOW_OPACITY: f64 = 0.89;
 
+/// Iray's dome ground (Dome Mode "… w/ Ground"): the HDRI, as
+/// `projected_environment_texture` writes it, on the ground at `height`
+/// (meters), at the dome's power.
+#[derive(Debug, Clone)]
+pub struct DomeGround {
+    pub texture: String,
+    pub height: f64,
+    pub power: f64,
+}
+
+/// The dome ground's emission power per unit of the dome's (surface
+/// brightness on): Calib-Env-DomeMode1's projected ground 1.04 × Iray at 1,
+/// as the rest of the frame.
+const DOME_GROUND_POWER: f64 = 1.0;
+
+/// The dome ground's box (meters): 2 km wide, 1 mm thick.
+const DOME_GROUND_SIZE: [f64; 3] = [2000.0, 0.001, 2000.0];
+
+/// How far (meters) the dome ground sits below Iray's ground height: under
+/// the shadow catcher (`GROUND_DROP`).
+const DOME_GROUND_DROP: f64 = 0.002;
+
 /// How far (meters) the shadow-catching ground sits below y = 0: under a
 /// room's floor, which then hides it like Iray's environment ground (at the
 /// floor's height it z-fought and smeared shadows over it — Octane1).
@@ -3175,7 +3197,9 @@ pub struct OctaneSpot {
 #[derive(Debug, Clone)]
 pub struct OctaneVolume {
     pub name: String,
-    pub asset: String,
+    /// The packed `.vdb`; `None` for Octane's Unit Volume (295), a uniform
+    /// box placed by `transform` (`unit_box`) — Iray's fog.
+    pub asset: Option<String>,
     pub grid: String,
     /// The placement: VDB units → meters, rows of a 3×4 matrix.
     pub transform: [f64; 12],
@@ -3199,6 +3223,24 @@ const VOLUME_COEFFICIENT_SCALE: f32 = 1.0;
 /// took over 20 minutes for 400).
 const VOLUME_STEP_VOXELS: f64 = 10.0;
 
+/// A Unit Volume's ray-march step (`rayMarchStepPercent`, a fraction):
+/// uniform inside, yet Octane's march under-counts the in-scatter at long
+/// steps — Calib-Env-GroundFog's floor 1.27 × Iray at 1.0, 1.06 at 0.1
+/// (321 s for 128 samples; 0.01 had not finished 256 in 11 minutes).
+const UNIT_VOLUME_STEP: f64 = 0.1;
+
+/// The placement (rows of a 3×4 matrix) that stretches Octane's Unit Volume
+/// over the box `min`–`max` (meters).
+pub fn unit_box(min: [f64; 3], max: [f64; 3]) -> [f64; 12] {
+    let s = [0, 1, 2].map(|k| max[k] - min[k]);
+    let o = [0, 1, 2].map(|k| min[k] + UNIT_VOLUME_ORIGIN * s[k]);
+    [s[0], 0.0, 0.0, o[0], 0.0, s[1], 0.0, o[1], 0.0, 0.0, s[2], o[2]]
+}
+
+/// Where Octane's Unit Volume starts, in its own unit: 0.5 for a cube
+/// centred on the origin, 0 for one from the origin to (1, 1, 1).
+const UNIT_VOLUME_ORIGIN: f64 = 0.5;
+
 /// The volume medium's density pin: Octane's maximum.
 const VOLUME_DENSITY_MAX: f32 = 10_000.0;
 
@@ -3220,8 +3262,8 @@ fn octane_rotation_order(daz: &str) -> u32 {
 /// a geometry group (type 3) joining them with the USD import's output node
 /// `usd_output`. Returns the XML and the node the render target's mesh pin
 /// connects to (the group, or `usd_output` when there is nothing to add).
-pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, volumes: &[OctaneVolume], first_id: u32, usd_output: u32) -> (String, u32) {
-    if spots.is_empty() && ground.is_none() && volumes.is_empty() {
+pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, dome_ground: Option<&DomeGround>, volumes: &[OctaneVolume], first_id: u32, usd_output: u32) -> (String, u32) {
+    if spots.is_empty() && ground.is_none() && dome_ground.is_none() && volumes.is_empty() {
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
@@ -3305,6 +3347,47 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, volumes: &
         w.pin_close(5);
         w.out.push_str("    </node>\n");
     }
+    if let Some(g) = dome_ground {
+        // The HDRI's lower half on the ground, as seen from Iray's virtual
+        // camera: a thin, wide SDF box (296) that emits it and reflects
+        // nothing — the infinite plane (110) renders an emitting material
+        // black.
+        let id = w.id();
+        ids.push(id);
+        let _ = writeln!(w.out, "    <node id='{id}' type='4' name='DAZ dome ground' position='{} -600'>", 300 + spots.len() * 200);
+        let tid = w.id();
+        w.pin_open(5, "transform");
+        let _ = writeln!(w.out, "      <node id='{tid}' type='67'>");
+        let _ = writeln!(w.out, "       <attr name='translation' type='8'>0 {} 0</attr>", num64(g.height - DOME_GROUND_DROP - DOME_GROUND_SIZE[1] / 2.0));
+        w.out.push_str("      </node>\n");
+        w.pin_close(5);
+        let pid = w.id();
+        w.pin_open(5, "geometry");
+        let _ = writeln!(w.out, "      <node id='{pid}' type='296' name='DAZ dome ground slab'>");
+        for (k, v) in ["width", "height", "depth"].iter().zip(DOME_GROUND_SIZE) {
+            w.value_pin(7, k, 6, 9, &format!("{} 0 0 0", num64(v)));
+        }
+        let mid = w.id();
+        w.pin_open(7, "material");
+        let _ = writeln!(w.out, "        <node id='{mid}' type='17' name='DAZ dome ground'>");
+        let _ = writeln!(w.out, "         <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>");
+        w.rgb_pin(9, "diffuse", [0.0; 3]);
+        let eid = w.id();
+        w.pin_open(9, "emission");
+        let _ = writeln!(w.out, "          <node id='{eid}' type='54'>");
+        w.out.push_str("           <pin name='efficiency or texture'>\n");
+        w.out.push_str(&g.texture);
+        w.out.push_str("           </pin>\n");
+        w.value_pin(11, "power", 6, 8, &format!("{} 0 0", num64(g.power * DOME_GROUND_POWER)));
+        w.value_pin(11, "surfaceBrightness", 11, 1, "1");
+        w.out.push_str("          </node>\n");
+        w.pin_close(9);
+        w.out.push_str("        </node>\n");
+        w.pin_close(7);
+        w.out.push_str("      </node>\n");
+        w.pin_close(5);
+        w.out.push_str("    </node>\n");
+    }
     for (k, v) in volumes.iter().enumerate() {
         let id = w.id();
         ids.push(id);
@@ -3318,10 +3401,6 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, volumes: &
         w.pin_close(5);
         let gid = w.id();
         w.pin_open(5, "geometry");
-        let _ = writeln!(w.out, "      <node id='{gid}' type='91' name='{}'>", esc(&v.name));
-        let _ = writeln!(w.out, "       <attr name='filename' type='11'>{}</attr>", esc(&v.asset));
-        // Meters: the placement scales the VDB's units (DAZ's cm).
-        w.out.push_str("       <attr name='scaleUnitType' type='2'>4</attr>\n");
         // Octane's coefficients, per meter: grid value × the grid's scale
         // (applied as the file loads) × the medium's density × its colour.
         // The density pin stops at 10⁴: what is beyond goes to the grids.
@@ -3329,11 +3408,22 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, volumes: &
         let unit = if peak > 0.0 { peak } else { 1.0 };
         let total = unit * VOLUME_COEFFICIENT_SCALE;
         let density = total.min(VOLUME_DENSITY_MAX);
-        for (id, scale) in [("volumeAbsorptionId", "volumeAbsorptionScale"), ("volumeScatterId", "volumeScatteringScale")] {
-            let _ = writeln!(w.out, "       <attr name='{id}' type='10'>{}</attr>", esc(&v.grid));
-            let _ = writeln!(w.out, "       <attr name='{scale}' type='6'>{}</attr>", num(total / density));
+        match &v.asset {
+            Some(asset) => {
+                let _ = writeln!(w.out, "      <node id='{gid}' type='91' name='{}'>", esc(&v.name));
+                let _ = writeln!(w.out, "       <attr name='filename' type='11'>{}</attr>", esc(asset));
+                // Meters: the placement scales the VDB's units (DAZ's cm).
+                w.out.push_str("       <attr name='scaleUnitType' type='2'>4</attr>\n");
+                for (id, scale) in [("volumeAbsorptionId", "volumeAbsorptionScale"), ("volumeScatterId", "volumeScatteringScale")] {
+                    let _ = writeln!(w.out, "       <attr name='{id}' type='10'>{}</attr>", esc(&v.grid));
+                    let _ = writeln!(w.out, "       <attr name='{scale}' type='6'>{}</attr>", num(total / density));
+                }
+                w.out.push_str("       <attr name='volumeEmissionId' type='10'></attr>\n");
+            }
+            None => {
+                let _ = writeln!(w.out, "      <node id='{gid}' type='295' name='{}'>", esc(&v.name));
+            }
         }
-        w.out.push_str("       <attr name='volumeEmissionId' type='10'></attr>\n");
         let mid = w.id();
         w.pin_open(7, "medium");
         let _ = writeln!(w.out, "        <node id='{mid}' type='98' name='{} medium'>", esc(&v.name));
@@ -3341,7 +3431,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, volumes: &
         // The placement's uniform scale: VDB units → meters.
         let t = &v.transform;
         let det = t[0] * (t[5] * t[10] - t[6] * t[9]) - t[1] * (t[4] * t[10] - t[6] * t[8]) + t[2] * (t[4] * t[9] - t[5] * t[8]);
-        let step = (VOLUME_STEP_VOXELS * det.abs().cbrt()).min(1.0);
+        let step = if v.asset.is_some() { (VOLUME_STEP_VOXELS * det.abs().cbrt()).min(1.0) } else { UNIT_VOLUME_STEP };
         w.value_pin(9, "rayMarchStepPercent", 6, 9, &format!("{} 0 0 0", num64(step)));
         w.rgb_pin(9, "absorption", v.absorption.map(|c| c / unit));
         w.value_pin(9, "invertAbsorption", 11, 1, "0");
@@ -3382,6 +3472,25 @@ pub fn environment_texture(
     textures: &mut Textures,
     first_id: u32,
 ) -> String {
+    environment_texture_at(env, dirs, textures, first_id, None)
+}
+
+/// The scene's HDRI as `environment_texture` writes it, looked up from
+/// `origin` (meters) by a world-space Spherical projection: Iray's dome
+/// projected onto its ground (`dome_ground`). None without a map.
+pub fn projected_environment_texture(env: &crate::usd::SceneEnvironment, dirs: &[PathBuf], textures: &mut Textures, first_id: u32, origin: [f64; 3]) -> Option<String> {
+    env.map.as_ref()?;
+    let out = environment_texture_at(Some(env), dirs, textures, first_id, Some(origin));
+    out.contains("type='34'").then_some(out)
+}
+
+fn environment_texture_at(
+    env: Option<&crate::usd::SceneEnvironment>,
+    dirs: &[PathBuf],
+    textures: &mut Textures,
+    first_id: u32,
+    origin: Option<[f64; 3]>,
+) -> String {
     let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
@@ -3414,7 +3523,10 @@ pub fn environment_texture(
             w.pin_close(9);
             // The dome's tilt: a Spherical projection (type 77) in world
             // space turned by Iray's orientation, order ZXY = Rz · Rx · Ry.
-            if let Some(r) = env.and_then(|e| e.dome_tilt()) {
+            let tilt = env.and_then(|e| e.dome_tilt());
+            if tilt.is_some() || origin.is_some() {
+                let r = tilt.unwrap_or([0.0; 3]);
+                let t = origin.unwrap_or([0.0; 3]);
                 let pid = w.id();
                 w.pin_open(9, "projection");
                 let _ = writeln!(w.out, "          <node id='{pid}' type='77'>");
@@ -3423,8 +3535,10 @@ pub fn environment_texture(
                 let _ = writeln!(w.out, "            <node id='{tid}' type='67'>");
                 w.out.push_str("             <attr name='rotationOrder' type='2'>4</attr>\n");
                 let _ = writeln!(w.out, "             <attr name='rotation' type='8'>{} {} {}</attr>", num(r[0] as f32), num(r[1] as f32), num(r[2] as f32));
-                w.out.push_str("             <attr name='scale' type='8'>1 1 1</attr>\n");
-                w.out.push_str("             <attr name='translation' type='8'>0 0 0</attr>\n");
+                // On a surface Octane's Spherical projection looks up the
+                // image mirrored to the environment's: X flipped (Calib-Env-DomeMode1).
+                w.out.push_str(if origin.is_some() { "             <attr name='scale' type='8'>-1 1 1</attr>\n" } else { "             <attr name='scale' type='8'>1 1 1</attr>\n" });
+                let _ = writeln!(w.out, "             <attr name='translation' type='8'>{} {} {}</attr>", num64(t[0]), num64(t[1]), num64(t[2]));
                 w.out.push_str("            </node>\n");
                 w.pin_close(11);
                 w.value_pin(11, "positionType", 57, 2, "1");
