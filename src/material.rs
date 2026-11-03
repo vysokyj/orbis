@@ -1918,6 +1918,16 @@ impl Ocs<'_> {
         } else {
             rough_ch
         };
+        // With dispersion Iray's transmission is perfectly smooth whatever
+        // the roughness (DAZ's MDL, `refraction_base`); a mostly refractive
+        // body takes that for Universal's one roughness.
+        let dispersive = !thin && refraction >= 0.5 && dispersion_abbe(mat).is_some();
+        let rough_ch = if dispersive {
+            rough = 0.0;
+            None
+        } else {
+            rough_ch
+        };
         // A dual lobe under a Top Coat: one lobe at both roughnesses' blend
         // (a roughness map stays lobe 1's).
         if let Some(dl) = active_dual_lobe.filter(|_| coat > 0.0 && rough_ch.and_then(|c| mat.image(c)).is_none()) {
@@ -1930,7 +1940,7 @@ impl Ocs<'_> {
         let ggx = self.gloss_ggx;
         // Iray's anisotropy on the gloss (and the metal: both take the
         // glossy layer's); a refraction's roughness keeps it isotropic.
-        let aniso = if refraction_rough { Anisotropy::default() } else { Anisotropy::glossy(mat) };
+        let aniso = if refraction_rough || dispersive { Anisotropy::default() } else { Anisotropy::glossy(mat) };
         let rough = if oren_nayar {
             // No gloss to share it with: the diffuse's σ (see `base_flat`).
             self.value_pin(i, "diffuseBrdf", 57, 2, DIFFUSE_BRDF_OREN_NAYAR);
@@ -1998,6 +2008,14 @@ impl Ocs<'_> {
             // its own — Calib-Glass's thin sphere was invisible; only a
             // glossy layer shows. IOR 1 takes Octane's Fresnel reflection away.
             self.float_pin(i, "ior", if thin && self.thin_glass_ior_one { 1.0 } else { ior });
+            // Iray's Abbe number spreads the IOR over the spectrum
+            // (`base::abbe_number_ior`); Universal's dispersion mode 1 (its
+            // default) reads the coefficient as the same Abbe number. A plain
+            // float pin: it takes a float value node (6), not a texture (31) —
+            // as a texture Octane dropped it on import (probe 112).
+            if let Some(abbe) = dispersion_abbe(mat).filter(|_| !thin) {
+                self.value_pin(i, "dispersion_coefficient_B", 6, 8, &format!("{} 0 0", num(abbe)));
+            }
             if thin {
                 // Thin Wall (2): no bending — Iray's thin-walled glass sphere
                 // showed the background straight through (Calib-Glass).
@@ -2803,6 +2821,16 @@ fn iray_roughness(mat: &Material, r: f32, from_glossiness: bool) -> f32 {
 /// branches no `.mi` fixture covers — the callers then fall back.
 fn iray(mat: &Material) -> Option<crate::iray::Uber> {
     crate::iray::Uber::of(mat)
+}
+
+/// Iray Uber's Abbe number when DAZ enables dispersion (`dispersion_enable`:
+/// refraction and Abbe > 0, the .mi export), else None.
+fn dispersion_abbe(mat: &Material) -> Option<f32> {
+    match iray(mat) {
+        Some(u) => u.bool("dispersion_enable").filter(|&on| on).and_then(|_| u.float("abbe_number")),
+        None => mat.float("Abbe").filter(|_| mat.float("Refraction Weight").unwrap_or(0.0) > 0.0),
+    }
+    .filter(|&a| a > 0.0)
 }
 
 /// Iray Uber's Diffuse Roughness (or Diffuse Overlay Roughness): the
@@ -4233,6 +4261,46 @@ mod tests {
         assert_eq!(coat(2), 1.5);
         assert_eq!(coat(3), CURVE_COAT_IOR);
         assert!((coat(0) - ior_from_f0(0.08)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn abbe_number_is_universals_dispersion_on_a_smooth_transmission() {
+        let glass = |extra: serde_json::Value| {
+            let mut chs = vec![
+                json!({"channel": {"id": "Refraction Weight", "current_value": 1.0}}),
+                json!({"channel": {"id": "Refraction Index", "current_value": 1.5}}),
+                json!({"channel": {"id": "Glossy Layered Weight", "current_value": 1.0}}),
+                json!({"channel": {"id": "Glossy Roughness", "current_value": 0.4}}),
+            ];
+            chs.extend(extra.as_array().unwrap().iter().cloned());
+            let (x, _) = material_inputs(&[("Glass".into(), mat(json!(chs)), 1.0)], &[], HashMap::new(), 5000, SkinShader::None);
+            x
+        };
+        let pin = |x: &str, name: &str| x.find(&format!("<pin name='{name}'>")).map(|at| {
+            let v = &x[at..];
+            let v = &v[v.find("type='6'>").unwrap() + 9..];
+            v[..v.find('<').unwrap()].parse::<f32>().unwrap()
+        });
+        // A float value node (6) holding a float3.
+        let abbe = |x: &str| x.find("<pin name='dispersion_coefficient_B'>").map(|at| {
+            let v = &x[at..];
+            let v = &v[v.find("type='8'>").unwrap() + 9..];
+            v[..v.find('<').unwrap()].to_string()
+        });
+        // Abbe 0: no dispersion, the glossy roughness.
+        let clear = glass(json!([]));
+        assert_eq!(abbe(&clear), None, "{clear}");
+        assert!(pin(&clear, "roughness").unwrap() > 0.1, "{clear}");
+        // Abbe 20: the coefficient as is, the transmission smooth.
+        let flint = glass(json!([{"channel": {"id": "Abbe", "current_value": 20.0}}]));
+        assert_eq!(abbe(&flint).as_deref(), Some("20 0 0"), "{flint}");
+        assert_eq!(pin(&flint, "roughness").unwrap_or(0.0), 0.0, "{flint}");
+        // Thin-walled: no bending, nothing to disperse.
+        let thin = glass(json!([
+            {"channel": {"id": "Abbe", "current_value": 20.0}},
+            {"channel": {"id": "Thin Walled", "current_value": true}},
+        ]));
+        assert_eq!(abbe(&thin), None, "{thin}");
     }
 
     #[test]

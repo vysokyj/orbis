@@ -832,6 +832,18 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   **Thin Walled** → `transmissionType` 2 (Thin wall), no volume. Iray shows
   a thin-walled glass sphere without any reflection — invisible; Octane's
   thin wall keeps its Fresnel reflection, kept as the more plausible.
+  **Dispersion** (`dispersion_enable`: refraction and Abbe > 0, the .mi
+  export) → `dispersion_coefficient_B` = Iray's Abbe number as is, in
+  Universal's default dispersion mode 1 (Abbe number), not on thin walls.
+  The pin is a plain float: a float value node (6, float3), not a texture
+  (31) — as one Octane dropped it on import (probe 112). With dispersion
+  Iray's transmission is perfectly smooth whatever the roughness (DAZ's MDL,
+  `refraction_base`): a mostly refractive (≥ 0.5), dispersive body gets
+  `roughness` 0 (Calib-Dispersion-Rough awaits its Iray reference).
+  Calib-Dispersion (8 spheres, Abbe 0 – 60, IOR 1.33 – 2.4): brightness
+  1.02 – 1.04 × Iray; Octane's spectral dispersion shows ~2× the colour
+  fringes of Iray's (RGB: spectral rendering off) at Abbe 10 – 30 — kept
+  (the number's physical meaning; question in #33).
   **Absorption**: `Transmitted Color` T (linear) after `Transmitted
   Measurement Distance` d (cm) → an absorption medium (58) on `medium`,
   σ = −ln T / d per meter (`scale` = max σ, `absorption` = σ / scale,

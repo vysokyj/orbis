@@ -591,6 +591,21 @@ uber_spheres('Calib-Dispersion', [0.6, 0.6, 0.6], GL, [
     ('X7 ior 2.4 abbe 30', {'Refraction Index': 2.4, 'Abbe': 30.0}),
     ('X8 ior 1.33 abbe 55', {'Refraction Index': 1.33, 'Abbe': 55.0}),
 ])
+# With dispersion Iray's transmission is smooth whatever the roughness (DAZ's
+# MDL, `refraction_base`): pairs without / with Abbe at a shared glossy
+# roughness and at the refraction's own (Share Glossy Inputs off).
+GL_GLOSS = {**GL, 'Glossy Layered Weight': 1.0}
+GL_OWN = {**GL, 'Share Glossy Inputs': False}
+uber_spheres('Calib-Dispersion-Rough', [0.6, 0.6, 0.6], GL, [
+    ('R1 gloss 0.3 abbe 0', {**GL_GLOSS, 'Glossy Roughness': 0.3}),
+    ('R2 gloss 0.3 abbe 20', {**GL_GLOSS, 'Glossy Roughness': 0.3, 'Abbe': 20.0}),
+    ('R3 own 0.3 abbe 0', {**GL_OWN, 'Refraction Roughness': 0.3}),
+    ('R4 own 0.3 abbe 20', {**GL_OWN, 'Refraction Roughness': 0.3, 'Abbe': 20.0}),
+    ('R5 gloss 0.6 abbe 0', {**GL_GLOSS, 'Glossy Roughness': 0.6}),
+    ('R6 gloss 0.6 abbe 20', {**GL_GLOSS, 'Glossy Roughness': 0.6, 'Abbe': 20.0}),
+    ('R7 own 0.6 abbe 0', {**GL_OWN, 'Refraction Roughness': 0.6}),
+    ('R8 own 0.6 abbe 20', {**GL_OWN, 'Refraction Roughness': 0.6, 'Abbe': 20.0}),
+])
 
 # --- Channel -> MDL mapping (docs/daz/iray-uber-mdl.md): scenes exported to
 # Iray's .mi only (scripts/dev/daz-export-mi.dsa, scripts/dev/mi-args.py),
