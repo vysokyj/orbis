@@ -3166,6 +3166,8 @@ pub struct OctaneSpot {
     pub euler_deg: [f64; 3],
     pub rotation_order: String,
     pub translation: [f64; 3],
+    /// Seen by the camera (Render Emitter).
+    pub visible: bool,
 }
 
 /// A VDB volume for Octane: Iray's coefficients ([`crate::usd::Volume`])
@@ -3265,6 +3267,15 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, volumes: &
         let _ = writeln!(w.out, "       <attr name='translation' type='8'>{tx} {ty} {tz}</attr>");
         w.out.push_str("      </node>\n");
         w.pin_close(5);
+        if !l.visible {
+            // Render Emitter off: an object layer (65) the camera doesn't see.
+            let oid = w.id();
+            w.pin_open(5, "objectLayer");
+            let _ = writeln!(w.out, "      <node id='{oid}' type='65'>");
+            w.value_pin(7, "camera_visibility", 11, 1, "0");
+            w.out.push_str("      </node>\n");
+            w.pin_close(5);
+        }
         w.out.push_str("    </node>\n");
     }
     if let Some((opacity, height)) = ground {
@@ -3434,18 +3445,20 @@ pub fn environment_texture(
 }
 
 /// Object layer input nodes (type 20017) for the USD graph, which creates
-/// one per prim, `/Scene/<prim>_object`, once it loads all object layers
-/// (`objectLayerImport` 3, probes 100–102): for each mesh in `shadowless`
-/// an object layer (type 65) with shadow visibility off — DAZ's `Cast
-/// Shadows` off. Node ids start at `first_id`.
-pub fn object_layer_inputs(shadowless: &[String], first_id: u32) -> String {
+/// one per prim, `/Scene/<prim>_object` (lights `/Scene/Lights/<prim>_object`),
+/// once it loads all object layers (`objectLayerImport` 3, probes 100–102):
+/// for each `(stem, pin, value)` an object layer (type 65) with that
+/// visibility pin set — `shadow_visibility` off for DAZ's `Cast Shadows`
+/// off on a mesh, `camera_visibility` on for a light the camera sees (#35).
+/// Node ids start at `first_id`.
+pub fn object_layer_inputs(layers: &[(String, &str, bool)], first_id: u32) -> String {
     let mut out = String::new();
-    for (k, name) in shadowless.iter().enumerate() {
+    for (k, (stem, pin, value)) in layers.iter().enumerate() {
         let id = first_id + 3 * k as u32;
-        let _ = writeln!(out, "   <node id='{id}' type='20017' name='/Scene/{}_object' position='{} -450'>", esc(name), k * 200);
+        let _ = writeln!(out, "   <node id='{id}' type='20017' name='/Scene/{}_object' position='{} -450'>", esc(stem), k * 200);
         out.push_str("    <attr name='group' type='10'></attr>\n    <attr name='description' type='10'></attr>\n");
         let _ = writeln!(out, "    <pin name='input'>\n     <node id='{}' type='65' name='Object layer'>", id + 1);
-        let _ = writeln!(out, "      <pin name='shadow_visibility'>\n       <node id='{}' type='11'>\n        <attr name='value' type='1'>0</attr>\n       </node>\n      </pin>", id + 2);
+        let _ = writeln!(out, "      <pin name='{pin}'>\n       <node id='{}' type='11'>\n        <attr name='value' type='1'>{}</attr>\n       </node>\n      </pin>", id + 2, u8::from(*value));
         out.push_str("     </node>\n    </pin>\n   </node>\n");
     }
     out

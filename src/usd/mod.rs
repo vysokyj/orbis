@@ -195,7 +195,11 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
         .as_ref()
         .filter(|e| e.map.is_some() && !opts.no_ground)
         .and_then(|e| Some((e.ground_shadow?, ground_height(e, &meshes))));
-    let shadowless = shadowless_prims(&meshes);
+    let layers: Vec<(String, &str, bool)> = shadowless_prims(&meshes)
+        .into_iter()
+        .map(|p| (p, "shadow_visibility", false))
+        .chain(camera_shown_lights(&lights).into_iter().map(|p| (p, "camera_visibility", true)))
+        .collect();
     // The meshes are in the layer now; a big scene's (19.8 M points) held
     // beside it, its package and every texture peaked at 16 GB.
     drop(meshes);
@@ -224,8 +228,8 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     // "Scene Only" has no dome light to begin with (power 0, black anyway).
     let hide_dome = environment.as_ref().is_some_and(|e| !e.draw_dome && !e.scene_only);
     let ocs = project_ocs(name, USDZ_ASSET, &cameras, render_size(&lib.duf), &env_texture, &tuning, &tone, hide_dome, environment.as_ref().and_then(|e| e.sun_sky.as_ref()), !opts.no_denoise)
-        .replace(OBJECT_LAYERS_HIDDEN, if shadowless.is_empty() { OBJECT_LAYERS_HIDDEN } else { OBJECT_LAYERS_ALL })
-        .replace("@MATERIAL_INPUTS@", &(inputs + &light_inputs + &crate::material::object_layer_inputs(&shadowless, 160_000)))
+        .replace(OBJECT_LAYERS_HIDDEN, if layers.is_empty() { OBJECT_LAYERS_HIDDEN } else { OBJECT_LAYERS_ALL })
+        .replace("@MATERIAL_INPUTS@", &(inputs + &light_inputs + &crate::material::object_layer_inputs(&layers, 160_000)))
         .replace("@SCENE_NODES@", &scene_nodes)
         .replace("@MESH_CONNECT@", &mesh_connect.to_string())
         .replace("@ENV_POWER@", &format!("{env_power}"));

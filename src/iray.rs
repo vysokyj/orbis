@@ -422,11 +422,20 @@ pub enum LightShape {
 
 /// What DAZ hands Iray for a scene light: the MDL light material, its
 /// arguments, and the emitter shape.
+///
+/// Nothing else of a DAZ light reaches Iray: Cast Shadows, Shadow Type /
+/// Intensity / Softness / Colour / Bias, Decay, Illumination 1 and 2
+/// (diffuse / specular only) and Light Portal leave the .mi as it was
+/// (Calib-L-Opt-*), and Iray renders them alike (#35).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Light {
     pub mdl: &'static str,
     pub args: BTreeMap<&'static str, Arg>,
     pub shape: LightShape,
+    /// The light's `visible` flag — seen by camera rays (Iray manual,
+    /// ghost lights), still lighting and reflected: Render Emitter
+    /// (Calib-L-Opt-EmitterOff, -Rect-Facing-EmitterOff, -Spot-Facing-EmitterOff); off for the headlamp.
+    pub visible: bool,
 }
 
 /// Flux of a non-photometric DAZ light per unit of Intensity, lumens:
@@ -471,7 +480,7 @@ pub fn light(kind: LightKind, channels: &std::collections::HashMap<String, Value
     } else {
         "daz_3d::basic::dzpm_diffuse_area_light"
     };
-    Light { mdl, args, shape }
+    Light { mdl, args, shape, visible: flag("Render Emitter", true) }
 }
 
 /// The MDL default of a parameter [`uber`] produces (irayubermaterial.mdl,
@@ -764,7 +773,7 @@ pub fn headlamp(camera: &std::collections::HashMap<String, Value>) -> Light {
     args.insert("scene_unit_size", Arg::Float(1.0));
     args.insert("emission_color", Arg::Color([srgb_8bit_to_linear(0.8); 3]));
     args.insert("two_sided_area", Arg::Bool(false));
-    Light { mdl: "daz_3d::basic::dzpm_diffuse_area_light", args, shape: LightShape::Rectangle { width: 7.0, height: 3.5 } }
+    Light { mdl: "daz_3d::basic::dzpm_diffuse_area_light", args, shape: LightShape::Rectangle { width: 7.0, height: 3.5 }, visible: false }
 }
 
 /// The headlamp's flux per cm² of the focus distance, squared.
@@ -1183,6 +1192,10 @@ mod tests {
                 checked += 1;
                 if theirs != ours.shape {
                     wrong.push(format!("shape: {scene} {label}: DAZ {theirs:?}, ours {:?}", ours.shape));
+                }
+                checked += 1;
+                if mi["fields"]["visible"].as_bool() != Some(ours.visible) {
+                    wrong.push(format!("visible: {scene} {label}: DAZ {}, ours {}", mi["fields"]["visible"], ours.visible));
                 }
             }
         }

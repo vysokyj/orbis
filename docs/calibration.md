@@ -76,7 +76,7 @@ thing at a time.
 | `Calib-Tone-Vignette*`, `-BurnComp-*`, `-Sat*`, `-White*` | tonemapper: vignetting, per-component burn, saturation, white point (`make-option-scenes.py`) | done but the white point (vignetting fitted, luminance burn as a 3D LUT) | [#38](https://github.com/vysokyj/orbis/issues/38), [#70](https://github.com/vysokyj/orbis/issues/70) |
 | `Calib-Env-*` | environment: tint, dome rotation / orientation, lighting blur / resolution, intensity, ground, matte fog, ground fog, dome modes | — | [#37](https://github.com/vysokyj/orbis/issues/37), [#65](https://github.com/vysokyj/orbis/issues/65) |
 | `Calib-RS-*` | render settings: caustics, path length, firefly filter, bloom, pixel filter, spectral | — | [#43](https://github.com/vysokyj/orbis/issues/43) |
-| `Calib-L-Opt-*` | light options: decay, shadow intensity / softness / colour, illumination, render emitter, cast shadows, temperature | — | [#35](https://github.com/vysokyj/orbis/issues/35) |
+| `Calib-L-Opt-*` | light options: decay, shadow intensity / softness / colour, illumination, render emitter, cast shadows, temperature; `-Rect-*`: render emitter with the rect in the frame (Facing), light portal under a dome | — | [#35](https://github.com/vysokyj/orbis/issues/35) |
 
 Some checks need scenes that stay on the developer's machine because they
 use DAZ Store or DAZ library content: a strand-hair figure (`Calib-Hair`,

@@ -1211,6 +1211,37 @@ emission units keep their ratios (20 000 lm and 50 W against 5000 cd/m² on
   Transform: DAZ rotation order mapped, scale `1 1 -1` (the disk shines +Z,
   a DAZ spot −Z).
 
+**Light options** (#35; Calib-L-Opt-* on Calib-L-Point-5k and Calib-L-Rect-50,
+their .mi exports as fixtures, Iray references at 5000 samples):
+
+| DAZ channel | what DAZ hands Iray | Octane |
+|---|---|---|
+| Render Emitter | the light's `visible` (camera rays only: still lights, still reflected — Iray manual, ghost lights) | an area light (rect, disc, sphere) the camera sees gets an object layer input `/Scene/Lights/<prim>_object` with `camera_visibility` on; off: left out |
+| Temperature | `temperature` (photometric only) | blackbody `temperature`; Calib-L-Opt-Temp3000 floor R / G / B 1.03 / 1.01 / 0.98 × Iray |
+| Cast Shadows, Shadow Type / Intensity / Softness / Colour / Bias, Decay, Illumination Diffuse Only / Specular Only | nothing — the .mi as without them | **not mapped** |
+| Light Portal | nothing — portals were removed from Iray Photoreal in 2022.0 (release notes; DAZ Studio 6 runs build 387700) | **not mapped**: the rect stays a light |
+
+**Octane hides a UsdLux light from the camera** unless its object layer
+says otherwise: Calib-L-Opt-Rect-Facing (the rect turned to the camera, in
+the frame) showed nothing where the rect is, without an object layer input
+and with `camera_visibility` off alike; with it on, the rect's face (45 000
+pixels); the rest of the frame and the floor stay as they were (0.999 ×;
+Calib-L-Rect-50 / -2sided / Disc-50 / Sphere-d20 floor 1.00–1.01 × Iray
+after the change). So Render Emitter **on** is what needs the input.
+A point light has nothing to see (Octane's 1 cm sphere stays hidden), nor
+does the camera headlamp (`visible` off in DAZ's .mi; the camera sits in
+it). Spots are analytic lights, which Octane does show to the camera
+(Calib-L-Opt-Spot-Facing: the 20 × 40 cm quad turned up to the camera,
+22 000 pixels): Render Emitter off gives their `objectLayer` pin a layer
+with `camera_visibility` off (-Spot-Facing-EmitterOff: none left).
+
+The options left unmapped are 3Delight's: Iray renders them identically
+(every Calib-L-Opt-* reference but Temp3000 equals Calib-L-Point-5k to the
+noise, mean ratio 1.000), so the export follows Iray, not the channel's
+intent — a scene is lit as its author saw it in Iray. Octane could express
+some (emission `castShadows`, `Visible on diffuse` / `Visible on specular`,
+a portal material), which would light the scene differently from Iray.
+
 
 **Camera headlamp** (#22, `lights::headlamp`): DAZ hands Iray a 7 × 3.5
 cm rect at the camera, colour 0.8, of 10 × Depth of Field (cm)² ×

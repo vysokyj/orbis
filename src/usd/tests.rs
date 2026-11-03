@@ -943,6 +943,7 @@ fn iray_light_flux_rules() {
         rotation_order: "XYZ".into(),
         translation: [0.0; 3],
         two_sided: false,
+        visible: true,
     };
     // A sphere light gives a quarter of a point light of the same flux.
     let point = light_watts(&light(LightShape::Point, 5000.0));
@@ -1111,7 +1112,8 @@ fn cast_shadows_off_becomes_an_object_layer_input() {
     assert!(meshes[0].no_shadow);
     assert!(!host_with_channels(json!([]))[0].no_shadow);
     assert_eq!(shadowless_prims(&meshes), ["Body"]);
-    let xml = crate::material::object_layer_inputs(&shadowless_prims(&meshes), 160_000);
+    let layers: Vec<_> = shadowless_prims(&meshes).into_iter().map(|p| (p, "shadow_visibility", false)).collect();
+    let xml = crate::material::object_layer_inputs(&layers, 160_000);
     assert!(xml.contains("type='20017' name='/Scene/Body_object'") && xml.contains("<pin name='shadow_visibility'>"), "{xml}");
     assert!(xml.contains("<attr name='value' type='1'>0</attr>"));
     assert!(include_str!("../../assets/octane/project.ocs").contains(OBJECT_LAYERS_HIDDEN), "the template's import setting");
@@ -1147,4 +1149,43 @@ fn subd_levels_add_up_as_daz_renders_them() {
     assert_eq!(mesh::subd_levels([Some(0), Some(0)], [Some(1), Some(1)]), 0);
     assert_eq!(mesh::subd_levels([None, None], [None, None]), 1, "DAZ's defaults 1 + 0");
     assert_eq!(mesh::subd_levels([Some(2), Some(2)], [None, None]), 3, "capped");
+}
+
+#[test]
+fn render_emitter_sets_whether_the_camera_sees_a_light() {
+    let ch = |id: &str, v: Value| json!({"channel": {"id": id, "current_value": v}});
+    let light = |id: &str, kind: &str, extra: Vec<Value>| {
+        let mut channels = vec![ch("Photometric Mode", json!(true)), ch("Flux", json!(5000)), ch("Light Geometry", json!(1))];
+        channels.extend(extra);
+        let mut def = json!({"id": id, "type": "light", "extra": [{"type": "studio_node_channels", "channels": channels}]});
+        def[kind] = json!({});
+        def
+    };
+    // Options DAZ doesn't hand Iray (Calib-L-Opt-*): nothing changes.
+    let ignored = vec![ch("Cast Shadows", json!(false)), ch("Shadow Intensity", json!(0.0)), ch("Shadow Softness", json!(0.5)), ch("Shadow Color", json!([0.3, 0, 0])), ch("Decay", json!(0)), ch("Illumination", json!(1)), ch("Light Portal", json!(true))];
+    let duf = json!({
+        "node_library": [light("Shown", "point", vec![]), light("Hidden", "point", vec![ch("Render Emitter", json!(false))]),
+            light("Ignored", "point", ignored), light("Spot", "spot", vec![ch("Render Emitter", json!(false))])],
+        "scene": {"nodes": [{"id": "a", "url": "#Shown", "label": "Shown"}, {"id": "b", "url": "#Hidden", "label": "Hidden"},
+            {"id": "c", "url": "#Ignored", "label": "Ignored"}, {"id": "d", "url": "#Spot", "label": "Spot"}]},
+    });
+    let lights = scene_lights(&mut Library::new(vec![], duf));
+    assert_eq!(lights.iter().map(|l| l.visible).collect::<Vec<_>>(), [true, false, true, false]);
+    let (shown, ignored) = (&lights[0], &lights[2]);
+    assert_eq!(SceneLight { label: shown.label.clone(), ..ignored.clone() }, *shown, "Iray ignores them, so does the export");
+    // UsdLux lights: Octane hides them from the camera unless an object
+    // layer input shows them — the rect light that Iray shows does.
+    assert_eq!(camera_shown_lights(&lights), ["Lights/Shown", "Lights/Ignored"]);
+    let point = SceneLight { shape: LightShape::Point, ..shown.clone() };
+    assert!(camera_shown_lights(&[point]).is_empty(), "a point has no face to see");
+    let xml = crate::material::object_layer_inputs(&[("Lights/Shown".into(), "camera_visibility", true)], 160_000);
+    assert!(xml.contains("type='20017' name='/Scene/Lights/Shown_object'") && xml.contains("<pin name='camera_visibility'>"), "{xml}");
+    assert!(xml.contains("<attr name='value' type='1'>1</attr>"), "{xml}");
+    // The spot (an analytic light): its own object layer.
+    let spots = octane_spots(&lights);
+    let (nodes, _) = crate::material::scene_lights(&spots, None, &[], 500, 1439);
+    assert!(nodes.contains("<pin name='objectLayer'>") && nodes.contains("<pin name='camera_visibility'>"), "{nodes}");
+    assert_eq!(nodes.matches("<node ").count(), nodes.matches("</node>").count());
+    let (shown_spot, _) = crate::material::scene_lights(&[crate::material::OctaneSpot { visible: true, ..spots[0].clone() }], None, &[], 500, 1439);
+    assert!(!shown_spot.contains("objectLayer"));
 }

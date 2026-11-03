@@ -30,3 +30,4 @@ median over a region) unless a note says otherwise; 1.00 = equal.
 | [2026-11-03 anisotropy](2026-11-03-anisotropy.md) | Iray `anisotropy_conversion` (u = r, v = r / (1 − a)) → Octane roughness = the long axis, anisotropy (v − u)/(v + u); backscattering anisotropy never reaches Iray; Calib-Aniso2 (#23) |
 | [2026-11-03 diffuse roughness](2026-11-03-diffuse-roughness.md) | Iray Oren-Nayar σ → Universal `diffuseBrdf` 2 where the roughness pin is free, else albedo × A(σ); overlay roughness (#32) |
 | [2026-11-03 dispersion](2026-11-03-dispersion.md) | Iray Abbe number → Universal `dispersion_coefficient_B` (Abbe mode) as a float value node; smooth transmission with dispersion; Calib-Dispersion-Rough (#33) |
+| [2026-11-03 light options](2026-11-03-light-options.md) | DAZ hands Iray only Render Emitter (`visible`) and Temperature of the light options; Octane hides USD lights from the camera unless an object layer shows them; portals gone from Iray (#35) |

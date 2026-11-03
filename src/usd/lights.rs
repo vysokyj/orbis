@@ -37,6 +37,9 @@ pub struct SceneLight {
     pub translation: [f64; 3],
     /// A rect or disc that shines from both faces (Iray "Two Sided").
     pub two_sided: bool,
+    /// Seen by the camera (Iray's `visible`: Render Emitter); lighting and
+    /// reflections either way.
+    pub visible: bool,
 }
 
 /// Octane's point-light headlamp against the 7 × 3.5 cm rect DAZ hands
@@ -89,6 +92,7 @@ pub(super) fn headlamp(lib: &mut Library, label: &str, cam: &SceneCamera, has_li
     let mut transform = [[0.0; 4]; 4];
     (0..4).for_each(|k| transform[k][k] = 1.0);
     transform[3][..3].copy_from_slice(&p);
+    let iray = crate::iray::headlamp(&ch);
     Some(SceneLight {
         label: "Headlamp".into(),
         transform,
@@ -99,7 +103,7 @@ pub(super) fn headlamp(lib: &mut Library, label: &str, cam: &SceneCamera, has_li
         kelvin: None,
         // DAZ's flux (`crate::iray::headlamp`: 10 × focus distance² ×
         // intensity) as a point light at `HEADLAMP_POINT_SHARE` of it.
-        lumens: match crate::iray::headlamp(&ch).args.get("flux") {
+        lumens: match iray.args.get("flux") {
             Some(crate::iray::Arg::Float(f)) => f64::from(*f) * HEADLAMP_POINT_SHARE,
             _ => 0.0,
         },
@@ -107,6 +111,8 @@ pub(super) fn headlamp(lib: &mut Library, label: &str, cam: &SceneCamera, has_li
         rotation_order: "XYZ".into(),
         translation: p,
         two_sided: false,
+        // DAZ hides it from the camera, which sits inside it.
+        visible: iray.visible,
     })
 }
 
@@ -213,6 +219,7 @@ pub(super) fn scene_lights(lib: &mut Library) -> Vec<SceneLight> {
             rotation_order: order.to_string(),
             translation: t,
             two_sided,
+            visible: iray.visible,
         });
     }
     out
@@ -307,8 +314,25 @@ pub(super) fn octane_spots(lights: &[SceneLight]) -> Vec<crate::material::Octane
                 euler_deg: l.euler_deg,
                 rotation_order: l.rotation_order.clone(),
                 translation: l.translation,
+                visible: l.visible,
             })
         })
+        .collect()
+}
+
+/// The object layer input stems (`Lights/<prim>`) of the UsdLux lights the
+/// camera sees. Octane's USD import hides a light's emitter from the camera
+/// unless its object layer says otherwise (Calib-L-Opt-Rect-Facing: no
+/// trace of the rect without one, the rect with `camera_visibility` on);
+/// Iray shows an area light's face unless Render Emitter is off. A point
+/// has no face to see (Octane's 1 cm sphere and the headlamp stay hidden);
+/// spots carry their own layer.
+pub(super) fn camera_shown_lights(lights: &[SceneLight]) -> Vec<String> {
+    lights
+        .iter()
+        .zip(light_prim_names(lights))
+        .filter(|(l, _)| l.visible && l.cone_deg.is_none() && matches!(l.shape, LightShape::Rect { .. } | LightShape::Disk { .. } | LightShape::Sphere { .. }))
+        .map(|(_, p)| format!("Lights/{p}"))
         .collect()
 }
 

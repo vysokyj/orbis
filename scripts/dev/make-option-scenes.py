@@ -11,7 +11,9 @@ argument) and copied into calib/scenes; existing scenes are kept (--force).
                 intensity, ground, matte fog, ground fog, dome modes (#37, #65)
 - Calib-RS-*    render settings: caustics, path length, firefly, bloom, pixel filter, spectral (#43)
 - Calib-L-Opt-* light options on Calib-L-Point-5k: decay, shadow intensity / softness / colour,
-                illumination, render emitter, cast shadows (#35)
+                illumination, render emitter, cast shadows (#35); Calib-L-Opt-Rect-* on
+                Calib-L-Rect-50: render emitter (light facing the camera), light portal (with a dome);
+                Calib-L-Opt-Spot-* on Calib-L-Mi-Spot-rect: render emitter of a rect spot facing the camera
 """
 import copy, gzip, json, os, shutil, sys
 
@@ -107,3 +109,34 @@ LIGHT = [('Decay0', {'Decay': 0}), ('Decay1', {'Decay': 1}), ('ShadowInt05', {'S
          ('IllumSpecular', {'Illumination': 2}), ('EmitterOff', {'Render Emitter': False}),
          ('CastShadowsOff', {'Cast Shadows': False}), ('Temp3000', {'Temperature': 3000.0})]
 variants('Calib-L-Point-5k', 'Calib-L-Opt', 'PointLight', LIGHT)
+
+# An area light (#35): Facing turns it towards the camera (in the frame, its emitting face seen);
+# a portal only passes the dome.
+FACING = {'PointLight': {'translation': {'y': 100.0}, 'rotation': {'x': -150.0}}}
+DOME = {'Environment Options': {'Environment Mode': 0}}
+RECT = [('Facing', FACING), ('Facing-EmitterOff', {'PointLight': {**FACING['PointLight'], 'Render Emitter': False}}),
+        ('Dome', DOME), ('Portal', {**DOME, 'PointLight': {'Light Portal': True}})]
+for name, over in RECT:
+    d = copy.deepcopy(load('Calib-L-Rect-50'))
+    for node, chans in over.items():
+        n = next(l for l in d['node_library'] if l['id'] == node)
+        for k, v in chans.items():
+            if isinstance(v, dict):  # translation / rotation axes
+                for c in n[k]:
+                    c['current_value'] = v.get(c['id'], c['current_value'])
+            else:
+                set_channel(node_channels(d, node), k, v)
+    save(d, f'Calib-L-Opt-Rect-{name}')
+
+# A rect spot (an Octane analytic quad) turned up to the camera above it: does the camera see it (#35)?
+SPOT_UP = {'rotation': {'x': 90.0}}
+for name, over in [('Facing', SPOT_UP), ('Facing-EmitterOff', {**SPOT_UP, 'Render Emitter': False})]:
+    d = copy.deepcopy(load('Calib-L-Mi-Spot-rect'))
+    n = next(l for l in d['node_library'] if l['id'] == 'SpotLight')
+    for k, v in over.items():
+        if isinstance(v, dict):
+            for c in n[k]:
+                c['current_value'] = v.get(c['id'], c['current_value'])
+        else:
+            set_channel(node_channels(d, 'SpotLight'), k, v)
+    save(d, f'Calib-L-Opt-Spot-{name}')
