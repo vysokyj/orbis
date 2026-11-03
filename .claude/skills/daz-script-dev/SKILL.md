@@ -11,4 +11,4 @@ description: Write or debug DAZ Studio scripts (.dsa), the ORBIS DAZ script, and
 - Whole installed export unattended: `scripts/dev/daz-export-batch.sh <scene.duf> <out dir>`. Dump + export: `scripts/dev/daz-dump.sh <out dir> <scene.duf>...`.
 - Errors: DAZ log `~/Library/Application Support/DAZ 3D/Studio6/log.txt`.
 - App Nap off for DAZ (`NSAppSleepDisabled`) or it crawls in background. DAZ and Octane X may both stay open; only renders take turns via the render lock.
-- Scene builders (`daz-build-*.dsa`, `make-*.py`): generated scenes use DAZ built-ins/primitives only; copy into `calib/scenes` only after checking that.
+- Scene builders (`daz-build-*.dsa`, `make-*.py`): generated scenes use DAZ built-ins/primitives (or free DAZ add-ons, referenced only); copy into `calib/scenes` only after checking that.

@@ -9,7 +9,7 @@ description: Keep Iray reference renders of generated calibration scenes in git 
 copies renders into `calib/references/iray/` and records samples/renderer/time in `renders.tsv`.
 
 Rules:
-- **Only scenes that exist in `calib/scenes`** (generated, DAZ built-ins and primitives). The script skips everything else - never work around it.
+- **Only scenes that exist in `calib/scenes`** (generated, DAZ built-ins, primitives and free DAZ add-ons). The script skips everything else - never work around it.
 - `Demo-*` scenes (user's hand-made, store content): `keep-refs.py --demo`, into `demo/references/iray` - see the `demo-scene` skill. Only when listed in `demo/scenes.toml`.
 - Never commit private scenes (teens, Gladiator, copies like Calib-Hair-Teens), store assets, or scene files with store content. Renders (not data) of Calib-Skin-* / Calib-Hair-* may go in.
 - Commit **as renders arrive during a long run**, not at its end.

@@ -50,7 +50,7 @@ attaches the zip to a GitHub release.
 | `scripts/package.sh` | Builds the release zip: the (universal) binary + docs |
 | `scripts/dev/` | Calibration tools: Octane Lua probes, render comparison, manual mirror |
 | `demo/` | `Demo-*` scenes: manifest (`scenes.toml`) + Iray references with the scene's sha256; the scenes stay in My Library |
-| `calib/scenes/` | Calibration scenes the scripts generated (Calib-PBRSkin, -Glossy, -Tone-*, -DOF-*, -L-*): copies of `My Library/Scenes`, exposure as tuned; DAZ built-ins and primitives only |
+| `calib/scenes/` | Calibration scenes the scripts generated (Calib-PBRSkin, -Glossy, -Tone-*, -DOF-*, -L-*): copies of `My Library/Scenes`, exposure as tuned; DAZ built-ins, primitives and free DAZ add-ons only |
 
 ## Documentation
 Map of all docs: `docs/README.md`. Calibration (principle, test scenes,
@@ -143,7 +143,9 @@ the loop, references in `calib/references`): `docs/calibration.md`.
 - `calib/scenes/` holds only generated scenes — never the user's own
   Calib-*.duf (Base, Point, Area, Spot, Distant, Emissive, HDRI, Materials)
   nor Calib-Hair (it wears a DAZ Store hair): copy a new one in with its
-  references checked (DAZ built-ins / primitives only).
+  references checked (DAZ built-ins / primitives only, or a free DAZ
+  add-on such as dForce Starter Essentials — the scene only references it,
+  e.g. Calib-Mi-Hair; decided 2026-11-03).
 - Iray references go into git (`calib/references/iray`, with `renders.tsv`)
   as they are rendered, through `keep-refs.py` — only renders of
   `calib/scenes` (see the private-scenes rule above).
