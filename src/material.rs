@@ -557,6 +557,13 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
     Some(d)
 }
 
+/// Octane's texture transform translation for Iray's UV tiles and offsets
+/// (Calib-Map-Offset, #65): the offset is in tile units, so it is divided by
+/// the tiles, and Octane's U runs against Iray's (V already matches).
+fn uv_translation(tiles: [f32; 2], offsets: [f32; 2]) -> (f32, f32) {
+    (-offsets[0] / tiles[0], offsets[1] / tiles[1])
+}
+
 /// Builds node XML with unique ids.
 struct Ocs<'a> {
     out: String,
@@ -1115,6 +1122,7 @@ impl Ocs<'_> {
             let _ = writeln!(self.out, "{:j$}  <attr name='rotationOrder' type='2'>2</attr>", "");
             let _ = writeln!(self.out, "{:j$}  <attr name='rotation' type='8'>0 0 0</attr>", "");
             let _ = writeln!(self.out, "{:j$}  <attr name='scale' type='8'>{} {} 1</attr>", "", num(1.0 / tu), num(1.0 / tv));
+            let (ou, ov) = uv_translation([tu, tv], [ou, ov]);
             let _ = writeln!(self.out, "{:j$}  <attr name='translation' type='8'>{} {} 0</attr>", "", num(ou), num(ov));
             let _ = writeln!(self.out, "{:j$} </node>", "");
             self.pin_close(j);
@@ -3299,6 +3307,13 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::rc::Rc;
+
+    #[test]
+    fn uv_translation_in_tile_units_with_mirrored_u() {
+        assert_eq!(uv_translation([1.0, 1.0], [0.125, 0.125]), (-0.125, 0.125));
+        assert_eq!(uv_translation([2.0, 2.0], [0.125, 0.125]), (-0.0625, 0.0625));
+        assert_eq!(uv_translation([3.0, 2.0], [0.0, 0.125]), (0.0, 0.0625));
+    }
 
     fn mat(chs: serde_json::Value) -> Rc<Material> {
         Rc::new(Material::from_dson(&json!({"extra": [{"channels": chs}]}), &HashMap::new()))

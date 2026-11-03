@@ -778,6 +778,14 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   stain where Iray showed sand and pebbles (its map tiled 20 × 20).
 - Iray UV tiling → each texture's transform (scale 1/N); textures **wrap**
   (UDIM tiles).
+- **UV tiles and offsets** (Calib-Map-Offset, #65): a material's maps get
+  one Octane texture transform: scale `1 / tiles`, translation
+  `(−offset_u / tiles_u, offset_v / tiles_v)`. The offset is in tile units
+  (hence the division), and Octane's U runs against Iray's, while the V sign
+  already matches `iray.rs`' negated vertical offset. Measured on six
+  spheres (V +0.125, V −0.375, U, tiles 2 × 2 and 3 × 2 with offsets),
+  correlation with the Iray render 0.87–0.98; raw offsets matched only the
+  untiled V ones, `offset · tiles` none of the tiled ones.
 - **Colour space.** Colour maps are sRGB; bump and normal maps are
   linear. Every image node gets `initialColorSpaceSelected` = 1, and the
   HDRI stays linear. Why: without the attribute, data maps were decoded as
