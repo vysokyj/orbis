@@ -114,10 +114,22 @@ impl SceneEnvironment {
     /// the DAZ dome: `0.25 + (rotation − orientation Y) / 360`, wrapped to
     /// [0, 1) (`Ry(-rot) · Ry(orient y)`; offset and sign
     /// measured in Octane X against the Blender render at 0° and 110°). The
-    /// environment's transform is a UV transform there — a 3D rotation does
-    /// nothing — so the X / Z tilt is left out.
+    /// image's transform is a UV transform there — a 3D rotation does
+    /// nothing — so a tilted dome takes orientation Y along into
+    /// `dome_tilt`.
     pub fn dome_u_shift(&self) -> f64 {
-        (0.25 + (self.rotation_deg - self.orientation_deg[1]) / 360.0).rem_euclid(1.0)
+        let oy = if self.dome_tilt().is_some() { 0.0 } else { self.orientation_deg[1] };
+        (0.25 + (self.rotation_deg - oy) / 360.0).rem_euclid(1.0)
+    }
+
+    /// The rotation (degrees X, Y, Z, Octane order ZXY) of a Spherical
+    /// projection that tilts the dome when Dome Orientation X or Z isn't 0:
+    /// Iray's `environment_function_orientation` Rz · Rx · Ry as it is —
+    /// the projection turns the lookup direction (probe 110: projection Y
+    /// +20° = U shift −20°; Calib-L-Mi-Dome-turned sky correlation 0.95).
+    pub fn dome_tilt(&self) -> Option<[f64; 3]> {
+        let [x, _, z] = self.orientation_deg;
+        (x != 0.0 || z != 0.0).then_some(self.orientation_deg)
     }
 }
 

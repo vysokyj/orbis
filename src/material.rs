@@ -3239,6 +3239,25 @@ pub fn environment_texture(
             let _ = writeln!(w.out, "           <attr name='translation' type='8'>{} 0 0</attr>", num(shift as f32));
             w.out.push_str("          </node>\n");
             w.pin_close(9);
+            // The dome's tilt: a Spherical projection (type 77) in world
+            // space turned by Iray's orientation, order ZXY = Rz · Rx · Ry.
+            if let Some(r) = env.and_then(|e| e.dome_tilt()) {
+                let pid = w.id();
+                w.pin_open(9, "projection");
+                let _ = writeln!(w.out, "          <node id='{pid}' type='77'>");
+                let tid = w.id();
+                w.pin_open(11, "transform");
+                let _ = writeln!(w.out, "            <node id='{tid}' type='67'>");
+                w.out.push_str("             <attr name='rotationOrder' type='2'>4</attr>\n");
+                let _ = writeln!(w.out, "             <attr name='rotation' type='8'>{} {} {}</attr>", num(r[0] as f32), num(r[1] as f32), num(r[2] as f32));
+                w.out.push_str("             <attr name='scale' type='8'>1 1 1</attr>\n");
+                w.out.push_str("             <attr name='translation' type='8'>0 0 0</attr>\n");
+                w.out.push_str("            </node>\n");
+                w.pin_close(11);
+                w.value_pin(11, "positionType", 57, 2, "1");
+                w.out.push_str("          </node>\n");
+                w.pin_close(9);
+            }
             w.out.push_str("        </node>\n");
             if tint != [1.0; 3] {
                 w.out.push_str("         </pin>\n        </node>\n");

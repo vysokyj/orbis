@@ -1198,7 +1198,11 @@ scene with a light.
 - The HDRI as a linear image texture environment, power = intensity (0 for
   scene-only mode). Dome rotation as a U shift
   `0.25 + (Dome Rotation − Dome Orientation Y) / 360` (offset and sign
-  measured against Blender at 0° and 110°, Octane2). X / Z tilt left out.
+  measured against Blender at 0° and 110°, Octane2). With Dome Orientation
+  X or Z ≠ 0 the image gets a Spherical projection (type 77, world space)
+  rotated by (X, Y, Z) in order ZXY — Iray's Rz · Rx · Ry as it is — and the
+  U shift drops orientation Y: `0.25 + Dome Rotation / 360`
+  (Calib-L-Mi-Dome-turned, sky correlation 0.95; `docs/notes/2026-11-03-dome-tilt.md`).
 - No HDRI → Octane's white environment.
 
 ### Ground shadow

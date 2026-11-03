@@ -547,6 +547,15 @@ fn dome_rotation_is_a_u_shift() {
     assert!((env(110.0, 0.0).dome_u_shift() - (0.25 + 110.0 / 360.0)).abs() < 1e-12);
     assert_eq!(env(270.0, 0.0).dome_u_shift(), 0.0);
     assert_eq!(env(180.0, 90.0).dome_u_shift(), 0.5);
+    assert_eq!(env(180.0, 90.0).dome_tilt(), None);
+}
+
+#[test]
+fn dome_tilt_is_a_spherical_projection_with_iray_orientation() {
+    let e = SceneEnvironment { map: None, intensity: 1.0, tint: [1.0; 3], rotation_deg: 30.0, orientation_deg: [10.0, 20.0, 5.0], scene_only: false, ground_shadow: None, ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None };
+    // Orientation Y moves from the U shift into the projection.
+    assert_eq!(e.dome_tilt(), Some([10.0, 20.0, 5.0]));
+    assert!((e.dome_u_shift() - (0.25 + 30.0 / 360.0)).abs() < 1e-12);
 }
 
 #[test]

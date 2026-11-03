@@ -101,8 +101,10 @@ Seen in samples ([orbx.md](orbx.md#scene-projectocs)) plus:
 - **Texture environment**: its image texture's `transform` is a **UV**
   transform there — scale X −1 mirrors, a 3D rotation does nothing; the dome
   turns as a U shift. Camera translation doesn't move it. No HDRI = white
-  environment. The manual's way to tilt is a Spherical projection with a 3D
-  rotation.
+  environment. Tilt: the image's `projection` pin (default UVW, 78) takes a
+  Spherical projection (77; pins `transform`, `positionType` 1 world / 3
+  object). With rotation 0 it keeps the map's frame; its rotation turns the
+  lookup direction (Y +20° = U shift −20°).
 
 ### Image texture colour space
 
