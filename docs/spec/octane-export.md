@@ -647,6 +647,24 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   Glossiness 0.3 sphere (r 0.49) 0.53 → 0.86 × Iray (#52). A specular-
   mode IOR is at least 1.1: Iray's curve still rises to 1 at grazing over
   a black Glossy Specular (that sphere 0.91 → 1.00).
+- **Anisotropy** (Glossy Anisotropy + Glossy Anisotropy Rotations on the
+  gloss and the metal, Top Coat Anisotropy + Top Coat Rotations on a
+  weighted top coat; #23). Iray (`base::anisotropy_conversion`, MDL SDK's
+  `base.mdl`): roughness_u = r, roughness_v = r / (1 − a) (r / 0.0001 at
+  a = 1), the tangent turned by 2π · rotation. Octane: each axis on the
+  GGX curve above (v capped at 1), **`roughness` = v** (the long axis),
+  **`anisotropyTexture` = (v − u) / (v + u)** (1 stretches along the
+  texture's v, like Iray), **`rotation` = Iray's rotation** (both in turns;
+  Octane's slider 0 – 1). A roughness map bakes v per texel. Why: at the
+  axes' geometric mean Calib-Aniso's streaks came out short and bright —
+  highlight elongation (major / minor axis of the highlight) 1.96 against
+  Iray's 9.9 on roughness 0.1, anisotropy 1, mean 1.52 × Iray; at v 10.3
+  and 1.16 ×, its other spheres 1.07 – 1.10 × (the isotropic one 1.11).
+  The rotation's sign is not checked yet (0.25 is symmetric).
+  Not exported: the Top Coat's anisotropy in its other modes (Universal's
+  `coating` has none). Backscattering Anisotropy never reaches Iray: DAZ's
+  .mi export leaves it out, also with the glossy anisotropy on
+  (Calib-Backscatter B8, Calib-Aniso2 K6).
 - **Top Coat** → Universal `coating` = Top Coat Color × weight,
   `coatingRoughness` (Top Coat Roughness, or 1 − Top Coat Glossiness in
   mode 1 — verified; mode 2 not yet, it keeps Glossiness — squared
@@ -1278,8 +1296,8 @@ selects the render target named after the scene.
 What the export doesn't do yet is tracked as issues, each with a test scene
 to calibrate on ([calibration](../calibration.md#the-scenes)):
 
-- Materials: anisotropy [#23](https://github.com/vysokyj/orbis/issues/23),
-  displacement [#24](https://github.com/vysokyj/orbis/issues/24), top coat
+- Materials: anisotropy (rotation sign, non-weighted Top Coat)
+  [#23](https://github.com/vysokyj/orbis/issues/23), displacement [#24](https://github.com/vysokyj/orbis/issues/24), top coat
   modes [#25](https://github.com/vysokyj/orbis/issues/25), dual lobe
   [#26](https://github.com/vysokyj/orbis/issues/26), colour effects
   [#27](https://github.com/vysokyj/orbis/issues/27), volume / SSS

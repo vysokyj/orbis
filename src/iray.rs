@@ -302,6 +302,7 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     let coat_aniso = if coat > 0.0 { ch.float("Top Coat Anisotropy", 0.0) } else { 0.0 };
     out.insert("top_coat_anisotropy", Arg::Float(coat_aniso));
     out.insert("top_coat_anisotropy_enable", Arg::Bool(coat_aniso > 0.0));
+    out.insert("top_coat_anisotropy_rotation", Arg::Float(if coat_aniso > 0.0 { ch.float("Top Coat Rotations", 0.0) } else { 0.0 }));
     out.insert("top_coat_color_transmit_enable", Arg::Int(if coat > 0.0 { ch.int("Top Coat Color Effect", 0) } else { 0 }));
     const MODES: [&str; 4] = ["tcw_principled_specular", "tcw_weighted", "tcw_fresnel", "tcw_custom_curve"];
     let mode = ch.int("Top Coat Layering Mode", 0).clamp(0, 3) as usize;
@@ -511,7 +512,7 @@ pub fn uber_default(param: &str) -> Option<Arg> {
         "top_coat_thin_film_thickness" | "base_thin_film_thickness" | "metallic_flakes_thin_film_thickness" => Arg::Float(300.0),
         "top_coat_thin_film_ior" | "base_thin_film_ior" | "metallic_flakes_thin_film_ior" => Arg::Float(3.0),
         "top_coat_thin_film_enable" | "top_coat_anisotropy_enable" | "glossy_anisotropy_enable" | "base_thin_film_enable" | "diffuse_overlay_enable" | "metallic_flakes_enable" => Arg::Bool(false),
-        "top_coat_anisotropy" | "glossy_anisotropy" | "glossy_anisotropy_rotation" | "diffuse_overlay_weight" | "diffuse_overlay_roughness" | "diffuse_roughness" | "metallic_flakes_weight" | "metallic_flakes_roughness" => Arg::Float(0.0),
+        "top_coat_anisotropy" | "top_coat_anisotropy_rotation" | "glossy_anisotropy" | "glossy_anisotropy_rotation" | "diffuse_overlay_weight" | "diffuse_overlay_roughness" | "diffuse_roughness" | "metallic_flakes_weight" | "metallic_flakes_roughness" => Arg::Float(0.0),
         "top_coat_color_transmit_enable" | "glossy_color_transmit_enable" | "diffuse_overlay_color_transmit_enable" | "diffuse_color_transmit_enable" | "metallic_flakes_color_transmit_enable" => Arg::Int(0),
         "diffuse_overlay_color" => Arg::Color([0.5; 3]),
         "metallic_flakes_size" | "metallic_flakes_strength" | "metallic_flakes_density" => Arg::Float(1.0),

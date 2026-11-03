@@ -756,8 +756,8 @@ impl Ocs<'_> {
         self.gloss_ggx = true;
         self.brdf_pin(j + 1);
         let (rough_ch, rough, inverted) = mat.roughness_source();
-        let rough = self.gloss_roughness(iray_gloss_roughness(mat).unwrap_or_else(|| iray_roughness(mat, rough, inverted)));
-        self.roughness_pin(j + 1, mat, rough_ch, rough.clamp(0.0, 1.0), true);
+        let rough = iray_gloss_roughness(mat).unwrap_or_else(|| iray_roughness(mat, rough, inverted));
+        self.gloss_roughness_pins(j + 1, mat, rough_ch, rough, true, Anisotropy::glossy(mat));
         if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(j + 1, "normal", &asset, false, 1.0, 1.0);
         }
@@ -912,9 +912,8 @@ impl Ocs<'_> {
         self.float_pin(j + 1, "metallic", 1.0);
         self.gloss_ggx = true;
         self.brdf_pin(j + 1);
-        let rough = self.gloss_roughness(top_coat_roughness(mat));
         self.gloss_ggx = false;
-        self.float_pin(j + 1, "roughness", rough);
+        self.gloss_roughness_pins(j + 1, mat, None, top_coat_roughness(mat), true, Anisotropy::top_coat(mat));
         if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(j + 1, "normal", &asset, false, 1.0, 1.0);
         }
@@ -1270,8 +1269,10 @@ impl Ocs<'_> {
     /// curve when `ggx`), or the channel's map as Iray reads it — the map ×
     /// the channel's value, 1 − that for a glossiness, squared (`square_float`,
     /// `gloss_to_rough`: DAZ's .mi export, Calib-Mi-Maps) — baked per pixel
-    /// with the same curve.
-    fn roughness_pin(&mut self, indent: usize, mat: &Material, channel: Option<&str>, value: f32, ggx: bool) {
+    /// with the same curve. `stretch` is Iray's v / u roughness ratio
+    /// (`Anisotropy::stretch`, 1 isotropic): the map then bakes Octane's
+    /// roughness of both axes (`anisotropic_roughness`).
+    fn roughness_pin(&mut self, indent: usize, mat: &Material, channel: Option<&str>, value: f32, ggx: bool, stretch: f32) {
         let Some((ch, map)) = channel.and_then(|c| Some((c, mat.image(c)?.to_string()))) else {
             return self.float_pin(indent, "roughness", value);
         };
@@ -1280,18 +1281,39 @@ impl Ocs<'_> {
         let squared = mat.float(if inverted { "Glossiness Squared" } else { "Roughness Squared" }).unwrap_or(1.0) > 0.0;
         // `derived` decodes at 2.2; the map's own gamma rescales that.
         let g = data_gamma(mat, ch) / crate::iray::COLOUR_GAMMA;
-        let key = format!("roughness|{map}|{v}|{inverted}|{squared}|{ggx}|{g}");
+        let key = if stretch == 1.0 { format!("roughness|{map}|{v}|{inverted}|{squared}|{ggx}|{g}") } else { format!("roughness|{map}|{v}|{inverted}|{squared}|{ggx}|{g}|{stretch}") };
         let asset = self.textures.derived(self.dirs, &map, &key, 1.0, |l| {
             let m = l.max(0.0).powf(g) * v;
             let r = (if inverted { 1.0 - m } else { m }).clamp(0.0, 1.0);
             let r = if squared { r * r } else { r };
-            [if ggx { ggx_roughness(r) } else { r }; 3]
+            [anisotropic_roughness(r, stretch, ggx).0; 3]
         });
         match asset {
             Some(asset) => self.image_pin(indent, "roughness", &asset, true, 1.0, 1.0),
             // An image it can't read: the map as is (a glossiness, its value).
             None => self.float_or_map(indent, "roughness", mat, Some(ch).filter(|_| !inverted), value),
         }
+    }
+
+    /// The gloss's roughness for Iray's roughness `r` (squared) and its
+    /// anisotropy: `roughness_pin` at Octane's roughness, then
+    /// `anisotropyTexture` and `rotation` (both turns: Iray's 1 = 360°,
+    /// Octane's slider 0 – 1). Returns the lobe's isotropic equivalent (both
+    /// axes' geometric mean, the roughness itself when isotropic), for a
+    /// coating at the gloss's roughness.
+    fn gloss_roughness_pins(&mut self, indent: usize, mat: &Material, channel: Option<&str>, r: f32, ggx: bool, aniso: Anisotropy) -> f32 {
+        let stretch = aniso.stretch();
+        let (rough, a) = anisotropic_roughness(r.clamp(0.0, 1.0), stretch, ggx);
+        self.roughness_pin(indent, mat, channel, rough, ggx, stretch);
+        if a == 0.0 {
+            return rough;
+        }
+        self.float_pin(indent, "anisotropyTexture", a);
+        if aniso.rotation != 0.0 {
+            self.float_pin(indent, "rotation", aniso.rotation);
+        }
+        // u = v (1 − a) / (1 + a).
+        rough * ((1.0 - a) / (1.0 + a)).sqrt()
     }
 
     /// Iray emission → an Octane emission: blackbody at the Iray temperature,
@@ -1349,7 +1371,7 @@ impl Ocs<'_> {
         if let Some(dl) = dual_lobe.filter(|_| coat && rough_ch.and_then(|c| mat.image(c)).is_none()) {
             rough = dl.blended_roughness(rough);
         }
-        self.roughness_pin(i, mat, rough_ch, rough.clamp(0.0, 1.0), false);
+        self.roughness_pin(i, mat, rough_ch, rough.clamp(0.0, 1.0), false, 1.0);
         let lobe1 = dual_lobe.filter(|_| !coat).map_or(1.0, |dl| dl.lobe1);
         let (weight, ch) = match dual_lobe {
             Some(dl) => (dl.share, "Dual Lobe Specular Reflectivity"),
@@ -1888,9 +1910,11 @@ impl Ocs<'_> {
         // Octane's default BSDF it was calibrated on.
         self.gloss_ggx = !refraction_rough;
         self.brdf_pin(i);
-        let rough = self.gloss_roughness(rough);
         let ggx = self.gloss_ggx;
-        self.roughness_pin(i, mat, rough_ch, rough.clamp(0.0, 1.0), ggx);
+        // Iray's anisotropy on the gloss (and the metal: both take the
+        // glossy layer's); a refraction's roughness keeps it isotropic.
+        let aniso = if refraction_rough { Anisotropy::default() } else { Anisotropy::glossy(mat) };
+        let rough = self.gloss_roughness_pins(i, mat, rough_ch, rough, ggx, aniso);
 
         // Lobe 2 of a dual lobe specular as the coating (#26): Calib-DualLobe
         // at a ratio of 0.5 / 0.15 / 0 and lobe 2 roughness 0.6 showed one
@@ -2799,6 +2823,71 @@ fn ggx_roughness(r: f32) -> f32 {
 
 /// `Ocs::gloss_roughness`'s curve.
 const GGX_ROUGHNESS_CURVE: f32 = 1.85;
+
+/// Iray Uber's anisotropy of a glossy lobe (`base::anisotropy_conversion`,
+/// MDL SDK's `base.mdl`): roughness_u = r, roughness_v = r / (1 − a)
+/// (r / 0.0001 at a = 1), the tangent turned by 2π · rotation about the
+/// normal.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Anisotropy {
+    amount: f32,
+    rotation: f32,
+}
+
+impl Anisotropy {
+    /// The glossy layer's (the metal's and the refraction's too): Glossy
+    /// Anisotropy and Glossy Anisotropy Rotations as DAZ hands them Iray.
+    /// Backscattering Anisotropy never reaches Iray: DAZ's .mi export leaves
+    /// it out (Calib-Backscatter B8, 0.8), so Iray's backscattering lobe stays
+    /// isotropic.
+    fn glossy(mat: &Material) -> Self {
+        let (a, rot) = match iray(mat) {
+            Some(u) => (u.float("glossy_anisotropy").unwrap_or(0.0), u.float("glossy_anisotropy_rotation").unwrap_or(0.0)),
+            None => (mat.float("Glossy Anisotropy").unwrap_or(0.0), mat.float("Glossy Anisotropy Rotations").unwrap_or(0.0)),
+        };
+        Self::of(a, rot)
+    }
+
+    /// The Top Coat's: Top Coat Anisotropy and Top Coat Rotations.
+    fn top_coat(mat: &Material) -> Self {
+        let a = iray(mat).and_then(|u| u.float("top_coat_anisotropy")).unwrap_or_else(|| mat.float("Top Coat Anisotropy").unwrap_or(0.0));
+        let rot = iray(mat).and_then(|u| u.float("top_coat_anisotropy_rotation")).unwrap_or_else(|| mat.float("Top Coat Rotations").unwrap_or(0.0));
+        Self::of(a, rot)
+    }
+
+    fn of(amount: f32, rotation: f32) -> Self {
+        let amount = amount.clamp(0.0, 1.0);
+        if amount <= 0.0 {
+            return Self::default();
+        }
+        Self { amount, rotation }
+    }
+
+    /// roughness_v / roughness_u.
+    fn stretch(self) -> f32 {
+        if self.amount >= 1.0 { 1.0e4 } else { 1.0 / (1.0 - self.amount) }
+    }
+}
+
+/// Octane's roughness and anisotropy for Iray's roughness r along u and
+/// r · `stretch` along v (capped at 1), each axis through the GGX curve when
+/// `ggx`: the long axis v and (v − u) / (v + u) — Octane's anisotropy 1
+/// stretches the highlight along v ("vertical"). Octane's roughness is the
+/// long axis, its anisotropy narrows the other: at the axes' geometric mean
+/// Calib-Aniso's streaks came out short and bright (rough 0.1, aniso 1:
+/// highlight elongation 1.96 against Iray's 9.9, mean 1.52 × Iray), at v
+/// 9.85 and 1.15 × (#23).
+fn anisotropic_roughness(r: f32, stretch: f32, ggx: bool) -> (f32, f32) {
+    let curve = |x: f32| if ggx { ggx_roughness(x) } else { x.clamp(0.0, 1.0) };
+    if stretch == 1.0 {
+        return (curve(r), 0.0);
+    }
+    let (u, v) = (curve(r), curve((r * stretch).min(1.0)));
+    if u + v <= 0.0 {
+        return (0.0, 0.0);
+    }
+    (v, ((v - u) / (v + u)).clamp(-1.0, 1.0))
+}
 
 /// Iray's metal at Metallic Weight w (DAZ's MDL, `metallic_layered_base`):
 /// a `weighted_layer` at w of a metal coat that is itself at weight w over
@@ -4066,6 +4155,46 @@ mod tests {
         assert_eq!(coat(2), 1.5);
         assert_eq!(coat(3), CURVE_COAT_IOR);
         assert!((coat(0) - ior_from_f0(0.08)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn glossy_anisotropy_is_octanes_long_axis_and_rotation() {
+        let ball = |extra: serde_json::Value| {
+            let mut chs = vec![
+                json!({"channel": {"id": "diffuse", "current_value": [0.5, 0.5, 0.5]}}),
+                json!({"channel": {"id": "Glossy Layered Weight", "current_value": 1.0}}),
+                json!({"channel": {"id": "Glossy Roughness", "current_value": 0.4}}),
+            ];
+            chs.extend(extra.as_array().unwrap().iter().cloned());
+            let (x, _) = material_inputs(&[("Ball".into(), mat(json!(chs)), 1.0)], &[], HashMap::new(), 5000, SkinShader::None);
+            x
+        };
+        let pin = |x: &str, name: &str| x.find(&format!("<pin name='{name}'>")).map(|at| {
+            let v = &x[at..];
+            let v = &v[v.find("type='6'>").unwrap() + 9..];
+            v[..v.find('<').unwrap()].parse::<f32>().unwrap()
+        });
+        // Isotropic: no anisotropy pins, GGX's 0.16 + 1.85 · 0.16².
+        let iso = ball(json!([]));
+        assert_eq!(pin(&iso, "anisotropyTexture"), None, "{iso}");
+        assert!((pin(&iso, "roughness").unwrap() - 0.20736).abs() < 1e-5, "{iso}");
+        // Anisotropy 0.5: v = 0.16 / 0.5 = 0.32 → 0.50944 the roughness,
+        // (0.50944 − 0.20736) / (0.50944 + 0.20736) the anisotropy; Iray's
+        // rotation 0.25 (90°) as is.
+        let a = ball(json!([
+            {"channel": {"id": "Glossy Anisotropy", "current_value": 0.5}},
+            {"channel": {"id": "Glossy Anisotropy Rotations", "current_value": 0.25}},
+        ]));
+        assert!((pin(&a, "roughness").unwrap() - 0.50944).abs() < 1e-5, "{a}");
+        assert!((pin(&a, "anisotropyTexture").unwrap() - 0.421429).abs() < 1e-5, "{a}");
+        assert_eq!(pin(&a, "rotation"), Some(0.25));
+        // Anisotropy 1: v at Iray's cap, roughness 1.
+        let full = ball(json!([{"channel": {"id": "Glossy Anisotropy", "current_value": 1.0}}]));
+        assert_eq!(pin(&full, "roughness"), Some(1.0));
+        assert_eq!(pin(&full, "rotation"), None);
+        // Backscattering Anisotropy alone never reaches Iray.
+        let back = ball(json!([{"channel": {"id": "Backscattering Anisotropy", "current_value": 0.8}}]));
+        assert_eq!(pin(&back, "anisotropyTexture"), None);
     }
 
     #[test]

@@ -403,6 +403,20 @@ uber_spheres('Calib-Aniso', GREY_SPHERE, {**GLOSS, 'Glossy Roughness': 0.4}, [
     ('A7 top coat aniso 1', {'Glossy Layered Weight': 0.0, 'Top Coat Weight': 1.0, 'Top Coat Roughness': 0.3, 'Top Coat Anisotropy': 1.0}),
     ('A8 rough 0.1 aniso 1', {'Glossy Roughness': 0.1, 'Glossy Anisotropy': 1.0}),
 ])
+# Anisotropy, second round (#23): the rotation's sign (0.125 / 0.375 mirror
+# each other; Calib-Aniso's 0.25 can't tell), the weighted and the rotated
+# Top Coat, Backscattering Anisotropy with the glossy one on (DAZ leaves it
+# out of the .mi when that is off), the curve between 0, 0.5 and 1.
+uber_spheres('Calib-Aniso2', GREY_SPHERE, {**GLOSS, 'Glossy Roughness': 0.4}, [
+    ('K1 aniso 1 rot 0.125', {'Glossy Anisotropy': 1.0, 'Glossy Anisotropy Rotations': 0.125}),
+    ('K2 aniso 1 rot 0.375', {'Glossy Anisotropy': 1.0, 'Glossy Anisotropy Rotations': 0.375}),
+    ('K3 metal rough 0.2 aniso 1', {'Metallic Weight': 1.0, 'Glossy Roughness': 0.2, 'Glossy Anisotropy': 1.0}),
+    ('K4 weighted coat aniso 1', {'Glossy Layered Weight': 0.0, 'Top Coat Weight': 1.0, 'Top Coat Layering Mode': 1, 'Top Coat Roughness': 0.3, 'Top Coat Anisotropy': 1.0}),
+    ('K5 top coat aniso 1 rot 0.25', {'Glossy Layered Weight': 0.0, 'Top Coat Weight': 1.0, 'Top Coat Roughness': 0.3, 'Top Coat Anisotropy': 1.0, 'Top Coat Rotations': 0.25}),
+    ('K6 backscatter aniso 0.8', {'Glossy Anisotropy': 0.5, 'Backscattering Weight': 1.0, 'Backscattering Roughness': 0.3, 'Backscattering Anisotropy': 0.8}),
+    ('K7 aniso 0.25', {'Glossy Anisotropy': 0.25}),
+    ('K8 aniso 0.75', {'Glossy Anisotropy': 0.75}),
+])
 # Top Coat layering modes (#25): 0 Reflectivity, 1 Weighted, 2 Fresnel, 3 Custom Curve
 TC = {'Top Coat Weight': 1.0, 'Top Coat Roughness': 0.1, 'Top Coat Glossiness': 0.9}
 uber_spheres('Calib-TopCoat', [0.45, 0.05, 0.04], TC, [

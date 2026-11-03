@@ -27,3 +27,4 @@ median over a region) unless a note says otherwise; 1.00 = equal.
 | [2026-11-03 map offsets](2026-11-03-map-offset.md) | UV offset sweep (Calib-Map-Offset): translation = (−offset_u / tiles_u, offset_v / tiles_v) (#65) |
 | [2026-11-03 dome tilt, spot shapes](2026-11-03-dome-tilt.md) | Dome Orientation X / Z as a Spherical projection (type 77) with Iray's Rz · Rx · Ry, order ZXY; a rect spot as an Octane quad (#65) |
 | [2026-11-03 vignetting, per-component burn](2026-11-03-vignetting-burn.md) | Iray cos(θ)^v vs Octane's frame-space cone (least-squares fit per camera); luminance burn as a 3D tone LUT (#38) |
+| [2026-11-03 anisotropy](2026-11-03-anisotropy.md) | Iray `anisotropy_conversion` (u = r, v = r / (1 − a)) → Octane roughness = the long axis, anisotropy (v − u)/(v + u); backscattering anisotropy never reaches Iray; Calib-Aniso2 (#23) |
