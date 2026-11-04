@@ -444,32 +444,34 @@ inv_poly3, poly5, inv_poly5, ptlens, inv_ptlens, brown, inv_brown,
 equidistant), Radial Bias, Distortion Scale, Maximum FOV as they are.
 Octane (`usd::lens`):
 
-| Iray | Octane | Status |
+| Iray | Octane | Measured (Iray refs, 5000 samples, #39) |
 |------|--------|--------|
-| `mip_lens_shift_x/y` (cm on the film) | thin lens `lensShift` = shift / film width, shift / film height (Octane's units: fractions of the image's width and height — probe: 0.1 moves a 1920×1080 frame 192 / 108 px) | sign and film units assumed (Iray manual says only "lens shift"); Calib-Lens-Shift waits for Iray |
-| `mip_aperture_num_blades` > 2, `…blade_rotation_angle` | `bokehSidecount` = blades, `bokehRoundedness` 0, `bokehRotation` in degrees; fewer blades → round (roundedness 1) | Octane renders the pentagon (Calib-Lens-Blades5); which way the polygon points at rotation 0 waits for Iray |
-| `mip_lens_stereo_offset` | the camera moved that far to its right, parallel (Iray renders the right eye into a single-layer canvas, Iray manual 13.3) | waits for Iray (Calib-Lens-Stereo): parallel vs converging |
-| `mip_lens_distortion_type` ≠ none | an **OSL camera** (NT_CAM_OSL 126, `shaderCode`) in the thin lens's place, Iray's model written out (`lens::osl_camera`) | below; waits for Iray |
-| `mip_lens_radial_bias` | not mapped: Iray documents only the direction (> 0.5 towards the lens centre); Octane's `aperture_edge` (1 uniform, < 1 apodised) needs Iray's distribution | Calib-Lens-Bias02 / -Bias08 wait for Iray |
-| `mip_lens_thickness` | not mapped: not in the Iray manual (2026), Octane has nothing like it | Calib-Lens-Thick waits for Iray, to see what it does |
+| `mip_lens_shift_x/y` | the image moves **shift × F / 2** on the film (F the focal length, cm), with the shift's sign (x right, y up); thin lens `lensShift` = −that / film width, −that / film height (Octane's units are fractions of the image's width / height and move the *view*: 0.1 moves a 1920×1080 frame's content 192 px left, 108 px down) | Calib-Lens-Shift (0.5, −0.3 at 65 mm): Iray's content moved 349.5 px right, 209.7 px down; F / 2 predicts 351.0 / 210.6 — 0.4 % wide, fits within 1.7 px. One focal length referenced: F / 2 rather than a constant 3.24 cm is the reading (shift as half a tangent), not proven |
+| `mip_aperture_num_blades` > 2, `…blade_rotation_angle` | `bokehSidecount` = blades, `bokehRoundedness` 0, `bokehRotation` = (90° − rotation) / 360°, mod 1; fewer blades → round (roundedness 1) | Iray's polygon has a corner at the rotation counter-clockwise from the image's +x (Calib-Lens-Blades5, 20°: a corner 92.5° ≡ 20.5°). Octane's `bokehRotation` is a fraction of a turn (pin range 0–1; degrees clamp to 1, a full turn), a corner up at 0, positive clockwise (0–60° in 12° steps). Verified on 5 blades |
+| `mip_lens_radial_bias` b | thin lens **`aperture_edge` = 1 / (2b)**, within the pin's 0–3; the OSL camera samples the lens radius as ξ^b | Iray samples the radius as ξ^b (0.5 uniform; < 0.5 a ring, > 0.5 a peaked centre). Calib-Lens-Bias02: edge 2.5 best of 1, 1.5, 2.5, 4; -Bias08: 0.625 best of 1, 0.4, 0.625, 0.8. Bokeh RMSE vs Iray: 5.17 → 2.72 (thin lens) / 2.38 (OSL ξ^b) at 0.2, 4.15 → 2.76 / 2.41 at 0.8; Calib-DOF-f4's own 2.39 |
+| `mip_lens_stereo_offset` | the camera moved that far to its right, parallel (Iray manual 13.3: the right eye, the left in a canvas's second layer) | not settled: the Iray Server's Calib-Lens-Stereo is a featureless beige gradient, no eye of the scene in it (Iray's stereo into a single-layer canvas misbehaves); kept as the manual reads |
+| `mip_lens_distortion_type` ≠ none | an **OSL camera** (NT_CAM_OSL 126, `shaderCode`) in the thin lens's place, Iray's model written out (`lens::osl_camera`) | below |
+| `mip_lens_thickness` | not mapped: it does nothing | Calib-Lens-Thick (50 mm on Calib-DOF-f4) is Calib-DOF-f4 pixel for pixel (mean \|Δ\| 0.00) |
 | `mip_lens_max_fov` | the equidistant fisheye's cut-off at half of it (rays beyond: none, black) | from the manual |
 
-**The OSL camera.** The image point on Iray's film (cm, lens shift added),
-its radius normalised as r = scale · distance / film width — the
-normalisation the manual's equidistant table implies (k2 = θ / s for a
-cropped fisheye's horizontal FOV θ; aθ / s vertical, θ / (s√(1 + 1/a²))
-diagonal: all hold for this r and no other). Perspective models send the
-ray through the undistorted film point (`ru / rd` × the film point, focal
-length on the axis): forward models (rd = P(ru)) solved by 16 Newton steps,
-inverse ones (ru = P(rd)) direct. Equidistant: exit angle θ = P(rd) at the
-point's azimuth. Spherical: a full 360° × 180° lat-long; cylindrical: 360°
-across, square pixels up the cylinder. Depth of field: Octane's
-`camera:dofrandom` over Iray's lens (a disc of the lens radius, or the
-blade polygon, uniformly), focus on the plane at the focus distance
-(perspective models) or the sphere (the rest). Radius normalisation and the
-panoramas' extents are the reading of the manual, unconfirmed until the
-Iray references (Calib-Lens-Poly3, -InvPoly5, -Brown, -Equidistant,
--Spherical, -Cylindrical).
+**The OSL camera.** The image point on Iray's film (cm, the image shift
+above subtracted), its radius normalised as r = scale · distance / film
+width — the normalisation the manual's equidistant table implies (k2 = θ / s
+for a cropped fisheye's horizontal FOV θ). Perspective models send the ray
+through the undistorted film point (`ru / rd` × the film point, focal length
+on the axis): forward models (rd = P(ru)) solved by 16 Newton steps, inverse
+ones (ru = P(rd)) direct. Equidistant: exit angle θ = P(rd) at the point's
+azimuth. Spherical: a full 360° × 180° lat-long. **Cylindrical: 360° across,
+perspective up the cylinder** (the ray's height film y / F) — not square
+pixels: fitted against Iray's own spherical render as an environment, the
+vertical scale is 0.77 = film height / focal length (correlation 0.9997),
+where square pixels (3.53) rendered the scene 4.6× too flat. Depth of field:
+Octane's `camera:dofrandom` over Iray's lens (a disc of the lens radius, or
+the blade polygon with a corner at the rotation from +x, the radius as ξ^b),
+focus on the plane at the focus distance (perspective models) or the sphere
+(the rest). Against Iray (Calib-Lens-Poly3, -InvPoly5, -Brown, -Equidistant,
+-Spherical, -Cylindrical): every 320×270 tile within 1 px, edge correlation
+0.972–0.979 as the undistorted Calib-Tone-Default's 0.975.
 
 ## Render modes
 

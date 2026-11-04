@@ -105,6 +105,7 @@ pub(super) fn project_ocs(
             .replace("@CAM_BLADES@", &blades.to_string())
             .replace("@CAM_BLADE_ROTATION@", &format!("{blade_rotation:.6} 0 0 0"))
             .replace("@CAM_BLADE_ROUNDEDNESS@", &format!("{roundedness:.6} 0 0 0"))
+            .replace("@CAM_APERTURE_EDGE@", &format!("{:.6} 0 0 0", super::lens::aperture_edge(cam)))
             .replace("@CAM_POS@", &v3(cam.pos))
             .replace("@CAM_TARGET@", &v3(cam.target))
             .replace("@CAM_UP@", &v3(cam.up))

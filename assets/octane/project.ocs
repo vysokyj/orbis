@@ -1035,7 +1035,7 @@
        </pin>
        <pin name='aperture_edge'>
         <node id='100022' type='6'>
-         <attr name='value' type='9'>1 0 0 0</attr>
+         <attr name='value' type='9'>@CAM_APERTURE_EDGE@</attr>
         </node>
        </pin>
        <pin name='bokehSidecount'>

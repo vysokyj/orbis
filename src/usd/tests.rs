@@ -536,7 +536,8 @@ fn iray_tone_mapping_drives_the_imager() {
     let mut lensed = cams.clone();
     lensed[0].1.lens = crate::iray::Lens { shift: [0.36, 0.0], blades: 5, ..Default::default() };
     let ocs = project_ocs("Shot", "scene.usdz", &lensed, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &plain, false, None, true, &crate::iray::RenderOptions::default());
-    assert!(ocs.contains("<attr name='value' type='9'>0.100000 0.000000 0 0</attr>") && ocs.contains("<attr name='value' type='5'>5 0 0 0</attr>"));
+    // 0.36 × F / 2 = 0.9 cm of a 3.6 cm film, the view the other way.
+    assert!(ocs.contains("<attr name='value' type='9'>-0.250000 0.000000 0 0</attr>") && ocs.contains("<attr name='value' type='5'>5 0 0 0</attr>"));
     lensed[0].1.lens.distortion = crate::iray::Distortion::Equidistant;
     let ocs = project_ocs("Shot", "scene.usdz", &lensed, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &plain, false, None, true, &crate::iray::RenderOptions::default());
     assert!(ocs.contains("<node id='100005' type='126'>") && !ocs.contains("<node id='100005' type='13'>") && !ocs.contains("@CAM_") && ocs.contains("<pin name='environment'>"));
