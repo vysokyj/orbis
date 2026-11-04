@@ -131,7 +131,10 @@ def parse(path):
                     call = "= " + s.split('"')[1]
                 else:
                     a = re.match(r'"([^"]+)"\s*(=?)\s*(.*?),?$', s)
-                    if a:
+                    if a and not a.group(2) and a.group(3).startswith("[") and '= "' in a.group(3):
+                        # An array of references (`df::clamped_mix`'s components).
+                        args[a.group(1)] = {"refs": re.findall(r'= "([^"]+)"', a.group(3))}
+                    elif a:
                         args[a.group(1)] = {"ref": a.group(3).strip('"')} if a.group(2) else value(a.group(3))
             shaders[name] = {"call": call, "args": args, "attrs": attrs}
         elif kind == "instance":
@@ -187,7 +190,9 @@ def parse(path):
         out = {"mdl": re.sub(r"^mdl::", "", call)}
         args = {}
         for k, v in s["args"].items():
-            if isinstance(v, dict):
+            if isinstance(v, dict) and "refs" in v:
+                args[k] = [tree(r, seen + (name,)) for r in v["refs"]]
+            elif isinstance(v, dict):
                 args[k] = tree(v["ref"], seen + (name,))
             elif isinstance(v, str) and v in textures:
                 args[k] = {"texture": textures[v]}

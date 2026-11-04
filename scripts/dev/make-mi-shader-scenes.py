@@ -7,6 +7,8 @@ Read through DAZ's .mi export, not rendered.
 
 - Calib-Mi-Hair (from Calib-Mi-Hair-base): Blended Dual Lobe Hair on
   spheres 1-4, OmniHair Root-Tip Blend on 5-8, each varied.
+- Calib-Mi-Hair2 (from Calib-Mi-Hair-base): Blended's Root To Tip Bias /
+  Gain, Highlight Weight 0 / 1 and `strength` (#42).
 - Calib-Mi-DzDefault2 (from Calib-Mi-DzDefault, DS Defaults presets): the
   DAZ Default shader's channels, which DAZ turns into Iray Uber.
 """
@@ -27,6 +29,13 @@ VARIANTS = {
         'S7': {'Highlight Weight': 0.5, 'Highlight Root Color': [0.9, 0.6, 0.3], 'Tip Highlight Color': [0.4, 0.5, 0.9], 'Specular Reflection Shift': 5.0,
                'Azimuthal Roughness': 0.4, 'Azimuthal Roughness Tip': 0.6},
         'S8': {'Diffuse Strength': 0.5, 'Hair Root Color': [0.3, 0.2, 0.1], 'Hair Tip Color': [0.8, 0.7, 0.5], 'Melanin': 0.9},
+    }),
+    # Root-to-tip blend shape, highlight extremes, `strength` (#42).
+    'Calib-Mi-Hair2': ('Calib-Mi-Hair-base', {
+        'S1': {'Root To Tip Bias': 0.2, 'Root to Tip Gain': 0.7, 'Hair Root Color': [0.3, 0.2, 0.1], 'Hair Tip Color': [0.8, 0.7, 0.5]},
+        'S2': {'Highlight Weight': 0.0, 'strength': 0.5},
+        'S3': {'Highlight Weight': 1.0, 'highlight_roughness': 0.5, 'separation': 0.0},
+        'S4': {'Root To Tip Bias': 0.8, 'Root to Tip Gain': 0.3, 'Glossy Layer Weight': 0.0, 'Root Transmission Color': [0.2, 0.4, 0.8], 'Tip Transmission Color': [0.9, 0.2, 0.1]},
     }),
     'Calib-Mi-DzDefault2': ('Calib-Mi-DzDefault', {
         'S1': {'glossiness': 0.3, 'specular_strength': 0.5, 'specular': [0.8, 0.6, 0.4]},

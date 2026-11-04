@@ -242,7 +242,259 @@
          "args": {
           "scattering": {
            "args": {
-            "components": "[ = \"DS_S1 Iray Blended Dual Lobe Hair Shader__Default_2ce_62_DzMdlClampedSurfaceMix_25.component_1_90\", = \"DS_S1 Iray Blended Dual Lobe Hair Shader__Default_2ce_62_DzMdlClampedSurfaceMix_25.component_2_93\" ]"
+            "components": [
+             {
+              "args": {
+               "component": {
+                "args": {
+                 "s": {
+                  "args": {
+                   "s": {
+                    "args": {
+                     "anisotropy": {
+                      "args": {
+                       "v": 1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "anisotropy_rotation": {
+                      "args": {
+                       "v": 0
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "base": {
+                      "args": {
+                       "surface": {
+                        "args": {
+                         "scattering": {
+                          "args": {
+                           "tint": {
+                            "args": {
+                             "v": [
+                              0.673049,
+                              0.0938759,
+                              0.0179364
+                             ]
+                            },
+                            "mdl": "daz_3d::basic::pass_color(color)"
+                           }
+                          },
+                          "mdl": "df::diffuse_transmission_bsdf(color,string)"
+                         }
+                        },
+                        "mdl": "material_surface(bsdf,material_emission)"
+                       }
+                      },
+                      "mdl": "material(bool,material_surface,material_surface,color,material_volume,material_geometry,hair_bsdf)"
+                     },
+                     "base_roughness": {
+                      "args": {
+                       "roughness": {
+                        "args": {
+                         "v": 0.2
+                        },
+                        "mdl": "daz_3d::basic::pass_float(float)"
+                       }
+                      },
+                      "mdl": "daz_3d::irayubermaterial::conditional_square_roughness(bool,float)"
+                     },
+                     "cutout_opacity": {
+                      "args": {
+                       "v": 1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "hair_color": {
+                      "args": {
+                       "v": [
+                        0.673049,
+                        0.0938759,
+                        0.0179364
+                       ]
+                      },
+                      "mdl": "daz_3d::basic::pass_color(color)"
+                     },
+                     "hair_weight": {
+                      "args": {
+                       "v": 0.5
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "highlight_roughness": {
+                      "args": {
+                       "roughness": {
+                        "args": {
+                         "v": 0.1
+                        },
+                        "mdl": "daz_3d::basic::pass_float(float)"
+                       }
+                      },
+                      "mdl": "daz_3d::irayubermaterial::conditional_square_roughness(bool,float)"
+                     },
+                     "highlight_weight": {
+                      "args": {
+                       "v": 0.11
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "hightlight_color": {
+                      "args": {
+                       "v": [
+                        1,
+                        0.605484,
+                        0.339223
+                       ]
+                      },
+                      "mdl": "daz_3d::basic::pass_color(color)"
+                     },
+                     "separation": {
+                      "args": {
+                       "v": 0.1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     }
+                    },
+                    "mdl": "daz_3d::dual_lobe_hair::dual_lobe_hair"
+                   }
+                  },
+                  "mdl": "material.surface(material)"
+                 }
+                },
+                "mdl": "material_surface.scattering(material_surface)"
+               },
+               "weight": {
+                "args": {},
+                "mdl": "daz_3d::basic::get_line_root_to_tip_blend(float,float,::daz_3d::basic::fiber_uv_orientation,::base::texture_coordinate_info)"
+               }
+              },
+              "mdl": "df::bsdf_component(float,bsdf)"
+             },
+             {
+              "args": {
+               "component": {
+                "args": {
+                 "s": {
+                  "args": {
+                   "s": {
+                    "args": {
+                     "anisotropy": {
+                      "args": {
+                       "v": 1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "anisotropy_rotation": {
+                      "args": {
+                       "v": 0
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "base": {
+                      "args": {
+                       "surface": {
+                        "args": {
+                         "scattering": {
+                          "args": {
+                           "tint": {
+                            "args": {
+                             "v": [
+                              0.673049,
+                              0.0938759,
+                              0.0179364
+                             ]
+                            },
+                            "mdl": "daz_3d::basic::pass_color(color)"
+                           }
+                          },
+                          "mdl": "df::diffuse_transmission_bsdf(color,string)"
+                         }
+                        },
+                        "mdl": "material_surface(bsdf,material_emission)"
+                       }
+                      },
+                      "mdl": "material(bool,material_surface,material_surface,color,material_volume,material_geometry,hair_bsdf)"
+                     },
+                     "base_roughness": {
+                      "args": {
+                       "roughness": {
+                        "args": {
+                         "v": 0.2
+                        },
+                        "mdl": "daz_3d::basic::pass_float(float)"
+                       }
+                      },
+                      "mdl": "daz_3d::irayubermaterial::conditional_square_roughness(bool,float)"
+                     },
+                     "cutout_opacity": {
+                      "args": {
+                       "v": 1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "hair_color": {
+                      "args": {
+                       "v": [
+                        0.673049,
+                        0.0938759,
+                        0.0179364
+                       ]
+                      },
+                      "mdl": "daz_3d::basic::pass_color(color)"
+                     },
+                     "hair_weight": {
+                      "args": {
+                       "v": 0.5
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "highlight_roughness": {
+                      "args": {
+                       "roughness": {
+                        "args": {
+                         "v": 0.1
+                        },
+                        "mdl": "daz_3d::basic::pass_float(float)"
+                       }
+                      },
+                      "mdl": "daz_3d::irayubermaterial::conditional_square_roughness(bool,float)"
+                     },
+                     "highlight_weight": {
+                      "args": {
+                       "v": 0.11
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "hightlight_color": {
+                      "args": {
+                       "v": [
+                        1,
+                        0.605484,
+                        0.339223
+                       ]
+                      },
+                      "mdl": "daz_3d::basic::pass_color(color)"
+                     },
+                     "separation": {
+                      "args": {
+                       "v": 0.1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     }
+                    },
+                    "mdl": "daz_3d::dual_lobe_hair::dual_lobe_hair"
+                   }
+                  },
+                  "mdl": "material.surface(material)"
+                 }
+                },
+                "mdl": "material_surface.scattering(material_surface)"
+               },
+               "weight": 1
+              },
+              "mdl": "df::bsdf_component(float,bsdf)"
+             }
+            ]
            },
            "mdl": "df::clamped_mix(::df::bsdf_component[N])"
           }
@@ -379,7 +631,259 @@
          "args": {
           "scattering": {
            "args": {
-            "components": "[ = \"DS_S2 Iray Blended Dual Lobe Hair Shader__Default_2f2_103_DzMdlClampedSurfaceMix_25.component_1_131\", = \"DS_S2 Iray Blended Dual Lobe Hair Shader__Default_2f2_103_DzMdlClampedSurfaceMix_25.component_2_134\" ]"
+            "components": [
+             {
+              "args": {
+               "component": {
+                "args": {
+                 "s": {
+                  "args": {
+                   "s": {
+                    "args": {
+                     "anisotropy": {
+                      "args": {
+                       "v": 1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "anisotropy_rotation": {
+                      "args": {
+                       "v": 0
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "base": {
+                      "args": {
+                       "surface": {
+                        "args": {
+                         "scattering": {
+                          "args": {
+                           "tint": {
+                            "args": {
+                             "v": [
+                              0.673049,
+                              0.0938759,
+                              0.0179364
+                             ]
+                            },
+                            "mdl": "daz_3d::basic::pass_color(color)"
+                           }
+                          },
+                          "mdl": "df::diffuse_transmission_bsdf(color,string)"
+                         }
+                        },
+                        "mdl": "material_surface(bsdf,material_emission)"
+                       }
+                      },
+                      "mdl": "material(bool,material_surface,material_surface,color,material_volume,material_geometry,hair_bsdf)"
+                     },
+                     "base_roughness": {
+                      "args": {
+                       "roughness": {
+                        "args": {
+                         "v": 0.4
+                        },
+                        "mdl": "daz_3d::basic::pass_float(float)"
+                       }
+                      },
+                      "mdl": "daz_3d::irayubermaterial::conditional_square_roughness(bool,float)"
+                     },
+                     "cutout_opacity": {
+                      "args": {
+                       "v": 1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "hair_color": {
+                      "args": {
+                       "v": [
+                        0.612066,
+                        0.456263,
+                        0.217638
+                       ]
+                      },
+                      "mdl": "daz_3d::basic::pass_color(color)"
+                     },
+                     "hair_weight": {
+                      "args": {
+                       "v": 0.8
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "highlight_roughness": {
+                      "args": {
+                       "roughness": {
+                        "args": {
+                         "v": 0.1
+                        },
+                        "mdl": "daz_3d::basic::pass_float(float)"
+                       }
+                      },
+                      "mdl": "daz_3d::irayubermaterial::conditional_square_roughness(bool,float)"
+                     },
+                     "highlight_weight": {
+                      "args": {
+                       "v": 0.11
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "hightlight_color": {
+                      "args": {
+                       "v": [
+                        1,
+                        0.605484,
+                        0.339223
+                       ]
+                      },
+                      "mdl": "daz_3d::basic::pass_color(color)"
+                     },
+                     "separation": {
+                      "args": {
+                       "v": 0.1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     }
+                    },
+                    "mdl": "daz_3d::dual_lobe_hair::dual_lobe_hair"
+                   }
+                  },
+                  "mdl": "material.surface(material)"
+                 }
+                },
+                "mdl": "material_surface.scattering(material_surface)"
+               },
+               "weight": {
+                "args": {},
+                "mdl": "daz_3d::basic::get_line_root_to_tip_blend(float,float,::daz_3d::basic::fiber_uv_orientation,::base::texture_coordinate_info)"
+               }
+              },
+              "mdl": "df::bsdf_component(float,bsdf)"
+             },
+             {
+              "args": {
+               "component": {
+                "args": {
+                 "s": {
+                  "args": {
+                   "s": {
+                    "args": {
+                     "anisotropy": {
+                      "args": {
+                       "v": 1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "anisotropy_rotation": {
+                      "args": {
+                       "v": 0
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "base": {
+                      "args": {
+                       "surface": {
+                        "args": {
+                         "scattering": {
+                          "args": {
+                           "tint": {
+                            "args": {
+                             "v": [
+                              0.673049,
+                              0.0938759,
+                              0.0179364
+                             ]
+                            },
+                            "mdl": "daz_3d::basic::pass_color(color)"
+                           }
+                          },
+                          "mdl": "df::diffuse_transmission_bsdf(color,string)"
+                         }
+                        },
+                        "mdl": "material_surface(bsdf,material_emission)"
+                       }
+                      },
+                      "mdl": "material(bool,material_surface,material_surface,color,material_volume,material_geometry,hair_bsdf)"
+                     },
+                     "base_roughness": {
+                      "args": {
+                       "roughness": {
+                        "args": {
+                         "v": 0.4
+                        },
+                        "mdl": "daz_3d::basic::pass_float(float)"
+                       }
+                      },
+                      "mdl": "daz_3d::irayubermaterial::conditional_square_roughness(bool,float)"
+                     },
+                     "cutout_opacity": {
+                      "args": {
+                       "v": 1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "hair_color": {
+                      "args": {
+                       "v": [
+                        0.0707403,
+                        0.0289912,
+                        0.00630957
+                       ]
+                      },
+                      "mdl": "daz_3d::basic::pass_color(color)"
+                     },
+                     "hair_weight": {
+                      "args": {
+                       "v": 0.8
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "highlight_roughness": {
+                      "args": {
+                       "roughness": {
+                        "args": {
+                         "v": 0.1
+                        },
+                        "mdl": "daz_3d::basic::pass_float(float)"
+                       }
+                      },
+                      "mdl": "daz_3d::irayubermaterial::conditional_square_roughness(bool,float)"
+                     },
+                     "highlight_weight": {
+                      "args": {
+                       "v": 0.11
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "hightlight_color": {
+                      "args": {
+                       "v": [
+                        1,
+                        0.605484,
+                        0.339223
+                       ]
+                      },
+                      "mdl": "daz_3d::basic::pass_color(color)"
+                     },
+                     "separation": {
+                      "args": {
+                       "v": 0.1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     }
+                    },
+                    "mdl": "daz_3d::dual_lobe_hair::dual_lobe_hair"
+                   }
+                  },
+                  "mdl": "material.surface(material)"
+                 }
+                },
+                "mdl": "material_surface.scattering(material_surface)"
+               },
+               "weight": 1
+              },
+              "mdl": "df::bsdf_component(float,bsdf)"
+             }
+            ]
            },
            "mdl": "df::clamped_mix(::df::bsdf_component[N])"
           }
@@ -516,7 +1020,259 @@
          "args": {
           "scattering": {
            "args": {
-            "components": "[ = \"DS_S3 Iray Blended Dual Lobe Hair Shader__Default_316_144_DzMdlClampedSurfaceMix_25.component_1_172\", = \"DS_S3 Iray Blended Dual Lobe Hair Shader__Default_316_144_DzMdlClampedSurfaceMix_25.component_2_175\" ]"
+            "components": [
+             {
+              "args": {
+               "component": {
+                "args": {
+                 "s": {
+                  "args": {
+                   "s": {
+                    "args": {
+                     "anisotropy": {
+                      "args": {
+                       "v": 1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "anisotropy_rotation": {
+                      "args": {
+                       "v": 0
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "base": {
+                      "args": {
+                       "surface": {
+                        "args": {
+                         "scattering": {
+                          "args": {
+                           "tint": {
+                            "args": {
+                             "v": [
+                              0.673049,
+                              0.0938759,
+                              0.0179364
+                             ]
+                            },
+                            "mdl": "daz_3d::basic::pass_color(color)"
+                           }
+                          },
+                          "mdl": "df::diffuse_transmission_bsdf(color,string)"
+                         }
+                        },
+                        "mdl": "material_surface(bsdf,material_emission)"
+                       }
+                      },
+                      "mdl": "material(bool,material_surface,material_surface,color,material_volume,material_geometry,hair_bsdf)"
+                     },
+                     "base_roughness": {
+                      "args": {
+                       "roughness": {
+                        "args": {
+                         "v": 0.2
+                        },
+                        "mdl": "daz_3d::basic::pass_float(float)"
+                       }
+                      },
+                      "mdl": "daz_3d::irayubermaterial::conditional_square_roughness(bool,float)"
+                     },
+                     "cutout_opacity": {
+                      "args": {
+                       "v": 1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "hair_color": {
+                      "args": {
+                       "v": [
+                        0.673049,
+                        0.0938759,
+                        0.0179364
+                       ]
+                      },
+                      "mdl": "daz_3d::basic::pass_color(color)"
+                     },
+                     "hair_weight": {
+                      "args": {
+                       "v": 0.5
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "highlight_roughness": {
+                      "args": {
+                       "roughness": {
+                        "args": {
+                         "v": 0.3
+                        },
+                        "mdl": "daz_3d::basic::pass_float(float)"
+                       }
+                      },
+                      "mdl": "daz_3d::irayubermaterial::conditional_square_roughness(bool,float)"
+                     },
+                     "highlight_weight": {
+                      "args": {
+                       "v": 0.5
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "hightlight_color": {
+                      "args": {
+                       "v": [
+                        0.133209,
+                        0.217638,
+                        0.79311
+                       ]
+                      },
+                      "mdl": "daz_3d::basic::pass_color(color)"
+                     },
+                     "separation": {
+                      "args": {
+                       "v": 0.2
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     }
+                    },
+                    "mdl": "daz_3d::dual_lobe_hair::dual_lobe_hair"
+                   }
+                  },
+                  "mdl": "material.surface(material)"
+                 }
+                },
+                "mdl": "material_surface.scattering(material_surface)"
+               },
+               "weight": {
+                "args": {},
+                "mdl": "daz_3d::basic::get_line_root_to_tip_blend(float,float,::daz_3d::basic::fiber_uv_orientation,::base::texture_coordinate_info)"
+               }
+              },
+              "mdl": "df::bsdf_component(float,bsdf)"
+             },
+             {
+              "args": {
+               "component": {
+                "args": {
+                 "s": {
+                  "args": {
+                   "s": {
+                    "args": {
+                     "anisotropy": {
+                      "args": {
+                       "v": 1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "anisotropy_rotation": {
+                      "args": {
+                       "v": 0
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "base": {
+                      "args": {
+                       "surface": {
+                        "args": {
+                         "scattering": {
+                          "args": {
+                           "tint": {
+                            "args": {
+                             "v": [
+                              0.673049,
+                              0.0938759,
+                              0.0179364
+                             ]
+                            },
+                            "mdl": "daz_3d::basic::pass_color(color)"
+                           }
+                          },
+                          "mdl": "df::diffuse_transmission_bsdf(color,string)"
+                         }
+                        },
+                        "mdl": "material_surface(bsdf,material_emission)"
+                       }
+                      },
+                      "mdl": "material(bool,material_surface,material_surface,color,material_volume,material_geometry,hair_bsdf)"
+                     },
+                     "base_roughness": {
+                      "args": {
+                       "roughness": {
+                        "args": {
+                         "v": 0.2
+                        },
+                        "mdl": "daz_3d::basic::pass_float(float)"
+                       }
+                      },
+                      "mdl": "daz_3d::irayubermaterial::conditional_square_roughness(bool,float)"
+                     },
+                     "cutout_opacity": {
+                      "args": {
+                       "v": 1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "hair_color": {
+                      "args": {
+                       "v": [
+                        0.673049,
+                        0.0938759,
+                        0.0179364
+                       ]
+                      },
+                      "mdl": "daz_3d::basic::pass_color(color)"
+                     },
+                     "hair_weight": {
+                      "args": {
+                       "v": 0.5
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "highlight_roughness": {
+                      "args": {
+                       "roughness": {
+                        "args": {
+                         "v": 0.3
+                        },
+                        "mdl": "daz_3d::basic::pass_float(float)"
+                       }
+                      },
+                      "mdl": "daz_3d::irayubermaterial::conditional_square_roughness(bool,float)"
+                     },
+                     "highlight_weight": {
+                      "args": {
+                       "v": 0.5
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "hightlight_color": {
+                      "args": {
+                       "v": [
+                        0.79311,
+                        0.325037,
+                        0.0707403
+                       ]
+                      },
+                      "mdl": "daz_3d::basic::pass_color(color)"
+                     },
+                     "separation": {
+                      "args": {
+                       "v": 0.2
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     }
+                    },
+                    "mdl": "daz_3d::dual_lobe_hair::dual_lobe_hair"
+                   }
+                  },
+                  "mdl": "material.surface(material)"
+                 }
+                },
+                "mdl": "material_surface.scattering(material_surface)"
+               },
+               "weight": 1
+              },
+              "mdl": "df::bsdf_component(float,bsdf)"
+             }
+            ]
            },
            "mdl": "df::clamped_mix(::df::bsdf_component[N])"
           }
@@ -653,7 +1409,259 @@
          "args": {
           "scattering": {
            "args": {
-            "components": "[ = \"DS_S4 Iray Blended Dual Lobe Hair Shader__Default_33a_185_DzMdlClampedSurfaceMix_25.component_1_213\", = \"DS_S4 Iray Blended Dual Lobe Hair Shader__Default_33a_185_DzMdlClampedSurfaceMix_25.component_2_216\" ]"
+            "components": [
+             {
+              "args": {
+               "component": {
+                "args": {
+                 "s": {
+                  "args": {
+                   "s": {
+                    "args": {
+                     "anisotropy": {
+                      "args": {
+                       "v": 0.5
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "anisotropy_rotation": {
+                      "args": {
+                       "v": 0.25
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "base": {
+                      "args": {
+                       "surface": {
+                        "args": {
+                         "scattering": {
+                          "args": {
+                           "tint": {
+                            "args": {
+                             "v": [
+                              0.79311,
+                              0.0289912,
+                              0.00630957
+                             ]
+                            },
+                            "mdl": "daz_3d::basic::pass_color(color)"
+                           }
+                          },
+                          "mdl": "df::diffuse_transmission_bsdf(color,string)"
+                         }
+                        },
+                        "mdl": "material_surface(bsdf,material_emission)"
+                       }
+                      },
+                      "mdl": "material(bool,material_surface,material_surface,color,material_volume,material_geometry,hair_bsdf)"
+                     },
+                     "base_roughness": {
+                      "args": {
+                       "roughness": {
+                        "args": {
+                         "v": 0.2
+                        },
+                        "mdl": "daz_3d::basic::pass_float(float)"
+                       }
+                      },
+                      "mdl": "daz_3d::irayubermaterial::conditional_square_roughness(bool,float)"
+                     },
+                     "cutout_opacity": {
+                      "args": {
+                       "v": 0.7
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "hair_color": {
+                      "args": {
+                       "v": [
+                        0.673049,
+                        0.0938759,
+                        0.0179364
+                       ]
+                      },
+                      "mdl": "daz_3d::basic::pass_color(color)"
+                     },
+                     "hair_weight": {
+                      "args": {
+                       "v": 0.5
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "highlight_roughness": {
+                      "args": {
+                       "roughness": {
+                        "args": {
+                         "v": 0.1
+                        },
+                        "mdl": "daz_3d::basic::pass_float(float)"
+                       }
+                      },
+                      "mdl": "daz_3d::irayubermaterial::conditional_square_roughness(bool,float)"
+                     },
+                     "highlight_weight": {
+                      "args": {
+                       "v": 0.11
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "hightlight_color": {
+                      "args": {
+                       "v": [
+                        1,
+                        0.605484,
+                        0.339223
+                       ]
+                      },
+                      "mdl": "daz_3d::basic::pass_color(color)"
+                     },
+                     "separation": {
+                      "args": {
+                       "v": 0.1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     }
+                    },
+                    "mdl": "daz_3d::dual_lobe_hair::dual_lobe_hair"
+                   }
+                  },
+                  "mdl": "material.surface(material)"
+                 }
+                },
+                "mdl": "material_surface.scattering(material_surface)"
+               },
+               "weight": {
+                "args": {},
+                "mdl": "daz_3d::basic::get_line_root_to_tip_blend(float,float,::daz_3d::basic::fiber_uv_orientation,::base::texture_coordinate_info)"
+               }
+              },
+              "mdl": "df::bsdf_component(float,bsdf)"
+             },
+             {
+              "args": {
+               "component": {
+                "args": {
+                 "s": {
+                  "args": {
+                   "s": {
+                    "args": {
+                     "anisotropy": {
+                      "args": {
+                       "v": 0.5
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "anisotropy_rotation": {
+                      "args": {
+                       "v": 0.25
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "base": {
+                      "args": {
+                       "surface": {
+                        "args": {
+                         "scattering": {
+                          "args": {
+                           "tint": {
+                            "args": {
+                             "v": [
+                              0.0289912,
+                              0.133209,
+                              0.612066
+                             ]
+                            },
+                            "mdl": "daz_3d::basic::pass_color(color)"
+                           }
+                          },
+                          "mdl": "df::diffuse_transmission_bsdf(color,string)"
+                         }
+                        },
+                        "mdl": "material_surface(bsdf,material_emission)"
+                       }
+                      },
+                      "mdl": "material(bool,material_surface,material_surface,color,material_volume,material_geometry,hair_bsdf)"
+                     },
+                     "base_roughness": {
+                      "args": {
+                       "roughness": {
+                        "args": {
+                         "v": 0.2
+                        },
+                        "mdl": "daz_3d::basic::pass_float(float)"
+                       }
+                      },
+                      "mdl": "daz_3d::irayubermaterial::conditional_square_roughness(bool,float)"
+                     },
+                     "cutout_opacity": {
+                      "args": {
+                       "v": 0.7
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "hair_color": {
+                      "args": {
+                       "v": [
+                        0.673049,
+                        0.0938759,
+                        0.0179364
+                       ]
+                      },
+                      "mdl": "daz_3d::basic::pass_color(color)"
+                     },
+                     "hair_weight": {
+                      "args": {
+                       "v": 0.5
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "highlight_roughness": {
+                      "args": {
+                       "roughness": {
+                        "args": {
+                         "v": 0.1
+                        },
+                        "mdl": "daz_3d::basic::pass_float(float)"
+                       }
+                      },
+                      "mdl": "daz_3d::irayubermaterial::conditional_square_roughness(bool,float)"
+                     },
+                     "highlight_weight": {
+                      "args": {
+                       "v": 0.11
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     },
+                     "hightlight_color": {
+                      "args": {
+                       "v": [
+                        1,
+                        0.605484,
+                        0.339223
+                       ]
+                      },
+                      "mdl": "daz_3d::basic::pass_color(color)"
+                     },
+                     "separation": {
+                      "args": {
+                       "v": 0.1
+                      },
+                      "mdl": "daz_3d::basic::pass_float(float)"
+                     }
+                    },
+                    "mdl": "daz_3d::dual_lobe_hair::dual_lobe_hair"
+                   }
+                  },
+                  "mdl": "material.surface(material)"
+                 }
+                },
+                "mdl": "material_surface.scattering(material_surface)"
+               },
+               "weight": 1
+              },
+              "mdl": "df::bsdf_component(float,bsdf)"
+             }
+            ]
            },
            "mdl": "df::clamped_mix(::df::bsdf_component[N])"
           }

@@ -1777,11 +1777,13 @@ impl Ocs<'_> {
     }
 
     /// DAZ's dForce hair shader (Blended Dual Lobe Hair, on strands) → an
-    /// Octane Hair material (type 147) in albedo mode: the mean of root and
-    /// tip colour and transmission colour, each its map's mean × its tint
-    /// (strands have no UVs), mixed by `HAIR_COLOUR_SHARE` /
-    /// `HAIR_TRANSMISSION_SHARE`; longitudinal and azimuthal roughness from
-    /// `base_roughness`; the specular tinted down to the glossy layer's weight.
+    /// Octane Hair material (type 147) in albedo mode: the hair colour and
+    /// transmission colour, each its map's mean × its tint (strands have no
+    /// UVs), mixed by `HAIR_COLOUR_SHARE` / `HAIR_TRANSMISSION_SHARE` — at the
+    /// root and at the tip, blended along each strand as Iray blends its
+    /// root and tip lobes (`hair_albedo_pin`); longitudinal and azimuthal
+    /// roughness from `base_roughness`; the specular tinted down to the
+    /// glossy layer's weight.
     fn hair(&mut self, indent: usize, name: &str, mat: &Material) {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='147' name='{}'>", "", esc(name));
@@ -1796,18 +1798,61 @@ impl Ocs<'_> {
                 None => mat.base_color(),
             }
         };
-        // DAZ hands Iray the Root colours only (`crate::iray::blended_hair`):
-        // its Blended Dual Lobe Hair graph never reads the Tip ones.
         let (root, root_t) = (colour("Hair Root Color"), colour("Root Transmission Color"));
-        let (tip, tip_t) = if crate::iray::is_blended_hair(mat) { (root, root_t) } else { (colour("Hair Tip Color"), colour("Tip Transmission Color")) };
+        let (tip, tip_t) = (colour("Hair Tip Color"), colour("Tip Transmission Color"));
+        let albedo = |c: [f32; 3], t: [f32; 3]| [0, 1, 2].map(|k| HAIR_COLOUR_SHARE * c[k] + HAIR_TRANSMISSION_SHARE * t[k]);
         self.value_pin(i, "hairMode", 57, 2, "0"); // albedo
-        self.rgb_pin(i, "albedo", [0, 1, 2].map(|k| HAIR_COLOUR_SHARE * (root[k] + tip[k]) / 2.0 + HAIR_TRANSMISSION_SHARE * (root_t[k] + tip_t[k]) / 2.0));
+        let (bias, gain) = (mat.float("Root To Tip Bias").unwrap_or(0.5), mat.float("Root to Tip Gain").unwrap_or(0.5));
+        self.hair_albedo_pin(i, albedo(root, root_t), albedo(tip, tip_t), bias, gain);
         let gloss = mat.float("Glossy Layer Weight").unwrap_or(1.0).clamp(0.0, 1.0);
         self.rgb_pin(i, "specular", [gloss; 3]);
         let rough = mat.float("base_roughness").unwrap_or(0.2).clamp(0.0, 1.0);
         self.float_pin(i, "roughness", rough);
         self.float_pin(i, "roughnessV", rough);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
+    }
+
+    /// The Hair `albedo` from `root` to `tip` along each strand: Iray mixes a
+    /// root and a tip `dual_lobe_hair` by DAZ's `get_line_root_to_tip_blend`
+    /// on the strand's line coordinate (Calib-Mi-Hair2's .mi); Octane gives
+    /// each strand a W coordinate, 0 at the root, 1 at the tip. A Gradient
+    /// (49) on a W Coordinate texture (104) from the root's to the tip's
+    /// albedo, the blend's shape (Root To Tip Bias / Gain other than 0.5)
+    /// sampled at `HAIR_BLEND_POINTS` control points; equal ends: the colour.
+    fn hair_albedo_pin(&mut self, indent: usize, root: [f32; 3], tip: [f32; 3], bias: f32, gain: f32) {
+        if (0..3).all(|k| (root[k] - tip[k]).abs() < 1e-4) {
+            return self.rgb_pin(indent, "albedo", root);
+        }
+        let rgb = |c: [f32; 3]| format!("{} {} {}", num(c[0]), num(c[1]), num(c[2]));
+        let linear = (bias - 0.5).abs() < 1e-4 && (gain - 0.5).abs() < 1e-4;
+        let points = if linear { Vec::new() } else { blend_points(bias, gain) };
+        self.pin_open(indent, "albedo");
+        let (i, j) = (indent + 1, indent + 2);
+        let id = self.id();
+        let _ = writeln!(self.out, "{:i$}<node id='{id}' type='49'>", "");
+        let _ = writeln!(self.out, "{:j$}<attr name='controlpoints' type='2'>{}</attr>", "", points.len());
+        self.value_pin(j, "gradientInterpolationType", 57, 2, "2"); // linear
+        self.value_pin(j, "gradientInterpolationColorSpace", 57, 2, "0"); // physical
+        let wid = self.id();
+        self.pin_open(j, "input");
+        let _ = writeln!(self.out, "{:k$}<node id='{wid}' type='104'/>", "", k = j + 1);
+        self.pin_close(j);
+        self.value_pin(j, "min", 33, 8, &rgb(root));
+        self.value_pin(j, "max", 33, 8, &rgb(tip));
+        for (n, t) in points.iter().enumerate() {
+            let w = crate::iray::root_to_tip_blend(*t, bias, gain);
+            let c = [0, 1, 2].map(|k| root[k] + (tip[k] - root[k]) * w);
+            for (pin, dynamic, node, attr, value) in [("Position", 2, 6, 9, format!("{} 0 0 0", num(*t))), ("Value", 5, 33, 8, rgb(c))] {
+                let vid = self.id();
+                let _ = writeln!(self.out, "{:j$}<pin name='{pin} {}' dynamicType='{dynamic}'>", "", n + 1);
+                let _ = writeln!(self.out, "{:k$}<node id='{vid}' type='{node}'>", "", k = j + 1);
+                let _ = writeln!(self.out, "{:k$} <attr name='value' type='{attr}'>{value}</attr>", "", k = j + 1);
+                let _ = writeln!(self.out, "{:k$}</node>", "", k = j + 1);
+                let _ = writeln!(self.out, "{:j$}</pin>", "");
+            }
+        }
+        let _ = writeln!(self.out, "{:i$}</node>", "");
+        self.pin_close(indent);
     }
 
     /// DAZ's OmniHair (`omni_hair`) as Octane's Hair in melanin mode.
@@ -2998,6 +3043,27 @@ fn omni_hair(mat: &Material) -> Option<OmniHair> {
 /// Iray in luminance; Octane's Hair is linear in its albedo (× 0.6 → × 0.6).
 const HAIR_COLOUR_SHARE: f32 = 0.046;
 const HAIR_TRANSMISSION_SHARE: f32 = 0.110;
+/// Segments that sample DAZ's root-to-tip blend into the Hair albedo's
+/// Gradient when its bias / gain bend it (`hair_albedo_pin`).
+const HAIR_BLEND_POINTS: usize = 16;
+
+/// The inner control points (strand positions 0 – 1) of the Hair albedo's
+/// Gradient: spaced evenly along the root-to-tip blend's curve (t, w), so
+/// its steep end gets more of them — linear in between, within 1 % of the
+/// curve at bias / gain 0.2 – 0.8 (4 % at 0.05 – 0.95; even spacing in t
+/// was 9 %).
+fn blend_points(bias: f32, gain: f32) -> Vec<f32> {
+    const M: usize = 256;
+    let curve: Vec<(f32, f32)> = (0..=M).map(|k| k as f32 / M as f32).map(|t| (t, crate::iray::root_to_tip_blend(t, bias, gain))).collect();
+    let mut length = vec![0.0f32];
+    for w in curve.windows(2) {
+        length.push(length.last().unwrap() + (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1));
+    }
+    let total = *length.last().unwrap();
+    let mut out: Vec<f32> = (1..HAIR_BLEND_POINTS).map(|j| curve[length.partition_point(|l| *l < total * j as f32 / HAIR_BLEND_POINTS as f32).min(M)].0).collect();
+    out.dedup();
+    out
+}
 
 /// Meters per centimeter.
 const CM_PER_M_INV: f32 = 0.01;
@@ -5130,12 +5196,46 @@ mod tests {
         let (hx, tex) = material_inputs(&[("Curls".into(), hair, 0.0)], &[dir.path().to_path_buf()], HashMap::new(), 4000, SkinShader::None);
         assert!(hx.contains("type='147' name='Curls'"), "{hx}");
         // Root 0.5 × (1, 0.218, 0.218) (the colour linear) and tip 0.5,
-        // averaged, × 0.046, + 0.110 × the (default white) transmission colour.
-        assert!(hx.contains("<attr name='value' type='8'>0.133134 0.124084 0.124084</attr>"), "{hx}");
+        // × 0.046, + 0.110 × the (default white) transmission colour, from
+        // root to tip along the strand (W), linear at bias / gain 0.5.
+        let albedo = &hx[hx.find("<pin name='albedo'>").unwrap()..hx.find("<pin name='specular'>").unwrap()];
+        assert!(albedo.contains("type='49'") && albedo.contains("type='104'") && albedo.contains("<attr name='controlpoints' type='2'>0</attr>"), "{albedo}");
+        let min = albedo.find("<pin name='min'>").unwrap();
+        let max = albedo.find("<pin name='max'>").unwrap();
+        assert!(albedo[min..max].contains(">0.133134 0.115035 0.115035<") && albedo[max..].contains(">0.133134 0.133134 0.133134<"), "{albedo}");
         assert!(hx.contains("<pin name='specular'>") && hx.contains("<attr name='value' type='8'>0.22 0.22 0.22</attr>"));
         assert!(hx.contains("<attr name='value' type='6'>0.35</attr>"));
         assert!(tex.files.is_empty(), "the map is averaged, not packed");
-        assert_eq!(hx.matches("<node ").count(), hx.matches("</node>").count());
+        assert_eq!(hx.matches("<node ").count(), hx.matches("</node>").count() + hx.matches("type='104'/>").count());
+    }
+
+    #[test]
+    fn hair_root_to_tip_blend_follows_bias_and_gain() {
+        let ocs = |extra: serde_json::Value| {
+            let mut chs = vec![
+                json!({"channel": {"id": "Hair Root Color", "current_value": [0, 0, 0]}}),
+                json!({"channel": {"id": "Root Transmission Color", "current_value": [0, 0, 0]}}),
+                json!({"channel": {"id": "Hair Tip Color", "current_value": [1, 1, 1]}}),
+                json!({"channel": {"id": "Tip Transmission Color", "current_value": [1, 1, 1]}}),
+            ];
+            chs.extend(extra.as_array().unwrap().iter().cloned());
+            material_inputs(&[("Hair".into(), mat(serde_json::Value::Array(chs)), 0.0)], &[], HashMap::new(), 4000, SkinShader::None).0
+        };
+        // Bias 0.2 / gain 0.7 bend the blend: control points along it,
+        // each the root-to-tip mix DAZ's MDL gives there.
+        let bent = ocs(json!([{"channel": {"id": "Root To Tip Bias", "current_value": 0.2}}, {"channel": {"id": "Root to Tip Gain", "current_value": 0.7}}]));
+        assert!(bent.contains("<attr name='controlpoints' type='2'>15</attr>"), "{bent}");
+        let at = |t: f32| crate::iray::root_to_tip_blend(t, 0.2, 0.7) * (HAIR_COLOUR_SHARE + HAIR_TRANSMISSION_SHARE);
+        let p1 = bent.find("<pin name='Position 1' dynamicType='2'>").unwrap();
+        let t1: f32 = bent[p1..].split("type='9'>").nth(1).unwrap().split(' ').next().unwrap().parse().unwrap();
+        let v1 = &bent[bent.find("<pin name='Value 1' dynamicType='5'>").unwrap()..];
+        assert!(v1.contains(&format!(">{} {} {}<", num(at(t1)), num(at(t1)), num(at(t1)))), "{v1}");
+        // Equal ends: a plain colour.
+        let flat = material_inputs(&[("Hair".into(), mat(json!([{"channel": {"id": "Hair Root Color", "current_value": [1, 1, 1]}}, {"channel": {"id": "Hair Tip Color", "current_value": [1, 1, 1]}}])), 0.0)], &[], HashMap::new(), 4000, SkinShader::None).0;
+        assert!(!flat.contains("type='49'"), "{flat}");
+        for x in [&bent, &flat] {
+            assert_eq!(x.matches("<node ").count(), x.matches("</node>").count() + x.matches("type='104'/>").count());
+        }
     }
 
     #[test]

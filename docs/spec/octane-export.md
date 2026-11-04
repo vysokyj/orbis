@@ -1285,8 +1285,19 @@ its Translucency Color map carries the subsurface part), open in #28.
 ### dForce hair — Hair material (147)
 
 albedo = 0.046 × the hair colour + 0.110 × the transmission colour
-(`HAIR_COLOUR_SHARE`, `HAIR_TRANSMISSION_SHARE`; each the mean of its root
-and tip colour, each its map's linear mean × tint); roughness both ways from
+(`HAIR_COLOUR_SHARE`, `HAIR_TRANSMISSION_SHARE`; each its map's linear
+mean × tint), at the root (Hair Root / Root Transmission Color) and at the
+tip (Hair Tip / Tip Transmission Color), **blended along each strand**: a
+Gradient (49) on a W Coordinate (104) from the root's albedo (W 0) to the
+tip's (W 1); Root To Tip Bias / Gain other than 0.5 bend it — DAZ's
+`get_line_root_to_tip_blend` (Schlick's bias, then gain; `basic.mdl`)
+sampled at 15 control points spaced along the curve (≤ 1 % off at
+0.2 – 0.8), linear between. Equal ends: a plain colour. Why: DAZ hands Iray
+two `dual_lobe_hair` instances, root colours and tip colours, under a
+`df::clamped_mix` weighted by that blend on the strand's line coordinate
+(Calib-Mi-Hair / -Hair2's .mi: the tip colours and bias / gain do reach
+Iray; bias / gain at 0.5 are left out as the MDL's default). Before #42 the
+Blended shader took the root colours only. Roughness both ways from
 `base_roughness`; specular = `Glossy Layer Weight`. Why: Iray's Blended
 Dual Lobe hair follows its transmission colour more than its hair colour —
 Calib-Hair (blond) and two copies with dark brown hair or transmission
@@ -1295,9 +1306,23 @@ colours (render strands, 2× widths), fitted on the front-lit crown:
 albedo (× 0.6 → × 0.60). Its `specular` barely shows (0.25 → 0.03: crown
 −3 %). The hue is less saturated than Iray's on the blonds (crown r/g 1.16
 vs 1.47) and more on the dark-transmission copy (1.18 vs 1.08) — no single
-saturation curve fits both; open in #42. Backlit strands glow through
+saturation curve fits both; open (#42). Backlit strands glow through
 (Octane's TT lobe) where Iray's stay dark: kept, it is Octane's more
 plausible take (the Enhanced look).
+
+Not mapped (#42): **Highlight Weight / Highlight Root / Tip Highlight
+Color / highlight_roughness** — Iray's `dual_lobe_hair` puts a glossy
+highlight layer (that weight, colour, roughness²) over the hair-coloured
+glossy (`Glossy Layer Weight`, base_roughness²); Octane's Hair has one R
+lobe whose strength is its Fresnel (IOR) and `specular` tint, so the
+highlight needs Iray references of strand hair to fit (Calib-Hair-hl,
+local). **separation** tilts the two glossy lobes' normals ±separation
+along the tangent (shifts the highlights); Octane's `offset` (cuticle tilt)
+is the analogue, its units unmeasured — left at 0 until the same
+references. **Anisotropy / Anisotropy Rotations**: on strands the
+`anisotropy_conversion` tangent is the strand's; Octane's fibre BSDF is
+anisotropic by construction — nothing to map. **strength** reaches nothing
+in Iray (Calib-Mi-Hair2's .mi).
 
 **OmniHair** ("OmniHair Root-Tip Blend", a brick graph on
 `OmniSurface::OmniHairBase`: Chiang's hair BSDF, as Octane's Hair is) →

@@ -710,15 +710,33 @@ pub fn daz_default_as_uber(mat: &Material) -> Option<Material> {
 pub const DAZ_DEFAULT_ROUGHNESS_POWER: f32 = 1.7;
 
 /// What DAZ hands Iray for its Blended Dual Lobe Hair shader (a brick graph
-/// on `dual_lobe_hair.mdl`, Calib-Mi-Hair), by the graph's argument path:
-/// the Root colours only, linear (the Tip ones don't reach Iray);
-/// roughnesses raw (the MDL squares them); the rest as is.
+/// on `dual_lobe_hair.mdl`, Calib-Mi-Hair / -Hair2), by the graph's argument
+/// path: two `dual_lobe_hair` instances, the Root colours in `base` and the
+/// Tip ones in the one `df::clamped_mix` weighs by
+/// `get_line_root_to_tip_blend(bias, gain)` along the strand (`TIP`; the
+/// root takes the rest); colours linear; roughnesses raw (the MDL squares
+/// them); the rest as is, shared by both. Root To Tip Bias / Gain reach the
+/// blend only when not 0.5 (the MDL's default, left out of the .mi);
+/// `strength` reaches nothing.
 pub fn blended_hair(mat: &Material) -> BTreeMap<&'static str, Arg> {
+    macro_rules! tip {
+        ($p:literal) => {
+            concat!("material_surface_scattering.surface.scattering.components.0.component.s.s.", $p)
+        };
+    }
+    macro_rules! blend {
+        ($p:literal) => {
+            concat!("material_surface_scattering.surface.scattering.components.0.weight.", $p)
+        };
+    }
     let ch = Channels(mat);
     let mut out = BTreeMap::new();
     out.insert("base.hair_color", Arg::Color(ch.color("Hair Root Color", [0.5; 3])));
     out.insert("base.base.surface.scattering.tint", Arg::Color(ch.color("Root Transmission Color", [0.5; 3])));
     out.insert("base.hightlight_color", Arg::Color(ch.color("Highlight Root Color", [1.0; 3])));
+    out.insert(tip!("hair_color"), Arg::Color(ch.color("Hair Tip Color", [0.5; 3])));
+    out.insert(tip!("base.surface.scattering.tint"), Arg::Color(ch.color("Tip Transmission Color", [0.5; 3])));
+    out.insert(tip!("hightlight_color"), Arg::Color(ch.color("Tip Highlight Color", [1.0; 3])));
     for (param, channel, default) in [
         ("base.hair_weight", "Glossy Layer Weight", 0.5),
         ("base.base_roughness.roughness", "base_roughness", 0.2),
@@ -728,10 +746,27 @@ pub fn blended_hair(mat: &Material) -> BTreeMap<&'static str, Arg> {
         ("base.anisotropy", "Anisotropy", 1.0),
         ("base.anisotropy_rotation", "Anisotropy Rotations", 0.0),
         ("base.cutout_opacity", "Cutout Opacity", 1.0),
+        (tip!("hair_weight"), "Glossy Layer Weight", 0.5),
+        (tip!("base_roughness.roughness"), "base_roughness", 0.2),
+        (tip!("highlight_roughness.roughness"), "highlight_roughness", 0.1),
+        (tip!("highlight_weight"), "Highlight Weight", 0.11),
+        (tip!("separation"), "separation", 0.1),
+        (blend!("bias"), "Root To Tip Bias", 0.5),
+        (blend!("gain"), "Root to Tip Gain", 0.5),
     ] {
         out.insert(param, Arg::Float(ch.float(channel, default)));
     }
     out
+}
+
+/// DAZ's `get_line_root_to_tip_blend` (`daz_3d/basic.mdl`): the tip's share
+/// at `t` along the strand (0 root, 1 tip) — Schlick's fast bias, then his
+/// gain built on it; bias and gain clamped to (0, 1), 0.5 / 0.5 = linear.
+pub fn root_to_tip_blend(t: f32, bias: f32, gain: f32) -> f32 {
+    let bias_fn = |t: f32, b: f32| t / ((1.0 / b - 2.0) * (1.0 - t) + 1.0);
+    let (b, g) = (bias.clamp(0.00001, 0.99999), gain.clamp(0.00001, 0.99999));
+    let t = bias_fn(t.clamp(0.0, 1.0), b);
+    if t < 0.5 { bias_fn(t * 2.0, g) / 2.0 } else { bias_fn(t * 2.0 - 1.0, 1.0 - g) / 2.0 + 0.5 }
 }
 
 /// Whether the material is DAZ's Blended Dual Lobe Hair shader.
@@ -1889,11 +1924,31 @@ mod tests {
                     graph_leaves(a, &join(k), out);
                 }
             }
+            None if v.is_array() && v.as_array().is_some_and(|a| a.iter().all(Value::is_object)) => {
+                for (k, a) in v.as_array().into_iter().flatten().enumerate() {
+                    graph_leaves(a, &join(&k.to_string()), out);
+                }
+            }
             None if !v.is_object() => {
                 out.insert(path.to_string(), v.clone());
             }
             None => {}
         }
+    }
+
+    #[test]
+    fn root_to_tip_blend_is_daz_bias_and_gain() {
+        // 0.5 / 0.5: linear; the ends stay put whatever the shape.
+        for t in [0.0, 0.25, 0.5, 0.9, 1.0] {
+            assert!((root_to_tip_blend(t, 0.5, 0.5) - t).abs() < 1e-6);
+        }
+        for (b, g) in [(0.2, 0.7), (0.8, 0.3)] {
+            assert!(root_to_tip_blend(0.0, b, g).abs() < 1e-6 && (root_to_tip_blend(1.0, b, g) - 1.0).abs() < 1e-6);
+        }
+        // Bias 0.2 holds the root colour longer: Schlick's bias(0.5, 0.2) = 0.2.
+        assert!((root_to_tip_blend(0.5, 0.2, 0.5) - 0.2).abs() < 1e-6);
+        // Gain 0.7 flattens the middle: gain(0.25, 0.7) = bias(0.5, 0.7) / 2.
+        assert!((root_to_tip_blend(0.25, 0.5, 0.7) - 0.35).abs() < 1e-6);
     }
 
     #[test]
@@ -1906,7 +1961,7 @@ mod tests {
         };
         let (blended, omni) = (defaults("BlendedDualLobeHair"), defaults("OmniHairRootTipBlend"));
         let (mut checked, mut wrong) = (0, Vec::new());
-        let scene = "Calib-Mi-Hair";
+        for scene in ["Calib-Mi-Hair", "Calib-Mi-Hair2"] {
         let fixture: Value = serde_json::from_str(&std::fs::read_to_string(root.join(format!("calib/references/mi/{scene}.json"))).unwrap()).unwrap();
         let doc: Value = serde_json::from_str(&crate::dson::decompress_scene(&std::fs::read(root.join(format!("calib/scenes/{scene}.duf"))).unwrap()).unwrap()).unwrap();
         let mut label = HashMap::new();
@@ -1928,10 +1983,13 @@ mod tests {
             for (param, arg) in ours {
                 checked += 1;
                 let t = theirs.get(param).or_else(|| theirs.get(&format!("base.{param}"))).and_then(|v| fixture_arg(v, &arg));
-                if !t.as_ref().is_some_and(|t| close(t, &arg)) {
-                    wrong.push(format!("{param}: {key}: DAZ {t:?}, ours {arg:?}"));
+                // The blend's bias / gain at the MDL's 0.5 stay out of the .mi.
+                let mdl_default = (param.ends_with(".bias") || param.ends_with(".gain")) && close(&arg, &Arg::Float(0.5));
+                if !t.as_ref().map_or(mdl_default, |t| close(t, &arg)) {
+                    wrong.push(format!("{param}: {scene} {key}: DAZ {t:?}, ours {arg:?}"));
                 }
             }
+        }
         }
         wrong.sort();
         assert!(checked > 0 && wrong.is_empty(), "{} of {checked} hair arguments differ from DAZ's .mi:\n{}", wrong.len(), wrong.join("\n"));
