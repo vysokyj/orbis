@@ -31,6 +31,7 @@ mod library;
 mod lights;
 mod mesh;
 mod project;
+mod render_settings;
 mod subdivide;
 mod usda;
 mod usdz;
@@ -250,7 +251,7 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     // Iray lights with a hidden dome (Draw Dome off) but shows black there;
     // "Scene Only" has no dome light to begin with (power 0, black anyway).
     let hide_dome = environment.as_ref().is_some_and(|e| !e.draw_dome && !e.scene_only);
-    let ocs = project_ocs(name, USDZ_ASSET, &cameras, render_size(&lib.duf), &env_texture, &tuning, &tone, hide_dome, environment.as_ref().and_then(|e| e.sun_sky.as_ref()), !opts.no_denoise)
+    let ocs = project_ocs(name, USDZ_ASSET, &cameras, render_size(&lib.duf), &env_texture, &tuning, &tone, hide_dome, environment.as_ref().and_then(|e| e.sun_sky.as_ref()), !opts.no_denoise, &crate::iray::render_options(&render_channels(&lib.duf)))
         .replace(OBJECT_LAYERS_HIDDEN, if layers.is_empty() { OBJECT_LAYERS_HIDDEN } else { OBJECT_LAYERS_ALL })
         .replace("@MATERIAL_INPUTS@", &(inputs + &light_inputs + &crate::material::object_layer_inputs(&layers, 160_000)))
         .replace("@SCENE_NODES@", &scene_nodes)

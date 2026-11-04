@@ -116,17 +116,9 @@ pub(super) fn headlamp(lib: &mut Library, label: &str, cam: &SceneCamera, has_li
     })
 }
 
-/// A render setting's value (`scene.extra[studio_render_settings]
-/// .render_options.render_elements[].channels[]`).
+/// A render setting's value (`render_channels`).
 fn render_setting(duf: &Value, id: &str) -> Option<f64> {
-    duf.pointer("/scene/extra")?.as_array()?.iter().flat_map(|e| {
-        e.pointer("/render_options/render_elements").or_else(|| e.get("render_elements")).and_then(Value::as_array).into_iter().flatten()
-    })
-    .flat_map(|r| r.get("channels").and_then(Value::as_array).into_iter().flatten())
-    .filter_map(|c| c.get("channel"))
-    .find(|c| c.get("id").and_then(Value::as_str) == Some(id))
-    .and_then(|c| c.get("current_value").or_else(|| c.get("value")))
-    .and_then(Value::as_f64)
+    render_channels(duf).get(id).and_then(Value::as_f64)
 }
 
 /// Radius used for DAZ point lights (they have no size; UsdLux treats the

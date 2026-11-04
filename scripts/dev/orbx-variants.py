@@ -51,6 +51,9 @@ Hypotheses (by the Iray channels the variants stand for):
   colour (per channel with `x<r>,<g>,<b>`), or its texture's power, ×
   value (e.g.
   `set=Genesis_8_Female_Cornea.coating=c0+Genesis_8_Female_Cornea.roughness=f0.07`).
+- `node=<id>=<value>[,<id>=<value>…]`: the value of any node by its id
+  in project.ocs (a kernel or post-processing pin, e.g. `node=100069=2.4`
+  for path tracing's filter size); a vector's other components stay.
 - `hair=<k>,<s>`: every Hair material (147) at albedo × k and specular s.
 - `twosided-x1`: two-sided emitters at the one-sided power (the export
   doubles it, `TWO_SIDED_POWER`, assuming Octane splits it over both faces).
@@ -164,6 +167,14 @@ def apply(ocs, hyp):
     if '&' in hyp:
         for h in hyp.split('&'):
             ocs = apply(ocs, h)
+        return ocs
+    if hyp.startswith('node='):
+        for part in hyp[len('node='):].split(','):
+            nid, val = part.split('=')
+            pat = rf"(<node id='{nid}' type='\d+'>\s*<attr name='value' type='\d+'>)([^< ]*)"
+            ocs, n = re.subn(pat, lambda m: m.group(1) + val, ocs)
+            if not n:
+                sys.exit(f'node {nid} not found')
         return ocs
     if hyp == 'twosided-x1':
         return halve_double_sided(ocs)

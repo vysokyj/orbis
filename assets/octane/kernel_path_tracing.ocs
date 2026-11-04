@@ -8,22 +8,27 @@
        </pin>
        <pin name='maxDiffuseDepth'>
         <node id='100062' type='9'>
-         <attr name='value' type='5'>8 0 0 0</attr>
+         <attr name='value' type='5'>@DIFFUSE_DEPTH@ 0 0 0</attr>
         </node>
        </pin>
        <pin name='maxGlossyDepth'>
         <node id='100063' type='9'>
-         <attr name='value' type='5'>24 0 0 0</attr>
+         <attr name='value' type='5'>@GLOSSY_DEPTH@ 0 0 0</attr>
         </node>
        </pin>
        <pin name='maxScatterDepth'>
         <node id='100064' type='9'>
-         <attr name='value' type='5'>128 0 0 0</attr>
+         <attr name='value' type='5'>@SCATTER_DEPTH@ 0 0 0</attr>
         </node>
        </pin>
        <pin name='giClamp'>
         <node id='100065' type='6'>
-         <attr name='value' type='9'>20 0 0 0</attr>
+         <attr name='value' type='9'>@GI_CLAMP@ 0 0 0</attr>
+        </node>
+       </pin>
+       <pin name='filtersize'>
+        <node id='100069' type='6'>
+         <attr name='value' type='9'>@FILTER_SIZE@ 0 0 0</attr>
         </node>
        </pin>
        <pin name='alphashadows'>

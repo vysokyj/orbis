@@ -500,6 +500,70 @@ Mean |Δ| 1.7 % / 2.7 % of the pixel, the frame's mean −0.3 % / −0.6 %: the
 amount matches, the shape can't (the cone, and Octane darkens the top edge
 as much as the side one).
 
+### Render settings (#43)
+
+DAZ's Iray render settings (`scene.extra[studio_render_settings]`, the
+Photoreal options in a child element; `crate::usd::render_channels`) as
+DAZ hands them Iray (`iray::render_options`, checked against every `.mi`
+fixture's `options`) → the kernel and the render target's post
+processing (`src/usd/render_settings.rs`). Scenes: **Calib-RS-*** (Calib-Glass
+with one setting changed; Iray references at 5000 samples), Octane at
+256 samples, Enhanced + Final.
+
+| Iray (DAZ channel) | Octane | Why |
+|---|---|---|
+| Max Path Length N (−1 = unbounded) | every depth of the kernel capped at **N** (path tracing: diffuse, glossy; direct lighting: diffuse, glossy, specular) | Octane's depth counts path segments as Iray does: Calib-RS-PathLen2 at depth 2 renders the refracting spheres black as Iray, floor 1.04 × Iray (at depth 1 it lost half its light, 0.51 ×); -PathLen4 at depth 4 within 5 % per sphere (at 3 the glass spheres came out at half) |
+| Max SSS Path Length N | `maxScatterDepth` min(128, N) | the same bound (volume vertices); not rendered |
+| Firefly Filter off | `giClamp` 10⁶ (Octane's maximum: no clamp) instead of 20 | Iray's filter clamps outliers like Octane's GI clamp; Calib-RS-FireflyOff changes neither renderer's pixels in this scene |
+| Pixel Filter, Radius r | `filtersize` 1.2 × σ / σ_default (Octane's range 1–8) | σ of Iray's filter: Gauss r / 3 (it ends at 3 σ), box r / √3, triangle r / √6 (width 2r, the .mi's `gauss 3`). Measured as the extra Gaussian blur that turns one render into another: Iray Gauss 1.5 → 3 +0.9 px, → box 1.5 +0.8 px (predicted 0.87 and 0.70 from σ 0.5); Octane `filtersize` 1.2 → 1.8 / 2.4 / 4 +0.6 / +0.8 / +1.5 px, i.e. σ ≈ 0.38 × size (1.2 ≈ Iray's default 0.5). Exported: Calib-RS-PixelRadius3 +0.8, -PixelBox +0.7 px over Octane's default |
+| Bloom Filter (Threshold T, Radius r, Brightness Scale k) | render target's post processing on: `cutoff` T / 10⁴ × the imager's exposure, `bloom_power` k (**not calibrated**), `spreadStart` 0.0001, `spreadEnd` r, `glare_power` 0 | see Bloom below |
+
+**Bloom.** DAZ passes all four channels as they are (`.mi`: Calib-RS-Bloom,
+-Mi-Bloom). Iray's threshold is in its raw pixel values, before the tone
+mapper: at T = 1 (Calib-RS-Bloom) every pixel blooms — the render is the
+plain one blurred, a least-squares fit B = a·I + b·G_σ(I) (linear) gives
+a 0.03, b 0.98 at σ 16 px = r × 1920 / 6, the mean unchanged (1.002):
+Iray *replaces* what is over the threshold by its Gaussian blur. Octane's
+`cutoff` is measured after the exposure, so T ÷ the dome scale (Iray's
+10⁴ per unit of Octane's environment power, `DOME_INTENSITY_SCALE`) × the
+imager's exposure is the same pixel (DAZ's default 2000 at EV 13: 0.28).
+Octane's bloom *adds* a multi-scale glow: at cutoff 0, power 1 / 4 it
+added 1 % / 4 % of the image (fit a 0.98, b 0.03, σ 4–24 px); it can't
+replace the frame by its blur as Iray does at T = 1 — a setting nobody
+uses. The power for a realistic threshold needs Iray references
+(Calib-RS-Bloom2000 / -Bloom10000, Iray batch on #43); until then it is
+Iray's brightness scale. Octane X rendered every post-processing variant
+without trouble (the crash in #37 was with its post-volume fog).
+
+**Not mapped**, with the reason:
+- **Caustic Sampler**, **Guided Sampling**: sampling strategies; the
+  converged image is the same (Calib-RS-Caustics vs Calib-Glass: mean
+  |Δ| 0.0001). Octane's path tracer renders caustics by itself (its
+  Caustic Blur is a bias, not Iray's sampler).
+- **Spectral Rendering** (+ conversion colour space, intent, observer):
+  Octane always renders spectrally; Calib-RS-Spectral equals Calib-Glass
+  (|Δ| 0.0004).
+- **Min / Max Samples, Max Time, Rendering Quality, Converged Ratio**:
+  Iray's samples aren't Octane's; the export keeps its own sample count.
+- **Post Denoiser** (Iray's): Octane's denoiser follows the render mode
+  (Render modes) and `--no-denoise`, not DAZ's switch — Iray's denoiser is
+  off in most scenes, which would turn Octane's off in Final.
+- **Degrain**, **Nominal Luminance**, **Texture Compression**,
+  **Instancing**, **Low Memory**, **Update Interval**: speed / memory /
+  progressive display, no effect on the image Octane can match.
+- **Alpha** (Default / Custom Alpha LPE): DAZ's alpha only matters for a
+  PNG saved with transparency; Octane X saves its own alpha.
+- **Canvases** (render to canvases: Beauty, Diffuse, Normal, Depth, LPE…):
+  output passes, not the look. Octane has the matching render AOVs
+  (diffuse 188, geometric normal 198, Z depth 255, …, in a render AOV
+  group, 179), but the export doesn't fill them: DAZ's canvas list format
+  isn't known (no scene with canvases; DAZ's plug-in names only the 23
+  types) and Octane X crashed on a probe building an AOV group
+  (2026-11-04). Enable the AOVs in Octane X.
+- **White Mode**, **Section Caps**: DAZ preview aids.
+- **Iray Interactive** options: another Iray render mode; the export
+  stands for Photoreal.
+
 ## Materials
 
 Every material input (20007) is filled — Octane doesn't convert

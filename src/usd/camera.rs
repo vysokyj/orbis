@@ -195,6 +195,30 @@ pub(super) fn framing_camera(meshes: &[Mesh]) -> SceneCamera {
     }
 }
 
+/// The render settings' channels by id (`scene.extra[studio_render_settings]
+/// .render_options.render_elements[]`, their `children` included — Iray
+/// Photoreal's options sit in a child element).
+pub(crate) fn render_channels(duf: &Value) -> HashMap<String, Value> {
+    fn walk(e: &Value, out: &mut HashMap<String, Value>) {
+        for c in e.get("channels").and_then(Value::as_array).into_iter().flatten().filter_map(|c| c.get("channel")) {
+            if let (Some(id), Some(v)) = (c.get("id").and_then(Value::as_str), c.get("current_value").or_else(|| c.get("value"))) {
+                out.insert(id.to_string(), v.clone());
+            }
+        }
+        for k in e.get("children").and_then(Value::as_array).into_iter().flatten() {
+            walk(k, out);
+        }
+    }
+    let mut out = HashMap::new();
+    for e in duf.pointer("/scene/extra").and_then(Value::as_array).into_iter().flatten() {
+        let elements = e.pointer("/render_options/render_elements").or_else(|| e.get("render_elements"));
+        for r in elements.and_then(Value::as_array).into_iter().flatten() {
+            walk(r, &mut out);
+        }
+    }
+    out
+}
+
 /// Render size from DAZ's render settings, else 1920×1080.
 pub(crate) fn render_size(duf: &Value) -> (u32, u32) {
     duf.pointer("/scene/extra")

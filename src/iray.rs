@@ -1065,6 +1065,95 @@ pub fn environment(ch: &NodeChannels) -> Environment {
     }
 }
 
+/// Iray Photoreal's antialiasing filter (`filter` in the .mi options:
+/// its kind and width, twice DAZ's Pixel Filter Radius).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PixelFilter {
+    Box,
+    Triangle,
+    Gauss,
+}
+
+impl PixelFilter {
+    /// The .mi's name for it.
+    pub fn mi_name(self) -> &'static str {
+        match self {
+            PixelFilter::Box => "box",
+            PixelFilter::Triangle => "triangle",
+            PixelFilter::Gauss => "gauss",
+        }
+    }
+}
+
+/// Iray's bloom filter (`iray_bloom_filtering_*`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Bloom {
+    /// Blur radius as a fraction of the output resolution.
+    pub radius: f64,
+    /// The value above which a pixel blooms.
+    pub threshold: f64,
+    /// Scale of the blurred bright spots when composited.
+    pub brightness_scale: f64,
+}
+
+/// Iray Photoreal's render options as DAZ passes them (the .mi's
+/// `options`), from the render settings' channels
+/// (`crate::usd::render_channels`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct RenderOptions {
+    /// `iray_max_path_length`: segments of a light path, 2 = direct light
+    /// only. None (DAZ's −1) = unbounded; DAZ then leaves it out.
+    pub max_path_length: Option<u32>,
+    /// `iray_max_sss_path_length`: volume vertices on a path.
+    pub max_sss_path_length: Option<u32>,
+    /// `iray_firefly_filter`.
+    pub firefly_filter: bool,
+    /// `iray_caustic_sampler`.
+    pub caustic_sampler: bool,
+    /// `iray_spectral_rendering`.
+    pub spectral: bool,
+    pub filter: PixelFilter,
+    /// The filter's width in pixels (the .mi's `filter "gauss 3"`).
+    pub filter_width: f64,
+    /// `iray_bloom_filtering` and its settings when on.
+    pub bloom: Option<Bloom>,
+}
+
+impl Default for RenderOptions {
+    /// DAZ's defaults.
+    fn default() -> Self {
+        render_options(&NodeChannels::new())
+    }
+}
+
+/// DAZ's path-length channels: −1 (or less than 1) is unbounded.
+fn path_length(ch: &NodeChannels, k: &str) -> Option<u32> {
+    let n = ch_num(ch, k, -1.0);
+    (n >= 1.0).then_some(n as u32)
+}
+
+pub fn render_options(ch: &NodeChannels) -> RenderOptions {
+    let filter = match ch_num(ch, "Pixel Filter", 2.0) as i32 {
+        0 => PixelFilter::Box,
+        1 => PixelFilter::Triangle,
+        _ => PixelFilter::Gauss,
+    };
+    RenderOptions {
+        max_path_length: path_length(ch, "Max Path Length"),
+        max_sss_path_length: path_length(ch, "Max SSS Path Length"),
+        firefly_filter: ch_bool(ch, "Firefly Filter Enable", true),
+        caustic_sampler: ch_bool(ch, "Caustic Sampler", false),
+        spectral: ch_bool(ch, "Spectral Rendering Enable", false),
+        filter,
+        filter_width: 2.0 * ch_num(ch, "Pixel Filter Radius", 1.5),
+        bloom: ch_bool(ch, "Bloom Filter Enable", false).then(|| Bloom {
+            radius: ch_num(ch, "Bloom Filter Radius", 0.05),
+            threshold: ch_num(ch, "Bloom Filter Threshold", 2000.0),
+            brightness_scale: ch_num(ch, "Bloom Filter Brightness Scale", 1.0),
+        }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Every rule against DAZ's own `.mi` export of the calibration scenes.
@@ -1373,6 +1462,27 @@ mod tests {
             let mi: Value = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();
             let (doc, nodes) = scene_nodes(&root.join(format!("calib/scenes/{scene}.duf")));
             let size = crate::usd::render_size(&doc);
+
+            // Render options (#43).
+            let r = render_options(&crate::usd::render_channels(&doc));
+            let o = &mi["options"];
+            let flag = |v: &Value| f64::from(u8::from(v.as_bool().unwrap_or(false)));
+            let ours = |b: bool| f64::from(u8::from(b));
+            let (kind, width) = o["filter"].as_str().and_then(|s| s.split_once(' ')).unwrap_or(("?", "NaN"));
+            check(format!("{scene} pixel filter {}", r.filter.mi_name()), 1.0, ours(kind == r.filter.mi_name()));
+            check(format!("{scene} pixel filter width"), width.parse().unwrap_or(f64::NAN), r.filter_width);
+            check(format!("{scene} firefly filter"), flag(&o["iray_firefly_filter"]), ours(r.firefly_filter));
+            check(format!("{scene} caustic sampler"), flag(&o["iray_caustic_sampler"]), ours(r.caustic_sampler));
+            check(format!("{scene} spectral"), flag(&o["iray_spectral_rendering"]), ours(r.spectral));
+            // DAZ leaves the path lengths out when unbounded.
+            check(format!("{scene} max path length"), o["iray_max_path_length"].as_f64().unwrap_or(-1.0), r.max_path_length.map_or(-1.0, f64::from));
+            check(format!("{scene} max sss path length"), o["iray_max_sss_path_length"].as_f64().unwrap_or(-1.0), r.max_sss_path_length.map_or(-1.0, f64::from));
+            check(format!("{scene} bloom"), flag(&o["iray_bloom_filtering"]), ours(r.bloom.is_some()));
+            if let Some(b) = r.bloom {
+                check(format!("{scene} bloom radius"), num(&o["iray_bloom_filtering_radius"]), b.radius);
+                check(format!("{scene} bloom threshold"), num(&o["iray_bloom_filtering_threshold"]), b.threshold);
+                check(format!("{scene} bloom brightness"), num(&o["iray_bloom_filtering_brightness_scale"]), b.brightness_scale);
+            }
 
             // The one camera DAZ exports (every calibration scene has one).
             let cams: Vec<_> = nodes.iter().filter(|(d, _, _)| d["type"] == "camera").collect();

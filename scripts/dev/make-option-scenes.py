@@ -10,7 +10,8 @@ argument) and copied into calib/scenes; existing scenes are kept (--force).
 - Calib-Env-*   environment: tint, dome rotation / orientation, lighting blur / resolution,
                 intensity, ground, matte fog, ground fog, dome modes (#37, #65); Calib-Env-Mi-*
                 for DAZ's .mi export only (every fog / dome channel off its default, #37)
-- Calib-RS-*    render settings: caustics, path length, firefly, bloom, pixel filter, spectral (#43)
+- Calib-RS-*    render settings: caustics, path length, firefly, bloom, pixel filter, spectral (#43);
+                Calib-RS-Mi-* for DAZ's .mi export only (triangle filter, SSS path length, bloom settings)
 - Calib-L-Opt-* light options on Calib-L-Point-5k: decay, shadow intensity / softness / colour,
                 illumination, render emitter, cast shadows (#35); Calib-L-Opt-Rect-* on
                 Calib-L-Rect-50: render emitter (light facing the camera), light portal (with a dome);
@@ -101,8 +102,17 @@ RS = [('Caustics', {'Caustic Sampler': True}), ('PathLen4', {'Max Path Length': 
       ('PathLen2', {'Max Path Length': 2}), ('FireflyOff', {'Firefly Filter Enable': False}),
       ('Bloom', {'Bloom Filter Enable': True, 'Bloom Filter Threshold': 1.0}),
       ('PixelBox', {'Pixel Filter': 0}), ('PixelRadius3', {'Pixel Filter Radius': 3.0}),
-      ('Spectral', {'Spectral Rendering Enable': True})]
+      ('Spectral', {'Spectral Rendering Enable': True}),
+      # Bloom at DAZ's default threshold and above: what Iray does with bright spots only (#43).
+      ('Bloom2000', {'Bloom Filter Enable': True}),
+      ('Bloom10000', {'Bloom Filter Enable': True, 'Bloom Filter Threshold': 10000.0})]
 variants('Calib-Glass', 'Calib-RS', None, RS, render=True)
+# For DAZ's .mi export only: every render setting off its default (#43).
+RS_MI = [('Triangle', {'Pixel Filter': 1, 'Pixel Filter Radius': 1.0}),
+         ('Lengths', {'Max Path Length': 7, 'Max SSS Path Length': 12}),
+         ('Bloom', {'Bloom Filter Enable': True, 'Bloom Filter Radius': 0.02, 'Bloom Filter Threshold': 3.0,
+                    'Bloom Filter Brightness Scale': 2.0})]
+variants('Calib-Glass', 'Calib-RS-Mi', None, RS_MI, render=True)
 
 LIGHT = [('Decay0', {'Decay': 0}), ('Decay1', {'Decay': 1}), ('ShadowInt05', {'Shadow Intensity': 0.5}),
          ('ShadowInt0', {'Shadow Intensity': 0.0}), ('ShadowSoft05', {'Shadow Softness': 0.5}),

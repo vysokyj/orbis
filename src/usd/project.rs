@@ -1,7 +1,7 @@
 //! Octane `project.ocs` from the bundled template.
 
 use super::*;
-use crate::tuning::{Kernel, Tuning};
+use crate::tuning::Tuning;
 
 /// Escape text for an XML attribute or element.
 pub(super) fn xml_escape(s: &str) -> String {
@@ -26,6 +26,7 @@ pub(super) fn project_ocs(
     hide_dome: bool,
     sun_sky: Option<&SunSky>,
     denoise: bool,
+    render: &crate::iray::RenderOptions,
 ) -> String {
     let v3 = |v: [f64; 3]| format!("{:.6} {:.6} {:.6} 0", v[0], v[1], v[2]);
     // The render target carries the scene's name — Octane offers it as the
@@ -49,10 +50,8 @@ pub(super) fn project_ocs(
     };
     // Kernel, exposure and denoiser per variant (`Tuning`); the imager
     // follows DAZ's Iray tone mapping.
-    let kernel = match tuning.kernel {
-        Kernel::DirectLighting => include_str!("../../assets/octane/kernel_direct_lighting.ocs"),
-        Kernel::PathTracing => include_str!("../../assets/octane/kernel_path_tracing.ocs"),
-    };
+    // Iray's render settings (#43): bounces, GI clamp, pixel filter, bloom.
+    let kernel = render_settings::kernel_xml(tuning.kernel, render);
     let base_exposure = tuning.base_exposure;
     let [wr, wg, wb] = tone.white_point;
     // Iray's curve beyond the calibrated defaults (burn, crush, gamma) as a
@@ -67,8 +66,16 @@ pub(super) fn project_ocs(
         );
         (tone.octane_exposure(base_exposure) / LUT_HEADROOM, 0.0, lut)
     };
+    let post = render_settings::post_processing(render.bloom.as_ref(), exposure);
     let template = template
-        .replace("@KERNEL@\n", kernel)
+        .replace("@KERNEL@\n", &kernel)
+        .replace("@POST_ON@", if post.on { "1" } else { "0" })
+        .replace("@BLOOM_CUTOFF@", &format!("{:.6} 0 0 0", post.cutoff))
+        .replace("@BLOOM_POWER@", &format!("{:.6} 0 0 0", post.bloom_power))
+        // Iray's bloom has no glare.
+        .replace("@GLARE_POWER@", if post.on { "0 0 0 0" } else { "1 0 0 0" })
+        .replace("@BLOOM_SPREAD_START@", &format!("{:.6} 0 0 0", post.spread.0))
+        .replace("@BLOOM_SPREAD_END@", &format!("{:.6} 0 0 0", post.spread.1))
         .replace("@EXPOSURE@", &format!("{:.6} 0 0 0", exposure))
         .replace("@HIGHLIGHT_COMPRESSION@", &format!("{:.6} 0 0 0", compression))
         .replace("@TONE_LUT@", &lut)

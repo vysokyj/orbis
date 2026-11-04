@@ -517,12 +517,12 @@ fn iray_tone_mapping_drives_the_imager() {
     let cams = vec![("Camera".to_string(), framing_camera(&[]))];
     // Burn 0.25 is beyond Octane's imager: Iray's curve as a LUT, the
     // exposure lowered by its headroom, no highlight compression.
-    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &tone, false, None, true);
+    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &tone, false, None, true, &crate::iray::RenderOptions::default());
     assert!(ocs.contains("0.175000 0 0 0") && ocs.contains("1.200000 0 0 0"), "exposure 2.8 / 16, saturation");
     assert!(ocs.contains("type='103'") && ocs.contains(&format!("<attr name='filename' type='11'>{TONE_LUT_ASSET}</attr>")));
     assert!(ocs.contains("0.800000 0.900000 1.000000"));
     let plain = ToneMapping { burn_highlights: 1.0, ..tone.clone() };
-    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &plain, false, None, true);
+    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &plain, false, None, true, &crate::iray::RenderOptions::default());
     assert!(ocs.contains("2.800000 0 0 0") && !ocs.contains("type='103'") && !ocs.contains("@TONE_LUT@"));
     assert!(tone.burn_per_component && tone.vignetting == 0.0 && !ocs.contains("@VIGNETTING@"));
     // Vignetting: Iray's cos(θ)^v as Octane's frame-space cone, fitted per
@@ -532,7 +532,7 @@ fn iray_tone_mapping_drives_the_imager() {
     assert!(vig(1.0, 30.0) < vig(1.0, 68.7) && vig(0.0, 68.7) == 0.0 && vig(50.0, 170.0) == 1.0);
     let mut cams = cams.clone();
     cams[0].1.fov_deg = 68.725571;
-    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1920, 1080), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &ToneMapping { vignetting: 1.0, ..plain }, false, None, true);
+    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1920, 1080), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &ToneMapping { vignetting: 1.0, ..plain }, false, None, true, &crate::iray::RenderOptions::default());
     assert!(ocs.contains("<pin name='vignetting'>\n        <node id='100120' type='6'>\n         <attr name='value' type='9'>0.165"));
     assert_eq!(scene_tone_mapping(&mut Library::new(vec![], json!({"scene": {"nodes": []}}))), ToneMapping::default());
     // Iray exposes by shutter, f-number and ISO; DAZ's EV is only shown.
@@ -599,7 +599,7 @@ fn iray_environment_becomes_an_hdri_texture_environment() {
 #[test]
 fn project_ocs_fills_every_placeholder() {
     let cam = vec![("Camera".to_string(), framing_camera(&[]))];
-    let ocs = project_ocs("Bob's <scene>", "scene.usdz", &cam, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Preview).tuning(), &ToneMapping::default(), false, None, true)
+    let ocs = project_ocs("Bob's <scene>", "scene.usdz", &cam, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Preview).tuning(), &ToneMapping::default(), false, None, true, &crate::iray::RenderOptions::default())
         .replace("@MATERIAL_INPUTS@", "")
         .replace("@SCENE_NODES@", "")
         .replace("@MESH_CONNECT@", "1439")
@@ -634,7 +634,7 @@ fn every_daz_camera_gets_its_own_render_target() {
     assert!((cams[0].1.pos[2] + 1.0).abs() < 0.01);
 
     let env = "        <node id='190001' type='33'>\n        </node>\n";
-    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), env, &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &ToneMapping::default(), false, None, true);
+    let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), env, &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &ToneMapping::default(), false, None, true, &crate::iray::RenderOptions::default());
     assert!(ocs.contains("type='56' name='Shot – Close'") && ocs.contains("type='56' name='Shot – Wide'"));
     assert_eq!(ocs.matches("connect='@MESH_CONNECT@'").count(), 2, "both wired to the geometry");
     // Node ids stay unique across the copies.
@@ -649,16 +649,20 @@ fn every_daz_camera_gets_its_own_render_target() {
 #[test]
 fn octane_modes_set_kernel_and_imager() {
     let cams = vec![("A".to_string(), framing_camera(&[])), ("B".to_string(), framing_camera(&[]))];
-    let fin = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &ToneMapping::default(), false, None, true);
+    let fin = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &ToneMapping::default(), false, None, true, &crate::iray::RenderOptions::default());
     assert!(fin.contains("<node id='100060' type='25'>") && fin.contains("<node id='1100060' type='25'>"), "path tracing");
     assert_eq!(fin.matches("<pin name='maxScatterDepth'>").count(), 2);
     assert!(fin.contains("<attr name='value' type='9'>1.400000 0 0 0</attr>"), "Final exposure at EV 13");
-    let pre = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Preview).tuning(), &ToneMapping::default(), false, None, true);
+    let pre = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Preview).tuning(), &ToneMapping::default(), false, None, true, &crate::iray::RenderOptions::default());
     assert!(pre.contains("<node id='100060' type='24'>") && pre.contains("<node id='1100060' type='24'>"), "direct lighting");
     for ocs in [&fin, &pre] {
         for ph in ["@KERNEL@", "@EXPOSURE@", "@HIGHLIGHT_COMPRESSION@", "@WHITE_BALANCE@", "@SATURATION@", "@DENOISER@"] {
             assert!(!ocs.contains(ph), "{ph} left");
         }
+        for ph in ["@POST_ON@", "@BLOOM_", "@GLARE_POWER@", "_DEPTH@", "@GI_CLAMP@", "@FILTER_SIZE@"] {
+            assert!(!ocs.contains(ph), "{ph} left");
+        }
+        assert!(!ocs.contains(" 0 0 0 0 0 0<"), "a value written twice over its placeholder's zeros");
         // Every render target's kernel: 1 µm, below the eye's 0.05 mm tear film gap.
         assert_eq!(ocs.matches("<attr name='value' type='9'>1e-06 0 0 0</attr>").count(), 2, "ray epsilon");
         let mut ids: Vec<_> = ocs.split(" id='").skip(1).map(|s| s.split('\'').next().unwrap()).collect();
@@ -957,9 +961,9 @@ fn iray_light_flux_rules() {
 #[test]
 fn hidden_dome_gets_a_black_backplate() {
     let cams = vec![("Camera".to_string(), framing_camera(&[])), ("Other".to_string(), framing_camera(&[]))];
-    let shown = project_ocs("Shot", "scene.usdz", &cams, (640, 480), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &ToneMapping::default(), false, None, true);
+    let shown = project_ocs("Shot", "scene.usdz", &cams, (640, 480), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &ToneMapping::default(), false, None, true, &crate::iray::RenderOptions::default());
     assert!(!shown.contains("cameraEnvironment'") && !shown.contains("@VISIBLE_ENVIRONMENT@"));
-    let hidden = project_ocs("Shot", "scene.usdz", &cams, (640, 480), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &ToneMapping::default(), true, None, true);
+    let hidden = project_ocs("Shot", "scene.usdz", &cams, (640, 480), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &ToneMapping::default(), true, None, true, &crate::iray::RenderOptions::default());
     // One per render target, each with its own ids.
     assert_eq!(hidden.matches("<pin name='cameraEnvironment'>").count(), 2);
     assert!(hidden.contains("id='100195'") && hidden.contains("id='1100195'"));
@@ -1048,7 +1052,7 @@ fn iray_sun_sky_becomes_octane_daylight() {
 
     let sky = SunSky { sun_dir: d, turbidity: 2.0, power: 1.0, sun_intensity: 1.0, sun_size: 1.0, ground: [0.13; 3], model: 3 };
     let cam = [("Camera".to_string(), framing_camera(&[]))];
-    let ocs = project_ocs("Sun", "scene.usdz", &cam, (640, 480), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &ToneMapping::default(), false, Some(&sky), true);
+    let ocs = project_ocs("Sun", "scene.usdz", &cam, (640, 480), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &ToneMapping::default(), false, Some(&sky), true, &crate::iray::RenderOptions::default());
     assert!(ocs.contains("<node id='100210' type='14'>") && ocs.contains("<pin name='sundir'>"), "daylight environment");
     assert!(!ocs.contains("<node id='100035' type='37'>"), "no texture environment on the render target");
 }

@@ -1462,22 +1462,22 @@
        <attr name='compatibilityVersion' type='2'>15050000</attr>
        <pin name='on_off'>
         <node id='100151' type='11'>
-         <attr name='value' type='1'>0</attr>
+         <attr name='value' type='1'>@POST_ON@</attr>
         </node>
        </pin>
        <pin name='cutoff'>
         <node id='100152' type='6'>
-         <attr name='value' type='9'>0 0 0 0</attr>
+         <attr name='value' type='9'>@BLOOM_CUTOFF@</attr>
         </node>
        </pin>
        <pin name='bloom_power'>
         <node id='100153' type='6'>
-         <attr name='value' type='9'>1 0 0 0</attr>
+         <attr name='value' type='9'>@BLOOM_POWER@</attr>
         </node>
        </pin>
        <pin name='glare_power'>
         <node id='100154' type='6'>
-         <attr name='value' type='9'>1 0 0 0</attr>
+         <attr name='value' type='9'>@GLARE_POWER@</attr>
         </node>
        </pin>
        <pin name='glare_ray_amount'>
@@ -1502,12 +1502,12 @@
        </pin>
        <pin name='spreadStart'>
         <node id='100159' type='6'>
-         <attr name='value' type='9'>9.9999997e-05 0 0 0</attr>
+         <attr name='value' type='9'>@BLOOM_SPREAD_START@</attr>
         </node>
        </pin>
        <pin name='spreadEnd'>
         <node id='100160' type='6'>
-         <attr name='value' type='9'>1 0 0 0</attr>
+         <attr name='value' type='9'>@BLOOM_SPREAD_END@</attr>
         </node>
        </pin>
        <pin name='spectral_intensity'>
