@@ -772,6 +772,29 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   surface without its coat; the mix carries the displacement. Calib-TopCoat
   weighted 1 / 0.4: 1.03 – 1.05 × Iray (as a coating 0.05 – 0.10; Iray's
   weight-1 sphere is a chrome mirror).
+- **Top Coat Bump** (#61) → the coat's own surface detail: Universal
+  `coatingBump` / `coatingNormal`, the weighted coat's metal and the
+  anisotropic coat's Specular Layer on their `bump` / `normal`
+  (`coat_bump_pins`). DAZ hands Iray Top Coat Bump as `top_coat_bump`:
+  Mode 0 (Height Map) a `file_bump_texture`, Mode 1 (Normal Map) a
+  `tangent_space_normal_texture`, the channel's value as the factor
+  (Calib-CoatBump's .mi, `src/iray.rs`); the base's `base_bump` likewise
+  from Bump Strength or Normal Map. The MDL's coat normal
+  (`calc_mix_layer_normal`) is the coat's bump blended with the base's,
+  and **the base's alone when the coat has none** — Octane's coating
+  instead takes the unbumped shading normal unless its pins are set (the
+  manual; Calib-CoatBump B2 / B6: the base's ridges stayed out of the
+  coat's highlights). So the coat pins get: the coat's height map at Top
+  Coat Bump as the image's `power` (else Bump Strength's map at 1, as the
+  base's), the coat's normal map (else the base's Normal Map). Octane has
+  no blend of two height maps on one pin: with both, the coat's wins.
+  High-frequency detail on the spheres (σ of the image minus its 3 px
+  blur, before → after): B2 base bump 10.9 → 14.2, B6 base normal 4.6 →
+  8.6, B5 coat normal 8.3 → 15.1, B4 coat height × 3 10.5 → 12.2; B3 coat
+  height × 1 unchanged (10.4 → 9.9: Octane's bump at power 1 of these
+  dimples is faint). Not yet checked against Iray: how strong Octane's
+  bump is for Iray's factor (base and coat alike) — Calib-CoatBump's Iray
+  reference decides.
 - **Thin-walled refraction with its own inputs** (Share Glossy Inputs off:
   the cornea, the tear film) takes the glossy layer's roughness, not the
   refraction's — a thin wall's straight-through transmission doesn't blur

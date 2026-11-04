@@ -69,7 +69,10 @@ Found beyond it:
   value (`color_scale`: linear for colours, as is for floats), read as a
   colour (`texture_return.tint`) or grey (`.mono`); roughness maps then
   `square_float`, glossiness maps `gloss_to_rough` first; bump
-  `file_bump_texture` at Bump Strength; UV transform Horizontal / Vertical
+  `file_bump_texture` at Bump Strength (`base_bump`; a Normal Map
+  `tangent_space_normal_texture` there instead), Top Coat Bump as
+  `top_coat_bump` — Mode 0 a `file_bump_texture`, 1 a
+  `tangent_space_normal_texture`, the value as the factor (Calib-CoatBump); UV transform Horizontal / Vertical
   Tiles and Offset, the vertical offset negated; gamma the image's own, else
   "auto" (Iray decides). A metal, refraction or backscattering map at
   weight 1 leaves the diffuse on.

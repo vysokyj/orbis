@@ -60,7 +60,10 @@ pub struct Map {
 pub enum MapKind {
     Colour,
     Grey,
+    /// A height map (`base::file_bump_texture`), the scale its factor.
     Bump,
+    /// A tangent-space normal map (`base::tangent_space_normal_texture`).
+    Normal,
 }
 
 /// The MDL material DAZ instantiates for an Iray Uber material:
@@ -308,6 +311,32 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     let mode = ch.int("Top Coat Layering Mode", 0).clamp(0, 3) as usize;
     out.insert("top_coat_layer_mode", Arg::Enum(if coat > 0.0 { MODES[mode] } else { MODES[0] }));
     out.insert("top_coat_curve_strength", Arg::Float(if coat > 0.0 && mode == 0 { REFLECTIVITY_SCALE * ch.float("Reflectivity", 0.5) } else { 0.04 }));
+
+    // Bumps (#61): the base's height map (Bump Strength) or normal map, and
+    // the Top Coat Bump — a height map, or a normal map in Top Coat Bump
+    // Mode 1 — each at its channel's value as the factor (Calib-CoatBump,
+    // Calib-Mi-Maps). The MDL gives the coat the two blended
+    // (`calc_mix_layer_normal`); without its own, the base's.
+    let base_bump = match (ch.image("Bump Strength").is_some(), ch.image("Normal Map").is_some()) {
+        (true, false) => ch.map("Bump Strength", MapKind::Bump, [ch.float("Bump Strength", 1.0); 3]),
+        (false, true) => ch.map("Normal Map", MapKind::Normal, [ch.float("Normal Map", 1.0); 3]),
+        // Both: DAZ nests them (not yet seen in a .mi).
+        _ => None,
+    };
+    out.insert("base_bump_enable", Arg::Bool(ch.image("Bump Strength").is_some() || ch.image("Normal Map").is_some()));
+    if let Some(m) = base_bump {
+        out.insert("base_bump", Arg::Map(m));
+    }
+    let coat_kind = if ch.int("Top Coat Bump Mode", 0) == 1 { MapKind::Normal } else { MapKind::Bump };
+    match ch.map("Top Coat Bump", coat_kind, [ch.float("Top Coat Bump", 1.0); 3]).filter(|_| coat > 0.0) {
+        Some(m) => {
+            out.insert("top_coat_bump_enable", Arg::Bool(true));
+            out.insert("top_coat_bump", Arg::Map(m));
+        }
+        None => {
+            out.insert("top_coat_bump_enable", Arg::Bool(false));
+        }
+    }
     out
 }
 
@@ -520,7 +549,7 @@ pub fn uber_default(param: &str) -> Option<Arg> {
         "sub_surface_scattering_amount" => Arg::Color([0.0; 3]),
         "top_coat_thin_film_thickness" | "base_thin_film_thickness" | "metallic_flakes_thin_film_thickness" => Arg::Float(300.0),
         "top_coat_thin_film_ior" | "base_thin_film_ior" | "metallic_flakes_thin_film_ior" => Arg::Float(3.0),
-        "top_coat_thin_film_enable" | "top_coat_anisotropy_enable" | "glossy_anisotropy_enable" | "base_thin_film_enable" | "diffuse_overlay_enable" | "metallic_flakes_enable" => Arg::Bool(false),
+        "top_coat_thin_film_enable" | "top_coat_bump_enable" | "base_bump_enable" | "top_coat_anisotropy_enable" | "glossy_anisotropy_enable" | "base_thin_film_enable" | "diffuse_overlay_enable" | "metallic_flakes_enable" => Arg::Bool(false),
         "top_coat_anisotropy" | "top_coat_anisotropy_rotation" | "glossy_anisotropy" | "glossy_anisotropy_rotation" | "diffuse_overlay_weight" | "diffuse_overlay_roughness" | "diffuse_roughness" | "metallic_flakes_weight" | "metallic_flakes_roughness" => Arg::Float(0.0),
         "top_coat_color_transmit_enable" | "glossy_color_transmit_enable" | "diffuse_overlay_color_transmit_enable" | "diffuse_color_transmit_enable" | "metallic_flakes_color_transmit_enable" => Arg::Int(0),
         "diffuse_overlay_color" => Arg::Color([0.5; 3]),
@@ -1249,6 +1278,9 @@ mod tests {
         }
         if mdl.starts_with("base::file_bump_texture") {
             return file(v, MapKind::Bump, [a["factor"].as_f64().unwrap_or(1.0) as f32; 3]);
+        }
+        if mdl.starts_with("base::tangent_space_normal_texture") {
+            return file(v, MapKind::Normal, [a["factor"].as_f64().unwrap_or(1.0) as f32; 3]);
         }
         None
     }

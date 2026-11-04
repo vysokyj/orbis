@@ -933,6 +933,7 @@ impl Ocs<'_> {
         self.gloss_ggx = false;
         self.gloss_roughness_pins(j + 1, mat, None, rough, true, aniso);
         self.float_pin(j + 1, "ior", top_coat_ior(mat));
+        self.coat_bump_pins(j + 1, mat, "bump", "normal");
         let _ = writeln!(self.out, "{:j$}</node>", "");
         let _ = writeln!(self.out, "{:i$}</pin>", "");
         self.film = film;
@@ -979,9 +980,7 @@ impl Ocs<'_> {
         self.aniso_brdf_pin(j + 1, aniso.saturates(rough));
         self.gloss_ggx = false;
         self.gloss_roughness_pins(j + 1, mat, None, rough, true, aniso);
-        if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            self.image_pin(j + 1, "normal", &asset, false, 1.0, 1.0);
-        }
+        self.coat_bump_pins(j + 1, mat, "bump", "normal");
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
             self.float_or_map(j + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
@@ -1115,6 +1114,38 @@ impl Ocs<'_> {
         let rough = self.gloss_roughness(top_coat_roughness(mat));
         self.float_pin(i, "coatingRoughness", rough.max(min_roughness).clamp(0.0, 1.0));
         self.float_pin(i, "coatingIor", top_coat_ior(mat));
+        self.coat_bump_pins(i, mat, "coatingBump", "coatingNormal");
+    }
+
+    /// The Top Coat's surface detail on the coat's `bump` / `normal` pins
+    /// (#61). DAZ's MDL gives the coat its own normal
+    /// (`calc_mix_layer_normal`): the Top Coat Bump — a height map, or a
+    /// normal map in Top Coat Bump Mode 1 — blended with the base's bump,
+    /// else the base's bump or normal map. Octane's coating takes the
+    /// plain shading normal unless its own pins are set (Calib-CoatBump:
+    /// the base's ridges stayed out of the coat's highlights), so the base
+    /// maps go there too. The coat's height map at Top Coat Bump as its
+    /// power; a second height map has no pin and the coat's wins.
+    fn coat_bump_pins(&mut self, i: usize, mat: &Material, bump_pin: &str, normal_pin: &str) {
+        let asset = |s: &mut Self, id: &str| mat.image(id).map(str::to_string).and_then(|t| s.textures.asset(s.dirs, &t));
+        let coat = asset(self, "Top Coat Bump");
+        let coat_normal = mat.float("Top Coat Bump Mode").unwrap_or(0.0) as i32 == 1;
+        match (&coat, coat_normal) {
+            (Some(a), false) => self.image_pin(i, bump_pin, a, true, 1.0, mat.float("Top Coat Bump").unwrap_or(1.0)),
+            _ => {
+                if let Some(a) = asset(self, "Bump Strength") {
+                    self.image_pin(i, bump_pin, &a, true, 1.0, 1.0);
+                }
+            }
+        }
+        match (&coat, coat_normal) {
+            (Some(a), true) => self.image_pin(i, normal_pin, a, false, 1.0, 1.0),
+            _ => {
+                if let Some(a) = asset(self, "Normal Map") {
+                    self.image_pin(i, normal_pin, &a, false, 1.0, 1.0);
+                }
+            }
+        }
     }
 
     /// An absorption medium (58) on `medium`: `sigma` (1/m per channel) as
@@ -4443,6 +4474,68 @@ mod tests {
         ]));
         let (y, _) = material_inputs(&[("Ball".into(), reflectivity, 1.0)], &[], HashMap::new(), 6000, SkinShader::None);
         assert!(!y.contains("type='19'") && y.contains("<pin name='coating'>"), "{y}");
+    }
+
+    #[test]
+    fn top_coat_bump_goes_on_the_coats_own_pins() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("t")).unwrap();
+        for f in ["coat.png", "coat-n.png", "base.png", "base-n.png"] {
+            std::fs::write(dir.path().join("t").join(f), b"x").unwrap();
+        }
+        let dirs = vec![dir.path().to_path_buf()];
+        let export = |extra: serde_json::Value| {
+            let mut ch = vec![json!({"channel": {"id": "Top Coat Weight", "current_value": 1}})];
+            ch.extend(extra.as_array().unwrap().iter().cloned());
+            let (x, _) = material_inputs(&[("Ball".into(), mat(serde_json::Value::Array(ch)), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+            x
+        };
+        // The pin's image file and its power.
+        let pin = |x: &str, name: &str| -> Option<(String, String)> {
+            let p = &x[x.find(&format!("<pin name='{name}'>"))?..];
+            let file = p[p.find("type='11'>").unwrap() + 10..].split('<').next().unwrap().rsplit('/').next().unwrap();
+            // Assets are numbered: `0000_coat.png`.
+            let file = file.split_once('_').map_or(file, |(_, f)| f).to_string();
+            let power = &p[p.find("<pin name='power'>").unwrap()..];
+            Some((file, power[power.find("type='6'>").unwrap() + 9..].split('<').next().unwrap().to_string()))
+        };
+        // A height map at Top Coat Bump as its power.
+        let x = export(json!([{"channel": {"id": "Top Coat Bump", "current_value": 3, "image_file": "/t/coat.png"}}]));
+        assert_eq!(pin(&x, "coatingBump"), Some(("coat.png".into(), "3".into())), "{x}");
+        assert!(pin(&x, "coatingNormal").is_none() && pin(&x, "bump").is_none());
+        // Mode 1: a normal map.
+        let x = export(json!([
+            {"channel": {"id": "Top Coat Bump", "current_value": 1, "image_file": "/t/coat-n.png"}},
+            {"channel": {"id": "Top Coat Bump Mode", "current_value": 1}},
+        ]));
+        assert_eq!(pin(&x, "coatingNormal").map(|p| p.0), Some("coat-n.png".into()), "{x}");
+        assert!(pin(&x, "coatingBump").is_none());
+        // Without its own, the coat follows the base's maps, as in Iray.
+        let x = export(json!([
+            {"channel": {"id": "Bump Strength", "current_value": 1, "image_file": "/t/base.png"}},
+            {"channel": {"id": "Normal Map", "current_value": 1, "image_file": "/t/base-n.png"}},
+        ]));
+        assert_eq!(pin(&x, "coatingBump").map(|p| p.0), Some("base.png".into()), "{x}");
+        assert_eq!(pin(&x, "coatingNormal").map(|p| p.0), Some("base-n.png".into()), "{x}");
+        assert_eq!(pin(&x, "bump").map(|p| p.0), Some("base.png".into()));
+        // The coat's height map wins over the base's; the base's normal map stays.
+        let x = export(json!([
+            {"channel": {"id": "Top Coat Bump", "current_value": 1, "image_file": "/t/coat.png"}},
+            {"channel": {"id": "Bump Strength", "current_value": 1, "image_file": "/t/base.png"}},
+            {"channel": {"id": "Normal Map", "current_value": 1, "image_file": "/t/base-n.png"}},
+        ]));
+        assert_eq!(pin(&x, "coatingBump").map(|p| p.0), Some("coat.png".into()), "{x}");
+        assert_eq!(pin(&x, "coatingNormal").map(|p| p.0), Some("base-n.png".into()));
+        // A weighted coat (the Mix's metal) and an anisotropic one (the
+        // Specular Layer) carry it on their own bump pin.
+        for mode in [json!([{"channel": {"id": "Top Coat Layering Mode", "current_value": 1}}]), json!([{"channel": {"id": "Top Coat Anisotropy", "current_value": 1}}])] {
+            let mut ch = vec![json!({"channel": {"id": "Top Coat Bump", "current_value": 2, "image_file": "/t/coat.png"}})];
+            ch.extend(mode.as_array().unwrap().iter().cloned());
+            let x = export(serde_json::Value::Array(ch));
+            let coat = &x[x.find("name='Ball top coat'").unwrap()..];
+            assert_eq!(pin(coat, "bump"), Some(("coat.png".into(), "2".into())), "{x}");
+            assert!(pin(&x, "coatingBump").is_none());
+        }
     }
 
     #[test]

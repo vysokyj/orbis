@@ -938,4 +938,47 @@ uber_spheres('Calib-Mi-Emit', [0.6, 0.6, 0.6], {'Emission Color': [1.0, 0.9, 0.8
     (f'E{u} units {u}', {'Luminance Units': u}) for u in range(6)
 ] + [('E6 two sided', {'Luminance Units': 0, 'Two Sided Light': True}), ('E7 temperature', {'Emission Temperature': 3000.0})])
 
+# --- Top Coat Bump (#61): DAZ's MDL gives the coat its own normal
+# (`calc_mix_layer_normal`): the Top Coat Bump (height or normal map, by Top
+# Coat Bump Mode) blended with the base bump, else the base's bump / normal
+# map. A sharp clear coat over a matte red base, so every highlight is the
+# coat's. Synthetic maps (ours): dimples for the coat, ridges for the base,
+# each as a height map and as the tangent-space normal map of that height.
+BUMPS = {name: f'/Runtime/Textures/ORBIS/calib-coatbump-{name}.png' for name in ('dimples', 'dimples-n', 'ridges', 'ridges-n')}
+if not all(os.path.exists(os.path.join(os.path.dirname(out_dir), p.lstrip('/'))) for p in BUMPS.values()):
+    from PIL import Image
+    import numpy as np
+    n = 512
+    yy, xx = np.mgrid[0:n, 0:n] / n
+    heights = {'dimples': 0.5 + 0.5 * np.sin(2 * np.pi * 8 * xx) * np.sin(2 * np.pi * 8 * yy),
+               'ridges': 0.5 + 0.5 * np.sin(2 * np.pi * 24 * yy)}
+    for name, h in heights.items():
+        Image.fromarray((h * 255).round().astype(np.uint8)).save(os.path.join(os.path.dirname(out_dir), BUMPS[name].lstrip('/')))
+        # Slopes per UV unit, scaled so the steepest tilt is ~45 degrees;
+        # OpenGL convention (green = +V, V up the image's rows reversed).
+        dy, dx = np.gradient(h, 1.0 / n)
+        s = 1.0 / max(np.abs(dx).max(), np.abs(dy).max())
+        nx, ny, nz = -dx * s, dy * s, np.ones_like(h)
+        ln = np.sqrt(nx * nx + ny * ny + nz * nz)
+        rgb = np.stack([nx / ln, ny / ln, nz / ln], -1) * 0.5 + 0.5
+        Image.fromarray((rgb * 255).round().astype(np.uint8)).save(os.path.join(os.path.dirname(out_dir), BUMPS[name + '-n'].lstrip('/')))
+CB = {'Glossy Layered Weight': 0.0, 'Top Coat Weight': 1.0, 'Top Coat Layering Mode': 2, 'Top Coat IOR': 1.5, 'Top Coat Roughness': 0.05}
+COAT_H = {('Top Coat Bump', 'image'): BUMPS['dimples'], 'Top Coat Bump': 1.0, 'Top Coat Bump Mode': 0}
+uber_spheres('Calib-CoatBump', [0.45, 0.05, 0.04], CB, [
+    ('B1 coat smooth', {}),
+    ('B2 base bump', {('Bump Strength', 'image'): BUMPS['ridges'], 'Bump Strength': 1.0}),
+    ('B3 coat bump', COAT_H),
+    ('B4 coat bump 3', {**COAT_H, 'Top Coat Bump': 3.0}),
+    ('B5 coat normal', {('Top Coat Bump', 'image'): BUMPS['dimples-n'], 'Top Coat Bump': 1.0, 'Top Coat Bump Mode': 1}),
+    ('B6 base normal', {('Normal Map', 'image'): BUMPS['ridges-n'], 'Normal Map': 1.0}),
+    ('B7 coat + base bump', {**COAT_H, ('Bump Strength', 'image'): BUMPS['ridges'], 'Bump Strength': 1.0}),
+    ('B8 coat + base normal', {**COAT_H, ('Normal Map', 'image'): BUMPS['ridges-n'], 'Normal Map': 1.0}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for i in d['image_library']:
+        if i['id'] in BUMPS.values():
+            i['map_gamma'] = 1
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+
 # Scene dumps: scripts/dev/daz-dump.sh (DAZ evaluates each scene headless).
