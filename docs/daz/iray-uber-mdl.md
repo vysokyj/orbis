@@ -61,7 +61,9 @@ Found beyond it:
   and through the sRGB curve; Spread Angle (the full angle) in radians,
   Beam Exponent as `spot_exponent`; rect / disc / sphere sizes in cm by
   Light Geometry, a spot's too (disc and sphere: Height as the diameter);
-  Two Sided on rect, disc and sphere. The camera headlamp
+  Two Sided on rect, disc and sphere; a point light with a Light Profile
+  `dzpm_ies_light` (`profile`: the IES file; any shape), an Emission
+  Profile `emission_profile_enable` and `emission_profile` (Calib-L-IES-*). The camera headlamp
   (`iray::headlamp`): a 7 × 3.5 cm rect, colour 0.8, 10 × Depth of Field²
   × Headlamp Intensity lm, at the camera moved by its offsets (cm, camera
   axes). The .mi's instance transforms are world → object.

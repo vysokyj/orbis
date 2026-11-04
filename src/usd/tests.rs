@@ -442,7 +442,7 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     assert_eq!(g.matches("<node ").count(), g.matches("</node>").count());
     assert_eq!(crate::material::scene_lights(&[], None, None, &[], 500, 1439), (String::new(), 1439));
     assert_ne!(mesh, 1439);
-    assert!(light_emitters(&lights).is_empty(), "no UsdLux emitter for a spot");
+    assert!(light_emitters(&lights, &mut |_| None).is_empty(), "no UsdLux emitter for a spot");
     // A point light stays UsdLux: 1500 lm × 0.58 / 15 000 = 0.058 W, glowing.
     let mut point = lights[0].clone();
     point.cone_deg = None;
@@ -452,9 +452,32 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     write_lights(&mut o, &[point.clone()]);
     assert!(o.contains("def SphereLight \"Bulb\"") && o.contains("bool treatAsPoint = 1") && o.contains("float inputs:colorTemperature = 6500"));
     assert!(o.contains("float inputs:intensity = 0.058000") && o.contains("bool inputs:normalize = 1"), "{o}");
-    let em = light_emitters(&[point]);
+    let em = light_emitters(&[point.clone()], &mut |_| None);
     let xml = crate::material::light_inputs(&em, 100);
     assert!(xml.contains("name='/Scene/Lights/Bulb_light'") && xml.contains("type='53'") && xml.contains("6500 0 0"));
+    assert!(!xml.contains("distribution"));
+    // An IES light (Light Profile): the profile on the emission's
+    // distribution, in the light's object space, the power over its share.
+    let profile = crate::ies::Profile::parse(&std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("calib/ies/Orbis-Asym.ies")).unwrap()).unwrap();
+    let share = profile.mean_share();
+    let ies_point = SceneLight { profile: Some("/Runtime/ORBIS/Orbis-Asym.ies".into()), ..point.clone() };
+    let mut asked = Vec::new();
+    let em = light_emitters(&[ies_point.clone()], &mut |p| {
+        asked.push(p.to_string());
+        Some(("assets/ies/00_Orbis-Asym.ies".into(), profile.clone()))
+    });
+    assert_eq!(asked, ["/Runtime/ORBIS/Orbis-Asym.ies"]);
+    let d = em[0].ies.as_ref().expect("an IES emitter");
+    assert_eq!(d.frame, [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
+    assert!((d.power_scale * share - 1.0).abs() < 1e-9 && !d.world);
+    let xml = crate::material::light_inputs(&em, 100);
+    assert!(xml.contains("<pin name='distribution'>") && xml.contains("assets/ies/00_Orbis-Asym.ies") && xml.contains("<attr name='value' type='2'>3</attr>"), "object space: {xml}");
+    // Iray's axis (the light's +Z) onto Octane's (−Y): X −90°, φ 0 (+X) from Octane's +Z.
+    assert!(xml.contains("<attr name='rotation' type='8'>-90 90 0</attr>") || xml.contains("<attr name='rotation' type='8'>-90 90 -0</attr>"), "{xml}");
+    // A rect prim is turned half round X: its frame too.
+    let rect = SceneLight { shape: LightShape::Rect { width: 0.5, height: 0.5 }, ..ies_point };
+    let em = light_emitters(&[rect], &mut |_| Some(("a.ies".into(), profile.clone())));
+    assert_eq!(em[0].ies.as_ref().unwrap().frame, [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]]);
 }
 
 #[test]
@@ -959,6 +982,7 @@ fn iray_light_flux_rules() {
         translation: [0.0; 3],
         two_sided: false,
         visible: true,
+        profile: None,
     };
     // A sphere light gives a quarter of a point light of the same flux.
     let point = light_watts(&light(LightShape::Point, 5000.0));

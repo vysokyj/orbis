@@ -93,7 +93,7 @@ Seen in samples ([orbx.md](orbx.md#scene-projectocs)) plus:
 | 53 / 54 | blackbody / texture emission | `power`, `temperature`, `normalize` |
 | 56 | render target | |
 | 67 | transform value | `rotationOrder`, `rotation` (degrees), `scale`, `translation` (m) |
-| 77 | Spherical projection | `transform` (3D), `positionType` 1 world / 3 object; on an image's `projection` pin |
+| 77 | Spherical projection | `transform` (3D), `positionType` 1 world / 3 object / 4 normal space (IES lights); on an image's `projection` pin. An IES file on it (greyscale image 36, `iesPhotometryMode` 1 = peak 1): axis −Y, φ 0 +Z, φ 90 −X at rotation 0 (#34) |
 | 110 | plane (infinite) | pin `groundColor` takes a material |
 | 130 | Universal material | `specular` default = full white |
 | 145 | shadow catcher | pin `opacity` |

@@ -31,6 +31,9 @@ pub enum Arg {
     Enum(&'static str),
     /// A texture-driven argument.
     Map(Map),
+    /// An IES light profile (`light_profile`): the file as the channel
+    /// names it (content-relative or absolute).
+    LightProfile(String),
 }
 
 /// A channel's map as DAZ hands it Iray: `base::file_texture` read as a
@@ -177,6 +180,13 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     out.insert("emission_enable", Arg::Bool(emits));
     out.insert("emission_temperature", Arg::Float(if emits { ch.float("Emission Temperature", 6500.0) } else { 6000.0 }));
     out.insert("two_sided_area", Arg::Bool(emits && ch.bool("Two Sided Light", false)));
+    // Emission Profile (an IES file): `measured_edf` instead of the diffuse
+    // EDF, the luminance divided by the profile's power (Calib-L-IES-Emit).
+    let profile = ch.string("Emission Profile").filter(|p| emits && !p.is_empty());
+    out.insert("emission_profile_enable", Arg::Bool(profile.is_some()));
+    if let Some(p) = profile {
+        out.insert("emission_profile", Arg::LightProfile(p));
+    }
     // Luminance by its unit (Calib-Mi-Emit): a luminance per area of
     // `emission_scene_unit_size` (m) — cd/m², kcd/m² (× 1000), cd/ft²
     // (0.3048 m) and kcd/ft², which DAZ passes as cd per cm² (0.01 m, no
@@ -383,6 +393,11 @@ impl Channels<'_> {
         }
     }
 
+    /// A file channel's path (Emission Profile).
+    fn string(&self, id: &str) -> Option<String> {
+        self.value(id).and_then(Value::as_str).map(str::to_string)
+    }
+
     fn int(&self, id: &str, default: i32) -> i32 {
         self.float(id, default as f32).round() as i32
     }
@@ -501,11 +516,18 @@ pub fn light(kind: LightKind, channels: &std::collections::HashMap<String, Value
     };
     let area = matches!(shape, LightShape::Rectangle { .. } | LightShape::Disc { .. } | LightShape::Sphere { .. });
     args.insert("two_sided_area", Arg::Bool(area && flag("Two Sided", false)));
+    // A point light's Light Profile (an IES file; DAZ's spot and distant
+    // lights have none) makes it an IES light, whatever its shape
+    // (Calib-L-IES-*): the profile's shape at the light's flux.
+    let profile = channels.get("Light Profile").and_then(Value::as_str).filter(|p| kind == LightKind::Point && !p.is_empty());
     let mdl = if kind == LightKind::Spot {
         args.insert("spot_exponent", Arg::Float(num("Beam Exponent", 1.0)));
         // The full Spread Angle, in radians.
         args.insert("spot_spread_angle", Arg::Float(num("Spread Angle", 60.0).to_radians()));
         "daz_3d::basic::dzpm_spot_light"
+    } else if let Some(p) = profile {
+        args.insert("profile", Arg::LightProfile(p.to_string()));
+        "daz_3d::basic::dzpm_ies_light"
     } else {
         "daz_3d::basic::dzpm_diffuse_area_light"
     };
@@ -557,7 +579,7 @@ pub fn uber_default(param: &str) -> Option<Arg> {
         "metallic_flakes_color" => Arg::Color([1.0; 3]),
         "refraction_color" | "backscattering_color" => Arg::Color([0.5; 3]),
         "refraction_roughness" => Arg::Float(0.0),
-        "glossy_directional_color_enable" | "emission_enable" | "two_sided_area" => Arg::Bool(false),
+        "glossy_directional_color_enable" | "emission_enable" | "two_sided_area" | "emission_profile_enable" => Arg::Bool(false),
         "glossy_directional_normal_color" | "emission_tint" => Arg::Color([1.0; 3]),
         "emission_temperature" => Arg::Float(6000.0),
         "emission_scene_unit_size" => Arg::Float(0.01),
@@ -1349,6 +1371,7 @@ mod tests {
             Arg::Bool(_) => Arg::Bool(v.as_bool()?),
             Arg::Int(_) => Arg::Int(v.as_i64()? as i32),
             Arg::Float(_) => Arg::Float(v.as_f64()? as f32),
+            Arg::LightProfile(_) => Arg::LightProfile(v["light_profile"]["file"].as_str()?.to_string()),
             Arg::Enum(_) | Arg::Color(_) | Arg::Map(_) => {
                 if let Some(s) = v.as_str() {
                     return Some(Arg::Enum(Box::leak(s.to_string().into_boxed_str())));
@@ -1411,6 +1434,8 @@ mod tests {
         match (a, b) {
             (Arg::Float(x), Arg::Float(y)) => near(*x, *y),
             (Arg::Color(x), Arg::Color(y)) => (0..3).all(|i| near(x[i], y[i])),
+            // The .mi names the file it found: compare the file names.
+            (Arg::LightProfile(x), Arg::LightProfile(y)) => x.rsplit('/').next() == y.rsplit('/').next(),
             (Arg::Map(x), Arg::Map(y)) => {
                 x.image.trim_start_matches('/') == y.image.trim_start_matches('/')
                     && x.kind == y.kind

@@ -38,6 +38,10 @@ pub struct Material {
     pub mdl: Vec<String>,
     /// A DAZ brick (Shader Mixer) graph, whatever it names.
     pub brick: bool,
+    /// Its node's object axes X, Y, Z in world space (unit length), where
+    /// the dump gives the node's transform: an Emission Profile lies in
+    /// the mesh's object space in Iray, the export's meshes in world space.
+    pub frame: Option<[[f64; 3]; 3]>,
 }
 
 impl Material {

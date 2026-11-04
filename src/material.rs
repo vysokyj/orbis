@@ -113,6 +113,36 @@ impl Textures {
 }
 
 impl Textures {
+    /// An IES light profile, packed like an image: its package path and the
+    /// parsed profile. DAZ keeps the path as picked — content-relative
+    /// (`/Runtime/…`) or absolute (DAZ Studio's own
+    /// `light_profile_test.ies` in its app bundle).
+    pub fn ies(&mut self, dirs: &[PathBuf], daz_path: &str) -> Option<(String, crate::ies::Profile)> {
+        let file = dirs.iter().map(|d| d.join(daz_path.trim_start_matches('/'))).find(|p| p.is_file()).or_else(|| Some(PathBuf::from(daz_path)).filter(|p| p.is_absolute() && p.is_file()));
+        let Some(file) = file else {
+            if !self.missing.iter().any(|m| m == daz_path) {
+                self.missing.push(daz_path.to_string());
+            }
+            return None;
+        };
+        let profile = match std::fs::read(&file).map_err(anyhow::Error::from).and_then(|b| crate::ies::Profile::parse(&String::from_utf8_lossy(&b))) {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::warn!(file = %file.display(), "Octane export: IES profile unreadable, left out: {e:#}");
+                return None;
+            }
+        };
+        if let Some(a) = self.by_source.get(daz_path) {
+            return Some((a.clone(), profile));
+        }
+        let base = file.file_name().and_then(|n| n.to_str()).unwrap_or("profile.ies");
+        let safe: String = base.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect();
+        let asset = format!("assets/ies/{:02}_{safe}", self.files.len());
+        self.files.push((asset.clone(), file));
+        self.by_source.insert(daz_path.to_string(), asset.clone());
+        Some((asset, profile))
+    }
+
     /// A DAZ image's mean colour, linear (sRGB-decoded): strands carry no
     /// UVs, so a hair map can't be mapped onto them.
     fn mean_colour(&mut self, dirs: &[PathBuf], daz_path: &str) -> Option<[f32; 3]> {
@@ -1393,6 +1423,40 @@ impl Ocs<'_> {
     /// a grey tint folds into the image's power, a coloured one goes through
     /// a Multiply texture (39) — as a scalar, a grey strand map × brown
     /// rendered grey-white pubic hair (Octane3).
+    /// An IES profile on the `distribution` pin (see [`IesDistribution`]).
+    fn ies_pin(&mut self, indent: usize, d: &IesDistribution) {
+        let id = self.id();
+        self.pin_open(indent, "distribution");
+        let i = indent + 1;
+        let _ = writeln!(self.out, "{:i$}<node id='{id}' type='36'>", "");
+        let _ = writeln!(self.out, "{:i$} <attr name='filename' type='11'>{}</attr>", "", esc(&d.asset));
+        let _ = writeln!(self.out, "{:i$} <attr name='initialColorSpaceSelected' type='1'>1</attr>", "");
+        // Normalised to a peak of 1 (Octane's default and its samples').
+        let _ = writeln!(self.out, "{:i$} <attr name='iesPhotometryMode' type='2'>1</attr>", "");
+        self.colour_space_pin(i + 1, COLOUR_SPACE_LINEAR_SRGB);
+        let pid = self.id();
+        let j = i + 1;
+        self.pin_open(j, "projection");
+        let _ = writeln!(self.out, "{:j$} <node id='{pid}' type='77'>", "");
+        let [rx, ry, rz] = ies_projection_rotation(&d.frame);
+        let tid = self.id();
+        let k = j + 1;
+        self.pin_open(k, "transform");
+        let _ = writeln!(self.out, "{:k$} <node id='{tid}' type='67'>", "");
+        let _ = writeln!(self.out, "{:k$}  <attr name='rotationOrder' type='2'>0</attr>", "");
+        let _ = writeln!(self.out, "{:k$}  <attr name='rotation' type='8'>{} {} {}</attr>", "", num64(rx), num64(ry), num64(rz));
+        let _ = writeln!(self.out, "{:k$}  <attr name='scale' type='8'>1 1 1</attr>", "");
+        let _ = writeln!(self.out, "{:k$}  <attr name='translation' type='8'>0 0 0</attr>", "");
+        let _ = writeln!(self.out, "{:k$} </node>", "");
+        self.pin_close(k);
+        // Coordinate space: 1 world, 3 object, 4 normal (probe).
+        self.value_pin(k, "positionType", 57, 2, if d.world { "1" } else { "3" });
+        let _ = writeln!(self.out, "{:j$} </node>", "");
+        self.pin_close(j);
+        let _ = writeln!(self.out, "{:i$}</node>", "");
+        self.pin_close(indent);
+    }
+
     fn tinted_image_pin(&mut self, indent: usize, pin: &str, asset: &str, power: f32, tint: [f32; 3]) {
         let (lo, hi) = tint.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &c| (lo.min(c), hi.max(c)));
         if hi - lo < 0.01 {
@@ -1482,6 +1546,17 @@ impl Ocs<'_> {
         if watts <= 0.0 {
             return;
         }
+        // Emission Profile (#34): Iray's `measured_edf` in the mesh's object
+        // space (`global_distribution`, identity frame), the luminance
+        // divided by the profile's power — Octane's distribution in world
+        // space along the node's axes, the power raised as for an IES light.
+        let ies = mat.channel("Emission Profile").and_then(|c| c.value.as_str()).filter(|p| !p.is_empty()).map(str::to_string).and_then(|p| self.textures.ies(self.dirs, &p)).map(|(asset, profile)| IesDistribution {
+            asset,
+            frame: mat.frame.unwrap_or([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
+            power_scale: 1.0 / profile.mean_share().max(1e-3),
+            world: true,
+        });
+        let watts = watts * ies.as_ref().map_or(1.0, |d| d.power_scale);
         let temperature = mat.float("Emission Temperature").unwrap_or(0.0);
         let id = self.id();
         self.pin_open(indent, "emission");
@@ -1503,6 +1578,9 @@ impl Ocs<'_> {
         }
         self.value_pin(i + 1, "surfaceBrightness", 11, 1, "0");
         self.value_pin(i + 1, "doubleSided", 11, 1, if two_sided { "1" } else { "0" });
+        if let Some(d) = ies {
+            self.ies_pin(i + 1, &d);
+        }
         let _ = writeln!(self.out, "{:i$}</node>", "");
         self.pin_close(indent);
     }
@@ -3246,6 +3324,55 @@ pub struct LightEmitter {
     pub color: [f64; 3],
     /// A rect / disc light that shines from both faces ("Two Sided").
     pub two_sided: bool,
+    /// An IES light's profile.
+    pub ies: Option<IesDistribution>,
+}
+
+/// An IES profile on an Octane emission's `distribution` pin: a greyscale
+/// image node reading the `.ies` (peak-normalised, `iesPhotometryMode` 1)
+/// through a Spherical projection (#34).
+#[derive(Debug, Clone, PartialEq)]
+pub struct IesDistribution {
+    /// The packed `.ies`.
+    pub asset: String,
+    /// Iray's profile frame — its φ = 0° axis, φ = 90° axis and θ = 0° axis
+    /// (`measured_edf`'s x, y, z) — in the emitter's object space, or in
+    /// world space when `world`.
+    pub frame: [[f64; 3]; 3],
+    /// Multiplies the emitter's power: Iray scales the profile to the
+    /// light's flux, Octane's peak-normalised distribution keeps only
+    /// [`crate::ies::Profile::mean_share`] of it.
+    pub power_scale: f64,
+    /// `frame` is in world space (a mesh baked into world space).
+    pub world: bool,
+}
+
+/// Octane's IES frame: the directions of the profile's φ = 0°, φ = 90° and
+/// θ = 0° axes on its Spherical projection at rotation 0.
+/// Measured on Orbis-Asym (Calib-L-IES-Asym-Down): the profile's axis
+/// along −Y (Octane is Y-up, a downlight's nadir down), φ = 0° along +Z and
+/// φ = 90° along −X (right-handed, as Iray's); the projection's `transform`
+/// turns that sphere into the coordinate space (rotation X +90° moved the
+/// axis from −Y to −Z).
+const OCTANE_IES_AXES: [[f64; 3]; 3] = [[0.0, 0.0, 1.0], [-1.0, 0.0, 0.0], [0.0, -1.0, 0.0]];
+
+/// The Spherical projection's rotation (degrees, order XYZ = Rx·Ry·Rz) that
+/// turns Octane's IES frame onto `frame`: R · octane_k = frame_k.
+fn ies_projection_rotation(frame: &[[f64; 3]; 3]) -> [f64; 3] {
+    // R = F · Oᵀ (F's and O's columns the axes; O orthonormal).
+    let mut r = [[0.0; 3]; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            r[i][j] = (0..3).map(|k| frame[k][i] * OCTANE_IES_AXES[k][j]).sum();
+        }
+    }
+    let b = r[0][2].clamp(-1.0, 1.0).asin();
+    // At b = ±90° only a ± c is fixed: c = 0, R's middle row is (±sin a, cos a, 0).
+    let (a, c) = if b.cos().abs() > 1e-9 { ((-r[1][2]).atan2(r[2][2]), (-r[0][1]).atan2(r[0][0])) } else { ((r[1][0] * r[0][2].signum()).atan2(r[1][1]), 0.0) };
+    [a, b, c].map(|x| {
+        let d = x.to_degrees();
+        if d.abs() < 1e-9 { 0.0 } else { d }
+    })
 }
 
 /// Material inputs that make Octane's light emitters glow: a black diffuse
@@ -3278,11 +3405,15 @@ pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
         } else {
             w.rgb_pin(8, "efficiency or texture", l.color.map(|c| c as f32));
         }
-        let watts = l.watts * if l.two_sided { TWO_SIDED_POWER } else { 1.0 } * if blackbody { 1.0 } else { COLOUR_EMISSION_POWER };
+        let ies = l.ies.as_ref().map_or(1.0, |d| d.power_scale);
+        let watts = l.watts * if l.two_sided { TWO_SIDED_POWER } else { 1.0 } * if blackbody { 1.0 } else { COLOUR_EMISSION_POWER } * ies;
         w.value_pin(8, "power", 6, 8, &format!("{} 0 0", num(watts as f32)));
         w.value_pin(8, "surfaceBrightness", 11, 1, "0");
         if l.two_sided {
             w.value_pin(8, "doubleSided", 11, 1, "1");
+        }
+        if let Some(d) = &l.ies {
+            w.ies_pin(8, d);
         }
         w.out.push_str("       </node>\n");
         w.pin_close(6);
@@ -3818,6 +3949,71 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::rc::Rc;
+
+    #[test]
+    fn ies_projection_turns_octane_s_frame_onto_iray_s() {
+        // Rx · Ry · Rz (Octane's rotation order XYZ), degrees.
+        let rot = |[a, b, c]: [f64; 3]| {
+            let (a, b, c) = (a.to_radians(), b.to_radians(), c.to_radians());
+            let rx = [[1.0, 0.0, 0.0], [0.0, a.cos(), -a.sin()], [0.0, a.sin(), a.cos()]];
+            let ry = [[b.cos(), 0.0, b.sin()], [0.0, 1.0, 0.0], [-b.sin(), 0.0, b.cos()]];
+            let rz = [[c.cos(), -c.sin(), 0.0], [c.sin(), c.cos(), 0.0], [0.0, 0.0, 1.0]];
+            let mul = |x: [[f64; 3]; 3], y: [[f64; 3]; 3]| -> [[f64; 3]; 3] { std::array::from_fn(|i| std::array::from_fn(|j| (0..3).map(|k| x[i][k] * y[k][j]).sum())) };
+            mul(mul(rx, ry), rz)
+        };
+        let s = std::f64::consts::FRAC_1_SQRT_2;
+        let frames = [
+            [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]],
+            [[s, s, 0.0], [-s, s, 0.0], [0.0, 0.0, 1.0]],
+            [[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]],
+            [[0.0, -1.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 0.0, -1.0]],
+        ];
+        for f in frames {
+            let r = rot(ies_projection_rotation(&f));
+            for k in 0..3 {
+                let v: Vec<f64> = (0..3).map(|i| (0..3).map(|j| r[i][j] * OCTANE_IES_AXES[k][j]).sum()).collect();
+                assert!((0..3).all(|i| (v[i] - f[k][i]).abs() < 1e-9), "{f:?}: axis {k} → {v:?}");
+            }
+        }
+        // The probe's: axis down (−Z), φ 0 towards −Y, φ 90 towards −X — X +90°.
+        assert_eq!(ies_projection_rotation(&frames[4]), [90.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn emission_profile_becomes_an_ies_distribution() {
+        let dir = std::env::temp_dir().join(format!("orbis-ies-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("Runtime")).unwrap();
+        std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("calib/ies/Orbis-Asym.ies"), dir.join("Runtime/asym.ies")).unwrap();
+        let chs = |profile: &str| {
+            json!([
+                {"channel": {"id": "Emission Color", "current_value": [1, 1, 1]}},
+                {"channel": {"id": "Luminance", "current_value": 5000}},
+                {"channel": {"id": "Emission Temperature", "current_value": 6500}},
+                {"channel": {"id": "Emission Profile", "current_value": profile}},
+            ])
+        };
+        let mut lamp = (*mat(chs("/Runtime/asym.ies"))).clone();
+        // Turned half round X (facing down): its object Z is world −Z.
+        lamp.frame = Some([[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]]);
+        let dirs = [dir.clone()];
+        let (x, tex) = material_inputs(&[("Lamp".into(), Rc::new(lamp), 0.25)], &dirs, HashMap::new(), 9000, SkinShader::None);
+        let (plain, _) = material_inputs(&[("Lamp".into(), mat(chs("")), 0.25)], &dirs, HashMap::new(), 9000, SkinShader::None);
+        let d = &x[x.find("<pin name='distribution'>").expect("a distribution")..];
+        assert!(d.contains("<attr name='filename' type='11'>assets/ies/00_asym.ies</attr>") && d.contains("<attr name='iesPhotometryMode' type='2'>1</attr>"), "{d}");
+        assert!(d.contains("type='77'") && d.contains("<attr name='value' type='2'>1</attr>"), "world space: {d}");
+        assert_eq!(tex.files.len(), 1, "the .ies is packed");
+        assert!(!plain.contains("distribution"));
+        // The power over the profile's share of a uniform emitter's.
+        let power = |x: &str| -> f64 {
+            let p = &x[x.find("<pin name='power'>").unwrap()..];
+            let v = &p[p.find("type='8'>").unwrap() + 9..];
+            v[..v.find(' ').unwrap()].parse().unwrap()
+        };
+        let share = crate::ies::Profile::parse(&std::fs::read_to_string(dir.join("Runtime/asym.ies")).unwrap()).unwrap().mean_share();
+        assert!((power(&x) / power(&plain) * share - 1.0).abs() < 1e-3, "{} {} {share}", power(&x), power(&plain));
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn uv_translation_in_tile_units_with_mirrored_u() {

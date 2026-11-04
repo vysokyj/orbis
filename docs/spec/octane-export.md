@@ -1324,6 +1324,8 @@ Power (W) = L × unit factor / 2 / **15 000** (`DAZ_LUMENS_PER_WATT`) ×
 **1 / 3.4** (`EMISSION_POWER_FACTOR`) — total for lm / W, × the material's
 surface area (m²) for luminance units. Calib-Emissive (one-sided 50 × 50 cm,
 5000 cd/m²): 3.4× Iray without the factor, 0.98–1.02 with it (#6).
+An **Emission Profile** puts the IES profile on the emission's
+`distribution` (see Lights, IES light profiles).
 
 ### Round Corners (#40)
 
@@ -1504,6 +1506,58 @@ noise, mean ratio 1.000), so the export follows Iray, not the channel's
 intent — a scene is lit as its author saw it in Iray. Octane could express
 some (emission `castShadows`, `Visible on diffuse` / `Visible on specular`,
 a portal material), which would light the scene differently from Iray.
+
+
+**IES light profiles** (#34; Calib-L-IES-* — a point light level and
+turned down with DAZ's own `light_profile_test.ies`, one turned down with
+`calib/ies/Orbis-Asym.ies` (synthetic: a downlight to 60°, 1 / 0.6 / 0.1 /
+0.3 at φ 0 / 90 / 180 / 270), a 50 cm rect, an emissive plane with each
+profile; their .mi exports as fixtures):
+
+- **What DAZ hands Iray.** A point light with a **Light Profile** (any
+  Light Geometry; DAZ's spot and distant lights have no such channel)
+  becomes `dzpm_ies_light` — NVIDIA's `lights_photometric::ies_light`:
+  `measured_edf(profile, global_distribution, identity frame)` at
+  intensity = flux / `light_profile_power` (`iray::light`): **the profile's
+  shape at the light's Flux**, its candela values irrelevant. The file goes
+  as a `lightprofile` (flags 2, counter-clockwise horizontal angles;
+  hermite 1); a content-relative path resolves against the content
+  directories, an absolute one (DAZ's own file in its app bundle) as is.
+  The Uber **Emission Profile** sets `emission_profile_enable` and
+  `emission_profile` (`iray::uber`): `measured_edf(global_distribution:
+  true)` in the **mesh's object space**, the luminance divided by
+  `light_profile_power`.
+- **Orientation in Iray** (from the MDL, not yet from a render): the
+  profile's θ = 0 lies on the frame's +z (NVIDIA's comment in `ies_light`),
+  φ = 0 on +x, φ = 90° on +y. So a DAZ point light's profile axis is its
+  **local +Z** — the opposite of a spot's beam (−Z): unrotated it points
+  forward (+Z), turned X −90° (a spot's "down") it points up. An emissive
+  surface's axis is its object +Z (a DAZ plane's lies in the plane).
+- **Octane**: the emission's `distribution` pin takes a greyscale image
+  (36) reading the `.ies`, packed at `assets/ies/`, normalised to a peak of
+  1 (`iesPhotometryMode` 1, as in Octane's hallway sample), through a
+  Spherical projection (77; `positionType` 1 world, 3 object, 4 normal space
+  (IES lights)). **Octane's IES frame** at rotation 0 (Orbis-Asym, probes):
+  axis **−Y**, φ 0 **+Z**, φ 90 **−X**; the projection's `transform` (order
+  XYZ) turns that sphere into the coordinate space (X +90° moved the axis
+  from −Y to −Z). `ies_projection_rotation` turns it onto Iray's frame:
+  lights in **object space** (the UsdLux prim is the light's own frame — a
+  rect / disc prim, turned half round X, with Y and Z negated), emissive
+  surfaces in **world space** along the node's axes (the export's meshes
+  are in world space; the dump's node transform).
+- **Power** × 1 / the peak-normalised profile's mean over the sphere
+  (`ies::Profile::mean_share` = ∫ I dΩ / (4π I_max)): Octane's distribution
+  only scales the emitter's radiance, Iray keeps the flux. Orbis-Asym
+  turned onto the floor, 300 lm (share 0.060), against the same light
+  without a profile at θ = 30°: φ 0 / 90 / 270 / 180 at 0.99 / 1.00 / 1.02
+  / 1.06 of Iray's I(ω) · 4π / ∫ I dΩ.
+- **Not settled**: the orientation (above) and the power of a rect, disc or
+  sphere and of an emissive surface — Octane's emitter is Lambertian × the
+  distribution, Iray's `measured_edf` on an area follows the profile; the
+  export takes the point light's rule for both. Iray references of the
+  Calib-L-IES-* scenes decide (#34).
+- **Not mapped**: an IES file's TILT data (the ORBIS parser skips them; Octane
+  reads the file itself).
 
 
 **Camera headlamp** (#22, `lights::headlamp`): DAZ hands Iray a 7 × 3.5

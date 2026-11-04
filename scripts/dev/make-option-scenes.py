@@ -16,6 +16,10 @@ argument) and copied into calib/scenes; existing scenes are kept (--force).
                 illumination, render emitter, cast shadows (#35); Calib-L-Opt-Rect-* on
                 Calib-L-Rect-50: render emitter (light facing the camera), light portal (with a dome);
                 Calib-L-Opt-Spot-* on Calib-L-Mi-Spot-rect: render emitter of a rect spot facing the camera
+- Calib-L-IES-* IES light profiles (#34): DAZ's own test profile (light_profile_test.ies in the
+                app bundle) and calib/ies/Orbis-Asym.ies (synthetic, copied to My Library/Runtime/ORBIS)
+                on a point light level or turned down, a rect (DAZ's spot has no Light Profile), and an emissive plane's Emission
+                Profile; the bare floor seen from straight above (the emissive plane: the usual camera)
 - Calib-Lens-*  camera lens options (#39): lens shift, stereo offset, distortion types on
                 Calib-Tone-Default; aperture blades, radial bias, lens thickness on Calib-DOF-f4
 """
@@ -196,3 +200,52 @@ LENS_DOF = [('Blades5', {'Aperture Blades': 5, 'Aperture Blade Rotation': 20.0})
             ('Bias08', {'Lens Radial Bias': 0.8}),
             ('Thick', {'Lens Thickness': 50.0})]
 variants('Calib-DOF-f4', 'Calib-Lens', 'Camera', LENS_DOF)
+
+# IES light profiles (#34). DAZ's test profile is dark within 35 deg of its axis and lit beyond
+# (axially symmetric); Orbis-Asym a downlight to 60 deg, 1 / 0.6 / 0.1 / 0.3 at horizontal
+# angles 0 / 90 / 180 / 270: which way each profile points in Iray shows on the bare floor.
+DAZ_IES = '/Applications/DAZ 3D/DAZStudio6 64-bit/DAZStudio.app/Contents/shaders/iray/resources/light_profile_test.ies'
+ASYM_IES = '/Runtime/ORBIS/Orbis-Asym.ies'
+if os.path.isdir(lib):
+    rt = os.path.join(os.path.dirname(lib), 'Runtime', 'ORBIS')
+    os.makedirs(rt, exist_ok=True)
+    shutil.copyfile(os.path.join(repo, 'calib', 'ies', 'Orbis-Asym.ies'), os.path.join(rt, 'Orbis-Asym.ies'))
+
+
+def set_xyz(d, node, key, values):
+    n = next(l for l in d['node_library'] if l['id'] == node)
+    for c in n[key]:
+        c['current_value'] = values.get(c['id'], c['current_value'])
+
+
+def bare_floor_from_above(d):
+    """Hide the cubes and the sphere; the camera 5.2 m above the floor looking down."""
+    for n in d['scene']['nodes']:
+        if n.get('url', '').startswith(('#pCube', '#pSphere')):
+            ext = next((e for e in n.setdefault('extra', []) if e.get('type') == 'studio_node_channels'), None)
+            if ext is None:
+                ext = {'type': 'studio_node_channels', 'version': 5, 'channels': []}
+                n['extra'].append(ext)
+            ext.setdefault('channels', []).append({'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}})
+    set_xyz(d, 'Camera', 'translation', {'x': 0.0, 'y': 520.0, 'z': 0.0})
+    set_xyz(d, 'Camera', 'rotation', {'x': -90.0, 'y': 0.0, 'z': 0.0})
+
+
+DOWN = {'x': -90.0, 'y': 0.0, 'z': 0.0}
+IES = [('Point', 'Calib-L-Point-5k', 'PointLight', DAZ_IES, {'x': 0.0, 'y': 0.0, 'z': 0.0}),
+       ('Point-Down', 'Calib-L-Point-5k', 'PointLight', DAZ_IES, DOWN),
+       ('Asym-Down', 'Calib-L-Point-5k', 'PointLight', ASYM_IES, DOWN),
+       ('Rect', 'Calib-L-Rect-50', 'PointLight', DAZ_IES, DOWN)]
+for name, base, node, ies, rot in IES:
+    d = copy.deepcopy(load(base))
+    set_channel(node_channels(d, node), 'Light Profile', ies)
+    set_xyz(d, node, 'translation', {'x': 0.0, 'y': 250.0, 'z': 0.0})
+    set_xyz(d, node, 'rotation', rot)
+    bare_floor_from_above(d)
+    save(d, f'Calib-L-IES-{name}')
+# The emissive plane (2.5 m up, facing down) with an Emission Profile, from the usual camera.
+for name, ies in (('Emit', DAZ_IES), ('Emit-Asym', ASYM_IES)):
+    d = copy.deepcopy(load('Calib-L-Emit-cd'))
+    m = next(m for m in d['material_library'] if m['id'] == 'Default-5')
+    set_channel(next(e for e in m['extra'] if e['type'] == 'studio_material_channels')['channels'], 'Emission Profile', ies)
+    save(d, f'Calib-L-IES-{name}')

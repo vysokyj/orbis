@@ -529,9 +529,19 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
         }
         let prop = !fig.class.contains("Figure");
         let open = open_subsets(&mesh);
+        // The node's object axes for an Emission Profile (#34): the
+        // transform's columns, scale removed.
+        let frame = fig.transform.map(|t| {
+            [0, 1, 2].map(|c| {
+                let v = [t[c], t[4 + c], t[8 + c]];
+                let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(1e-12);
+                v.map(|x| x / len)
+            })
+        });
         for (m, open) in mesh.materials.iter_mut().zip(open) {
-            if let Some(m) = m.as_mut().filter(|_| prop || open) {
-                *m = Rc::new(crate::daz_material::Material { prop: m.prop || prop, open, ..(**m).clone() });
+            let profiled = m.as_ref().is_some_and(|m| m.channel("Emission Profile").and_then(|c| c.value.as_str()).is_some_and(|p| !p.is_empty()));
+            if let Some(m) = m.as_mut().filter(|_| prop || open || profiled) {
+                *m = Rc::new(crate::daz_material::Material { prop: m.prop || prop, open, frame: if profiled { frame } else { m.frame }, ..(**m).clone() });
             }
         }
         mesh.label = n.label.clone();

@@ -42,6 +42,7 @@ never wait for CI - the local `cargo test` before a push is the gate.
 | `src/layered_image.rs` | DAZ Layered Image Editor stacks → flattened images |
 | `src/texture_budget.rs` | Texture memory budget, downscaling |
 | `src/vdb.rs` | OpenVDB header: grid names |
+| `src/ies.rs` | IES (LM-63) light profiles: candela table, power |
 | `src/orbx.rs` | ORBX container writer/reader (reverse-engineered) |
 | `src/dson.rs` | gzip DSON, percent-decoding |
 | `src/daz.rs` | DAZ Studio on this machine: content dirs, app bundle |

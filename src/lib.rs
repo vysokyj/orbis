@@ -8,6 +8,7 @@ pub mod daz;
 pub mod daz_material;
 pub mod iray;
 pub mod dson;
+pub mod ies;
 pub mod install;
 pub mod layered_image;
 pub mod material;

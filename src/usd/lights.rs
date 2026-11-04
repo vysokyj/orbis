@@ -40,6 +40,9 @@ pub struct SceneLight {
     /// Seen by the camera (Iray's `visible`: Render Emitter); lighting and
     /// reflections either way.
     pub visible: bool,
+    /// The IES file of an IES light (Iray's `dzpm_ies_light`: a point
+    /// light's Light Profile), as the channel names it.
+    pub profile: Option<String>,
 }
 
 /// Octane's point-light headlamp against the 7 × 3.5 cm rect DAZ hands
@@ -113,6 +116,7 @@ pub(super) fn headlamp(lib: &mut Library, label: &str, cam: &SceneCamera, has_li
         two_sided: false,
         // DAZ hides it from the camera, which sits inside it.
         visible: iray.visible,
+        profile: None,
     })
 }
 
@@ -212,6 +216,10 @@ pub(super) fn scene_lights(lib: &mut Library) -> Vec<SceneLight> {
             translation: t,
             two_sided,
             visible: iray.visible,
+            profile: match iray.args.get("profile") {
+                Some(crate::iray::Arg::LightProfile(p)) => Some(p.clone()),
+                _ => None,
+            },
         });
     }
     out
@@ -250,13 +258,24 @@ pub(super) fn light_prim_names(lights: &[SceneLight]) -> Vec<String> {
 }
 
 /// Octane emitter materials for the lights (see
-/// `octane::material::light_inputs`).
-pub(super) fn light_emitters(lights: &[SceneLight]) -> Vec<crate::material::LightEmitter> {
+/// `octane::material::light_inputs`); `ies` packs an IES light's profile
+/// (its package path and the profile).
+pub(super) fn light_emitters(lights: &[SceneLight], ies: &mut dyn FnMut(&str) -> Option<(String, crate::ies::Profile)>) -> Vec<crate::material::LightEmitter> {
     lights
         .iter()
         .zip(light_prim_names(lights))
         .filter(|(l, _)| l.cone_deg.is_none())
-        .map(|(l, prim)| crate::material::LightEmitter { prim, watts: light_watts(l), kelvin: l.kelvin, color: l.color, two_sided: l.two_sided })
+        .map(|(l, prim)| {
+            let ies = l.profile.as_deref().and_then(|p| ies(p)).map(|(asset, profile)| {
+                // Iray's profile frame is the light's own (`ies_light`'s
+                // identity `global_frame`); the rect / disc prims are turned
+                // half round their X (`write_lights`), so their Y and Z
+                // point the other way.
+                let flip = if matches!(l.shape, LightShape::Rect { .. } | LightShape::Disk { .. }) { -1.0 } else { 1.0 };
+                crate::material::IesDistribution { asset, frame: [[1.0, 0.0, 0.0], [0.0, flip, 0.0], [0.0, 0.0, flip]], power_scale: 1.0 / profile.mean_share().max(1e-3), world: false }
+            });
+            crate::material::LightEmitter { prim, watts: light_watts(l), kelvin: l.kelvin, color: l.color, two_sided: l.two_sided, ies }
+        })
         .collect()
 }
 

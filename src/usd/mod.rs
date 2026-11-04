@@ -189,7 +189,7 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     }
     let env_texture = crate::material::environment_texture(environment.as_ref(), &lib.dirs, &mut textures, 190_000);
     let env_power = environment.as_ref().map(|e| if e.scene_only { 0.0 } else { e.intensity }).unwrap_or(1.0);
-    let emitters = light_emitters(&lights);
+    let emitters = light_emitters(&lights, &mut |p| textures.ies(&lib.dirs, p));
     let light_inputs = crate::material::light_inputs(&emitters, 180_000);
     // The shadow-catching ground stands in for Iray's ground under an HDRI
     // backdrop; without a map there is nothing for its shadow to sit on.

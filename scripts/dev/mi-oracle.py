@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """What DAZ Studio hands Iray, from its .mi export (scripts/dev/daz-export-mi.dsa),
 as JSON: render options, camera, environment, lights and every material's MDL
-call with its arguments, textures inlined (path, gamma). No geometry. These
+call with its arguments, textures and light profiles inlined (path, gamma;
+IES path, flags, hermite degree, resolution). No geometry. These
 are the oracle the DAZ -> Iray conversions in src/iray.rs are tested against
 (#62): `calib/references/mi/<scene>.json`.
 
@@ -70,7 +71,7 @@ def blocks(text):
                 i += 1
             i += 1
             continue
-        if head in ("shader", "options", "camera", "instance", "light", "instgroup"):
+        if head in ("shader", "options", "camera", "instance", "light", "instgroup", "lightprofile"):
             body = []
             i += 1
             end = "end " + head
@@ -94,7 +95,7 @@ def blocks(text):
 
 def parse(path):
     text = open(path, encoding="latin-1", newline="").read()
-    textures, shaders, instances, lights = {}, {}, [], {}
+    textures, shaders, instances, lights, profiles = {}, {}, [], {}, {}
     options = camera = None
     for kind, head, body in blocks(text):
         if kind == "texture":
@@ -110,6 +111,12 @@ def parse(path):
                 if "gamma" not in t and g:
                     t["gamma"] = value(g.group(1)) if g.group(1) != "Auto" else "auto"
                 textures[m.group(3)] = t
+        elif kind == "lightprofile":
+            p = {}
+            for l in body:
+                k, _, v = l.strip().partition(" ")
+                p[k] = content_path(value(v)) if k == "file" else value(v)
+            profiles[re.match(r'lightprofile "([^"]+)"', head).group(1)] = p
         elif kind == "shader":
             name = re.match(r'shader "([^"]+)"', head).group(1)
             call, args, attrs = None, {}, {}
@@ -184,6 +191,8 @@ def parse(path):
                 args[k] = tree(v["ref"], seen + (name,))
             elif isinstance(v, str) and v in textures:
                 args[k] = {"texture": textures[v]}
+            elif isinstance(v, str) and v in profiles:
+                args[k] = {"light_profile": profiles[v]}
             else:
                 args[k] = v
         out["args"] = args

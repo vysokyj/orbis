@@ -80,6 +80,7 @@ thing at a time.
 | `Calib-Env-*` | environment: tint, dome rotation / orientation, lighting blur / resolution, intensity, ground, matte fog, ground fog, dome modes; `Calib-Env-Mi-*` .mi only (fog / dome channels off their defaults) | — | [#37](https://github.com/vysokyj/orbis/issues/37), [#65](https://github.com/vysokyj/orbis/issues/65) |
 | `Calib-RS-*` | render settings: caustics, path length, firefly filter, bloom, pixel filter, spectral | — | [#43](https://github.com/vysokyj/orbis/issues/43) |
 | `Calib-L-Opt-*` | light options: decay, shadow intensity / softness / colour, illumination, render emitter, cast shadows, temperature; `-Rect-*`: render emitter with the rect in the frame (Facing), light portal under a dome | — | [#35](https://github.com/vysokyj/orbis/issues/35) |
+| `Calib-L-IES-*` | IES light profiles: a point light (level, turned down), a rect, an emissive plane's Emission Profile, with DAZ's `light_profile_test.ies` or the synthetic `calib/ies/Orbis-Asym.ies` (copied to My Library/Runtime/ORBIS); the floor from above | — | [#34](https://github.com/vysokyj/orbis/issues/34) |
 
 Some checks need scenes that stay on the developer's machine because they
 use DAZ Store or DAZ library content: a strand-hair figure (`Calib-Hair`,
