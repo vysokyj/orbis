@@ -990,7 +990,7 @@
        </pin>
        <pin name='lensShift'>
         <node id='100013' type='6'>
-         <attr name='value' type='9'>0 0 0 0</attr>
+         <attr name='value' type='9'>@CAM_SHIFT@</attr>
         </node>
        </pin>
        <pin name='perspectiveCorrection'>
@@ -1040,17 +1040,17 @@
        </pin>
        <pin name='bokehSidecount'>
         <node id='100023' type='9'>
-         <attr name='value' type='5'>6 0 0 0</attr>
+         <attr name='value' type='5'>@CAM_BLADES@ 0 0 0</attr>
         </node>
        </pin>
        <pin name='bokehRotation'>
         <node id='100024' type='6'>
-         <attr name='value' type='9'>0 0 0 0</attr>
+         <attr name='value' type='9'>@CAM_BLADE_ROTATION@</attr>
         </node>
        </pin>
        <pin name='bokehRoundedness'>
         <node id='100025' type='6'>
-         <attr name='value' type='9'>1 0 0 0</attr>
+         <attr name='value' type='9'>@CAM_BLADE_ROUNDEDNESS@</attr>
         </node>
        </pin>
        <pin name='pos'>

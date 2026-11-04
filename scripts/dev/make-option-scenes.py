@@ -16,6 +16,8 @@ argument) and copied into calib/scenes; existing scenes are kept (--force).
                 illumination, render emitter, cast shadows (#35); Calib-L-Opt-Rect-* on
                 Calib-L-Rect-50: render emitter (light facing the camera), light portal (with a dome);
                 Calib-L-Opt-Spot-* on Calib-L-Mi-Spot-rect: render emitter of a rect spot facing the camera
+- Calib-Lens-*  camera lens options (#39): lens shift, stereo offset, distortion types on
+                Calib-Tone-Default; aperture blades, radial bias, lens thickness on Calib-DOF-f4
 """
 import copy, gzip, json, os, shutil, sys
 
@@ -171,3 +173,26 @@ ENV_MI = [('Fog', {'Ground Fog': True, 'Ground Fog Decay Start': 50.0, 'Ground F
           ('FogHG', {'Ground Fog': True, 'Ground Fog Anisotropy': 0.3}),
           ('GroundBelow', {'Draw Ground': True, 'Ground Visible from Below': False})]
 variants('Calib-Tone-Default', 'Calib-Env-Mi', 'Environment Options', ENV_MI)
+
+# Camera lens options (#39), one group per scene. Lens Distortion Type is an enum: 0 none,
+# 1 spherical, 2 cylindrical, 3 poly3, 4 inv_poly3, 5 poly5, 6 inv_poly5, 7 ptlens, 8 inv_ptlens,
+# 9 brown, 10 inv_brown, 11 equidistant. The camera sees ~69 deg horizontally (65 mm, film 88.9 mm).
+LENS = [('Shift', {'Lens Shift X': 5.0, 'Lens Shift Y': -3.0}),
+        ('Stereo', {'Lens Stereo Offset': 100.0}),
+        ('Spherical', {'Lens Distortion Type': 1}),
+        ('Cylindrical', {'Lens Distortion Type': 2}),
+        ('Poly3', {'Lens Distortion Type': 3, 'Lens Distortion K1': 0.3}),
+        ('InvPoly5', {'Lens Distortion Type': 6, 'Lens Distortion K1': 0.2, 'Lens Distortion K2': 0.1}),
+        ('Brown', {'Lens Distortion Type': 9, 'Lens Distortion K1': 1.0, 'Lens Distortion K2': 0.05, 'Lens Distortion K3': -0.3,
+                   'Lens Distortion K4': 0.1, 'Lens Distortion K5': 0.2}),
+        # An ideal equidistant fisheye, 120 deg across (k2 = theta / scale, Iray manual 13.3).
+        ('Equidistant', {'Lens Distortion Type': 11, 'Lens Distortion K2': 2.0943951}),
+        # For DAZ's .mi export only: every remaining distortion channel off its default.
+        ('Mi-PTLens', {'Lens Distortion Type': 8, 'Lens Distortion K1': 0.1, 'Lens Distortion K2': -0.1, 'Lens Distortion K3': 0.2,
+                       'Lens Distortion Scale': 0.8, 'Lens Maximum FOV': 3.0})]
+variants('Calib-Tone-Default', 'Calib-Lens', 'Camera', LENS)
+LENS_DOF = [('Blades5', {'Aperture Blades': 5, 'Aperture Blade Rotation': 20.0}),
+            ('Bias02', {'Lens Radial Bias': 0.2}),
+            ('Bias08', {'Lens Radial Bias': 0.8}),
+            ('Thick', {'Lens Thickness': 50.0})]
+variants('Calib-DOF-f4', 'Calib-Lens', 'Camera', LENS_DOF)

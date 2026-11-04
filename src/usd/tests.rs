@@ -530,6 +530,16 @@ fn iray_tone_mapping_drives_the_imager() {
     let vig = |v: f64, fov: f64| ToneMapping { vignetting: v, ..ToneMapping::default() }.octane_vignetting(fov, 16.0 / 9.0);
     assert!((vig(0.5, 68.725571) - 0.0855).abs() < 0.001 && (vig(1.0, 68.725571) - 0.1653).abs() < 0.001, "{} {}", vig(0.5, 68.725571), vig(1.0, 68.725571));
     assert!(vig(1.0, 30.0) < vig(1.0, 68.7) && vig(0.0, 68.7) == 0.0 && vig(50.0, 170.0) == 1.0);
+    // Lens options (#39): shift and blades on the thin lens, distortion as
+    // an OSL camera in its place.
+    assert!(!ocs.contains("@CAM_") && ocs.contains("<attr name='value' type='5'>6 0 0 0</attr>"));
+    let mut lensed = cams.clone();
+    lensed[0].1.lens = crate::iray::Lens { shift: [0.36, 0.0], blades: 5, ..Default::default() };
+    let ocs = project_ocs("Shot", "scene.usdz", &lensed, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &plain, false, None, true, &crate::iray::RenderOptions::default());
+    assert!(ocs.contains("<attr name='value' type='9'>0.100000 0.000000 0 0</attr>") && ocs.contains("<attr name='value' type='5'>5 0 0 0</attr>"));
+    lensed[0].1.lens.distortion = crate::iray::Distortion::Equidistant;
+    let ocs = project_ocs("Shot", "scene.usdz", &lensed, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &plain, false, None, true, &crate::iray::RenderOptions::default());
+    assert!(ocs.contains("<node id='100005' type='126'>") && !ocs.contains("<node id='100005' type='13'>") && !ocs.contains("@CAM_") && ocs.contains("<pin name='environment'>"));
     let mut cams = cams.clone();
     cams[0].1.fov_deg = 68.725571;
     let ocs = project_ocs("Shot", "scene.usdz", &cams, (1920, 1080), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &ToneMapping { vignetting: 1.0, ..plain }, false, None, true, &crate::iray::RenderOptions::default());
@@ -1096,7 +1106,7 @@ fn camera_headlamp_when_iray_lights_with_it() {
                           {"id": "General Render", "channels": [{"channel": {"id": "Auto Headlamp", "current_value": auto}}]}]}}]},
         })
     };
-    let cam = SceneCamera { pos: [0.0; 3], target: [0.0, 0.0, -1.0], up: [0.0, 1.0, 0.0], fov_deg: 40.0, focal_depth: 1.0, aperture_cm: 0.0 };
+    let cam = SceneCamera { pos: [0.0; 3], target: [0.0, 0.0, -1.0], up: [0.0, 1.0, 0.0], fov_deg: 40.0, focal_depth: 1.0, aperture_cm: 0.0, film_cm: [3.6, 2.4], focal_cm: 5.0, lens: crate::iray::Lens::default() };
     let h = headlamp(&mut Library::new(vec![], scene(1, 0)), "Camera", &cam, true).expect("on");
     assert!((h.translation[0] + 0.3).abs() < 1e-6 && (h.translation[1] - 0.2).abs() < 1e-6, "{:?}", h.translation);
     // DAZ's 10 × 420.543² lm (Calib-Glossy's focus) as the calibrated 1.7 Mlm point.

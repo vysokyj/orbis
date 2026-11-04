@@ -88,8 +88,23 @@ pub(super) fn project_ocs(
     let mut out = head.to_string();
     for (k, (label, cam)) in cams.iter().enumerate() {
         let name = if cams.len() > 1 { format!("{scene_name} – {label}") } else { scene_name.to_string() };
+        // Iray lens distortion: an OSL camera in the thin lens's place (#39).
+        let rt = match super::lens::osl_camera(cam) {
+            Some(code) => {
+                let a = rt.find("     <pin name='camera'>").expect("template has the camera pin");
+                let b = rt.find("     <pin name='environment'>").expect("template has the environment pin");
+                format!("{}{}{}", &rt[..a], super::lens::osl_camera_node(&code), &rt[b..])
+            }
+            None => rt.to_string(),
+        };
+        let shift = super::lens::thin_lens_shift(cam);
+        let (blades, blade_rotation, roundedness) = super::lens::bokeh(cam);
         let rt = rt
             .replace("@RT_NAME@", &xml_escape(&name))
+            .replace("@CAM_SHIFT@", &format!("{:.6} {:.6} 0 0", shift[0], shift[1]))
+            .replace("@CAM_BLADES@", &blades.to_string())
+            .replace("@CAM_BLADE_ROTATION@", &format!("{blade_rotation:.6} 0 0 0"))
+            .replace("@CAM_BLADE_ROUNDEDNESS@", &format!("{roundedness:.6} 0 0 0"))
             .replace("@CAM_POS@", &v3(cam.pos))
             .replace("@CAM_TARGET@", &v3(cam.target))
             .replace("@CAM_UP@", &v3(cam.up))

@@ -399,6 +399,44 @@ Group pins carry `dynamicType='12'`.
   match (`lens_fstop`, the template's 65 mm; 1000 without DOF) — the
   template's fixed 12 disagreed with the aperture.
 
+### Lens options (#39)
+
+DAZ hands Iray every lens channel (`iray::Lens`, verified by the
+Calib-Lens-* `.mi` fixtures): the mm channels (Lens Shift X / Y, Lens
+Stereo Offset, Lens Thickness) as cm, Aperture Blade Rotation in radians,
+K1–K3 as `mip_lens_distortion_params`, K4 / K5 as `…params2`, Lens
+Distortion Type as Iray's name (none, spherical, cylindrical, poly3,
+inv_poly3, poly5, inv_poly5, ptlens, inv_ptlens, brown, inv_brown,
+equidistant), Radial Bias, Distortion Scale, Maximum FOV as they are.
+Octane (`usd::lens`):
+
+| Iray | Octane | Status |
+|------|--------|--------|
+| `mip_lens_shift_x/y` (cm on the film) | thin lens `lensShift` = shift / film width, shift / film height (Octane's units: fractions of the image's width and height — probe: 0.1 moves a 1920×1080 frame 192 / 108 px) | sign and film units assumed (Iray manual says only "lens shift"); Calib-Lens-Shift waits for Iray |
+| `mip_aperture_num_blades` > 2, `…blade_rotation_angle` | `bokehSidecount` = blades, `bokehRoundedness` 0, `bokehRotation` in degrees; fewer blades → round (roundedness 1) | Octane renders the pentagon (Calib-Lens-Blades5); which way the polygon points at rotation 0 waits for Iray |
+| `mip_lens_stereo_offset` | the camera moved that far to its right, parallel (Iray renders the right eye into a single-layer canvas, Iray manual 13.3) | waits for Iray (Calib-Lens-Stereo): parallel vs converging |
+| `mip_lens_distortion_type` ≠ none | an **OSL camera** (NT_CAM_OSL 126, `shaderCode`) in the thin lens's place, Iray's model written out (`lens::osl_camera`) | below; waits for Iray |
+| `mip_lens_radial_bias` | not mapped: Iray documents only the direction (> 0.5 towards the lens centre); Octane's `aperture_edge` (1 uniform, < 1 apodised) needs Iray's distribution | Calib-Lens-Bias02 / -Bias08 wait for Iray |
+| `mip_lens_thickness` | not mapped: not in the Iray manual (2026), Octane has nothing like it | Calib-Lens-Thick waits for Iray, to see what it does |
+| `mip_lens_max_fov` | the equidistant fisheye's cut-off at half of it (rays beyond: none, black) | from the manual |
+
+**The OSL camera.** The image point on Iray's film (cm, lens shift added),
+its radius normalised as r = scale · distance / film width — the
+normalisation the manual's equidistant table implies (k2 = θ / s for a
+cropped fisheye's horizontal FOV θ; aθ / s vertical, θ / (s√(1 + 1/a²))
+diagonal: all hold for this r and no other). Perspective models send the
+ray through the undistorted film point (`ru / rd` × the film point, focal
+length on the axis): forward models (rd = P(ru)) solved by 16 Newton steps,
+inverse ones (ru = P(rd)) direct. Equidistant: exit angle θ = P(rd) at the
+point's azimuth. Spherical: a full 360° × 180° lat-long; cylindrical: 360°
+across, square pixels up the cylinder. Depth of field: Octane's
+`camera:dofrandom` over Iray's lens (a disc of the lens radius, or the
+blade polygon, uniformly), focus on the plane at the focus distance
+(perspective models) or the sphere (the rest). Radius normalisation and the
+panoramas' extents are the reading of the manual, unconfirmed until the
+Iray references (Calib-Lens-Poly3, -InvPoly5, -Brown, -Equidistant,
+-Spherical, -Cylindrical).
+
 ## Render modes
 
 `ExportOptions::octane_mode`; the scene detail offers Final / Preview.

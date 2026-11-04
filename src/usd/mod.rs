@@ -27,6 +27,7 @@ mod camera;
 mod dump;
 mod environment;
 mod instance;
+mod lens;
 mod library;
 mod lights;
 mod mesh;

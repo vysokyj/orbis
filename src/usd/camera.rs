@@ -14,6 +14,13 @@ pub struct SceneCamera {
     pub focal_depth: f64,
     /// Lens aperture radius, centimeters (0 = everything sharp).
     pub aperture_cm: f64,
+    /// Iray's film: width and height, cm (`crate::iray::Camera::aperture`
+    /// and it over the aspect).
+    pub film_cm: [f64; 2],
+    /// Iray's focal length, cm.
+    pub focal_cm: f64,
+    /// The lens options (#39), as DAZ hands them to Iray.
+    pub lens: crate::iray::Lens,
 }
 
 /// Three channel values (`x`/`y`/`z`), from the scene node's override or the
@@ -149,6 +156,12 @@ pub(super) fn camera_from_node(lib: &Library, node: &Value, def: Option<&Value>)
     let iray = crate::iray::camera(&def_channels, render_size(&lib.duf));
     let focal_depth = def_channels.get("Depth of Field").and_then(Value::as_f64).unwrap_or(300.0) * CM as f64;
     let fwd = mat_vec(&rot, [0.0, 0.0, -1.0]);
+    // Lens Stereo Offset: Iray renders the right eye into a single-layer
+    // canvas, `mip_lens_stereo_offset` right of the camera (Iray manual
+    // 13.3) — the camera moved sideways, parallel.
+    let right = mat_vec(&rot, [1.0, 0.0, 0.0]);
+    let pos = [0, 1, 2].map(|i| pos[i] + right[i] * iray.lens.stereo_offset * CM as f64);
+    let (w, h) = render_size(&lib.duf);
     Some(SceneCamera {
         pos,
         target: [0, 1, 2].map(|i| pos[i] + fwd[i] * focal_depth),
@@ -159,6 +172,9 @@ pub(super) fn camera_from_node(lib: &Library, node: &Value, def: Option<&Value>)
         // as cm — 10× a real lens's: Gladiator's 65 mm f/6 blurs a trunk at
         // 5.3 m by ~15–20 px (15 px predicted, 1.5 px for a real lens).
         aperture_cm: iray.lens_radius,
+        film_cm: [iray.aperture, iray.aperture * h.max(1) as f64 / w.max(1) as f64],
+        focal_cm: iray.focal,
+        lens: iray.lens,
     })
 }
 
@@ -192,6 +208,9 @@ pub(super) fn framing_camera(meshes: &[Mesh]) -> SceneCamera {
         fov_deg,
         focal_depth: dist,
         aperture_cm: 0.0,
+        film_cm: [FRAME_WIDTH_MM / 10.0, FRAME_WIDTH_MM / 10.0],
+        focal_cm: 5.0,
+        lens: crate::iray::Lens::default(),
     }
 }
 

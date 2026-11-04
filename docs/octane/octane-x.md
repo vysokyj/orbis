@@ -212,6 +212,17 @@ Octane X runs Lua scripts from its **Script** menu.
   new file may need an app restart; replacing a listed file works at once).
 - A script can write results to `~/Documents/…` (sandbox `HOME`).
 - `octane.project.saveAs` fails in the sandbox; File → Save As works.
+- **OSL camera** (NT_CAM_OSL, node type 126): pins `pos`, `target`, `up`,
+  stereo pins; attributes `shaderCode` (type 10), `filename`, `package`,
+  `reload`, `result` (1 once compiled). In an `.ocs` it loads with only
+  `shaderCode` and the three position pins. The shader's outputs
+  `point pos, vector dir, float tMax` (tMax 0 = no ray); `u`, `v` on the
+  film from the bottom left; `getattribute("camera:resolution", int[2])`,
+  `"camera:dofrandom"` (float[2], a point on the unit square for the
+  lens); `point("camera", …)` / `transform("camera", "world", …)` use the
+  camera's frame (−Z forward, +Y up). Checked by probe (#39).
+- Thin lens `lensShift`: x as a fraction of the image width, y of its
+  height (positive = the view moves right / up).
 - Useful calls: `octane.node.create{type=…, graphOwner=…}`, `setAttribute`,
   `getPinInfoIx`, `getAttributeInfoIx`, `connectToIx` (nodes only — a graph via
   `getOutputNodes()`), `octane.project.getSceneGraph():getOwnedItems()`.

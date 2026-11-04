@@ -837,6 +837,114 @@ pub struct Camera {
     pub lens_radius: f64,
     /// Focus distance; 0 without DOF.
     pub lens_focus: f64,
+    /// The lens options (#39), as DAZ passes them on (`mip_lens_*`,
+    /// `mip_aperture_*`).
+    pub lens: Lens,
+}
+
+/// Iray's lens options (Iray manual 13.3) as DAZ hands them over: the mm
+/// channels in cm, the blade rotation in radians, the rest as they are
+/// (Calib-Lens-*).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Lens {
+    /// Lens Shift X / Y (`mip_lens_shift_x/y`).
+    pub shift: [f64; 2],
+    /// Lens Stereo Offset (`mip_lens_stereo_offset`): the right eye's
+    /// distance from the centre.
+    pub stereo_offset: f64,
+    /// Lens Thickness (`mip_lens_thickness`).
+    pub thickness: f64,
+    /// Lens Radial Bias (`mip_lens_radial_bias`): > 0.5 samples the lens
+    /// towards its centre, < 0.5 towards its edge.
+    pub radial_bias: f64,
+    /// Lens Distortion Type (`mip_lens_distortion_type`).
+    pub distortion: Distortion,
+    /// K1–K5 (`mip_lens_distortion_params` K1–K3, `…params2` K4, K5).
+    pub k: [f64; 5],
+    /// Lens Distortion Scale (`mip_lens_distortion_scale`).
+    pub distortion_scale: f64,
+    /// Lens Maximum FOV (`mip_lens_max_fov`), radians.
+    pub max_fov: f64,
+    /// Aperture Blades (`mip_aperture_num_blades`): > 2 shapes the
+    /// aperture as a polygon.
+    pub blades: i64,
+    /// Aperture Blade Rotation (`mip_aperture_blade_rotation_angle`), radians.
+    pub blade_rotation: f64,
+}
+
+impl Default for Lens {
+    /// DAZ's (and Iray's) defaults: a plain round lens.
+    fn default() -> Self {
+        Lens {
+            shift: [0.0; 2],
+            stereo_offset: 0.0,
+            thickness: 0.0,
+            radial_bias: 0.5,
+            distortion: Distortion::None,
+            k: [0.0; 5],
+            distortion_scale: 1.0,
+            max_fov: std::f64::consts::TAU,
+            blades: 0,
+            blade_rotation: 0.0,
+        }
+    }
+}
+
+/// Iray's `mip_lens_distortion_type`, in DAZ's Lens Distortion Type order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Distortion {
+    None,
+    Spherical,
+    Cylindrical,
+    Poly3,
+    InvPoly3,
+    Poly5,
+    InvPoly5,
+    PtLens,
+    InvPtLens,
+    Brown,
+    InvBrown,
+    Equidistant,
+}
+
+impl Distortion {
+    const ALL: [Distortion; 12] = [
+        Self::None,
+        Self::Spherical,
+        Self::Cylindrical,
+        Self::Poly3,
+        Self::InvPoly3,
+        Self::Poly5,
+        Self::InvPoly5,
+        Self::PtLens,
+        Self::InvPtLens,
+        Self::Brown,
+        Self::InvBrown,
+        Self::Equidistant,
+    ];
+
+    /// DAZ's enum index; out of range is none.
+    pub fn from_daz(i: i64) -> Self {
+        usize::try_from(i).ok().and_then(|i| Self::ALL.get(i)).copied().unwrap_or(Self::None)
+    }
+
+    /// The name Iray takes.
+    pub fn mi_name(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Spherical => "spherical",
+            Self::Cylindrical => "cylindrical",
+            Self::Poly3 => "poly3",
+            Self::InvPoly3 => "inv_poly3",
+            Self::Poly5 => "poly5",
+            Self::InvPoly5 => "inv_poly5",
+            Self::PtLens => "ptlens",
+            Self::InvPtLens => "inv_ptlens",
+            Self::Brown => "brown",
+            Self::InvBrown => "inv_brown",
+            Self::Equidistant => "equidistant",
+        }
+    }
 }
 
 /// The camera from its channels (definition overlaid by the node's) and
@@ -852,6 +960,18 @@ pub fn camera(ch: &NodeChannels, (w, h): (u32, u32)) -> Camera {
         // DAZ spells the f-stop channel "Aperature".
         lens_radius: if dof { focal_mm / (2.0 * ch_num(ch, "Aperature", 22.0).max(0.1)) } else { 0.0 },
         lens_focus: if dof { ch_num(ch, "Depth of Field", 300.0) } else { 0.0 },
+        lens: Lens {
+            shift: [ch_num(ch, "Lens Shift X", 0.0) / 10.0, ch_num(ch, "Lens Shift Y", 0.0) / 10.0],
+            stereo_offset: ch_num(ch, "Lens Stereo Offset", 0.0) / 10.0,
+            thickness: ch_num(ch, "Lens Thickness", 0.0) / 10.0,
+            radial_bias: ch_num(ch, "Lens Radial Bias", 0.5),
+            distortion: Distortion::from_daz(ch_num(ch, "Lens Distortion Type", 0.0) as i64),
+            k: [1, 2, 3, 4, 5].map(|i| ch_num(ch, &format!("Lens Distortion K{i}"), 0.0)),
+            distortion_scale: ch_num(ch, "Lens Distortion Scale", 1.0),
+            max_fov: ch_num(ch, "Lens Maximum FOV", std::f64::consts::TAU),
+            blades: ch_num(ch, "Aperture Blades", 0.0) as i64,
+            blade_rotation: ch_num(ch, "Aperture Blade Rotation", 0.0).to_radians(),
+        },
     }
 }
 
@@ -1528,6 +1648,22 @@ mod tests {
                 check(format!("{scene} lens radius"), num(&m["mip_lens_radius"]), c.lens_radius);
                 check(format!("{scene} lens focus"), num(&m["mip_lens_focus"]), c.lens_focus);
                 check(format!("{scene} resolution"), num(&m["resolution"][0]), size.0 as f64);
+                // Lens options (#39).
+                let l = &c.lens;
+                check(format!("{scene} lens shift x"), num(&m["mip_lens_shift_x"]), l.shift[0]);
+                check(format!("{scene} lens shift y"), num(&m["mip_lens_shift_y"]), l.shift[1]);
+                check(format!("{scene} stereo offset"), num(&m["mip_lens_stereo_offset"]), l.stereo_offset);
+                check(format!("{scene} lens thickness"), num(&m["mip_lens_thickness"]), l.thickness);
+                check(format!("{scene} radial bias"), num(&m["mip_lens_radial_bias"]), l.radial_bias);
+                check(format!("{scene} distortion {}", l.distortion.mi_name()), 1.0, f64::from(u8::from(m["mip_lens_distortion_type"].as_str() == Some(l.distortion.mi_name()))));
+                for i in 0..5 {
+                    let (key, j) = if i < 3 { ("mip_lens_distortion_params", i) } else { ("mip_lens_distortion_params2", i - 3) };
+                    check(format!("{scene} K{}", i + 1), num(&m[key][j]), l.k[i]);
+                }
+                check(format!("{scene} distortion scale"), num(&m["mip_lens_distortion_scale"]), l.distortion_scale);
+                check(format!("{scene} max fov"), num(&m["mip_lens_max_fov"]), l.max_fov);
+                check(format!("{scene} blades"), num(&m["mip_aperture_num_blades"]), l.blades as f64);
+                check(format!("{scene} blade rotation"), num(&m["mip_aperture_blade_rotation_angle"]), l.blade_rotation);
             }
             if let Some(ch) = by_id(&nodes, "Tonemapper Options") {
                 for (param, v) in tone(ch) {
