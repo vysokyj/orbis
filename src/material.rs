@@ -113,6 +113,17 @@ impl Textures {
 }
 
 impl Textures {
+    /// A packed image's width and height (px) as the scene has it, before
+    /// any texture budget scales it down.
+    fn size(&self, asset: &str) -> Option<(u32, u32)> {
+        if let Some((_, file)) = self.files.iter().find(|(a, _)| a == asset) {
+            return crate::texture_budget::file_dimensions(file);
+        }
+        self.generated.iter().find(|(a, _)| a == asset).and_then(|(_, png)| crate::texture_budget::dimensions(png))
+    }
+}
+
+impl Textures {
     /// An IES light profile, packed like an image: its package path and the
     /// parsed profile. DAZ keeps the path as picked — content-relative
     /// (`/Runtime/…`) or absolute (DAZ Studio's own
@@ -448,11 +459,19 @@ const DISPLACEMENT_SUBD_MAX: u32 = 1;
 const DATA_MAP_GAMMA: f32 = 2.2;
 
 /// Octane bump `power` per unit of Iray's `file_bump_texture` factor
-/// (Bump Strength, Top Coat Bump): fitted on Calib-CoatBump (#61), where
-/// ×2 matched Iray's dimples and ridges best (×1 rendered them faint, ×3
-/// too strong). Octane's bump doesn't change with the map's resolution
-/// (512 vs 2048 px alike); whether Iray's does is unchecked.
+/// (Bump Strength, Top Coat Bump) for a map [`BUMP_REF_WIDTH`] wide, untiled,
+/// on a surface of [`BUMP_REF_UV_SCALE`]: fitted on Calib-CoatBump (#61),
+/// where ×2 matched Iray's dimples and ridges best (×1 rendered them faint,
+/// ×3 too strong). Other maps: [`Ocs::bump_power`].
 const BUMP_POWER: f32 = 2.0;
+
+/// The width (px) of Calib-CoatBump's height maps, which `BUMP_POWER` fits.
+const BUMP_REF_WIDTH: f32 = 512.0;
+
+/// Calib-CoatBump's spheres' UV scale (m of surface per UV unit,
+/// `usd::uv_scales`: 0.282 m² over 0.958 UV units²), which `BUMP_POWER`
+/// fits.
+const BUMP_REF_UV_SCALE: f64 = 0.542;
 
 /// The gamma Iray reads a float channel's map at ([`DATA_MAP_GAMMA`]).
 fn data_gamma(mat: &Material, channel: &str) -> f32 {
@@ -637,6 +656,8 @@ struct Ocs<'a> {
     pin_wraps: Vec<bool>,
     /// Writing an Uber gloss as GGX (`gloss_roughness`).
     gloss_ggx: bool,
+    /// The current material's UV scale (m per UV unit, `UvScales`).
+    uv_scale: Option<f64>,
 }
 
 fn esc(s: &str) -> String {
@@ -1159,6 +1180,23 @@ impl Ocs<'_> {
         self.coat_bump_pins(i, mat, "coatingBump", "coatingNormal");
     }
 
+    /// Octane's image `power` for a height map that Iray reads through
+    /// `base::file_bump_texture` at `factor` (#75). Iray's slope is the
+    /// height difference of the texels either side (MDL SDK's `base.mdl`),
+    /// on unit tangents: the tilt goes with factor / the map's width, the
+    /// same at any UV tiling or object size. Octane's goes with power × the
+    /// height's slope per meter of surface, whatever the map's resolution
+    /// (Calib-BumpRes, Info kernel normals: 256 / 1024 / 4096 px alike,
+    /// tiles 2 or the sphere at half size as at twice the power). So the
+    /// power scales with the reference width / the map's, the material's
+    /// UV scale / the reference's, and 1 / the tiles.
+    fn bump_power(&self, asset: &str, factor: f32) -> f32 {
+        let width = self.textures.size(asset).map_or(BUMP_REF_WIDTH, |(w, h)| ((w as f32) * (h as f32)).sqrt().max(1.0));
+        let tiles = self.tiling.map_or(1.0, |[tu, tv, ..]| (tu * tv).abs().sqrt().max(1e-3));
+        let size = self.uv_scale.map_or(1.0, |s| (s / BUMP_REF_UV_SCALE) as f32);
+        factor * BUMP_POWER * BUMP_REF_WIDTH / width * size / tiles
+    }
+
     /// The Top Coat's surface detail on the coat's `bump` / `normal` pins
     /// (#61). DAZ's MDL gives the coat its own normal
     /// (`calc_mix_layer_normal`): the Top Coat Bump — a height map, or a
@@ -1166,7 +1204,7 @@ impl Ocs<'_> {
     /// else the base's bump or normal map. Octane's coating takes the
     /// plain shading normal unless its own pins are set (Calib-CoatBump:
     /// the base's ridges stayed out of the coat's highlights), so the base
-    /// maps go there too. Height maps at their factor × `BUMP_POWER`; the
+    /// maps go there too. Height maps at `bump_power` of their factor; the
     /// coat's and the base's height maps together as their sum (a Mix
     /// texture at ½ of both at twice the power: Iray's B7 shows both).
     fn coat_bump_pins(&mut self, i: usize, mat: &Material, bump_pin: &str, normal_pin: &str) {
@@ -1181,12 +1219,16 @@ impl Ocs<'_> {
                 let j = i + 1;
                 let _ = writeln!(self.out, "{:j$}<node id='{id}' type='38'>", "");
                 self.float_pin(j + 1, "amount", 0.5);
-                self.image_pin(j + 1, "texture1", &c, true, 1.0, 2.0 * cf * BUMP_POWER);
-                self.image_pin(j + 1, "texture2", &b, true, 1.0, 2.0 * bf * BUMP_POWER);
+                let (cp, bp) = (self.bump_power(&c, cf), self.bump_power(&b, bf));
+                self.image_pin(j + 1, "texture1", &c, true, 1.0, 2.0 * cp);
+                self.image_pin(j + 1, "texture2", &b, true, 1.0, 2.0 * bp);
                 let _ = writeln!(self.out, "{:j$}</node>", "");
                 self.pin_close(i);
             }
-            (Some((a, f)), None) | (None, Some((a, f))) => self.image_pin(i, bump_pin, &a, true, 1.0, f * BUMP_POWER),
+            (Some((a, f)), None) | (None, Some((a, f))) => {
+                let p = self.bump_power(&a, f);
+                self.image_pin(i, bump_pin, &a, true, 1.0, p)
+            }
             (None, None) => {}
         }
         match (&coat, coat_normal) {
@@ -1206,10 +1248,11 @@ impl Ocs<'_> {
         mat.image("Bump Strength").filter(|_| f > 0.0).map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)).map(|a| (a, f))
     }
 
-    /// The base's height map on `pin` at Bump Strength × `BUMP_POWER`.
+    /// The base's height map on `pin` at `bump_power` of Bump Strength.
     fn base_bump_pin(&mut self, i: usize, mat: &Material, pin: &str) {
         if let Some((a, f)) = self.base_bump(mat) {
-            self.image_pin(i, pin, &a, true, 1.0, f * BUMP_POWER);
+            let p = self.bump_power(&a, f);
+            self.image_pin(i, pin, &a, true, 1.0, p);
         }
     }
 
@@ -3534,7 +3577,7 @@ fn ies_projection_rotation(frame: &[[f64; 3]; 3]) -> [f64; 3] {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -3756,7 +3799,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, dome_groun
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -3980,7 +4023,7 @@ fn environment_texture_at(
     first_id: u32,
     origin: Option<[f64; 3]>,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -4077,9 +4120,26 @@ pub fn material_inputs(
     first_id: u32,
     shading: impl Into<Shading>,
 ) -> (String, Textures) {
+    material_inputs_scaled(materials, &UvScales::new(), dirs, layered, first_id, shading)
+}
+
+/// Each material's UV scale: meters of surface per UV unit
+/// (`usd::uv_scales`), keyed by the material.
+pub type UvScales = HashMap<*const Material, f64>;
+
+/// [`material_inputs`] with the materials' UV scales, which set their bump
+/// strength ([`Ocs::bump_power`]).
+pub fn material_inputs_scaled(
+    materials: &[crate::usd::BoundMaterial],
+    uv_scales: &UvScales,
+    dirs: &[PathBuf],
+    layered: HashMap<String, crate::layered_image::LayeredImage>,
+    first_id: u32,
+    shading: impl Into<Shading>,
+) -> (String, Textures) {
     let Shading { skin, thin_glass_ior_one, max_transmission } = shading.into();
     let mut textures = Textures { layered, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -4091,8 +4151,10 @@ pub fn material_inputs(
         w.out.push_str("    <attr name='group' type='10'></attr>\n    <attr name='description' type='10'></attr>\n");
         w.pin_open(4, "input");
         w.film = Film::of(mat);
+        w.uv_scale = uv_scales.get(&std::rc::Rc::as_ptr(mat)).copied();
         w.universal(5, name, mat, *area, skin);
         w.film = None;
+        w.uv_scale = None;
         w.pin_close(4);
         w.out.push_str("   </node>\n");
     }
@@ -4994,6 +5056,41 @@ mod tests {
     }
 
     #[test]
+    fn bump_power_follows_iray_per_texel_slope() {
+        // Iray's file_bump_texture tilts by factor / the map's width,
+        // whatever the tiling or the object's size; Octane by power × the
+        // slope per meter (#75): power = factor × 2 × 512 / width ×
+        // UV scale / 0.542 / tiles.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("t")).unwrap();
+        for (f, n) in [("h512.png", 512), ("h2048.png", 2048)] {
+            image::GrayImage::new(n, n).save(dir.path().join("t").join(f)).unwrap();
+        }
+        let dirs = vec![dir.path().to_path_buf()];
+        let power = |map: &str, extra: serde_json::Value, scale: Option<f64>| -> f32 {
+            let mut ch = vec![json!({"channel": {"id": "Bump Strength", "current_value": 1.5, "image_file": map}})];
+            ch.extend(extra.as_array().unwrap().iter().cloned());
+            let m = mat(serde_json::Value::Array(ch));
+            let scales: UvScales = scale.map(|s| (std::rc::Rc::as_ptr(&m), s)).into_iter().collect();
+            let (x, _) = material_inputs_scaled(&[("Ball".into(), m, 1.0)], &scales, &dirs, HashMap::new(), 9000, SkinShader::None);
+            let b = &x[x.find("<pin name='bump'>").expect(&x)..];
+            let p = &b[b.find("<pin name='power'>").unwrap()..];
+            p[p.find("type='6'>").unwrap() + 9..].split('<').next().unwrap().parse().unwrap()
+        };
+        let close = |a: f32, b: f32| assert!((a - b).abs() < 1e-4, "{a} vs {b}");
+        // The reference: 512 px, untiled, Calib-CoatBump's spheres.
+        close(power("/t/h512.png", json!([]), Some(BUMP_REF_UV_SCALE)), 3.0);
+        // No UV scale known: as the reference.
+        close(power("/t/h512.png", json!([]), None), 3.0);
+        // 4x the pixels: a quarter of the power.
+        close(power("/t/h2048.png", json!([]), Some(BUMP_REF_UV_SCALE)), 0.75);
+        // Tiled 2 x 2: half.
+        close(power("/t/h512.png", json!([{"channel": {"id": "Horizontal Tiles", "current_value": 2}}, {"channel": {"id": "Vertical Tiles", "current_value": 2}}]), Some(BUMP_REF_UV_SCALE)), 1.5);
+        // A surface twice as large per UV unit: twice.
+        close(power("/t/h512.png", json!([]), Some(2.0 * BUMP_REF_UV_SCALE)), 6.0);
+    }
+
+    #[test]
     fn top_coat_bump_goes_on_the_coats_own_pins() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("t")).unwrap();
@@ -5312,7 +5409,7 @@ mod tests {
     #[test]
     fn mdl_metal_roughness_is_the_long_axis() {
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.02, 0.4), rough_v: (String::new(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;

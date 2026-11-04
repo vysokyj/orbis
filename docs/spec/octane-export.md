@@ -881,21 +881,36 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   coat's dimples and the base's ridges at once; with the coat's alone,
   Octane's B7 was nearly smooth: RMS vs Iray 7.2 → 2.1). The normal pin
   gets the coat's normal map (Mode 1), else the base's Normal Map.
-- **Bump strength** (#61): every Uber height map — the base's Bump
+- **Bump strength** (#61, #75): every Uber height map — the base's Bump
   Strength map on `bump` (and on the coat), the Top Coat Bump — goes in
   at Octane image `power` = Iray's `file_bump_texture` factor (Bump
-  Strength, Top Coat Bump; none at 0) × `BUMP_POWER` 2. Calib-CoatBump
-  against Iray (5000 samples), RMS of the grey image (1 px blur) per
-  sphere, power × 1 / 2 / 3 / 4: base ridges 7.7 / **2.9** / 8.1 / 10.8,
-  coat dimples at 1 7.2 / **5.4** / 6.1 / 6.8, at 3 14.7 / **9.2** /
-  12.1 / 13.2. Before, the base's map went in at power 1 whatever its
-  Bump Strength, the coat's at Top Coat Bump: both rendered about half
-  as bumpy as Iray. Octane's bump doesn't change with the map's
-  resolution (the dimples at 512 and 2048 px rendered alike); whether
-  Iray's does (`file_bump_texture` is native code in Iray, its formula
-  not public) is unchecked — if Iray measures the slope per texel, the
-  factor would have to scale with 512 / the map's width. Normal maps stay
-  at power 1 (B5, B6, B8 match Iray at Normal Map 1).
+  Strength, Top Coat Bump; none at 0) × `BUMP_POWER` 2 × 512 / the map's
+  width × the material's UV scale / 0.542 m / the UV tiles
+  (`bump_power`; width and tiles as geometric means of both axes, the
+  map's size as the scene has it, before the texture budget; UV scale =
+  √(surface area / UV area) of the material's faces, `usd::uv_scales`,
+  else 0.542). Why each term:
+  - Iray: MDL's reference `base::file_bump_texture` (MDL SDK `base.mdl`)
+    takes the slope as the difference of the texels one either side and
+    applies it on unit tangents — the tilt goes with factor / the map's
+    width, and neither UV tiling (`transform_coordinate` keeps the
+    tangents unit) nor the object's size changes it.
+  - Octane: the tilt goes with `power` × the height's slope per meter of
+    surface, whatever the map's resolution. Calib-BumpRes, Info kernel
+    shading normals with and without bump (`octane-probe-bumptilt.lua`,
+    `bump-tilt.py`), RMS tilt at the same power: 256 / 1024 / 4096 px
+    8.9° / 8.4° / 8.4°; tiles 2 and the sphere at half size 13.1° / 13.2°,
+    as twice the power (13.7°).
+  - The constant: Calib-CoatBump (512 px maps, untiled, spheres of UV
+    scale 0.542 m) against Iray (5000 samples), RMS of the grey image
+    (1 px blur) per sphere, power × 1 / 2 / 3 / 4: base ridges 7.7 /
+    **2.9** / 8.1 / 10.8, coat dimples at 1 7.2 / **5.4** / 6.1 / 6.8, at
+    3 14.7 / **9.2** / 12.1 / 13.2. Before, the base's map went in at
+    power 1 whatever its Bump Strength, the coat's at Top Coat Bump: both
+    rendered about half as bumpy as Iray.
+  So a DAZ figure's 4096 px skin bump goes in at 1/8 of the 512 px fit.
+  Unconfirmed against Iray's own renders of Calib-BumpRes (#75). Normal
+  maps stay at power 1 (B5, B6, B8 match Iray at Normal Map 1).
 - **Thin-walled refraction with its own inputs** (Share Glossy Inputs off:
   the cornea, the tear film) takes the glossy layer's roughness, not the
   refraction's — a thin wall's straight-through transmission doesn't blur

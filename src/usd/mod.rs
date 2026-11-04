@@ -182,7 +182,7 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     progress.report(60, "translating the materials");
     let layered = crate::daz_material::layered_images(&lib.duf);
     let tuning = opts.variant().tuning();
-    let (inputs, mut textures) = crate::material::material_inputs(&materials, &lib.dirs, layered, 200_000, &tuning);
+    let (inputs, mut textures) = crate::material::material_inputs_scaled(&materials, &uv_scales(&meshes), &lib.dirs, layered, 200_000, &tuning);
     let mut environment = scene_environment(&mut lib);
     if let Some(s) = environment.as_mut().and_then(|e| e.sun_sky.as_mut()) {
         s.tune(&tuning);

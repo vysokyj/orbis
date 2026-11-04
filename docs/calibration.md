@@ -63,6 +63,7 @@ thing at a time.
 | `Calib-Aniso2` | anisotropy rotation sign, weighted / rotated top coat, backscattering, 0.25 / 0.75 | [Universal](spec/octane-export.md#universal-130--default) | [#23](https://github.com/vysokyj/orbis/issues/23) |
 | `Calib-TopCoat` | Top Coat layering modes | — | [#25](https://github.com/vysokyj/orbis/issues/25) |
 | `Calib-CoatBump` | Top Coat Bump (height / normal map) and the base's bump under a coat | mapped (strength awaits Iray) | [#61](https://github.com/vysokyj/orbis/issues/61) |
+| `Calib-BumpRes` | One height map at 256 / 1024 / 4096 px, bump factors, UV tiles, a half-size sphere: bump vs the map's size | rule from MDL's reference code, Iray pending | [#75](https://github.com/vysokyj/orbis/issues/75) |
 | `Calib-Smooth` | Smooth On / Smooth Angle: icosahedra, cubes, a cylinder; normals as in the .mi | mapped, checked against Iray | [#40](https://github.com/vysokyj/orbis/issues/40) |
 | `Calib-RoundCorners` | Round Corners radius 0 – 1, roundness, across materials | mapped, checked against Iray (radius in meters) | [#40](https://github.com/vysokyj/orbis/issues/40) |
 | `Calib-DualLobe`, `-DualLobe2` | dual lobe ratio and lobe 2 roughness; Uber's defaults, lobe 1 at roughness 0.6 | [Universal](spec/octane-export.md#universal-130--default) | [#26](https://github.com/vysokyj/orbis/issues/26), [#56](https://github.com/vysokyj/orbis/issues/56) |

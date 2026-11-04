@@ -14,6 +14,8 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-Disp: displacement (#24) by uniform maps, measured on the
   spheres' silhouettes.
 - Calib-Overlay: Diffuse Overlay with weight / colour maps (#71).
+- Calib-BumpRes: one height map at 256 / 1024 / 4096 px, bump factors,
+  UV tiles and a half-size sphere (#75): Iray's bump vs the map's size.
 - Calib-DOF-*: depth of field, focus at 1.5 m with the spheres at ~4.6 m,
   f/4, f/8, f/16 — to check Iray's 10x aperture.
 
@@ -1011,5 +1013,47 @@ uber_spheres('Calib-Overlay', [0.45, 0.05, 0.04], {}, [
     ('V7 both maps tint 0.6', {**OW, **OC, 'Diffuse Overlay Weight': 0.6, 'Diffuse Overlay Color': [0.5, 0.8, 1.0]}),
     ('V8 both maps rough 1', {**OW, **OC, 'Diffuse Overlay Weight': 1.0, 'Diffuse Overlay Color': [1.0, 1.0, 1.0], 'Diffuse Overlay Roughness': 1.0}),
 ])
+
+# --- Bump vs the height map's resolution (#75). MDL's reference
+# `base::file_bump_texture` (MDL SDK) takes the slope as the difference of
+# the texels one either side, so a bump factor tilts the normal by
+# factor × 2 × dh/du / width: the same pattern at 4x the pixels is 4x
+# flatter, and UV tiling or the object's size don't change it. Octane's
+# bump goes by the slope per UV instead. The Calib-CoatBump coat with the
+# same 8 x 8 dimples as a 16-bit height map (8 bits would step at 4096 px)
+# at 256 / 1024 / 4096 px; R4 / R5 / T2 should match R2 in Iray if the
+# rule holds; S1 is R2 on a sphere at half size.
+BRES = {n: f'/Runtime/Textures/ORBIS/calib-bumpres-dimples-{n}.png' for n in (256, 1024, 4096)}
+if not all(os.path.exists(os.path.join(os.path.dirname(out_dir), p.lstrip('/'))) for p in BRES.values()):
+    from PIL import Image
+    import numpy as np
+    for n, p in BRES.items():
+        yy, xx = (np.mgrid[0:n, 0:n] + 0.5) / n
+        h = 0.5 + 0.5 * np.sin(2 * np.pi * 8 * xx) * np.sin(2 * np.pi * 8 * yy)
+        Image.fromarray((h * 65535).round().astype(np.uint16)).save(os.path.join(os.path.dirname(out_dir), p.lstrip('/')))
+def bres(n, f, tiles=1.0):
+    d = {('Top Coat Bump', 'image'): BRES[n], 'Top Coat Bump': f, 'Top Coat Bump Mode': 0}
+    if tiles != 1.0:
+        d.update({'Horizontal Tiles': tiles, 'Vertical Tiles': tiles})
+    return d
+uber_spheres('Calib-BumpRes', [0.45, 0.05, 0.04], CB, [
+    ('R1 256 px f4', bres(256, 4.0)),
+    ('R2 1024 px f4', bres(1024, 4.0)),
+    ('R3 4096 px f4', bres(4096, 4.0)),
+    ('R4 4096 px f16', bres(4096, 16.0)),
+    ('R5 256 px f1', bres(256, 1.0)),
+    ('T1 1024 px f4 tiles 2', bres(1024, 4.0, 2.0)),
+    ('T2 256 px f1 tiles 4', bres(256, 1.0, 4.0)),
+    ('S1 1024 px f4 half size', bres(1024, 4.0)),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for i in d['image_library']:
+        if i['id'] in BRES.values():
+            i['map_gamma'] = 1
+    s1 = next(n for n in d['scene']['nodes'] if n.get('label', '').startswith('S1'))
+    lib = next(l for l in d['node_library'] if '#' + l['id'].replace('(', '%28').replace(')', '%29') == s1['url'])
+    lib['general_scale']['current_value'] = 0.5
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
 
 # Scene dumps: scripts/dev/daz-dump.sh (DAZ evaluates each scene headless).

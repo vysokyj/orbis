@@ -249,6 +249,44 @@ fn begin_instancer(o: &mut String, name: &str, copies: &[Placement]) {
     o.push_str("\n\n        def Scope \"Prototypes\"\n        {\n");
 }
 
+/// Each material's UV scale: meters of surface per UV unit, the square root
+/// of its faces' area over their UV area (all meshes it covers), keyed by
+/// the material. Octane's bump slope goes by it (#75); none without UVs.
+pub(super) fn uv_scales(meshes: &[Mesh]) -> crate::material::UvScales {
+    let mut sums: HashMap<*const crate::daz_material::Material, (f64, f64)> = HashMap::new();
+    for m in meshes.iter().filter(|m| m.curve_widths.is_none()) {
+        for (i, (_, faces)) in m.subsets.iter().enumerate() {
+            let (Some(Some(mat)), Some(uv)) = (m.materials.get(i), faces_uv_area(m, faces)) else { continue };
+            let s = sums.entry(Rc::as_ptr(mat)).or_default();
+            s.0 += faces_area(m, faces);
+            s.1 += uv;
+        }
+    }
+    sums.into_iter().filter(|(_, (a, uv))| *a > 0.0 && *uv > 0.0).map(|(k, (a, uv))| (k, (a / uv).sqrt())).collect()
+}
+
+/// Total UV area of some faces of a mesh (fan triangulation); `None`
+/// without UVs.
+pub(super) fn faces_uv_area(m: &Mesh, faces: &[u32]) -> Option<f64> {
+    let (vals, idx) = m.uvs.as_ref()?;
+    let mut starts = Vec::with_capacity(m.face_counts.len());
+    let mut at = 0usize;
+    for &c in &m.face_counts {
+        starts.push(at);
+        at += c as usize;
+    }
+    let uv = |corner: usize| vals[idx[corner] as usize].map(|v| v as f64);
+    let mut area = 0.0;
+    for &f in faces {
+        let (s, c) = (starts[f as usize], m.face_counts[f as usize] as usize);
+        for k in 1..c.saturating_sub(1) {
+            let (a, b, d) = (uv(s), uv(s + k), uv(s + k + 1));
+            area += 0.5 * ((b[0] - a[0]) * (d[1] - a[1]) - (b[1] - a[1]) * (d[0] - a[0])).abs();
+        }
+    }
+    Some(area)
+}
+
 /// Total area (m²) of some faces of a mesh (fan triangulation).
 pub(super) fn faces_area(m: &Mesh, faces: &[u32]) -> f64 {
     let mut starts = Vec::with_capacity(m.face_counts.len());
