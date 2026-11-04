@@ -582,6 +582,9 @@ struct Ocs<'a> {
     /// Writing the surface under a weighted top coat (`weighted_coat_material`):
     /// the mix carries the coat and the displacement.
     in_coat_mix: bool,
+    /// Writing the base of an anisotropic Top Coat's Layered material
+    /// (`layered_coat_material`): its Universal nodes leave the coating out.
+    in_layered_coat: bool,
     /// Writing the surface under metallic flakes (`flake_mix_material`).
     in_flake_mix: bool,
     /// Writing the surface under a backscattering lobe (`backscatter_mix_material`).
@@ -671,8 +674,19 @@ impl Ocs<'_> {
     /// roughness 0.6 1.17 → 1.01 × Iray, Calib-DualLobe2's r 0.36 lobe 1.25
     /// → 1.08, Calib-Map-SpecMode's Glossiness 0.3 0.41 → 0.53 (#56).
     fn brdf_pin(&mut self, i: usize) {
+        self.aniso_brdf_pin(i, false);
+    }
+
+    /// `brdf_pin` for a lobe whose anisotropy may saturate: plain GGX (2)
+    /// when Iray's long axis runs past roughness 1 (`Anisotropy::saturates`).
+    /// Octane's energy-preserving GGX at roughness 1 adds the light of
+    /// multiple scattering that Iray's lobe at r / 0.0001 doesn't have:
+    /// Calib-Aniso2's sharp anisotropic metal K3 1.52 → 1.08 × Iray, the
+    /// weighted coat K4 1.31 → 0.96; not below the cap (Calib-Aniso's
+    /// metal at v 0.8 1.12 → 0.86, #23).
+    fn aniso_brdf_pin(&mut self, i: usize, saturated: bool) {
         if self.gloss_ggx {
-            self.value_pin(i, "brdf", 57, 2, "6");
+            self.value_pin(i, "brdf", 57, 2, if saturated { "2" } else { "6" });
         }
     }
 
@@ -758,10 +772,11 @@ impl Ocs<'_> {
         self.rgb_pin(j + 1, "edgeTint", gloss_color);
         self.float_pin(j + 1, "metallic", 1.0);
         self.gloss_ggx = true;
-        self.brdf_pin(j + 1);
         let (rough_ch, rough, inverted) = mat.roughness_source();
         let rough = iray_gloss_roughness(mat).unwrap_or_else(|| iray_roughness(mat, rough, inverted));
-        self.gloss_roughness_pins(j + 1, mat, rough_ch, rough, true, Anisotropy::glossy(mat));
+        let aniso = Anisotropy::glossy(mat);
+        self.aniso_brdf_pin(j + 1, aniso.saturates(rough));
+        self.gloss_roughness_pins(j + 1, mat, rough_ch, rough, true, aniso);
         if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(j + 1, "normal", &asset, false, 1.0, 1.0);
         }
@@ -879,6 +894,51 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
+    /// Iray's anisotropic Top Coat in Layering Modes 0, 2 and 3 (Universal's
+    /// `coating` has no anisotropy): a Layered material (143) of the surface
+    /// without its coat (`material1`) and a Specular Layer (139, `Layer 1`)
+    /// in the coating's colour × weight, roughness and IOR, with the coat's
+    /// anisotropy and rotation as on the gloss (`gloss_roughness_pins`).
+    /// Calib-Aniso's A7 (mode 0, anisotropy 1) rendered a sharp isotropic
+    /// coat, 1.22 × Iray, where Iray draws a long streak (#23). The pins
+    /// (probe of 2026-11-04): `pin_count`, the dynamic `Layer N` pins of
+    /// type 33.
+    fn layered_coat_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
+        let id = self.id();
+        let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='143' name='{}'>", "", esc(name));
+        let i = indent + 1;
+        let _ = writeln!(self.out, "{:i$}<attr name='pin_count' type='2'>1</attr>", "");
+        let _ = writeln!(self.out, "{:i$}<attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
+        self.pin_open(i, "material1");
+        self.in_layered_coat = true;
+        self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
+        self.in_layered_coat = false;
+        self.pin_close(i);
+        // The coat lies over the base's film.
+        let film = self.film.take();
+        let _ = writeln!(self.out, "{:i$}<pin name='Layer 1' dynamicType='33'>", "");
+        let lid = self.id();
+        let j = i + 1;
+        let _ = writeln!(self.out, "{:j$}<node id='{lid}' type='139' name='{} top coat'>", "", esc(name));
+        let _ = writeln!(self.out, "{:j$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
+        let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
+        let (colour, coat) = color_effect(mat, "Top Coat Color Effect", mat.color("Top Coat Color").unwrap_or([1.0; 3]), coat);
+        match mat.image("Top Coat Weight").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
+            Some(asset) => self.image_pin(j + 1, "specular", &asset, true, 1.0, coat),
+            None => self.rgb_pin(j + 1, "specular", colour.map(|c| c * coat)),
+        }
+        self.gloss_ggx = true;
+        let (rough, aniso) = (top_coat_roughness(mat), Anisotropy::top_coat(mat));
+        self.aniso_brdf_pin(j + 1, aniso.saturates(rough));
+        self.gloss_ggx = false;
+        self.gloss_roughness_pins(j + 1, mat, None, rough, true, aniso);
+        self.float_pin(j + 1, "ior", top_coat_ior(mat));
+        let _ = writeln!(self.out, "{:j$}</node>", "");
+        let _ = writeln!(self.out, "{:i$}</pin>", "");
+        self.film = film;
+        let _ = writeln!(self.out, "{:indent$}</node>", "");
+    }
+
     /// Iray's Top Coat in Layering Mode 1 (Weighted): `weighted_layer` in
     /// DAZ's MDL — the coat's glossy reflection at the coat weight, with no
     /// Fresnel, over the rest at 1 − weight. A Mix material (19) of a
@@ -915,9 +975,10 @@ impl Ocs<'_> {
         self.rgb_pin(j + 1, "edgeTint", colour);
         self.float_pin(j + 1, "metallic", 1.0);
         self.gloss_ggx = true;
-        self.brdf_pin(j + 1);
+        let (rough, aniso) = (top_coat_roughness(mat), Anisotropy::top_coat(mat));
+        self.aniso_brdf_pin(j + 1, aniso.saturates(rough));
         self.gloss_ggx = false;
-        self.gloss_roughness_pins(j + 1, mat, None, top_coat_roughness(mat), true, Anisotropy::top_coat(mat));
+        self.gloss_roughness_pins(j + 1, mat, None, rough, true, aniso);
         if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(j + 1, "normal", &asset, false, 1.0, 1.0);
         }
@@ -938,7 +999,7 @@ impl Ocs<'_> {
     }
 
     /// An NVIDIA MDL metal (`mdl_metal`) as a Universal metal: albedo =
-    /// colour × weight map, roughness = √(u · v) per texel, anisotropy from
+    /// colour × weight map, roughness = the longer of u and v per texel, anisotropy from
     /// the two at a mid-grey texel, the bump map — all at the shader's tiles.
     fn mdl_metal(&mut self, indent: usize, name: &str, m: &MdlMetal) {
         self.tiling = (m.tiles != [1.0, 1.0]).then_some([m.tiles[0], m.tiles[1], 0.0, 0.0]);
@@ -956,8 +1017,11 @@ impl Ocs<'_> {
             None => self.rgb_pin(i, "albedo", [0.0; 3]),
         }
         self.float_pin(i, "metallic", 1.0);
+        self.value_pin(i, "brdf", 57, 2, "6");
         let ((umap, uoff, uscale), (_, voff, vscale)) = (&m.rough_u, &m.rough_v);
-        let rough = |l: f32| ((uoff + uscale * l).max(0.0) * (voff + vscale * l).max(0.0)).sqrt();
+        // Octane's roughness is the long axis, its anisotropy narrows the
+        // other (`anisotropic_roughness`, #23).
+        let rough = |l: f32| (uoff + uscale * l).max(voff + vscale * l).clamp(0.0, 1.0);
         let key = format!("mdl-metal-rough|{umap}|{uoff}|{uscale}|{voff}|{vscale}");
         let derived = if umap.is_empty() { None } else { self.textures.derived(self.dirs, umap, &key, 1.0, |l| [rough(l); 3]) };
         match derived {
@@ -1038,7 +1102,7 @@ impl Ocs<'_> {
     /// Universal's coating.
     fn top_coat(&mut self, i: usize, mat: &Material, min_roughness: f32) {
         let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
-        if coat <= 0.0 || self.in_coat_mix {
+        if coat <= 0.0 || self.in_coat_mix || self.in_layered_coat {
             return;
         }
         let (colour, coat) = color_effect(mat, "Top Coat Color Effect", mat.color("Top Coat Color").unwrap_or([1.0; 3]), coat);
@@ -1313,8 +1377,8 @@ impl Ocs<'_> {
             return rough;
         }
         self.float_pin(indent, "anisotropyTexture", a);
-        if aniso.rotation != 0.0 {
-            self.float_pin(indent, "rotation", aniso.rotation);
+        if let Some(rot) = aniso.octane_rotation() {
+            self.float_pin(indent, "rotation", rot);
         }
         // u = v (1 − a) / (1 + a).
         rough * ((1.0 - a) / (1.0 + a)).sqrt()
@@ -1634,6 +1698,9 @@ impl Ocs<'_> {
         if skin != SkinShader::None && translucency > 0.0 && !refractive && !emissive && !cutout && !thin && !metal && !mat.prop && !is_eye(name) && mat.image("diffuse").is_some() {
             return self.standard_surface(indent, name, mat, translucency, skin == SkinShader::OpenPbr);
         }
+        if !self.in_layered_coat && !self.in_backscatter_mix && !self.in_flake_mix && !self.in_coat_mix && layered_top_coat(mat) {
+            return self.layered_coat_material(indent, name, mat, area_m2, skin);
+        }
         if !self.in_backscatter_mix && !self.in_flake_mix && !self.in_coat_mix && backscatter_weight(mat) > 0.0 {
             return self.backscatter_mix_material(indent, name, mat, area_m2, skin);
         }
@@ -1936,11 +2003,11 @@ impl Ocs<'_> {
         // GGX at √r for the gloss (`gloss_roughness`); a refraction keeps
         // Octane's default BSDF it was calibrated on.
         self.gloss_ggx = !refraction_rough;
-        self.brdf_pin(i);
-        let ggx = self.gloss_ggx;
         // Iray's anisotropy on the gloss (and the metal: both take the
         // glossy layer's); a refraction's roughness keeps it isotropic.
         let aniso = if refraction_rough || dispersive { Anisotropy::default() } else { Anisotropy::glossy(mat) };
+        self.aniso_brdf_pin(i, !oren_nayar && aniso.saturates(rough));
+        let ggx = self.gloss_ggx;
         let rough = if oren_nayar {
             // No gloss to share it with: the diffuse's σ (see `base_flat`).
             self.value_pin(i, "diffuseBrdf", 57, 2, DIFFUSE_BRDF_OREN_NAYAR);
@@ -2465,6 +2532,13 @@ const PROP_VOLUME_LEVEL: f32 = 0.7;
 const SCATTER_TRANSMIT_INTENSITY_DIFFUSE: f32 = 0.95;
 const SCATTER_TRANSMIT_INTENSITY_TRANSMISSION: f32 = 1.55;
 
+/// `Ocs::layered_coat_material`: a Top Coat with anisotropy outside
+/// Layering Mode 1 (the weighted coat takes it on its own metal node).
+fn layered_top_coat(mat: &Material) -> bool {
+    let coated = mat.float("Top Coat Weight").unwrap_or(0.0) > 0.0 || mat.image("Top Coat Weight").is_some();
+    coated && mat.float("Top Coat Layering Mode").unwrap_or(0.0) as i32 != 1 && Anisotropy::top_coat(mat).amount > 0.0
+}
+
 /// Whether Iray's Top Coat is in Layering Mode 1 (Weighted) and on: see
 /// `Ocs::weighted_coat_material`.
 fn weighted_top_coat(mat: &Material) -> bool {
@@ -2937,6 +3011,21 @@ impl Anisotropy {
     fn stretch(self) -> f32 {
         if self.amount >= 1.0 { 1.0e4 } else { 1.0 / (1.0 - self.amount) }
     }
+
+    /// Whether Iray's long axis r · stretch runs past roughness 1, where
+    /// Octane's is capped (`aniso_brdf_pin`).
+    fn saturates(self, r: f32) -> bool {
+        self.amount > 0.0 && r * self.stretch() > 1.0
+    }
+
+    /// Octane's `rotation` (turns, its slider 0 – 1) for Iray's: the other
+    /// way round, 1 − rotation. Calib-Aniso2's K1 (0.125) and K2 (0.375)
+    /// mirror each other in Octane; as exported each looked like Iray's
+    /// other one, at 1 − r both match (#23). None when unrotated.
+    fn octane_rotation(self) -> Option<f32> {
+        let r = (-self.rotation).rem_euclid(1.0);
+        (r > 1e-6 && r < 1.0 - 1e-6).then_some(r)
+    }
 }
 
 /// Octane's roughness and anisotropy for Iray's roughness r along u and
@@ -3049,7 +3138,7 @@ pub struct LightEmitter {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -3267,7 +3356,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, dome_groun
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -3491,7 +3580,7 @@ fn environment_texture_at(
     first_id: u32,
     origin: Option<[f64; 3]>,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -3590,7 +3679,7 @@ pub fn material_inputs(
 ) -> (String, Textures) {
     let Shading { skin, thin_glass_ior_one, max_transmission } = shading.into();
     let mut textures = Textures { layered, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -4451,20 +4540,25 @@ mod tests {
         let iso = ball(json!([]));
         assert_eq!(pin(&iso, "anisotropyTexture"), None, "{iso}");
         assert!((pin(&iso, "roughness").unwrap() - 0.20736).abs() < 1e-5, "{iso}");
+        let brdf = |x: &str| x.find("<pin name='brdf'>").map(|at| x[at..].split("type='2'>").nth(1).unwrap().split('<').next().unwrap().to_string());
         // Anisotropy 0.5: v = 0.16 / 0.5 = 0.32 → 0.50944 the roughness,
         // (0.50944 − 0.20736) / (0.50944 + 0.20736) the anisotropy; Iray's
-        // rotation 0.25 (90°) as is.
+        // rotation 0.125 the other way round, 0.875; energy-preserving GGX
+        // below the cap.
         let a = ball(json!([
             {"channel": {"id": "Glossy Anisotropy", "current_value": 0.5}},
-            {"channel": {"id": "Glossy Anisotropy Rotations", "current_value": 0.25}},
+            {"channel": {"id": "Glossy Anisotropy Rotations", "current_value": 0.125}},
         ]));
         assert!((pin(&a, "roughness").unwrap() - 0.50944).abs() < 1e-5, "{a}");
         assert!((pin(&a, "anisotropyTexture").unwrap() - 0.421429).abs() < 1e-5, "{a}");
-        assert_eq!(pin(&a, "rotation"), Some(0.25));
-        // Anisotropy 1: v at Iray's cap, roughness 1.
+        assert_eq!(pin(&a, "rotation"), Some(0.875));
+        assert_eq!(brdf(&a).as_deref(), Some("6"));
+        // Anisotropy 1: v past Iray's cap, roughness 1, plain GGX.
         let full = ball(json!([{"channel": {"id": "Glossy Anisotropy", "current_value": 1.0}}]));
         assert_eq!(pin(&full, "roughness"), Some(1.0));
         assert_eq!(pin(&full, "rotation"), None);
+        assert_eq!(brdf(&full).as_deref(), Some("2"));
+        assert_eq!(brdf(&iso).as_deref(), Some("6"));
         // Backscattering Anisotropy alone never reaches Iray.
         let back = ball(json!([{"channel": {"id": "Backscattering Anisotropy", "current_value": 0.8}}]));
         assert_eq!(pin(&back, "anisotropyTexture"), None);
@@ -4523,6 +4617,61 @@ mod tests {
         // Mono: SSS Amount per distance (Iray 1.71 / 1.21 / 1.35).
         let mono = with(json!([{"channel": {"id": "SSS Mode", "current_value": 0}}]));
         assert!(near(mono, [1.65, 1.24, 1.40]), "{mono:?}");
+    }
+
+    /// An anisotropic Top Coat outside Layering Mode 1: a Layered material
+    /// of the uncoated surface and a Specular Layer with the coat's
+    /// anisotropy and rotation; isotropic, or weighted, it stays as it was.
+    #[test]
+    fn anisotropic_top_coat_is_a_layered_specular_layer() {
+        let ball = |extra: serde_json::Value| {
+            let mut chs = vec![
+                json!({"channel": {"id": "diffuse", "current_value": [0.5, 0.5, 0.5]}}),
+                json!({"channel": {"id": "Top Coat Weight", "current_value": 1.0}}),
+                json!({"channel": {"id": "Top Coat Roughness", "current_value": 0.3}}),
+            ];
+            chs.extend(extra.as_array().unwrap().iter().cloned());
+            let (x, _) = material_inputs(&[("Ball".into(), mat(json!(chs)), 1.0)], &[], HashMap::new(), 5000, SkinShader::None);
+            x
+        };
+        let aniso = json!([
+            {"channel": {"id": "Top Coat Anisotropy", "current_value": 0.5}},
+            {"channel": {"id": "Top Coat Rotations", "current_value": 0.25}},
+        ]);
+        let x = ball(aniso.clone());
+        assert!(x.contains("type='143'") && x.contains("<attr name='pin_count' type='2'>1</attr>"), "{x}");
+        let layer = &x[x.find("<pin name='Layer 1' dynamicType='33'>").expect("layer pin")..];
+        assert!(layer.contains("type='139'") && layer.contains("<pin name='anisotropyTexture'>") && layer.contains("<pin name='ior'>"), "{layer}");
+        let rot = &layer[layer.find("<pin name='rotation'>").unwrap()..];
+        assert!(rot.contains("type='6'>0.75<"), "{rot}");
+        // The base keeps no coating of its own.
+        assert!(!x.contains("<pin name='coating'>"), "{x}");
+        // Isotropic: Universal's coating, no Layered material.
+        let iso = ball(json!([]));
+        assert!(iso.contains("<pin name='coating'>") && !iso.contains("type='143'"), "{iso}");
+        // Weighted (mode 1): the Mix with its own anisotropic metal.
+        let mut w = aniso.as_array().unwrap().clone();
+        w.push(json!({"channel": {"id": "Top Coat Layering Mode", "current_value": 1}}));
+        let weighted = ball(json!(w));
+        assert!(!weighted.contains("type='143'") && weighted.contains("<pin name='anisotropyTexture'>"), "{weighted}");
+    }
+
+    /// NVIDIA Metal Brushed: Octane's roughness is the long axis (not the
+    /// axes' geometric mean), energy-preserving GGX.
+    #[test]
+    fn mdl_metal_roughness_is_the_long_axis() {
+        let mut textures = Textures::default();
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
+        let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.02, 0.4), rough_v: (String::new(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
+        w.mdl_metal(0, "Metal", &m);
+        let x = w.out;
+        // u 0.22, v 0.5125 at mid-grey: roughness v, anisotropy (v − u) / (v + u).
+        let rough = &x[x.find("<pin name='roughness'>").unwrap()..];
+        assert!(rough.contains("type='6'>0.5125<"), "{x}");
+        let a = &x[x.find("<pin name='anisotropyTexture'>").unwrap()..];
+        let a: f32 = a.split("type='6'>").nth(1).unwrap().split('<').next().unwrap().parse().unwrap();
+        assert!((a - (0.5125 - 0.22) / (0.5125 + 0.22)).abs() < 1e-5, "{a}");
+        assert!(x.contains("<pin name='brdf'>") && x.contains("type='2'>6<"), "{x}");
     }
 
     /// NVIDIA's MDL examples get the channels straight as their MDL

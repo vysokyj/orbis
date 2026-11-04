@@ -59,8 +59,8 @@ thing at a time.
 | `Calib-Glass` | refraction: IOR, colour, roughness, thin walls, absorption | [Universal](spec/octane-export.md#universal-130--default) | — |
 | `Calib-Mixing` | Base Mixing 1 / 2 and Top Coat as room surfaces use them | [Universal](spec/octane-export.md#universal-130--default) | — |
 | `Calib-Headlamp-*` | the camera headlamp: mode × Auto Headlamp, with and without a dome | — | [#22](https://github.com/vysokyj/orbis/issues/22) |
-| `Calib-Aniso` | glossy / top coat anisotropy | — | [#23](https://github.com/vysokyj/orbis/issues/23) |
-| `Calib-Aniso2` | anisotropy rotation sign, weighted / rotated top coat, backscattering, 0.25 / 0.75 | — | [#23](https://github.com/vysokyj/orbis/issues/23) |
+| `Calib-Aniso` | glossy / top coat anisotropy | [Universal](spec/octane-export.md#universal-130--default) | [#23](https://github.com/vysokyj/orbis/issues/23) |
+| `Calib-Aniso2` | anisotropy rotation sign, weighted / rotated top coat, backscattering, 0.25 / 0.75 | [Universal](spec/octane-export.md#universal-130--default) | [#23](https://github.com/vysokyj/orbis/issues/23) |
 | `Calib-TopCoat` | Top Coat layering modes | — | [#25](https://github.com/vysokyj/orbis/issues/25) |
 | `Calib-DualLobe`, `-DualLobe2` | dual lobe ratio and lobe 2 roughness; Uber's defaults, lobe 1 at roughness 0.6 | [Universal](spec/octane-export.md#universal-130--default) | [#26](https://github.com/vysokyj/orbis/issues/26), [#56](https://github.com/vysokyj/orbis/issues/56) |
 | `Calib-SSSColor` | volume scattering on a skin's volume: SSS Color, Mode, Amount, Reflectance Tint | — | [#28](https://github.com/vysokyj/orbis/issues/28) |

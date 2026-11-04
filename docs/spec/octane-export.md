@@ -712,23 +712,40 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   mode IOR is at least 1.1: Iray's curve still rises to 1 at grazing over
   a black Glossy Specular (that sphere 0.91 → 1.00).
 - **Anisotropy** (Glossy Anisotropy + Glossy Anisotropy Rotations on the
-  gloss and the metal, Top Coat Anisotropy + Top Coat Rotations on a
-  weighted top coat; #23). Iray (`base::anisotropy_conversion`, MDL SDK's
-  `base.mdl`): roughness_u = r, roughness_v = r / (1 − a) (r / 0.0001 at
-  a = 1), the tangent turned by 2π · rotation. Octane: each axis on the
-  GGX curve above (v capped at 1), **`roughness` = v** (the long axis),
+  gloss and the metal, Top Coat Anisotropy + Top Coat Rotations on the top
+  coat; #23). Iray (`base::anisotropy_conversion`, MDL SDK's `base.mdl`):
+  roughness_u = r, roughness_v = r / (1 − a) (r / 0.0001 at a = 1), the
+  tangent turned by 2π · rotation. Octane: each axis on the GGX curve above
+  (v capped at 1), **`roughness` = v** (the long axis),
   **`anisotropyTexture` = (v − u) / (v + u)** (1 stretches along the
-  texture's v, like Iray), **`rotation` = Iray's rotation** (both in turns;
-  Octane's slider 0 – 1). A roughness map bakes v per texel. Why: at the
-  axes' geometric mean Calib-Aniso's streaks came out short and bright —
-  highlight elongation (major / minor axis of the highlight) 1.96 against
-  Iray's 9.9 on roughness 0.1, anisotropy 1, mean 1.52 × Iray; at v 10.3
-  and 1.16 ×, its other spheres 1.07 – 1.10 × (the isotropic one 1.11).
-  The rotation's sign is not checked yet (0.25 is symmetric).
-  Not exported: the Top Coat's anisotropy in its other modes (Universal's
-  `coating` has none). Backscattering Anisotropy never reaches Iray: DAZ's
-  .mi export leaves it out, also with the glossy anisotropy on
-  (Calib-Backscatter B8, Calib-Aniso2 K6).
+  texture's v, like Iray), **`rotation` = 1 − Iray's rotation** (both in
+  turns; Octane's slider 0 – 1, it turns the other way). A roughness map
+  bakes v per texel. Where Iray's long axis runs past 1 (r / (1 − a) > 1)
+  the lobe is **plain GGX** (`brdf` 2), not the energy-preserving one.
+  Why: at the axes' geometric mean Calib-Aniso's streaks came out short
+  and bright — highlight elongation (major / minor axis of the highlight)
+  1.96 against Iray's 9.9 on roughness 0.1, anisotropy 1, mean 1.52 ×
+  Iray; at v 10.3 and 1.16 ×, its other spheres 1.07 – 1.10 × (the
+  isotropic one 1.11). Calib-Aniso2's K1 (rotation 0.125) and K2 (0.375)
+  mirror each other: exported as Iray's, each looked like Iray's other
+  one. Energy-preserving GGX at roughness 1 adds light Iray's flat lobe
+  doesn't have: the sharp anisotropic metal K3 (r 0.04, a 1) 1.52 → 1.08
+  × Iray, the weighted coat K4 1.31 → 0.96; below the cap plain GGX
+  darkened Calib-Aniso's metal at v 0.8 (1.12 → 0.86).
+  The **Top Coat** in Layering Modes 0 / 2 / 3 (Universal's `coating` has
+  no anisotropy): an anisotropic one makes the material a **Layered
+  material** (143, `pin_count` 1) of the surface without its coat
+  (`material1`) and a **Specular Layer** (139, dynamic pin `Layer 1`,
+  `dynamicType` 33) with the coating's colour × weight (`specular`), its
+  roughness, IOR (`top_coat_ior`) and the anisotropy and rotation as
+  above. Why: as an isotropic coating Calib-Aniso's A7 (mode 0, a 1) was
+  1.22 × Iray with a sharp round highlight where Iray draws a streak,
+  Calib-Aniso2's rotated K5 1.21; as a layer 1.16 / 1.08 with Iray's
+  streaks. Modes 2 / 3 differ from 0 only in the IOR (no reference of
+  them anisotropic). The weighted coat (mode 1) keeps its own metal node.
+  Backscattering Anisotropy never reaches Iray: DAZ's .mi export leaves
+  it out, also with the glossy anisotropy on (Calib-Backscatter B8,
+  Calib-Aniso2 K6).
 - **Top Coat** → Universal `coating` = Top Coat Color × weight,
   `coatingRoughness` (Top Coat Roughness, or 1 − Top Coat Glossiness in
   mode 1 — verified; mode 2 not yet, it keeps Glossiness — squared
@@ -974,8 +991,8 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   Calib-OOT (Rose Hair, local: DAZ Store content): the crown's hue went
   from orange (r/g 1.25, b/g 0.59 × Iray: the base layer alone) to
   1.03 / 0.96; its brightness 2.24 → 0.62 × Iray — Iray's glints (glossy
-  and Top Coat anisotropy 1, the Top Coat's colour maps) are not exported
-  yet (#23, #25).
+  and Top Coat anisotropy 1, the Top Coat's colour maps) were not
+  exported then (anisotropy since #23; colour maps #25).
 - **Howie Farkes's terrain shader** (Grassy Grove's HFGG Terrain, a brick
   graph): the albedo is its diffuse map × its AO map (both tiled with the
   material's Map Tiles) darkened toward `Damp Color` by `Damp Map` (Blend
@@ -989,9 +1006,15 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   else the MDL defaults; a map channel set empty is no texture.
   - Metals (`metal_examples`: Metal Brushed, Cast Iron): a Universal metal,
     albedo = Metal Color (`diffuse`) × (offset + scale · reflection map),
-    roughness √(u · v) per texel, anisotropy from u / v, bump, the shader's
-    tiles (`mdl_metal`). Calib-NVIDIA: Metal Brushed 1.12, Cast Iron 1.19
-    × Iray, hue within 0.01 (g/r) – 0.04 (b/r).
+    roughness = the longer of u and v per texel (as is: the MDL's
+    roughness goes straight into `simple_glossy_bsdf`), anisotropy (v − u)
+    / (v + u) at a mid-grey texel, energy-preserving GGX (`brdf` 6), bump,
+    the shader's tiles (`mdl_metal`). Calib-NVIDIA: Cast Iron 1.19 × Iray,
+    hue within 0.01 (g/r) – 0.04 (b/r). Why the long axis (as on the
+    Uber's gloss, #23) and GGX: in Octane's default BSDF Metal Brushed
+    showed a round highlight, 1.26 × Iray (its reference of 2026-11-04);
+    now Iray's vertical streak at 1.17 (GGX curve on both axes: too broad;
+    plain GGX 1.14, alike).
   - Dielectrics (concrete, concrete polished, asphalt, ceramic tiles small,
     granite black, porcelain, resin polyurethane matte, architectural):
     `df::fresnel_layer(ior, weight, glossy, diffuse)` → Universal albedo,
@@ -1497,8 +1520,7 @@ selects the render target named after the scene.
 What the export doesn't do yet is tracked as issues, each with a test scene
 to calibrate on ([calibration](../calibration.md#the-scenes)):
 
-- Materials: anisotropy (rotation sign, non-weighted Top Coat)
-  [#23](https://github.com/vysokyj/orbis/issues/23), displacement [#24](https://github.com/vysokyj/orbis/issues/24), top coat
+- Materials: displacement [#24](https://github.com/vysokyj/orbis/issues/24), top coat
   modes [#25](https://github.com/vysokyj/orbis/issues/25), dual lobe
   [#26](https://github.com/vysokyj/orbis/issues/26), colour effects
   [#27](https://github.com/vysokyj/orbis/issues/27), volume / SSS
