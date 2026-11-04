@@ -25,8 +25,9 @@ ask-first rules below are kept by Claude itself (no hooks). The scripts are in `
 in its header). The repo is location-independent: scripts find each other
 via their own path; keep it that way (no
 absolute home paths).
-CI (`.github/workflows/ci.yml`) tests and packages on every push; a `v*` tag
-attaches the zip to a GitHub release.
+CI (`.github/workflows/ci.yml`) runs only on a `v*` tag (or by hand): tests,
+packages and attaches the zip to a GitHub release. Pushes don't run it, so
+never wait for CI - the local `cargo test` before a push is the gate.
 
 ## Layout
 | Path | Purpose |

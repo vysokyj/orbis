@@ -1,6 +1,6 @@
 ---
 name: ship-fix
-description: Finish an ORBIS change - test, commit with the project's message style, push to master, reinstall the binary, check CI, close the issue. Use after a fix or feature is done, or when asked to commit/push/ship/release.
+description: Finish an ORBIS change - test, commit with the project's message style, push to master, reinstall the binary, close the issue. Use after a fix or feature is done, or when asked to commit/push/ship/release.
 ---
 
 # Ship a fix
@@ -11,7 +11,7 @@ description: Finish an ORBIS change - test, commit with the project's message st
    - No personal data (name, e-mail, address) in files, commit messages or issues. Never touch the git author identity; no `Co-Authored-By`.
    - Reference issues: `refs #N`, close with `Closes #N`.
 4. If the export changed: record the rule in `docs/spec/octane-export.md` in the same commit (spec is normative); run `lab-note` if it came from a calibration session.
-5. `git push`, then `gh run list -L 1` / `gh run watch`; fix a red CI at once.
+5. `git push`. CI runs only on `v*` tags (release packaging), not on pushes: don't check or wait for it - the local `cargo test` is the gate (decided 2026-11-04).
 6. **If the export changed: `scripts/install.sh`** - the DAZ script exports with `~/Library/Application Support/ORBIS/bin/orbis`, not `target/release`. Tell the user to re-export.
 7. `scripts/dev/clean-cache.sh` if a compare loop ran.
 8. Found bugs/TODOs on the way that are out of scope? `gh issue create` (English), do not fix on the side.
