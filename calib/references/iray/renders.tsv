@@ -1,13 +1,18 @@
 scene	samples	max_time	renderer	rendered	seconds
 Calib-Aniso	5000	0	Iray Server (Boost for Daz)	2026-10-30 03:15	104
+Calib-Aniso2	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:04	116
 Calib-Backscatter	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:52	108
 Calib-CoatEffect	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:53	104
 Calib-ColorEffect	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:55	125
 Calib-DOF-f16	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:57	110
 Calib-DOF-f4	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:59	121
 Calib-DOF-f8	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:01	114
+Calib-DataGamma	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:20	116
 Calib-Diffuse	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:05	102
+Calib-Disp	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:22	104
+Calib-Disp-Map	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:23	105
 Calib-Dispersion	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:15	121
+Calib-Dispersion-Rough	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:07	149
 Calib-Dome-Off	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:17	106
 Calib-DualLobe	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:29	124
 Calib-DualLobe2	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:31	108
@@ -49,6 +54,8 @@ Calib-Headlamp-on-a1	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:12	111
 Calib-Headlamp-on-a1-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:10	107
 Calib-Headlamp-on-a2	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:15	111
 Calib-Headlamp-on-a2-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:13	106
+Calib-Headlamp-point1000-noenv	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:25	104
+Calib-Headlamp-point1M-noenv	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:27	104
 Calib-L-Disc-50	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:21	115
 Calib-L-Distant-30	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:23	109
 Calib-L-Distant-45	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:28	108
@@ -79,10 +86,14 @@ Calib-L-Opt-Decay1	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:10	110
 Calib-L-Opt-EmitterOff	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:12	110
 Calib-L-Opt-IllumDiffuse	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:14	112
 Calib-L-Opt-IllumSpecular	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:16	110
+Calib-L-Opt-Rect-Facing	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:09	104
+Calib-L-Opt-Rect-Facing-EmitterOff	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:10	103
 Calib-L-Opt-ShadowColor	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:18	110
 Calib-L-Opt-ShadowInt0	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:20	110
 Calib-L-Opt-ShadowInt05	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:22	110
 Calib-L-Opt-ShadowSoft05	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:23	110
+Calib-L-Opt-Spot-Facing	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:12	96
+Calib-L-Opt-Spot-Facing-EmitterOff	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:14	97
 Calib-L-Opt-Temp3000	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:29	306
 Calib-L-Point-20k	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:53	114
 Calib-L-Point-5k	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:56	111
@@ -112,6 +123,7 @@ Calib-Map-TopCoat	5000	0	Iray Server (Boost for Daz)	2026-10-31 19:44	109
 Calib-Mi-DzDefault	5000	0	Iray Server (Boost for Daz)	2026-11-01 01:06	106
 Calib-Mi-DzDefault2	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:30	120
 Calib-Mi-Emit	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:59	111
+Calib-Mi-Hair	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:16	136
 Calib-Mi-Headlamp-dof200	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:33	107
 Calib-Mi-Headlamp-i05	5000	0	Iray Server (Boost for Daz)	2026-11-01 01:01	106
 Calib-Mi-Headlamp-i2	5000	0	Iray Server (Boost for Daz)	2026-11-01 01:03	106
@@ -120,6 +132,7 @@ Calib-Mi-Maps	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:28	121
 Calib-Mi-Mix1	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:44	110
 Calib-Mi-Mix2	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:43	111
 Calib-Mixing	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:28	106
+Calib-NVIDIA	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:18	123
 Calib-PBRSkin	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:32	110
 Calib-PBRSkin-MetalTL	5000	0	Iray Server (Boost for Daz)	2026-11-01 02:33	129
 Calib-RS-Bloom	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:52	1433

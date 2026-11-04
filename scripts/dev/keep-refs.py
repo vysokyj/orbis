@@ -96,8 +96,12 @@ for png in pngs:
     elif not os.path.exists(os.path.join(scenes, name + '.duf')):
         print(f'skip {name}: not a generated scene in calib/scenes')
         continue
-    copy = next((p for p in (png[:-4] + '.duf', os.path.join(calib, 'queue', 'done', name + '.duf'),
-                             os.path.join(calib, 'queue-local', 'done', name + '.duf')) if os.path.exists(p)), None)
+    # The copy the render was made from: the latest one saved before the png
+    # (a CPU run's copy beside the png outlives a later queue render).
+    copies = [p for p in (png[:-4] + '.duf', os.path.join(calib, 'queue', 'done', name + '.duf'),
+                          os.path.join(calib, 'queue-local', 'done', name + '.duf')) if os.path.exists(p)]
+    before = [p for p in copies if os.path.getmtime(p) <= os.path.getmtime(png)]
+    copy = max(before or copies, key=os.path.getmtime, default=None)
     if not copy:
         print(f'skip {name}: no capped scene copy to read the samples from')
         continue
