@@ -140,7 +140,11 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     let overlay = ch.float("Diffuse Overlay Weight", 0.0);
     let overlay_on = overlay > 0.0;
     out.insert("diffuse_overlay_enable", Arg::Bool(overlay_on));
-    out.insert("diffuse_overlay_weight", Arg::Float(square_if(overlay, ch.bool("Diffuse Overlay Weight Squared", false))));
+    // A weight map: `square_float` over the map × the value, so the
+    // value is squared too (Calib-Overlay V3: 0.25 m²).
+    let overlay_squared = ch.bool("Diffuse Overlay Weight Squared", false);
+    let overlay_map = ch.map("Diffuse Overlay Weight", MapKind::Grey, [overlay; 3]).map(|m| Map { squared: overlay_squared, ..m });
+    out.insert("diffuse_overlay_weight", overlay_map.map_or(Arg::Float(square_if(overlay, overlay_squared)), Arg::Map));
     out.insert("diffuse_overlay_color", if overlay_on { ch.color_or_map("Diffuse Overlay Color", [0.5; 3], 1.0) } else { Arg::Color([0.5; 3]) });
     out.insert("diffuse_overlay_roughness", Arg::Float(if overlay_on { ch.float("Diffuse Overlay Roughness", 0.0) } else { 0.0 }));
     out.insert("diffuse_overlay_color_transmit_enable", Arg::Int(if overlay_on { ch.int("Diffuse Overlay Color Effect", 0) } else { 0 }));
@@ -619,6 +623,14 @@ impl Uber {
     pub fn color(&self, param: &str) -> Option<[f32; 3]> {
         match self.arg(param)? {
             Arg::Color(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    /// A texture-driven argument; None for a value.
+    pub fn map(&self, param: &str) -> Option<Map> {
+        match self.arg(param)? {
+            Arg::Map(m) => Some(m),
             _ => None,
         }
     }

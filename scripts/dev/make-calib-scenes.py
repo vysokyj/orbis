@@ -13,6 +13,7 @@ a plane under an HDRI) that each change one thing, written beside it.
   fitted so far on Gladiator alone.
 - Calib-Disp: displacement (#24) by uniform maps, measured on the
   spheres' silhouettes.
+- Calib-Overlay: Diffuse Overlay with weight / colour maps (#71).
 - Calib-DOF-*: depth of field, focus at 1.5 m with the spheres at ~4.6 m,
   f/4, f/8, f/16 — to check Iray's 10x aperture.
 
@@ -980,5 +981,35 @@ if made[-1][0]:
         if i['id'] in BUMPS.values():
             i['map_gamma'] = 1
     open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+
+# --- Diffuse Overlay with maps (#71): Iray Uber's overlay is a second
+# diffuse at the overlay weight over the base. Synthetic maps (ours): a
+# weight map of latitude belts at 1, 0.5, 0.25, 0 (twice), so squaring
+# shows on the 0.5 / 0.25 belts, and a blue / yellow checker as the
+# overlay colour. Weight map alone, colour map alone, both; Weight Squared
+# on / off; the weight's value as the map's factor; overlay roughness.
+OVL = {name: f'/Runtime/Textures/ORBIS/calib-overlay-{name}.png' for name in ('weight', 'colour')}
+if not all(os.path.exists(os.path.join(os.path.dirname(out_dir), p.lstrip('/'))) for p in OVL.values()):
+    from PIL import Image
+    import numpy as np
+    n = 256
+    yy, xx = np.mgrid[0:n, 0:n]
+    belts = np.array([1.0, 0.5, 0.25, 0.0])[(yy * 8 // n) % 4]
+    Image.fromarray((belts * 255).round().astype(np.uint8)).save(os.path.join(os.path.dirname(out_dir), OVL['weight'].lstrip('/')))
+    check = ((xx * 8 // n) + (yy * 8 // n)) % 2 == 0
+    rgb = np.where(check[..., None], np.array([30, 80, 230]), np.array([235, 205, 40]))
+    Image.fromarray(rgb.astype(np.uint8)).save(os.path.join(os.path.dirname(out_dir), OVL['colour'].lstrip('/')))
+OW = {('Diffuse Overlay Weight', 'image'): OVL['weight']}
+OC = {('Diffuse Overlay Color', 'image', 'float_color'): OVL['colour']}
+uber_spheres('Calib-Overlay', [0.45, 0.05, 0.04], {}, [
+    ('V1 weight map', {**OW, 'Diffuse Overlay Weight': 1.0, 'Diffuse Overlay Color': [1.0, 1.0, 1.0]}),
+    ('V2 weight map squared', {**OW, 'Diffuse Overlay Weight': 1.0, 'Diffuse Overlay Weight Squared': True, 'Diffuse Overlay Color': [1.0, 1.0, 1.0]}),
+    ('V3 weight map 0.5 squared', {**OW, 'Diffuse Overlay Weight': 0.5, 'Diffuse Overlay Weight Squared': True, 'Diffuse Overlay Color': [1.0, 1.0, 1.0]}),
+    ('V4 colour map 0.5', {**OC, 'Diffuse Overlay Weight': 0.5, 'Diffuse Overlay Color': [1.0, 1.0, 1.0]}),
+    ('V5 colour map 0.5 squared', {**OC, 'Diffuse Overlay Weight': 0.5, 'Diffuse Overlay Weight Squared': True, 'Diffuse Overlay Color': [1.0, 1.0, 1.0]}),
+    ('V6 both maps', {**OW, **OC, 'Diffuse Overlay Weight': 1.0, 'Diffuse Overlay Color': [1.0, 1.0, 1.0]}),
+    ('V7 both maps tint 0.6', {**OW, **OC, 'Diffuse Overlay Weight': 0.6, 'Diffuse Overlay Color': [0.5, 0.8, 1.0]}),
+    ('V8 both maps rough 1', {**OW, **OC, 'Diffuse Overlay Weight': 1.0, 'Diffuse Overlay Color': [1.0, 1.0, 1.0], 'Diffuse Overlay Roughness': 1.0}),
+])
 
 # Scene dumps: scripts/dev/daz-dump.sh (DAZ evaluates each scene headless).

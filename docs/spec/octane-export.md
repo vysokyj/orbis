@@ -965,15 +965,23 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   the colour's average, as DAZ's MDL (`transmit_color_calc`) does; 0
   leaves both. Weighted coats and weighted-mix gloss (Mix materials with a
   metal) get `edgeTint` = their colour: Iray's weighted layer has no
-  Fresnel to white. **Diffuse Overlay** (flat colours) → albedo (1 − w) ×
-  base + w × overlay, w squared with "Weight Squared".
+  Fresnel to white. **Diffuse Overlay** → flat colours over a flat base:
+  albedo (1 − w) × base + w × overlay, w squared with "Weight Squared".
+  With a Weight or Color map, or over a diffuse map: an albedo Mix
+  texture (38), amount = w (the weight map × w, which DAZ squares as a
+  whole with "Weight Squared": the map at twice its gamma × w²),
+  texture1 = the base, texture2 = the overlay colour (× its map) × its
+  Oren-Nayar flat term. Not under OOT's Overlay Alpha Mask (that one is
+  the hair's own blend).
 
   Why: Calib-Map-Effect's blue overlay spheres had B 0.47 × Iray, now
   1.12 / 1.08; its red gloss with effect 1 / 2 B 1.75 / 1.67 → 1.43 /
   1.24; Calib-CoatEffect's red gloss with effect R 1.19 → 1.05;
   Calib-Map-TopCoat's red weighted coat B 4.29 → 1.81, its Fresnel coat
-  with effect 1 1.09 / 1.09 / 1.16. An overlay with maps is still left
-  out ([#71](https://github.com/vysokyj/orbis/issues/71)).
+  with effect 1 1.09 / 1.09 / 1.16. Maps: DAZ's .mi export of
+  Calib-Overlay passes the weight map as `square_float(map × w)` and the
+  colour map with the linear colour as its `color_scale` (#71; an Iray
+  reference of Calib-Overlay is pending there).
 - **Diffuse Roughness** σ (Iray's diffuse is Oren-Nayar at σ, DAZ's MDL;
   the .mi export hands σ over as is) → where Universal has no gloss,
   metal, refraction or transmission on its one `roughness` pin (Glossy

@@ -1361,6 +1361,46 @@ impl Ocs<'_> {
         self.pin_close(i);
     }
 
+    /// Iray Uber's Diffuse Overlay (`diffuse_overlay`) on the albedo: a Mix
+    /// texture (38), amount = the weight (its map × the weight, squared as
+    /// DAZ squares it), texture1 = the base (`base` writes it), texture2 =
+    /// the overlay colour `colour` (linear, × its map). A weight map that
+    /// isn't found leaves the base alone; a colour map, the tint.
+    fn diffuse_overlay_pin(&mut self, i: usize, ov: &DiffuseOverlay, colour: [f32; 3], base: impl FnOnce(&mut Self, usize)) {
+        let weight_map = match &ov.weight_map {
+            Some((t, gamma)) => match self.textures.asset(self.dirs, t) {
+                Some(asset) => Some((asset, *gamma)),
+                None => {
+                    let id = self.id();
+                    self.pin_open(i, "albedo");
+                    let _ = writeln!(self.out, "{:j$}<node id='{id}' type='38'>", "", j = i + 1);
+                    self.float_pin(i + 2, "amount", 0.0);
+                    base(self, i + 2);
+                    self.rgb_pin(i + 2, "texture2", colour);
+                    let _ = writeln!(self.out, "{:j$}</node>", "", j = i + 1);
+                    return self.pin_close(i);
+                }
+            },
+            None => None,
+        };
+        let colour_map = ov.colour_map.as_ref().and_then(|t| self.textures.asset(self.dirs, t));
+        let id = self.id();
+        self.pin_open(i, "albedo");
+        let j = i + 1;
+        let _ = writeln!(self.out, "{:j$}<node id='{id}' type='38'>", "");
+        match weight_map {
+            Some((asset, gamma)) => self.image_pin(j + 1, "amount", &asset, true, gamma, ov.weight),
+            None => self.float_pin(j + 1, "amount", ov.weight),
+        }
+        base(self, j + 1);
+        match colour_map {
+            Some(asset) => self.tinted_image_pin(j + 1, "texture2", &asset, 1.0, colour),
+            None => self.rgb_pin(j + 1, "texture2", colour),
+        }
+        let _ = writeln!(self.out, "{:j$}</node>", "");
+        self.pin_close(i);
+    }
+
     /// Whether a custom terrain shader darkens its diffuse map by an AO map
     /// or wet patches (`damp_ao_albedo`).
     fn has_damp_or_ao(&self, mat: &Material) -> bool {
@@ -1998,16 +2038,26 @@ impl Ocs<'_> {
             // its map, mixed per pixel (sRGB-encoded, as the maps are).
             self.image_pin(i, "albedo", &asset, false, 2.2, 1.0);
         } else {
+            // Iray Uber's Diffuse Overlay over the base: flat over a flat
+            // base folded into one colour, else a Mix texture (#71).
+            let overlay = diffuse_overlay(mat);
+            let overlay_colour = |ov: &DiffuseOverlay| [0, 1, 2].map(|k| ov.colour[k] * share[k] * overlay_flat);
             match diffuse.and_then(|t| self.textures.asset(self.dirs, &t)) {
                 Some(asset) if self.has_damp_or_ao(mat) => self.damp_ao_albedo(i, mat, &asset, diffuse_weight * mix * base_flat, tint),
-                Some(asset) => self.overlaid_pin(i, "albedo", mat, "diffuse", &asset, diffuse_weight * mix * base_flat, tint),
+                Some(asset) => match overlay.filter(|_| mat.image("Overlay Alpha Mask").is_none()) {
+                    Some(ov) => self.diffuse_overlay_pin(i, &ov, overlay_colour(&ov), |w, j| w.tinted_image_pin(j, "texture1", &asset, diffuse_weight * mix * base_flat, tint)),
+                    None => self.overlaid_pin(i, "albedo", mat, "diffuse", &asset, diffuse_weight * mix * base_flat, tint),
+                },
                 None => {
                     let base = [0, 1, 2].map(|k| mat.base_color()[k] * diffuse_weight * share[k] * base_flat);
-                    let albedo = match diffuse_overlay(mat) {
-                        Some((colour, w)) => [0, 1, 2].map(|k| base[k] * (1.0 - w) + colour[k] * w * share[k] * overlay_flat),
-                        None => base,
-                    };
-                    self.rgb_pin(i, "albedo", albedo)
+                    match overlay {
+                        Some(ov) if ov.has_map() => self.diffuse_overlay_pin(i, &ov, overlay_colour(&ov), |w, j| w.rgb_pin(j, "texture1", base)),
+                        Some(ov) => {
+                            let c = overlay_colour(&ov);
+                            self.rgb_pin(i, "albedo", [0, 1, 2].map(|k| base[k] * (1.0 - ov.weight) + c[k] * ov.weight))
+                        }
+                        None => self.rgb_pin(i, "albedo", base),
+                    }
                 }
             }
         }
@@ -2468,23 +2518,62 @@ fn color_effect(mat: &Material, channel: &str, colour: [f32; 3], weight: f32) ->
     (colour.map(|c| c / top), weight * (colour.iter().sum::<f32>() / 3.0))
 }
 
-/// Iray Uber's own Diffuse Overlay (flat colours; a map is left out): a
-/// second diffuse at its weight over the diffuse and translucency, which
-/// it replaces by that share (`diffuse_base` in DAZ's MDL); "Weight
-/// Squared" squares the weight (the .mi export), the Color Effect as for
-/// any layer. Missing, Calib-Map-Effect's half blue overlay over red
-/// rendered B 0.47 × Iray (#27). Returns (colour, weight).
-fn diffuse_overlay(mat: &Material) -> Option<([f32; 3], f32)> {
-    let w = mat.float("Diffuse Overlay Weight").unwrap_or(0.0).clamp(0.0, 1.0);
-    if w <= 0.0 || mat.image("Diffuse Overlay Weight").is_some() || mat.image("Diffuse Overlay Color").is_some() {
-        return None;
+/// Iray Uber's own Diffuse Overlay: a second diffuse at its weight over
+/// the diffuse and translucency, which it replaces by that share
+/// (`diffuse_base` in DAZ's MDL); "Weight Squared" squares the weight (the
+/// .mi export), the Color Effect as for any layer (on the colour's tint).
+/// Missing, Calib-Map-Effect's half blue overlay over red rendered B 0.47 ×
+/// Iray (#27).
+#[derive(Debug, Clone, PartialEq)]
+struct DiffuseOverlay {
+    /// Linear; a colour map's tint (its `color_scale`).
+    colour: [f32; 3],
+    colour_map: Option<String>,
+    /// The weight, or a weight map's factor (`power`), squared as DAZ
+    /// squares it.
+    weight: f32,
+    /// The weight map and the gamma to read it at: DAZ squares the map ×
+    /// the weight (`square_float` over the map, Calib-Overlay V3), so
+    /// twice the map's gamma at the weight² (#71).
+    weight_map: Option<(String, f32)>,
+}
+
+impl DiffuseOverlay {
+    fn has_map(&self) -> bool {
+        self.colour_map.is_some() || self.weight_map.is_some()
     }
-    let (w, colour) = match iray(mat) {
-        Some(u) => (u.float("diffuse_overlay_weight").unwrap_or(0.0), u.color("diffuse_overlay_color").unwrap_or([0.5; 3])),
-        None => (if mat.float("Diffuse Overlay Weight Squared").unwrap_or(0.0) > 0.0 { w * w } else { w }, mat.color("Diffuse Overlay Color").unwrap_or([0.5; 3])),
+}
+
+fn diffuse_overlay(mat: &Material) -> Option<DiffuseOverlay> {
+    let (colour, colour_map, weight, weight_map) = match iray(mat) {
+        Some(u) if u.bool("diffuse_overlay_enable") == Some(true) => {
+            let (weight, weight_map) = match u.map("diffuse_overlay_weight") {
+                Some(m) => {
+                    let gamma = data_gamma(mat, "Diffuse Overlay Weight") * if m.squared { 2.0 } else { 1.0 };
+                    (if m.squared { m.scale[0] * m.scale[0] } else { m.scale[0] }, Some((m.image, gamma)))
+                }
+                None => (u.float("diffuse_overlay_weight").unwrap_or(0.0), None),
+            };
+            let (colour, colour_map) = match u.map("diffuse_overlay_color") {
+                Some(m) => (m.scale, Some(m.image)),
+                None => (u.color("diffuse_overlay_color").unwrap_or([0.5; 3]), None),
+            };
+            (colour, colour_map, weight, weight_map)
+        }
+        Some(_) => return None,
+        // Not Iray Uber: the flat channels only.
+        None => {
+            let w = mat.float("Diffuse Overlay Weight").unwrap_or(0.0).clamp(0.0, 1.0);
+            if mat.image("Diffuse Overlay Weight").is_some() || mat.image("Diffuse Overlay Color").is_some() {
+                return None;
+            }
+            let w = if mat.float("Diffuse Overlay Weight Squared").unwrap_or(0.0) > 0.0 { w * w } else { w };
+            (mat.color("Diffuse Overlay Color").unwrap_or([0.5; 3]), None, w, None)
+        }
     };
-    let (colour, w) = color_effect(mat, "Diffuse Overlay Color Effect", colour, w);
-    Some((colour, w.clamp(0.0, 1.0)))
+    let (colour, weight) = color_effect(mat, "Diffuse Overlay Color Effect", colour, weight);
+    let weight = weight.clamp(0.0, 1.0);
+    (weight > 0.0).then_some(DiffuseOverlay { colour, colour_map, weight, weight_map })
 }
 
 /// What Universal's albedo keeps per channel under a Base Mixing 1 gloss of
@@ -4173,6 +4262,55 @@ mod tests {
         ]));
         let (y, _) = material_inputs(&[("Plain".into(), plain, 1.0)], &dirs, HashMap::new(), 9200, SkinShader::None);
         assert!(!y.contains("type='38'"), "{y}");
+    }
+
+    #[test]
+    fn uber_diffuse_overlay_maps_mix_over_the_base() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("Runtime/Textures")).unwrap();
+        for f in ["base.png", "weight.png", "colour.png"] {
+            std::fs::write(dir.path().join("Runtime/Textures").join(f), b"x").unwrap();
+        }
+        let dirs = vec![dir.path().to_path_buf()];
+        let albedo = |x: &str| {
+            let a = &x[x.find("<pin name='albedo'>").unwrap()..];
+            a[..a.find("<pin name='specular'>").unwrap_or(a.len())].to_string()
+        };
+        // A weight map at 0.5, squared: DAZ's square_float over map × 0.5,
+        // so the map at twice its gamma (2.2) × 0.25; the colour map over a
+        // flat base.
+        let both = mat(json!([
+            {"channel": {"id": "Base Mixing", "current_value": 0}},
+            {"channel": {"id": "diffuse", "current_value": [0.5, 0.1, 0.1]}},
+            {"channel": {"id": "Diffuse Overlay Weight", "current_value": 0.5, "image_file": "/Runtime/Textures/weight.png"}},
+            {"channel": {"id": "Diffuse Overlay Weight Squared", "current_value": true}},
+            {"channel": {"id": "Diffuse Overlay Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/colour.png"}},
+        ]));
+        let ov = diffuse_overlay(&both).unwrap();
+        assert!((ov.weight - 0.25).abs() < 1e-6 && (ov.weight_map.as_ref().unwrap().1 - 4.4).abs() < 1e-5, "{ov:?}");
+        let (x, _) = material_inputs(&[("Both".into(), both, 1.0)], &dirs, HashMap::new(), 9100, SkinShader::None);
+        let a = albedo(&x);
+        assert!(a.contains("type='38'") && a.contains("weight.png") && a.contains("colour.png"), "{a}");
+        let amount = &a[a.find("<pin name='amount'>").unwrap()..a.find("<pin name='texture1'>").unwrap()];
+        assert!(amount.contains("weight.png") && amount.contains("4.4 0 0") && amount.contains("0.25"), "{amount}");
+        // A flat overlay over a diffuse map: the Mix at the weight.
+        let over_map = mat(json!([
+            {"channel": {"id": "Base Mixing", "current_value": 0}},
+            {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/base.png"}},
+            {"channel": {"id": "Diffuse Overlay Weight", "current_value": 0.3}},
+            {"channel": {"id": "Diffuse Overlay Color", "current_value": [1, 1, 1]}},
+        ]));
+        let (y, _) = material_inputs(&[("OverMap".into(), over_map, 1.0)], &dirs, HashMap::new(), 9200, SkinShader::None);
+        let a = albedo(&y);
+        assert!(a.contains("type='38'") && a.contains("base.png") && a.contains("<attr name='value' type='6'>0.3</attr>"), "{a}");
+        // Flat over flat: one colour, no Mix.
+        let flat = mat(json!([
+            {"channel": {"id": "Base Mixing", "current_value": 0}},
+            {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},
+            {"channel": {"id": "Diffuse Overlay Weight", "current_value": 0.5}},
+        ]));
+        let (z, _) = material_inputs(&[("Flat".into(), flat, 1.0)], &dirs, HashMap::new(), 9300, SkinShader::None);
+        assert!(!albedo(&z).contains("type='38'"), "{z}");
     }
 
     #[test]

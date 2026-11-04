@@ -144,7 +144,7 @@ Observed (DAZ Studio 6, 2026-10-31):
 | Top Coat Layering Mode 0 / 1 / 2 / 3 | `tcw_principled_specular` / `tcw_weighted` / `tcw_fresnel` / `tcw_custom_curve` |
 | **Top Coat IOR, Top Coat Curve Normal / Grazing / Exponent, Top Coat Specular** | **not passed**: Fresnel mode always reflects at IOR 1.5, Custom Curve at the MDL defaults (head-on 0, grazing 1, exponent 5). Calib-TopCoat's Iray spheres at IOR 1.5 and 2 render alike |
 | Color Effect (Base, Glossy, Top Coat, Overlay) | `*_color_transmit_enable` = the mode (0 / 1 / 2); the colour unchanged |
-| Diffuse Overlay Weight Squared | `diffuse_overlay_weight` squared |
+| Diffuse Overlay Weight Squared | `diffuse_overlay_weight` squared; a weight map as `square_float(map × weight)` (Calib-Overlay) |
 | Translucency on | `translucency_enable`, and `invert_transmission_normal` always on |
 | Backscattering with Share Glossy Inputs on (default) | Backscattering Color not passed (the MDL takes Glossy Color) |
 | Share Glossy Inputs off | `refraction_glossy_unified_enable` false, `backscattering_color` / `refraction_color` passed |
