@@ -239,6 +239,134 @@ pub(super) fn keep_faces(m: &Mesh, keep: &[bool]) -> Mesh {
     out
 }
 
+/// DAZ's auto-smoothing (the material's /Geometry/Smoothing channels) as
+/// the cosine a neighbouring face's normal must reach to be averaged in:
+/// `Smooth On` off → none (> 1: the face alone), else cos(`Smooth Angle`),
+/// default 89.9° (DAZ's) — a cube's 90° edges stay hard.
+pub(super) fn smoothing_cos(mat: Option<&crate::daz_material::Material>) -> f32 {
+    let on = mat.and_then(|m| m.float("Smooth On")).map_or(true, |v| v > 0.0);
+    let angle = mat.and_then(|m| m.float("Smooth Angle")).unwrap_or(89.9).clamp(0.0, 180.0);
+    if on { angle.to_radians().cos() } else { 2.0 }
+}
+
+/// Normals as DAZ hands them to Iray (Calib-Smooth .mi): an edge is hard
+/// when its faces' normals lie further apart than the smoothing angle
+/// (`face_cos`, from `smoothing_cos`; the stricter of the two faces, Smooth
+/// off makes all of a face's edges hard). Around each vertex the faces
+/// joined through soft edges share the area-weighted sum of their normals —
+/// an icosahedron (41.8° edges) at 45° is smooth although faces across the
+/// vertex lie 70° apart (S3), a cylinder at 89.9° smooth round its side and
+/// split at the caps (S8). Material borders don't split (S5: one normal per
+/// vertex across two materials). Returns the normals and, when some vertex
+/// carries more than one, faceVarying indices into them; else they are per
+/// vertex (as `vertex_normals`).
+pub(super) fn smoothed_normals(points: &[[f32; 3]], counts: &[u32], indices: &[u32], face_cos: &[f32]) -> (Vec<[f32; 3]>, Option<Vec<u32>>) {
+    if face_cos.iter().all(|&c| c <= -1.0) {
+        return (vertex_normals(points, counts, indices), None);
+    }
+    let mut starts = Vec::with_capacity(counts.len());
+    let mut face_of = Vec::with_capacity(indices.len());
+    let mut at = 0usize;
+    let mut area = Vec::with_capacity(counts.len());
+    for (fi, &c) in counts.iter().enumerate() {
+        starts.push(at);
+        let f = &indices[at..at + c as usize];
+        at += c as usize;
+        face_of.extend(std::iter::repeat_n(fi as u32, f.len()));
+        let mut n = [0f32; 3];
+        for i in 0..f.len() {
+            let a = points[f[i] as usize];
+            let b = points[f[(i + 1) % f.len()] as usize];
+            n[0] += (a[1] - b[1]) * (a[2] + b[2]);
+            n[1] += (a[2] - b[2]) * (a[0] + b[0]);
+            n[2] += (a[0] - b[0]) * (a[1] + b[1]);
+        }
+        area.push(n);
+    }
+    let unit = |n: [f32; 3]| {
+        let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        if len > 0.0 { n.map(|x| x / len) } else { [0.0; 3] }
+    };
+    let dir: Vec<[f32; 3]> = area.iter().map(|&n| unit(n)).collect();
+    let cos = |f: usize| face_cos.get(f).copied().unwrap_or(-1.0);
+    // Corners joined across soft edges (union-find over face corners).
+    let mut parent: Vec<u32> = (0..indices.len() as u32).collect();
+    fn root(parent: &mut [u32], mut k: u32) -> u32 {
+        while parent[k as usize] != k {
+            parent[k as usize] = parent[parent[k as usize] as usize];
+            k = parent[k as usize];
+        }
+        k
+    }
+    // Edge (low, high vertex) → (face, corner at low, corner at high).
+    let mut edges: HashMap<(u32, u32), Vec<(u32, u32, u32)>> = HashMap::new();
+    for (f, &c) in counts.iter().enumerate() {
+        let (s0, n) = (starts[f], c as usize);
+        for i in 0..n {
+            let (ka, kb) = (s0 + i, s0 + (i + 1) % n);
+            let (a, b) = (indices[ka], indices[kb]);
+            if a == b {
+                continue;
+            }
+            let e = if a < b { ((a, b), (ka as u32, kb as u32)) } else { ((b, a), (kb as u32, ka as u32)) };
+            edges.entry(e.0).or_default().push((f as u32, e.1 .0, e.1 .1));
+        }
+    }
+    for list in edges.values() {
+        for x in 0..list.len() {
+            for y in x + 1..list.len() {
+                let ((f, fa, fb), (g, ga, gb)) = (list[x], list[y]);
+                let (df, dg) = (dir[f as usize], dir[g as usize]);
+                let c = cos(f as usize).max(cos(g as usize));
+                let degenerate = df == [0.0; 3] || dg == [0.0; 3];
+                if c <= 1.0 && (degenerate || df[0] * dg[0] + df[1] * dg[1] + df[2] * dg[2] >= c) {
+                    for (p, q) in [(fa, ga), (fb, gb)] {
+                        let (rp, rq) = (root(&mut parent, p), root(&mut parent, q));
+                        if rp != rq {
+                            parent[rp.max(rq) as usize] = rp.min(rq);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Each group: the sum of its faces' area normals.
+    let mut sum: HashMap<u32, [f32; 3]> = HashMap::new();
+    let roots: Vec<u32> = (0..indices.len() as u32).map(|k| root(&mut parent, k)).collect();
+    for (k, &r) in roots.iter().enumerate() {
+        let a = area[face_of[k] as usize];
+        let n = sum.entry(r).or_insert([0.0; 3]);
+        *n = [n[0] + a[0], n[1] + a[1], n[2] + a[2]];
+    }
+    let corner: Vec<[f32; 3]> = roots.iter().map(|r| unit(sum[r])).map(|n| if n == [0.0; 3] { [0.0, 1.0, 0.0] } else { n }).collect();
+    // One normal per vertex where all its corners agree.
+    let mut first: Vec<Option<[f32; 3]>> = vec![None; points.len()];
+    let mut split = false;
+    for (k, &v) in indices.iter().enumerate() {
+        match first[v as usize] {
+            None => first[v as usize] = Some(corner[k]),
+            Some(n) if n != corner[k] => split = true,
+            _ => {}
+        }
+    }
+    if !split {
+        return (first.into_iter().map(|n| n.unwrap_or([0.0, 1.0, 0.0])).collect(), None);
+    }
+    let mut values = Vec::new();
+    let mut seen: HashMap<u32, u32> = HashMap::new();
+    let idx = roots
+        .iter()
+        .zip(&corner)
+        .map(|(r, n)| {
+            *seen.entry(*r).or_insert_with(|| {
+                values.push(*n);
+                values.len() as u32 - 1
+            })
+        })
+        .collect();
+    (values, Some(idx))
+}
+
 /// Area-weighted smooth vertex normals (Newell's method per face).
 pub(super) fn vertex_normals(points: &[[f32; 3]], counts: &[u32], indices: &[u32]) -> Vec<[f32; 3]> {
     let mut acc = vec![[0f32; 3]; points.len()];

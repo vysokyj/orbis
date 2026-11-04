@@ -249,6 +249,9 @@ pub(super) struct Mesh {
     /// Indexed faceVarying UVs: (values, one index per face corner).
     pub(super) uvs: Option<(Vec<[f32; 2]>, Vec<u32>)>,
     pub(super) normals: Option<Vec<[f32; 3]>>,
+    /// faceVarying indices into `normals` (one per face corner) where a
+    /// vertex carries more than one (`smoothed_normals`); else per vertex.
+    pub(super) normal_indices: Option<Vec<u32>>,
     /// Strand hair: `face_counts` are the strands' vertex counts, the points
     /// run strand by strand, one subset (its material group) — written as
     /// `BasisCurves` with these per-vertex widths (meters).
@@ -569,12 +572,28 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
     }
     for (m, ..) in &surfaces {
         let mesh = &mut meshes[*m];
-        mesh.normals = Some(vertex_normals(&mesh.points, &mesh.face_counts, &mesh.face_indices));
+        let (normals, idx) = smoothed_normals(&mesh.points, &mesh.face_counts, &mesh.face_indices, &face_smoothing(mesh));
+        mesh.normals = Some(normals);
+        mesh.normal_indices = idx;
     }
     for s in &report.skipped {
         tracing::info!(reason = %s, "USD export: node skipped");
     }
     Ok((meshes, report))
+}
+
+/// Each face's smoothing (`smoothing_cos`) from its subset's material.
+pub(super) fn face_smoothing(mesh: &Mesh) -> Vec<f32> {
+    let mut cos = vec![smoothing_cos(None); mesh.face_counts.len()];
+    for ((_, faces), mat) in mesh.subsets.iter().zip(&mesh.materials) {
+        let c = smoothing_cos(mat.as_deref());
+        for &f in faces {
+            if let Some(x) = cos.get_mut(f as usize) {
+                *x = c;
+            }
+        }
+    }
+    cos
 }
 
 /// Per subset: whether any of its faces has an edge no other face of the

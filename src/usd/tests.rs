@@ -1247,3 +1247,63 @@ fn dome_ground_is_an_emitting_slab_with_the_hdri_from_the_virtual_camera() {
     assert!(x.contains("<attr name='translation' type='8'>0 0.2475 0</attr>"), "{x}");
     assert!(crate::material::projected_environment_texture(&SceneEnvironment { map: None, ..env }, &[], &mut tex, 10, [0.0; 3]).is_none());
 }
+
+/// A cube (side 2, centred) as quads, outward winding.
+fn unit_cube() -> (Vec<[f32; 3]>, Vec<u32>, Vec<u32>) {
+    let c = [-1.0, 1.0];
+    let points = (0..8).map(|i| [c[i & 1 ^ (i >> 1 & 1)], c[i >> 1 & 1], c[i >> 2]]).collect::<Vec<_>>();
+    let faces = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [2, 3, 7, 6], [1, 2, 6, 5], [0, 4, 7, 3]];
+    (points, vec![4; 6], faces.concat())
+}
+
+#[test]
+fn smoothing_splits_edges_sharper_than_the_angle() {
+    let (p, counts, idx) = unit_cube();
+    let deg = |a: f32| a.to_radians().cos();
+    // DAZ's default 89.9°: the 90° edges are hard, every corner its face's normal.
+    let (n, fv) = smoothed_normals(&p, &counts, &idx, &[deg(89.9); 6]);
+    let fv = fv.expect("split");
+    assert_eq!((n.len(), fv.len()), (24, 24));
+    assert!(close(n[fv[4] as usize].map(f32::abs), [0.0, 0.0, 1.0]), "face 1 lies at z = 1");
+    // 91°: one normal per vertex, along the diagonal (outward or not).
+    let (n, fv) = smoothed_normals(&p, &counts, &idx, &[deg(91.0); 6]);
+    assert!(fv.is_none() && n.len() == 8);
+    let k = 1.0 / 3f32.sqrt();
+    assert!(close(n[6].map(f32::abs), [k, k, k]), "{:?}", n[6]);
+    // Smooth off on one face: its corners alone, the rest stays smooth.
+    let mut cos = [deg(91.0); 6];
+    cos[1] = smoothing_cos(Some(&crate::daz_material::Material::from_dson(&json!({"extra": [{"channels": [{"channel": {"id": "Smooth On", "current_value": false}}]}]}), &HashMap::new())));
+    let (n, fv) = smoothed_normals(&p, &counts, &idx, &cos);
+    let fv = fv.unwrap();
+    assert!(close(n[fv[4] as usize].map(f32::abs), [0.0, 0.0, 1.0]), "the faceted face");
+    assert!(n[fv[0] as usize][0].abs() > 0.5, "the opposite face smoothed with the sides: {:?}", n[fv[0] as usize]);
+}
+
+#[test]
+fn smoothing_joins_faces_through_soft_edges() {
+    // An icosahedron: edges 41.8°, faces across a vertex further apart.
+    let t = (1.0 + 5f32.sqrt()) / 2.0;
+    let p: Vec<[f32; 3]> = [[-1.0, t, 0.0], [1.0, t, 0.0], [-1.0, -t, 0.0], [1.0, -t, 0.0], [0.0, -1.0, t], [0.0, 1.0, t], [0.0, -1.0, -t], [0.0, 1.0, -t], [t, 0.0, -1.0], [t, 0.0, 1.0], [-t, 0.0, -1.0], [-t, 0.0, 1.0]].to_vec();
+    let f = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8], [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
+    let idx: Vec<u32> = f.concat();
+    let counts = vec![3; 20];
+    let deg = |a: f32| a.to_radians().cos();
+    // 45° (Calib-Smooth S3): smooth, the vertex normal radial.
+    let (n, fv) = smoothed_normals(&p, &counts, &idx, &[deg(45.0); 20]);
+    assert!(fv.is_none());
+    let r = (1.0 + t * t).sqrt();
+    assert!(close(n[0], [-1.0 / r, t / r, 0.0]), "{:?}", n[0]);
+    // 30° (S2): faceted, 60 corners.
+    let (n, fv) = smoothed_normals(&p, &counts, &idx, &[deg(30.0); 20]);
+    assert_eq!((n.len(), fv.map(|v| v.len())), (60, Some(60)));
+}
+
+#[test]
+fn split_normals_are_written_as_indexed_primvars() {
+    let (points, face_counts, face_indices) = unit_cube();
+    let (normals, normal_indices) = smoothed_normals(&points, &face_counts, &face_indices, &[0.5; 6]);
+    let m = Mesh { name: "Box".into(), label: "Box".into(), points, face_counts, face_indices, normals: Some(normals), normal_indices, ..Default::default() };
+    let (o, _) = write_usda(&[m], &[]);
+    assert!(o.contains("normal3f[] primvars:normals = ") && o.contains("interpolation = \"faceVarying\"") && o.contains("int[] primvars:normals:indices = "), "{o}");
+    assert!(!o.contains("normal3f[] normals"), "plain `normals` Octane ignores");
+}

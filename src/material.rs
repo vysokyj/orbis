@@ -783,6 +783,7 @@ impl Ocs<'_> {
         if let Some(asset) = mat.image("Bump Strength").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(j + 1, "bump", &asset, true, 1.0, 1.0);
         }
+        self.round_edges_pin(j + 1, mat);
         // Iray's top coat lies over both parts: on the base alone a dark
         // weighted surface under a 0.8 coat lost half its sheen (Calib-Mixing
         // jamb 0.55 × Iray).
@@ -833,6 +834,7 @@ impl Ocs<'_> {
         self.float_pin(j + 1, "roughness", FLAKE_ROUGHNESS);
         self.top_coat(j + 1, mat, 0.0);
         self.gloss_ggx = false;
+        self.round_edges_pin(j + 1, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
             self.float_or_map(j + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
@@ -879,6 +881,7 @@ impl Ocs<'_> {
         self.float_pin(j + 1, "roughness", rough.clamp(0.0, 1.0));
         self.top_coat(j + 1, mat, 0.0);
         self.gloss_ggx = false;
+        self.round_edges_pin(j + 1, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
             self.float_or_map(j + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
@@ -934,6 +937,7 @@ impl Ocs<'_> {
         self.gloss_roughness_pins(j + 1, mat, None, rough, true, aniso);
         self.float_pin(j + 1, "ior", top_coat_ior(mat));
         self.coat_bump_pins(j + 1, mat, "bump", "normal");
+        self.round_edges_pin(j + 1, mat);
         let _ = writeln!(self.out, "{:j$}</node>", "");
         let _ = writeln!(self.out, "{:i$}</pin>", "");
         self.film = film;
@@ -981,6 +985,7 @@ impl Ocs<'_> {
         self.gloss_ggx = false;
         self.gloss_roughness_pins(j + 1, mat, None, rough, true, aniso);
         self.coat_bump_pins(j + 1, mat, "bump", "normal");
+        self.round_edges_pin(j + 1, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
             self.float_or_map(j + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
@@ -1000,7 +1005,7 @@ impl Ocs<'_> {
     /// An NVIDIA MDL metal (`mdl_metal`) as a Universal metal: albedo =
     /// colour × weight map, roughness = the longer of u and v per texel, anisotropy from
     /// the two at a mid-grey texel, the bump map — all at the shader's tiles.
-    fn mdl_metal(&mut self, indent: usize, name: &str, m: &MdlMetal) {
+    fn mdl_metal(&mut self, indent: usize, name: &str, m: &MdlMetal, mat: &Material) {
         self.tiling = (m.tiles != [1.0, 1.0]).then_some([m.tiles[0], m.tiles[1], 0.0, 0.0]);
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='130' name='{}'>", "", esc(name));
@@ -1037,6 +1042,7 @@ impl Ocs<'_> {
                 self.image_pin(i, "bump", &asset, true, 1.0, *amount);
             }
         }
+        self.round_edges_pin(i, mat);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
@@ -1044,7 +1050,7 @@ impl Ocs<'_> {
     /// specular = the gloss weight (map) × tint at the layer's IOR, its
     /// roughness and bump, all at the shader's tiles. Resin's red base is
     /// transmission with the clear gloss as the coating.
-    fn mdl_dielectric(&mut self, indent: usize, name: &str, m: &MdlDielectric) {
+    fn mdl_dielectric(&mut self, indent: usize, name: &str, m: &MdlDielectric, mat: &Material) {
         self.tiling = (m.tiles != [1.0, 1.0]).then_some([m.tiles[0], m.tiles[1], 0.0, 0.0]);
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='130' name='{}'>", "", esc(name));
@@ -1091,6 +1097,7 @@ impl Ocs<'_> {
                 }
             }
         }
+        self.round_edges_pin(i, mat);
         if m.opacity < 1.0 {
             self.float_pin(i, "opacity", m.opacity.max(0.0));
         }
@@ -1242,6 +1249,25 @@ impl Ocs<'_> {
         self.value_pin(i + 1, "amount", 6, 9, &format!("{} 0 0 0", num(d.height_m)));
         self.value_pin(i + 1, "black_level", 6, 9, &format!("{} 0 0 0", num(d.mid)));
         self.value_pin(i + 1, "subdLevel", 9, 5, &format!("{} 0 0 0", d.subd));
+        let _ = writeln!(self.out, "{:i$}</node>", "");
+        self.pin_close(indent);
+    }
+
+    /// DAZ's Round Corners (`round_corners`) as Octane's Round Edges (137)
+    /// in Accurate mode (convex and concave, as Iray's
+    /// `state::rounded_corner_normal`), the radius in meters, the roundness
+    /// as it is, this object only.
+    fn round_edges_pin(&mut self, indent: usize, mat: &Material) {
+        let Some(r) = round_corners(mat) else { return };
+        let id = self.id();
+        self.pin_open(indent, "roundEdges");
+        let i = indent + 1;
+        let _ = writeln!(self.out, "{:i$}<node id='{id}' type='137'>", "");
+        self.value_pin(i + 1, "roundEdgesMode", 57, 2, &ROUND_EDGES_ACCURATE.to_string());
+        self.value_pin(i + 1, "roundEdgesRadius", 6, 9, &format!("{} 0 0 0", num(r.radius_m)));
+        self.value_pin(i + 1, "roundEdgesCurvatureRoundness", 6, 9, &format!("{} 0 0 0", num(r.roundness)));
+        self.value_pin(i + 1, "roundEdgesSampleCount", 9, 5, &format!("{ROUND_EDGES_SAMPLES} 0 0 0"));
+        self.value_pin(i + 1, "roundEdgesConsiderOtherObjects", 11, 1, "0");
         let _ = writeln!(self.out, "{:i$}</node>", "");
         self.pin_close(indent);
     }
@@ -1597,6 +1623,7 @@ impl Ocs<'_> {
         if let Some(asset) = mat.image("Bump Strength").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(i, "bump", &asset, true, 1.0, 1.0);
         }
+        self.round_edges_pin(i, mat);
         self.displacement_pin(i, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
@@ -1699,10 +1726,10 @@ impl Ocs<'_> {
             return self.hair(indent, name, mat);
         }
         if let Some(metal) = mdl_metal(mat) {
-            return self.mdl_metal(indent, name, &metal);
+            return self.mdl_metal(indent, name, &metal, mat);
         }
         if let Some(d) = mdl_dielectric(mat) {
-            return self.mdl_dielectric(indent, name, &d);
+            return self.mdl_dielectric(indent, name, &d, mat);
         }
         let tiles = [mat.float("Horizontal Tiles"), mat.float("Vertical Tiles")].map(|t| t.filter(|t| *t > 0.0).unwrap_or(1.0));
         let offsets = [mat.float("Horizontal Offset"), mat.float("Vertical Offset")].map(|o| o.unwrap_or(0.0));
@@ -2134,6 +2161,7 @@ impl Ocs<'_> {
         if let Some(asset) = mat.image("Bump Strength").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(i, "bump", &asset, true, 1.0, 1.0);
         }
+        self.round_edges_pin(i, mat);
         // In a weighted mix the mix material carries it.
         if !self.in_mix && !self.in_coat_mix {
             self.displacement_pin(i, mat);
@@ -2148,6 +2176,36 @@ impl Ocs<'_> {
         }
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
+}
+
+/// Octane Round Edges mode Accurate (enum: 0 off, 1 fast, 2 accurate,
+/// 3 convex only, 4 concave only; probe on node 137).
+const ROUND_EDGES_ACCURATE: u32 = 2;
+/// Round Edges rays per shading point: Octane's default (4 – 16).
+const ROUND_EDGES_SAMPLES: u32 = 8;
+
+/// DAZ's Round Corners on a material, as Iray gets them: DAZ wires
+/// `state::rounded_corner_normal(radius, across_materials, roundness)` into
+/// every Uber material's `geometry_bump`, the channels as they are
+/// (Calib-RoundCorners .mi). MDL takes the radius in meters (MDL spec 19.3:
+/// world space, whatever `mdl_meters_per_scene_unit`), so DAZ's 1 is 1 m.
+/// `across_materials`: Octane can't keep rounding off a material border
+/// (its Round Edges sees geometry, not materials) — read, not mapped.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct RoundCorners {
+    pub radius_m: f32,
+    pub roundness: f32,
+    pub across_materials: bool,
+}
+
+pub(crate) fn round_corners(mat: &Material) -> Option<RoundCorners> {
+    let radius = mat.float("Round Corners Radius").unwrap_or(0.0);
+    // Octane's radius pin stops at 100 (m).
+    (radius > 0.0).then(|| RoundCorners {
+        radius_m: radius.min(100.0),
+        roundness: mat.float("Round Corners Roundness").unwrap_or(1.0).clamp(0.0, 1.0),
+        across_materials: mat.float("Round Corners Across Materials").map_or(true, |v| v > 0.0),
+    })
 }
 
 /// Universal's specular share for an Iray reflectivity r (default 0.5 → 1):
@@ -4446,6 +4504,40 @@ mod tests {
         assert!(t.iter().all(|v| (v - 0.9 * PROP_VOLUME_LEVEL).abs() < 1e-3), "{t:?}");
     }
 
+    /// DAZ's Round Corners (Calib-RoundCorners .mi: the channels as they
+    /// are, the radius in meters) → Universal's Round Edges, Accurate; none
+    /// at radius 0; also on a weighted mix's parts.
+    #[test]
+    fn round_corners_are_octane_round_edges() {
+        let rc = |extra: serde_json::Value| {
+            let mut ch = vec![json!({"channel": {"id": "diffuse", "current_value": [0.5, 0.5, 0.5]}})];
+            ch.extend(extra.as_array().unwrap().iter().cloned());
+            material_inputs(&[("Box".into(), mat(serde_json::Value::Array(ch)), 1.0)], &[], HashMap::new(), 5000, SkinShader::None).0
+        };
+        let none = rc(json!([]));
+        assert!(!none.contains("roundEdges"), "{none}");
+        let x = rc(json!([
+            {"channel": {"id": "Round Corners Radius", "current_value": 0.01}},
+            {"channel": {"id": "Round Corners Roundness", "current_value": 0.0}},
+        ]));
+        let r = &x[x.find("<pin name='roundEdges'>").expect("round edges")..];
+        assert!(r.contains("type='137'"), "{r}");
+        let val = |p: &str| r[r.find(&format!("<pin name='{p}'>")).unwrap()..].split("</attr>").next().unwrap().rsplit('>').next().unwrap().to_string();
+        assert_eq!(val("roundEdgesMode"), "2");
+        assert_eq!(val("roundEdgesRadius"), "0.01 0 0 0");
+        assert_eq!(val("roundEdgesCurvatureRoundness"), "0 0 0 0");
+        assert_eq!(val("roundEdgesConsiderOtherObjects"), "0");
+        assert_eq!(x.matches("<node ").count(), x.matches("</node>").count());
+        // A weighted gloss mix: both its materials round.
+        let w = rc(json!([
+            {"channel": {"id": "Round Corners Radius", "current_value": 0.02}},
+            {"channel": {"id": "Base Mixing", "current_value": 2}},
+            {"channel": {"id": "Glossy Weight", "current_value": 0.5}},
+        ]));
+        assert!(w.contains("type='19'"), "{w}");
+        assert_eq!(w.matches("<pin name='roundEdges'>").count(), 2, "{w}");
+    }
+
     #[test]
     fn weighted_top_coat_is_a_mix_with_a_mirror() {
         let coated = mat(json!([
@@ -4756,7 +4848,7 @@ mod tests {
         let mut textures = Textures::default();
         let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.02, 0.4), rough_v: (String::new(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
-        w.mdl_metal(0, "Metal", &m);
+        w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;
         // u 0.22, v 0.5125 at mid-grey: roughness v, anisotropy (v − u) / (v + u).
         let rough = &x[x.find("<pin name='roughness'>").unwrap()..];

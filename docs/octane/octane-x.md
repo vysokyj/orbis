@@ -39,6 +39,16 @@ container is in [orbx.md](orbx.md); USD specs in [usd.md](usd.md).
   `/Scene/Lights/<prim>_light` carrying a plain diffuse material — **they
   don't glow** until that input gets an emissive material. **UsdLux shaping
   (spot cones) is lost**.
+- **Normals: only `primvars:normals`** (vertex or faceVarying, indexed)
+  reach the mesh node (`normals`, `polyNormalIndices`). A plain `normals`
+  attribute is ignored, and the import computes normals itself at
+  `maxSmoothAngle` (`useSuppliedVertexNormals` on or not; probe, #40).
+- **Round Edges** (137), on a material's `roundEdges` pin:
+  `roundEdgesMode` (enum 57: 0 off, 1 fast, 2 accurate, 3 accurate convex
+  only, 4 accurate concave only), `roundEdgesRadius` (float, 0–100),
+  `roundEdgesCurvatureRoundness` (1 round … 0 chamfer),
+  `roundEdgesSampleCount` (int 4–16, 8), `roundEdgesConsiderOtherObjects`
+  (bool, off).
 - `BasisCurves` import as hair geometry (`A_HAIR_THICKNESS` per vertex).
 - `PointInstancer` imports as instances: `positions`, `orientations`
   (`quath`, w x y z) and per-axis `scales` all apply, the prototype under it

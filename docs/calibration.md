@@ -63,6 +63,8 @@ thing at a time.
 | `Calib-Aniso2` | anisotropy rotation sign, weighted / rotated top coat, backscattering, 0.25 / 0.75 | [Universal](spec/octane-export.md#universal-130--default) | [#23](https://github.com/vysokyj/orbis/issues/23) |
 | `Calib-TopCoat` | Top Coat layering modes | — | [#25](https://github.com/vysokyj/orbis/issues/25) |
 | `Calib-CoatBump` | Top Coat Bump (height / normal map) and the base's bump under a coat | mapped (strength awaits Iray) | [#61](https://github.com/vysokyj/orbis/issues/61) |
+| `Calib-Smooth` | Smooth On / Smooth Angle: icosahedra, cubes, a cylinder; normals as in the .mi | mapped (#40) | [#40](https://github.com/vysokyj/orbis/issues/40) |
+| `Calib-RoundCorners` | Round Corners radius 0 – 1, roundness, across materials | mapped (radius unit awaits Iray) | [#40](https://github.com/vysokyj/orbis/issues/40) |
 | `Calib-DualLobe`, `-DualLobe2` | dual lobe ratio and lobe 2 roughness; Uber's defaults, lobe 1 at roughness 0.6 | [Universal](spec/octane-export.md#universal-130--default) | [#26](https://github.com/vysokyj/orbis/issues/26), [#56](https://github.com/vysokyj/orbis/issues/56) |
 | `Calib-SSSColor` | volume scattering on a skin's volume: SSS Color, Mode, Amount, Reflectance Tint | — | [#28](https://github.com/vysokyj/orbis/issues/28) |
 | `Calib-ColorEffect` | colour effects, Glossy Specular | — | [#27](https://github.com/vysokyj/orbis/issues/27) |

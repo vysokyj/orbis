@@ -154,9 +154,21 @@ pub(super) fn write_usda(meshes: &[Mesh], lights: &[SceneLight]) -> (String, Vec
         write_vec3(&mut o, &m.points, 5);
         o.push('\n');
         if let Some(n) = &m.normals {
-            o.push_str("        normal3f[] normals = ");
+            // `primvars:normals`: Octane's USD import reads that one (the
+            // mesh node's `normals` + `polyNormalIndices`) and computes its
+            // own at the import's maxSmoothAngle without it — plain
+            // `normals` it ignored (Calib-Smooth probe, #40).
+            o.push_str("        normal3f[] primvars:normals = ");
             write_vec3(&mut o, n, 4);
-            o.push_str(" (\n            interpolation = \"vertex\"\n        )\n");
+            match &m.normal_indices {
+                // Split along hard edges (`smoothed_normals`): indexed per corner.
+                Some(idx) => {
+                    o.push_str(" (\n            interpolation = \"faceVarying\"\n        )\n        int[] primvars:normals:indices = ");
+                    write_ints(&mut o, idx.iter().copied());
+                    o.push('\n');
+                }
+                None => o.push_str(" (\n            interpolation = \"vertex\"\n        )\n"),
+            }
         }
         if let Some((vals, idx)) = &m.uvs {
             o.push_str("        texCoord2f[] primvars:st = ");

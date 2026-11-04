@@ -262,8 +262,37 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   Female 1 + 1 = 2), at most 3 (Catmull-Clark, `mesh::subd_levels` — DAZ's
   .mi export of G8F at every pair 0 + 0 … 2 + 2 had the vertices of the sum;
   #62). Every mesh is written with
-  `subdivisionScheme = "none"` and smooth vertex normals — Octane has no
+  `subdivisionScheme = "none"` and its own normals (below) — Octane has no
   per-mesh level, and "subdivide all" rounds hard props.
+- **Normals (smoothing, #40)** as DAZ hands them to Iray: DAZ bakes its
+  auto-smoothing (the material's `Smooth On`, `Smooth Angle`, default on,
+  89.9°) into the trilists' vertex normals (Calib-Smooth .mi). An edge is
+  hard when its two faces' normals lie further apart than the angle (the
+  stricter of the two faces' materials; Smooth off makes all of a face's
+  edges hard). Around a vertex, the faces joined through soft edges share
+  the area-weighted sum of their normals (`smoothed_normals`). Material
+  borders don't split.
+  - Written as **`primvars:normals`**: per vertex, or `faceVarying` with
+    `primvars:normals:indices` where a vertex carries more than one.
+  - Why `primvars:`: Octane's USD import ignores a plain `normals`
+    attribute. It then computes its own normals at the import's
+    `maxSmoothAngle` (45° in our project). `primvars:normals` lands in the
+    mesh node's `normals` / `polyNormalIndices` (probe). Before #40 every
+    export rendered with Octane's 45° normals.
+  - Why the edge rule: on Calib-Smooth .mi, Smooth off and 30° split an
+    icosahedron (41.8° edges) into 60 corners, while 45° and the default
+    keep 12 normals. With a rule measured against the face's own normal,
+    45° would split it, since faces across a vertex lie 70° apart. At
+    89.9°, a cube stays 24 corners and a 12-sided cylinder is smooth round
+    its side and split at the caps (50 normals). At 91° the cube has 8
+    corner normals. Two materials on an icosahedron kept 12. Our export
+    has the same normal counts for all of them.
+  - Octane (Calib-Smooth, enhanced-final): it renders the faceted, smooth
+    and blobby (91°) shapes as DAZ means them. Calib-Hair and
+    Calib-L-Distant-45 against their earlier renders: mean |Δ| 0.33 and
+    0.15 / 255, so figures and plain props didn't change.
+  - Not known: how DAZ weights the faces in the sum (area, angle). Every
+    test shape is symmetric, so we use area weights, as before.
 - **Skin-tight lift**: an unrefined mesh conforming to a refined one (hair
   cap, brows) has its vertices within 5 mm of the figure lifted along the
   nearest refined vertex's normal to ≥ 0.5 mm above it (`LIFT_CLEARANCE`).
@@ -1262,6 +1291,33 @@ Power (W) = L × unit factor / 2 / **15 000** (`DAZ_LUMENS_PER_WATT`) ×
 surface area (m²) for luminance units. Calib-Emissive (one-sided 50 × 50 cm,
 5000 cd/m²): 3.4× Iray without the factor, 0.98–1.02 with it (#6).
 
+### Round Corners (#40)
+
+DAZ wires `state::rounded_corner_normal(radius, across_materials,
+roundness)` into every Uber material's `geometry_bump`. It passes the
+channels `Round Corners Radius` / `Across Materials` / `Roundness` as they
+are (Calib-RoundCorners .mi; radius 0 by default, which is off). The export
+writes a radius > 0 to the material's `roundEdges` pin (on each material in
+a mix) as Octane **Round Edges** (137):
+
+- `roundEdgesMode` Accurate (2). Iray rounds convex and concave edges,
+  and Accurate is the ray-traced mode, as Iray's is.
+- `roundEdgesRadius` = Radius **in meters**. The MDL spec (19.3) gives the
+  radius in meters in world space, and DAZ hands it over unconverted (as it
+  does Matte Fog's visibility). So DAZ's 1 is 1 m, and 0.005 is 5 mm.
+  Octane caps the radius at 100.
+- `roundEdgesCurvatureRoundness` = Roundness (1 round, 0 chamfer, in both
+  renderers).
+- 8 samples (Octane's default) and `roundEdgesConsiderOtherObjects` off.
+  Iray rounds a mesh's own facets.
+- **Across Materials off is not mapped.** Octane's Round Edges sees only
+  geometry, not material borders, so it always rounds across them.
+
+On Calib-RoundCorners (enhanced-final), Octane rounds the edges more and
+more from 0.005 to 0.02 m, chamfers them at roundness 0, and blurs the
+whole 30 cm cube at 1 m. The meters reading still waits for Iray's
+references: if R5 (radius 1) looks like R3 (0.01) in Iray, DAZ means cm.
+
 ### Displacement
 
 Iray Uber and PBRSkin displacement goes to the material's `displacement`
@@ -1603,7 +1659,7 @@ to calibrate on ([calibration](../calibration.md#the-scenes)):
   [#7](https://github.com/vysokyj/orbis/issues/7).
 - Scene: hidden surfaces and render flags
   [#36](https://github.com/vysokyj/orbis/issues/36), fog and finite dome
-  [#37](https://github.com/vysokyj/orbis/issues/37), smoothing and round
-  corners [#40](https://github.com/vysokyj/orbis/issues/40), Iray render
+  [#37](https://github.com/vysokyj/orbis/issues/37), round corners'
+  radius unit against Iray [#40](https://github.com/vysokyj/orbis/issues/40), Iray render
   settings [#43](https://github.com/vysokyj/orbis/issues/43), Sun-Sky
   channels [#18](https://github.com/vysokyj/orbis/issues/18).
