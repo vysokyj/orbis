@@ -10,6 +10,10 @@ case ${1:-} in *[!0-9]*|'') ;; *) samples=$1; shift ;; esac
 here=$(cd "$(dirname "$0")" && pwd)
 docs="$HOME/Library/Containers/com.otoy.rndrviewer/Data/Documents"
 mkdir -p "$out"
+# The job list and files are shared with any other run: take the lock
+# before touching them (octane-run.sh shares it; #74).
+. "$here/render-lock.sh"
+render_lock "octane-render.sh"
 : > "$docs/orbis_jobs.txt"
 # Job files named per run: with the same orbis_job_<i>.orbx every run, the
 # first import of a batch now and then came out with the previous run's
@@ -33,4 +37,4 @@ for scene in "$@"; do
     [ -f "$docs/orbis_job_$name.png" ] && mv "$docs/orbis_job_$name.png" "$out/$name.png"
 done
 # Nothing of the run stays in Octane's sandbox.
-rm -f "$docs"/orbis_job_*.orbx "$docs"/orbis_job_*.cube
+rm -f "$docs"/orbis_job_"${run}"_*.orbx "$docs"/orbis_job_"${run}"_*.cube
