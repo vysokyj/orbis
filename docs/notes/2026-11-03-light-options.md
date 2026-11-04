@@ -88,10 +88,44 @@ camera above it) shows the quad without any object layer (22 306 pixels
 `camera_visibility` off: 0 pixels, frame mean 0.0.
 
 None of the other area-light references has the emitter in the frame, so
-the change shows nowhere else. Rect-Facing / Spot-Facing and their EmitterOff twins have no Iray
-reference yet (#35, "Iray batch: needs"): they would show the rect's face
-brightness against Iray's and confirm the reflection stays with
-Render Emitter off.
+the change shows nowhere else.
+
+### Against Iray (2026-11-04)
+
+The four Facing scenes got Iray references in the 2026-11-04 batch (Iray
+Server, 5000 samples, fe12e27). Octane enhanced-final, 1000 samples, the
+export as of bdd887a, no change. Face = pixels > 30 in Facing and ≤ 30 in
+its EmitterOff twin, eroded 2 px; linear = 8-bit decoded with gamma 2.2.
+
+| | Iray | Octane |
+|---|---|---|
+| Rect-Facing face pixels | 47 144 | 45 947 |
+| its box (rows, columns) | 270–471, 835–1083 | 273–469, 836–1083 |
+| interior saturated (255) | 100 % | 100 % |
+| rest of the frame, mean linear | 0.0880 | 0.0882 (1.002 ×) |
+| -EmitterOff, whole frame | 0.0857 | 0.0860 (1.003 ×) |
+| EmitterOff / Facing, rest of the frame | 0.996 | 0.998 |
+| sphere highlight (the rect's reflection), integrated over background | 8.63 | 8.27 (0.96 ×) |
+| the same, -EmitterOff | 8.62 | 7.83 (0.91 ×) |
+| sphere highlight peak | 0.044 | 0.097 |
+| Spot-Facing face pixels | 22 221 | 21 129 |
+| its box | 433–645, 903–1014 | 436–643, 908–1011 |
+| interior saturated | 100 % | 100 % |
+| -Spot-Facing-EmitterOff, frame mean | 0.0 | 0.0 |
+
+- Both faces are white at the scenes' exposure in both renderers: the 8-bit
+  references cannot tell their radiance apart beyond that. The rect's
+  reflection in the sphere is not saturated and stands in for it: the same
+  energy to 4 % (Facing) / 9 % (EmitterOff, Octane noisier at 1000
+  samples). The highlight is sharper in Octane (peak 2.2 ×, same energy):
+  the sphere's gloss, not the light (not this issue).
+- Render Emitter off: the face goes in both, the light and its reflection
+  stay (Iray reflection unchanged to 0.02 %, the frame 0.996 ×).
+- The spot quad's face matches in place and size to 1–5 px a side (Iray's
+  pixel filter spreads a saturated edge a little further); off, both black
+  (the spot points away from everything).
+- No HDR references needed: what the author sees in Iray at the scene's
+  exposure is what Octane shows.
 
 ## Not mapped (Iray ignores them)
 

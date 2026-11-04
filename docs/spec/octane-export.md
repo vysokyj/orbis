@@ -1302,6 +1302,11 @@ it). Spots are analytic lights, which Octane does show to the camera
 (Calib-L-Opt-Spot-Facing: the 20 × 40 cm quad turned up to the camera,
 22 000 pixels): Render Emitter off gives their `objectLayer` pin a layer
 with `camera_visibility` off (-Spot-Facing-EmitterOff: none left).
+Against Iray's references of the four Facing scenes: the faces in the same
+place and size (to 1–5 px a side), white in both at the scene's exposure;
+the rect's reflection in the sphere (unsaturated) 0.96 × Iray's energy, and
+with Render Emitter off the face gone and the reflection kept in both
+(0.91 ×, the rest of the frame 1.003 ×).
 
 The options left unmapped are 3Delight's: Iray renders them identically
 (every Calib-L-Opt-* reference but Temp3000 equals Calib-L-Point-5k to the
