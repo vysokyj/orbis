@@ -873,17 +873,27 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   and **the base's alone when the coat has none** — Octane's coating
   instead takes the unbumped shading normal unless its pins are set (the
   manual; Calib-CoatBump B2 / B6: the base's ridges stayed out of the
-  coat's highlights). So the coat pins get: the coat's height map at Top
-  Coat Bump as the image's `power` (else Bump Strength's map at 1, as the
-  base's), the coat's normal map (else the base's Normal Map). Octane has
-  no blend of two height maps on one pin: with both, the coat's wins.
-  High-frequency detail on the spheres (σ of the image minus its 3 px
-  blur, before → after): B2 base bump 10.9 → 14.2, B6 base normal 4.6 →
-  8.6, B5 coat normal 8.3 → 15.1, B4 coat height × 3 10.5 → 12.2; B3 coat
-  height × 1 unchanged (10.4 → 9.9: Octane's bump at power 1 of these
-  dimples is faint). Not yet checked against Iray: how strong Octane's
-  bump is for Iray's factor (base and coat alike) — Calib-CoatBump's Iray
-  reference decides.
+  coat's highlights). So the coat pins get the coat's height map, else
+  the base's (Bump Strength's); with both, their sum — a Mix texture
+  (38) at amount ½ of the two at twice their power (Iray's B7 shows the
+  coat's dimples and the base's ridges at once; with the coat's alone,
+  Octane's B7 was nearly smooth: RMS vs Iray 7.2 → 2.1). The normal pin
+  gets the coat's normal map (Mode 1), else the base's Normal Map.
+- **Bump strength** (#61): every Uber height map — the base's Bump
+  Strength map on `bump` (and on the coat), the Top Coat Bump — goes in
+  at Octane image `power` = Iray's `file_bump_texture` factor (Bump
+  Strength, Top Coat Bump; none at 0) × `BUMP_POWER` 2. Calib-CoatBump
+  against Iray (5000 samples), RMS of the grey image (1 px blur) per
+  sphere, power × 1 / 2 / 3 / 4: base ridges 7.7 / **2.9** / 8.1 / 10.8,
+  coat dimples at 1 7.2 / **5.4** / 6.1 / 6.8, at 3 14.7 / **9.2** /
+  12.1 / 13.2. Before, the base's map went in at power 1 whatever its
+  Bump Strength, the coat's at Top Coat Bump: both rendered about half
+  as bumpy as Iray. Octane's bump doesn't change with the map's
+  resolution (the dimples at 512 and 2048 px rendered alike); whether
+  Iray's does (`file_bump_texture` is native code in Iray, its formula
+  not public) is unchecked — if Iray measures the slope per texel, the
+  factor would have to scale with 512 / the map's width. Normal maps stay
+  at power 1 (B5, B6, B8 match Iray at Normal Map 1).
 - **Thin-walled refraction with its own inputs** (Share Glossy Inputs off:
   the cornea, the tear film) takes the glossy layer's roughness, not the
   refraction's — a thin wall's straight-through transmission doesn't blur

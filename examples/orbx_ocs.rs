@@ -4,6 +4,7 @@
 //!   cargo run --release --example orbx_ocs -- get <in.orbx> <project.ocs>
 //!   cargo run --release --example orbx_ocs -- set <in.orbx> <project.ocs> <out.orbx>
 //!   cargo run --release --example orbx_ocs -- file <in.orbx> <path in package> <out file>
+//!   cargo run --release --example orbx_ocs -- put <in.orbx> <path in package> <file> <out.orbx>
 
 use anyhow::{bail, Result};
 
@@ -31,7 +32,15 @@ fn main() -> Result<()> {
             let Some((_, data)) = files.iter().find(|(p, _)| *p == a[3]) else { bail!("no {} in the package", a[3]) };
             std::fs::write(&a[4], data)?;
         }
-        _ => bail!("usage: orbx_ocs get <in.orbx> <project.ocs> | set <in.orbx> <project.ocs> <out.orbx> | file <in.orbx> <path> <out>"),
+        // Replace one packaged file (a texture) — Octane-side experiments.
+        Some("put") if a.len() == 6 => {
+            let (version, mut files) = orbis::orbx::read_orbx(&std::fs::read(&a[2])?)?;
+            let Some((_, d)) = files.iter_mut().find(|(p, _)| *p == a[3]) else { bail!("no {} in the package", a[3]) };
+            *d = std::fs::read(&a[4])?;
+            let refs: Vec<(&str, &[u8])> = files.iter().map(|(p, d)| (p.as_str(), d.as_slice())).collect();
+            orbis::orbx::write_orbx(&mut std::io::BufWriter::new(std::fs::File::create(&a[5])?), &version, &refs)?;
+        }
+        _ => bail!("usage: orbx_ocs get <in.orbx> <project.ocs> | set <in.orbx> <project.ocs> <out.orbx> | file <in.orbx> <path> <out> | put <in.orbx> <path> <file> <out.orbx>"),
     }
     Ok(())
 }

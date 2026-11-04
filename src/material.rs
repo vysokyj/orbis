@@ -417,6 +417,13 @@ const DISPLACEMENT_SUBD_MAX: u32 = 1;
 /// map at `map_gamma` 1 as the plain 0.5 (#49). An image's own gamma wins.
 const DATA_MAP_GAMMA: f32 = 2.2;
 
+/// Octane bump `power` per unit of Iray's `file_bump_texture` factor
+/// (Bump Strength, Top Coat Bump): fitted on Calib-CoatBump (#61), where
+/// ×2 matched Iray's dimples and ridges best (×1 rendered them faint, ×3
+/// too strong). Octane's bump doesn't change with the map's resolution
+/// (512 vs 2048 px alike); whether Iray's does is unchecked.
+const BUMP_POWER: f32 = 2.0;
+
 /// The gamma Iray reads a float channel's map at ([`DATA_MAP_GAMMA`]).
 fn data_gamma(mat: &Material, channel: &str) -> f32 {
     mat.image_gamma(channel).unwrap_or(DATA_MAP_GAMMA)
@@ -780,9 +787,7 @@ impl Ocs<'_> {
         if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(j + 1, "normal", &asset, false, 1.0, 1.0);
         }
-        if let Some(asset) = mat.image("Bump Strength").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            self.image_pin(j + 1, "bump", &asset, true, 1.0, 1.0);
-        }
+        self.base_bump_pin(j + 1, mat, "bump");
         self.round_edges_pin(j + 1, mat);
         // Iray's top coat lies over both parts: on the base alone a dark
         // weighted surface under a 0.8 coat lost half its sheen (Calib-Mixing
@@ -1131,19 +1136,28 @@ impl Ocs<'_> {
     /// else the base's bump or normal map. Octane's coating takes the
     /// plain shading normal unless its own pins are set (Calib-CoatBump:
     /// the base's ridges stayed out of the coat's highlights), so the base
-    /// maps go there too. The coat's height map at Top Coat Bump as its
-    /// power; a second height map has no pin and the coat's wins.
+    /// maps go there too. Height maps at their factor × `BUMP_POWER`; the
+    /// coat's and the base's height maps together as their sum (a Mix
+    /// texture at ½ of both at twice the power: Iray's B7 shows both).
     fn coat_bump_pins(&mut self, i: usize, mat: &Material, bump_pin: &str, normal_pin: &str) {
         let asset = |s: &mut Self, id: &str| mat.image(id).map(str::to_string).and_then(|t| s.textures.asset(s.dirs, &t));
         let coat = asset(self, "Top Coat Bump");
         let coat_normal = mat.float("Top Coat Bump Mode").unwrap_or(0.0) as i32 == 1;
-        match (&coat, coat_normal) {
-            (Some(a), false) => self.image_pin(i, bump_pin, a, true, 1.0, mat.float("Top Coat Bump").unwrap_or(1.0)),
-            _ => {
-                if let Some(a) = asset(self, "Bump Strength") {
-                    self.image_pin(i, bump_pin, &a, true, 1.0, 1.0);
-                }
+        let coat_height = coat.clone().filter(|_| !coat_normal).map(|a| (a, mat.float("Top Coat Bump").unwrap_or(1.0))).filter(|(_, f)| *f > 0.0);
+        match (coat_height, self.base_bump(mat)) {
+            (Some((c, cf)), Some((b, bf))) => {
+                let id = self.id();
+                self.pin_open(i, bump_pin);
+                let j = i + 1;
+                let _ = writeln!(self.out, "{:j$}<node id='{id}' type='38'>", "");
+                self.float_pin(j + 1, "amount", 0.5);
+                self.image_pin(j + 1, "texture1", &c, true, 1.0, 2.0 * cf * BUMP_POWER);
+                self.image_pin(j + 1, "texture2", &b, true, 1.0, 2.0 * bf * BUMP_POWER);
+                let _ = writeln!(self.out, "{:j$}</node>", "");
+                self.pin_close(i);
             }
+            (Some((a, f)), None) | (None, Some((a, f))) => self.image_pin(i, bump_pin, &a, true, 1.0, f * BUMP_POWER),
+            (None, None) => {}
         }
         match (&coat, coat_normal) {
             (Some(a), true) => self.image_pin(i, normal_pin, a, false, 1.0, 1.0),
@@ -1152,6 +1166,20 @@ impl Ocs<'_> {
                     self.image_pin(i, normal_pin, &a, false, 1.0, 1.0);
                 }
             }
+        }
+    }
+
+    /// Iray Uber's base height map: Bump Strength's map and its value, the
+    /// factor DAZ hands Iray's `file_bump_texture` (none at 0).
+    fn base_bump(&mut self, mat: &Material) -> Option<(String, f32)> {
+        let f = mat.float("Bump Strength").unwrap_or(1.0);
+        mat.image("Bump Strength").filter(|_| f > 0.0).map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)).map(|a| (a, f))
+    }
+
+    /// The base's height map on `pin` at Bump Strength × `BUMP_POWER`.
+    fn base_bump_pin(&mut self, i: usize, mat: &Material, pin: &str) {
+        if let Some((a, f)) = self.base_bump(mat) {
+            self.image_pin(i, pin, &a, true, 1.0, f * BUMP_POWER);
         }
     }
 
@@ -1620,9 +1648,7 @@ impl Ocs<'_> {
         if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(i, "normal", &asset, false, 1.0, 1.0);
         }
-        if let Some(asset) = mat.image("Bump Strength").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            self.image_pin(i, "bump", &asset, true, 1.0, 1.0);
-        }
+        self.base_bump_pin(i, mat, "bump");
         self.round_edges_pin(i, mat);
         self.displacement_pin(i, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
@@ -2158,9 +2184,7 @@ impl Ocs<'_> {
         if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(i, "normal", &asset, false, 1.0, 1.0);
         }
-        if let Some(asset) = mat.image("Bump Strength").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            self.image_pin(i, "bump", &asset, true, 1.0, 1.0);
-        }
+        self.base_bump_pin(i, mat, "bump");
         self.round_edges_pin(i, mat);
         // In a weighted mix the mix material carries it.
         if !self.in_mix && !self.in_coat_mix {
@@ -4592,9 +4616,9 @@ mod tests {
             let power = &p[p.find("<pin name='power'>").unwrap()..];
             Some((file, power[power.find("type='6'>").unwrap() + 9..].split('<').next().unwrap().to_string()))
         };
-        // A height map at Top Coat Bump as its power.
+        // A height map at Top Coat Bump × BUMP_POWER as its power.
         let x = export(json!([{"channel": {"id": "Top Coat Bump", "current_value": 3, "image_file": "/t/coat.png"}}]));
-        assert_eq!(pin(&x, "coatingBump"), Some(("coat.png".into(), "3".into())), "{x}");
+        assert_eq!(pin(&x, "coatingBump"), Some(("coat.png".into(), "6".into())), "{x}");
         assert!(pin(&x, "coatingNormal").is_none() && pin(&x, "bump").is_none());
         // Mode 1: a normal map.
         let x = export(json!([
@@ -4610,14 +4634,21 @@ mod tests {
         ]));
         assert_eq!(pin(&x, "coatingBump").map(|p| p.0), Some("base.png".into()), "{x}");
         assert_eq!(pin(&x, "coatingNormal").map(|p| p.0), Some("base-n.png".into()), "{x}");
-        assert_eq!(pin(&x, "bump").map(|p| p.0), Some("base.png".into()));
-        // The coat's height map wins over the base's; the base's normal map stays.
+        assert_eq!(pin(&x, "bump"), Some(("base.png".into(), "2".into())));
+        // Bump Strength 0: no bump.
+        let x = export(json!([{"channel": {"id": "Bump Strength", "current_value": 0, "image_file": "/t/base.png"}}]));
+        assert!(pin(&x, "bump").is_none() && pin(&x, "coatingBump").is_none(), "{x}");
+        // The coat's and the base's height maps add up (a Mix at ½ of
+        // both at twice their power); the base's normal map stays.
         let x = export(json!([
             {"channel": {"id": "Top Coat Bump", "current_value": 1, "image_file": "/t/coat.png"}},
-            {"channel": {"id": "Bump Strength", "current_value": 1, "image_file": "/t/base.png"}},
+            {"channel": {"id": "Bump Strength", "current_value": 0.5, "image_file": "/t/base.png"}},
             {"channel": {"id": "Normal Map", "current_value": 1, "image_file": "/t/base-n.png"}},
         ]));
-        assert_eq!(pin(&x, "coatingBump").map(|p| p.0), Some("coat.png".into()), "{x}");
+        let mix = &x[x.find("<pin name='coatingBump'>").unwrap()..];
+        assert!(mix[..120].contains("type='38'") && mix.contains("<attr name='value' type='6'>0.5</attr>"), "{x}");
+        assert_eq!(pin(mix, "texture1"), Some(("coat.png".into(), "4".into())), "{x}");
+        assert_eq!(pin(mix, "texture2"), Some(("base.png".into(), "2".into())), "{x}");
         assert_eq!(pin(&x, "coatingNormal").map(|p| p.0), Some("base-n.png".into()));
         // A weighted coat (the Mix's metal) and an anisotropic one (the
         // Specular Layer) carry it on their own bump pin.
@@ -4626,7 +4657,7 @@ mod tests {
             ch.extend(mode.as_array().unwrap().iter().cloned());
             let x = export(serde_json::Value::Array(ch));
             let coat = &x[x.find("name='Ball top coat'").unwrap()..];
-            assert_eq!(pin(coat, "bump"), Some(("coat.png".into(), "2".into())), "{x}");
+            assert_eq!(pin(coat, "bump"), Some(("coat.png".into(), "4".into())), "{x}");
             assert!(pin(&x, "coatingBump").is_none());
         }
     }

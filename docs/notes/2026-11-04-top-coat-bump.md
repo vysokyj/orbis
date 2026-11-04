@@ -80,8 +80,66 @@ strong. B8 shows the ridges, not the coat's faint dimples: whether
 Octane combines `coatingBump` with `coatingNormal` or the normal map
 wins isn't visible at this strength.
 
+## Against Iray (second session, same day)
+
+Iray reference `calib/references/iray/Calib-CoatBump.png` (Iray Server,
+5000 samples, 18c3a65). Octane enhanced-final, 800 samples, ~60 s a
+render.
+
+By eye, Octane as of 796cf3b: B5 / B6 / B8 (normal maps at 1) match;
+B2 (base ridges) and B3 / B4 (coat dimples at 1 / 3) about half as bumpy
+as Iray; **B7** (coat + base height) nearly smooth in Octane, while Iray
+shows the base's ridges and the coat's dimples together — the coat's map
+alone on `coatingBump` (at power 1) drowned the ridges.
+
+The σ-of-high-pass metric from the first session doesn't rank bump
+strength here: a stronger bump breaks the HDRI's reflections up and the
+σ falls (B2 ×1 / ×4 / ×10: 9.8 / 7.0 / 5.9). So instead, the RMS of the
+grey Octane image minus Iray's (both blurred 1 px), per sphere in a
+disc of radius 34 px — the bump pattern lies in the same place in both,
+so the right strength minimises it. Every height map's `power` scaled by
+k in the exported `project.ocs` (`orbx_ocs get/set`):
+
+| k | B1 | B2 base ridges | B3 coat 1 | B4 coat 3 | B5 | B6 | B7 | B8 |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 0.90 | 7.69 | 7.18 | 14.67 | 1.15 | 1.07 | 7.23 | 1.52 |
+| 2 | 0.80 | **2.88** | **5.42** | **9.21** | 1.17 | 1.07 | 6.80 | 1.08 |
+| 3 | 0.80 | 8.13 | 6.12 | 12.13 | 1.19 | 1.06 | 7.63 | 1.01 |
+| 4 | 0.76 | 10.82 | 6.77 | 13.15 | 1.20 | 1.07 | 8.32 | 1.41 |
+| 6 | 0.77 | 12.15 | 8.53 | 16.08 | 1.13 | 1.14 | 10.02 | 2.99 |
+| 10 | 0.85 | 13.17 | 11.36 | 17.73 | 1.19 | 1.08 | 8.30 | 5.16 |
+| fix | 0.85 | 3.06 | 5.57 | 9.29 | 1.15 | 1.14 | **2.11** | 1.09 |
+
+(B1, B5, B6: no height map, the noise floor ~1.) k = 2 wins on the
+base's and the coat's maps alike, so one constant: `BUMP_POWER` 2 ×
+Iray's factor (Bump Strength — before ignored, always 1 — and Top Coat
+Bump). For B7 the coat pin now gets both height maps summed: a Mix
+texture (38) at amount ½ of the coat's and the base's map, each at twice
+its power ("fix" row: B7 7.2 → 2.1, and by eye the ridges and dimples of
+Iray's B7).
+
+Is it the map's resolution? Iray's `file_bump_texture` is native (only
+the signature is in DAZ's `libneuray.so`; NVIDIA's docs say only
+"degree of bumpiness"; MDL-SDK's stdmodule has no `base.mdl`).
+- Octane: the dimples swapped for the same pattern at 2048 px
+  (`orbx_ocs put`, new): B3 / B4 differ from the 512 px render by
+  0.86 / 1.48 RMS, at the noise floor — Octane's bump is per UV, not per
+  texel.
+- Iray: if it took the slope per texel (factor × Δh per texel), factor
+  1 / 3 on these dimples would tilt the coat 2.8° / 8.4°. As normal maps
+  of exactly that tilt on B5's slot, they rendered visibly flatter than
+  Iray's B3 / B4 — so not plain per-texel (a central difference over
+  two texels would be ×2, which fits; unproven). Whether Iray's bump
+  depends on the resolution needs an Iray render of a 2048 px copy: #75.
+
+Dead end on the way: another session's `clean-cache.sh` deleted these
+experiments' `.orbx` exports mid-run; kept as `*.keep` since
+(`octane-render.sh` takes any extension).
+
+Not changed: the DAZ MDL preset materials' bump amounts (`MdlMetal`,
+`MdlDielectric`, e.g. brushed metal) — their own factors, not checked
+against Iray here. Normal maps stay at power 1.
+
 ## Open
 
-How strong Octane's bump is for Iray's factor (B3 vs B4 vs B5, B2 for the
-base's own bump, which ignores Bump Strength) needs Calib-CoatBump's Iray
-reference (Iray batch, #61).
+Whether Iray's bump strength depends on the map's resolution (#75).
