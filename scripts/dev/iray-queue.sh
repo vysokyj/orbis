@@ -26,6 +26,14 @@ while [ $# -gt 0 ]; do
     esac
 done
 mkdir -p "$out"
+# DAZ keeps the Render > ORBIS Iray Queue item's script path as it was added;
+# a moved repo leaves it on a stale copy (or a symlink someone made for it).
+own="$(cd "$(dirname "$0")" && pwd -P)/daz-render-queue.dsa"
+menu=$(sed -n 's/.*File="\([^"]*\)".*Text="ORBIS Iray Queue".*/\1/p' "$HOME/Library/Application Support/DAZ 3D/Studio6/customactions.dsx" 2>/dev/null)
+if [ -n "$menu" ] && [ "$menu" != "$own" ]; then
+    echo "DAZ's ORBIS Iray Queue menu runs $menu, not $own: quit DAZ Studio, then run daz-add-queue-menu.dsa with that path" >&2
+    exit 1
+fi
 if ! grep -q started "$queue/queue.log" 2>/dev/null; then
     echo "no queue running: open daz-render-queue.dsa in the connected DAZ Studio" >&2
     exit 1
