@@ -1307,3 +1307,49 @@ fn split_normals_are_written_as_indexed_primvars() {
     assert!(o.contains("normal3f[] primvars:normals = ") && o.contains("interpolation = \"faceVarying\"") && o.contains("int[] primvars:normals:indices = "), "{o}");
     assert!(!o.contains("normal3f[] normals"), "plain `normals` Octane ignores");
 }
+
+#[test]
+fn round_corners_not_across_materials_split_the_mesh() {
+    // Two quads sharing an edge (points 1, 4), A and B; B rounds but not
+    // across materials (Calib-RoundCorners R8) → a mesh of its own.
+    let rc = |across: bool| {
+        Some(Rc::new(crate::daz_material::Material::from_dson(
+            &json!({"extra": [{"channels": [
+                {"channel": {"id": "Round Corners Radius", "current_value": 0.01}},
+                {"channel": {"id": "Round Corners Across Materials", "current_value": across}},
+            ]}]}),
+            &HashMap::new(),
+        )))
+    };
+    let pts: Vec<[f32; 3]> = (0..6).map(|i| [(i % 3) as f32, (i / 3) as f32, 0.0]).collect();
+    let whole = |b| Mesh {
+        name: "Box".into(),
+        points: pts.clone(),
+        face_counts: vec![4, 4],
+        face_indices: vec![0, 1, 4, 3, 1, 2, 5, 4],
+        subsets: vec![("A".into(), vec![0]), ("B".into(), vec![1])],
+        materials: vec![rc(true), b],
+        uvs: Some(((0..8).map(|i| [i as f32, 0.0]).collect(), (0..8).collect())),
+        normals: Some(vec![[0.0, 0.0, 1.0], [1.0, 0.0, 0.0]]),
+        normal_indices: Some(vec![0, 0, 0, 0, 1, 1, 1, 1]),
+        ..Default::default()
+    };
+    // Across on (or no Round Corners): untouched.
+    let kept = split_round_corner_borders(vec![whole(rc(true)), whole(None)]);
+    assert_eq!(kept.len(), 2);
+    assert_eq!(kept[0].face_indices, vec![0, 1, 4, 3, 1, 2, 5, 4]);
+    let parts = split_round_corner_borders(vec![whole(rc(false))]);
+    assert_eq!(parts.len(), 2);
+    let (a, b) = (&parts[0], &parts[1]);
+    assert_eq!((a.name.as_str(), b.name.as_str()), ("Box", "Box_B"));
+    assert_eq!(a.points, vec![pts[0], pts[1], pts[4], pts[3]]);
+    assert_eq!(b.points, vec![pts[1], pts[2], pts[5], pts[4]]);
+    assert_eq!((a.face_indices.clone(), b.face_indices.clone()), (vec![0, 1, 2, 3], vec![0, 1, 2, 3]));
+    assert_eq!(b.subsets, vec![("B".to_string(), vec![0])]);
+    assert!(b.materials[0].is_some() && a.materials[0].is_some());
+    assert_eq!(b.normals, Some(vec![[1.0, 0.0, 0.0]]));
+    assert_eq!(b.normal_indices, Some(vec![0; 4]));
+    assert_eq!(b.uvs, Some(((4..8).map(|i| [i as f32, 0.0]).collect(), (0..4).collect())));
+    let (usda, _) = write_usda(&parts, &[]);
+    assert!(usda.contains("def Mesh \"Box_B\""), "{usda}");
+}

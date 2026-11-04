@@ -291,6 +291,11 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
     and blobby (91°) shapes as DAZ means them. Calib-Hair and
     Calib-L-Distant-45 against their earlier renders: mean |Δ| 0.33 and
     0.15 / 255, so figures and plain props didn't change.
+  - Against Iray (Calib-Smooth, 5000 samples; Octane enhanced-final 1024):
+    the same faceted (S1, S2), smooth (S3–S5) and blobby (S7) shapes, the
+    sharp cube (S6) and the cylinder smooth round its side with crisp caps
+    (S8). Per object Octane is 1.02–1.06× Iray's level (the whole frame
+    1.017), mean |Δ| 2.5–4.9 / 255.
   - Not known: how DAZ weights the faces in the sum (area, angle). Every
     test shape is symmetric, so we use area weights, as before.
 - **Skin-tight lift**: an unrefined mesh conforming to a refined one (hair
@@ -1305,18 +1310,34 @@ a mix) as Octane **Round Edges** (137):
 - `roundEdgesRadius` = Radius **in meters**. The MDL spec (19.3) gives the
   radius in meters in world space, and DAZ hands it over unconverted (as it
   does Matte Fog's visibility). So DAZ's 1 is 1 m, and 0.005 is 5 mm.
-  Octane caps the radius at 100.
+  Iray confirms it (Calib-RoundCorners, 5000 samples): R5 (radius 1)
+  shades the whole 30 cm cube as a blob, which 1 cm could not. Octane caps
+  the radius at 100.
 - `roundEdgesCurvatureRoundness` = Roundness (1 round, 0 chamfer, in both
   renderers).
 - 8 samples (Octane's default) and `roundEdgesConsiderOtherObjects` off.
   Iray rounds a mesh's own facets.
-- **Across Materials off is not mapped.** Octane's Round Edges sees only
-  geometry, not material borders, so it always rounds across them.
+- **Across Materials off: the material's faces become a mesh of their
+  own.** Iray then keeps that material's border sharp (R8: no highlight
+  along the blue top's border; R7, across on, has one). Octane's Round
+  Edges sees only geometry, but with other objects off it rounds an object
+  against itself alone. So the export cuts each material with Across
+  Materials off (and a radius > 0) out of its mesh into a prim of its own
+  (`<mesh>_<group>`); the other materials stay one mesh, which keeps the
+  name. The cut comes after the normals, so the shading across it doesn't
+  change. Difference: Iray decides per shading point, so a neighbour with
+  across on would still round towards it. After the cut, the neighbour
+  doesn't round that border either.
 
-On Calib-RoundCorners (enhanced-final), Octane rounds the edges more and
-more from 0.005 to 0.02 m, chamfers them at roundness 0, and blurs the
-whole 30 cm cube at 1 m. The meters reading still waits for Iray's
-references: if R5 (radius 1) looks like R3 (0.01) in Iray, DAZ means cm.
+Octane against Iray (Calib-RoundCorners, enhanced-final 1024 samples vs
+Iray 5000): per cube, Octane is 1.02–1.06× Iray's level (the whole frame
+1.017, the same as Calib-Smooth's 1.017, so this is not the rounding), and
+mean |Δ| 2.7–5.2 / 255. The edge highlights widen alike from 0.005 to
+0.02 m, and the chamfer (R6) is a flat band in both. Since the cut, R8's
+border is sharp in both.
+Not matched: at a radius beyond half the object (R5, 1 m on 30 cm), Iray
+shades a smooth blob and Octane shows creases along the face diagonals.
+That radius makes no sense on a real prop, so it stays as it is.
 
 ### Displacement
 
@@ -1659,7 +1680,6 @@ to calibrate on ([calibration](../calibration.md#the-scenes)):
   [#7](https://github.com/vysokyj/orbis/issues/7).
 - Scene: hidden surfaces and render flags
   [#36](https://github.com/vysokyj/orbis/issues/36), fog and finite dome
-  [#37](https://github.com/vysokyj/orbis/issues/37), round corners'
-  radius unit against Iray [#40](https://github.com/vysokyj/orbis/issues/40), Iray render
+  [#37](https://github.com/vysokyj/orbis/issues/37), Iray render
   settings [#43](https://github.com/vysokyj/orbis/issues/43), Sun-Sky
   channels [#18](https://github.com/vysokyj/orbis/issues/18).

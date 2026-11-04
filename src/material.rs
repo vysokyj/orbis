@@ -2189,8 +2189,9 @@ const ROUND_EDGES_SAMPLES: u32 = 8;
 /// every Uber material's `geometry_bump`, the channels as they are
 /// (Calib-RoundCorners .mi). MDL takes the radius in meters (MDL spec 19.3:
 /// world space, whatever `mdl_meters_per_scene_unit`), so DAZ's 1 is 1 m.
-/// `across_materials`: Octane can't keep rounding off a material border
-/// (its Round Edges sees geometry, not materials) — read, not mapped.
+/// Iray confirms meters (Calib-RoundCorners R5). `across_materials` off:
+/// Octane's Round Edges sees geometry, not materials, so the export cuts
+/// that material into a mesh of its own (`split_round_corner_borders`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct RoundCorners {
     pub radius_m: f32,

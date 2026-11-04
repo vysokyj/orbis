@@ -576,10 +576,118 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
         mesh.normals = Some(normals);
         mesh.normal_indices = idx;
     }
+    let meshes = split_round_corner_borders(meshes);
     for s in &report.skipped {
         tracing::info!(reason = %s, "USD export: node skipped");
     }
     Ok((meshes, report))
+}
+
+/// Round Corners with Across Materials off (#40): Iray then keeps a
+/// material's border sharp (Calib-RoundCorners R8: no highlight along the
+/// top's border, R7 has one). Octane's Round Edges sees geometry only, but
+/// with `roundEdgesConsiderOtherObjects` off it rounds an object against
+/// itself alone, so each such material's faces become a mesh of their own
+/// (the rest of the mesh stays one). The normals are already final, so the
+/// shading across the cut doesn't change.
+pub(super) fn split_round_corner_borders(meshes: Vec<Mesh>) -> Vec<Mesh> {
+    let mut names: HashSet<String> = meshes.iter().map(|m| m.name.clone()).collect();
+    let mut out = Vec::with_capacity(meshes.len());
+    for m in meshes {
+        let apart: Vec<bool> = m
+            .materials
+            .iter()
+            .map(|mat| mat.as_deref().and_then(crate::material::round_corners).is_some_and(|r| !r.across_materials))
+            .collect();
+        if m.curve_widths.is_some() || m.subsets.len() < 2 || !apart.contains(&true) {
+            out.push(m);
+            continue;
+        }
+        // One group per material kept apart, one for all the others.
+        let rest: Vec<usize> = (0..m.subsets.len()).filter(|&i| !apart[i]).collect();
+        let mut groups: Vec<Vec<usize>> = (0..m.subsets.len()).filter(|&i| apart[i]).map(|i| vec![i]).collect();
+        if !rest.is_empty() {
+            groups.insert(0, rest);
+        }
+        tracing::info!(mesh = %m.label, parts = groups.len(), "USD export: split at materials not rounded across");
+        for (k, g) in groups.iter().enumerate() {
+            // The first part keeps the mesh's name (object layers, instances).
+            let name = if k == 0 { m.name.clone() } else { unique_name(&mut names, &format!("{}_{}", m.name, m.subsets[g[0]].0)) };
+            out.push(mesh_part(&m, g, name));
+        }
+    }
+    out
+}
+
+/// The faces of `subsets` (indices into `m.subsets`) as a mesh of their own,
+/// points, normals and UVs renumbered.
+fn mesh_part(m: &Mesh, subsets: &[usize], name: String) -> Mesh {
+    let mut start = Vec::with_capacity(m.face_counts.len());
+    let mut at = 0u32;
+    for &c in &m.face_counts {
+        start.push(at);
+        at += c;
+    }
+    let (mut points, mut point_of) = (Vec::new(), HashMap::new());
+    let (mut normals, mut normal_of) = (Vec::new(), HashMap::new());
+    let (mut uv_vals, mut uv_of) = (Vec::new(), HashMap::new());
+    let (mut face_counts, mut face_indices, mut normal_idx, mut uv_idx) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    let per_vertex = m.normal_indices.is_none();
+    let mut part_subsets = Vec::new();
+    let mut materials = Vec::new();
+    for &s in subsets {
+        let (group, faces) = &m.subsets[s];
+        let mut new_faces = Vec::with_capacity(faces.len());
+        for &f in faces {
+            let (f, c) = (f as usize, m.face_counts[f as usize]);
+            new_faces.push(face_counts.len() as u32);
+            face_counts.push(c);
+            for corner in start[f]..start[f] + c {
+                let v = m.face_indices[corner as usize];
+                let nv = *point_of.entry(v).or_insert_with(|| {
+                    points.push(m.points[v as usize]);
+                    if per_vertex {
+                        if let Some(n) = &m.normals {
+                            normals.push(n[v as usize]);
+                        }
+                    }
+                    (points.len() - 1) as u32
+                });
+                face_indices.push(nv);
+                if let (Some(n), Some(idx)) = (&m.normals, &m.normal_indices) {
+                    let old = idx[corner as usize];
+                    normal_idx.push(*normal_of.entry(old).or_insert_with(|| {
+                        normals.push(n[old as usize]);
+                        (normals.len() - 1) as u32
+                    }));
+                }
+                if let Some((vals, idx)) = &m.uvs {
+                    let old = idx[corner as usize];
+                    uv_idx.push(*uv_of.entry(old).or_insert_with(|| {
+                        uv_vals.push(vals[old as usize]);
+                        (uv_vals.len() - 1) as u32
+                    }));
+                }
+            }
+        }
+        part_subsets.push((group.clone(), new_faces));
+        materials.push(m.materials.get(s).cloned().flatten());
+    }
+    Mesh {
+        name,
+        label: m.label.clone(),
+        points,
+        face_counts,
+        face_indices,
+        subsets: part_subsets,
+        materials,
+        uvs: m.uvs.as_ref().map(|_| (uv_vals, uv_idx)),
+        normals: m.normals.as_ref().map(|_| normals),
+        normal_indices: m.normal_indices.as_ref().map(|_| normal_idx),
+        curve_widths: None,
+        instances: m.instances.clone(),
+        no_shadow: m.no_shadow,
+    }
 }
 
 /// Each face's smoothing (`smoothing_cos`) from its subset's material.

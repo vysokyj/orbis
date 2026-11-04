@@ -106,16 +106,60 @@ What the render shows (Calib-RoundCorners):
 - R6: a flat chamfer band.
 - R7 = R8: Octane always rounds across the material border.
 
-## Open
+## Against Iray (second session, same day)
 
-- **The unit of the radius**, meters or cm. The MDL spec says meters, and
-  DAZ's Matte Fog visibility (also passed raw) is meters in Iray. If Iray's
-  R5 looks like R3, Iray reads DAZ's value as cm and the export is 100×
-  off. The Iray batch on #40 settles it.
-- How Iray rounds a material border with across materials off: Octane
-  can't do that. The Iray batch shows how much it matters.
+The Iray batch came in (5000 samples, `calib/references/iray`). Octane:
+enhanced-final, 1024 samples, exported from the My Library scenes.
+
+**Calib-Smooth**: Octane renders every shape as Iray does: S1/S2 faceted,
+S3–S5 smooth, S6 a sharp cube, S7 blobby, S8 smooth round the side with
+crisp caps. Per object (Octane / Iray level, mean |Δ| per pixel 0–255):
+
+| | S1 | S2 | S3 | S4 | S5 | S6 | S7 | S8 |
+|---|---|---|---|---|---|---|---|---|
+| level | 1.024 | 1.024 | 1.030 | 1.029 | 1.026 | 1.056 | 1.059 | 1.053 |
+| \|Δ\| | 2.5 | 2.7 | 3.3 | 3.0 | 2.5 | 4.4 | 4.9 | 3.8 |
+
+The whole frame is 1.017 in both scenes, so the 2–6 % is the general
+level, not smoothing. The edge rule stands.
+
+**Calib-RoundCorners**:
+
+1. **Unit: meters.** Iray's R5 (radius 1) is a smooth blob over the whole
+   30 cm cube. At 1 cm it would look like R3 as we export it. The export
+   was right.
+2. **R2–R4** (5 mm – 2 cm): the edge highlights widen alike in both. **R6**
+   (roundness 0): a flat chamfer band in both.
+3. **R7 / R8**: Iray keeps the blue top's border sharp with across
+   materials off (R8), and R7 has a highlight along it. Octane had both
+   rounded, R8 even brighter. Fix: cut a material with across materials
+   off (and a radius) out of its mesh into a prim of its own
+   (`split_round_corner_borders`, after the normals). Octane's Round Edges
+   with other objects off then has nothing across the border to round
+   against. The re-render shows R8's border sharp, as Iray's.
+4. **R5 is not matched**: Octane draws creases along the face diagonals
+   where Iray is smooth. Round Edges with a radius larger than half the
+   object breaks. That is no realistic setting, so it is left as is.
+5. On the left faces of R3/R4/R6, Octane shows a sharp-edged darker
+   rectangle where Iray has a soft gradient. It is most likely the
+   neighbouring cube's reflection, which Octane renders sharper at
+   roughness 0.2. It is not the rounding (R1, unrounded, doesn't face a
+   neighbour), and it is outside #40.
+
+| | R1 | R2 | R3 | R4 | R5 | R6 | R7 | R8 |
+|---|---|---|---|---|---|---|---|---|
+| level | 1.024 | 1.026 | 1.039 | 1.055 | 1.038 | 1.052 | 1.031 | 1.038 |
+| \|Δ\| | 2.7 | 2.8 | 4.0 | 4.6 | 5.2 | 4.6 | 3.0 | 3.2 |
+
+Timings: Octane 88 s (RoundCorners), 73 s (Smooth) at 1024 samples.
+
+## Still open
+
 - How DAZ weights faces in a smoothed normal (area vs. angle). The test
-  shapes are symmetric and can't tell.
+  shapes are symmetric and can't tell; it doesn't show in any render.
+- Across materials off when only one side of a border has it: Iray
+  decides per shading point (the other side still rounds), the cut
+  stops both. Not tested (needs another Iray render, not worth one).
 
 ## Process lessons
 
@@ -123,3 +167,10 @@ What the render shows (Calib-RoundCorners):
   normals had been silently dropped since the first export.
 - A test shape whose edges sit between two angles settles the rule
   better than a sphere (icosahedron: 41.8°, tested at 30° / 45°).
+- `octane-render.sh` wrote its job list before taking the render lock.
+  Two sessions waiting at once swapped jobs (this run rendered another
+  session's Calib-CoatBump). Fixed in #74.
+- A session that builds into the shared cargo target dir overwrites the
+  others' binary. `CARGO_TARGET_DIR` in the scratchpad (and
+  `cargo build --release --examples`, for `orbx_ocs`'s tone LUT) keeps a
+  run on its own code.
