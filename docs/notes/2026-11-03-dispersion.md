@@ -81,5 +81,34 @@ its Iray reference (listed in #33, "Iray batch: needs").
 
 ## Open
 
-- Iray reference for Calib-Dispersion-Rough; then compare.
-- Dispersion strength question (#33).
+- ~~Iray reference for Calib-Dispersion-Rough~~: done 2026-11-04, rule holds.
+- ~~Dispersion strength~~: kept the Abbe number (decision 2026-11-03).
+
+## 2026-11-04: Calib-Dispersion-Rough against Iray
+
+Iray reference: Iray Server, 5000 samples (batch of 2026-11-04, fe12e27).
+Octane: enhanced-final, frame 1.04. Per sphere disc (radius 36 px):
+linear luminance and a detail metric — mean |blur 1.5 px − blur 4 px| /
+luminance × 100 (a mid band; the plain high-pass measured Octane's noise
+on the frosted spheres, R5 14.8 vs Iray 1.2, so it was dropped).
+
+| sphere | Iray lum | Octane lum | ratio | Iray detail | Octane detail |
+|---|---|---|---|---|---|
+| R1 gloss 0.3, Abbe 0 | 0.270 | 0.276 | 1.02 | 8.6 | 11.4 |
+| R2 gloss 0.3, Abbe 20 | 0.309 | 0.316 | 1.02 | 8.4 | 8.5 |
+| R3 own 0.3, Abbe 0 | 0.292 | 0.301 | 1.03 | 5.6 | 5.9 |
+| R4 own 0.3, Abbe 20 | 0.280 | 0.289 | 1.03 | 8.2 | 8.4 |
+| R5 gloss 0.6, Abbe 0 | 0.256 | 0.303 | 1.19 | 1.2 | 1.2 |
+| R6 gloss 0.6, Abbe 20 | 0.270 | 0.274 | 1.01 | 8.0 | 9.5 |
+| R7 own 0.6, Abbe 0 | 0.229 | 0.261 | 1.14 | 1.3 | 2.6 |
+| R8 own 0.6, Abbe 20 | 0.172 | 0.177 | 1.03 | 14.4 | 14.5 |
+
+The MDL reading holds: Iray renders every dispersive sphere clear
+whatever the roughness, like the export (roughness 0). No code change.
+
+Aside, not dispersion: rough glass without dispersion at 0.6 (R5, R7) is
+1.14 – 1.19 × Iray in Octane and R7 a little less frosted (detail 2.6 vs
+1.3); R1 at gloss 0.3 is a bit sharper (11.4 vs 8.6). Filed as its own
+issue (#72).
+
+Timings: one enhanced-final render, ~3 min incl. export.

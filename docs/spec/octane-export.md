@@ -903,7 +903,11 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   (31) — as one Octane dropped it on import (probe 112). With dispersion
   Iray's transmission is perfectly smooth whatever the roughness (DAZ's MDL,
   `refraction_base`): a mostly refractive (≥ 0.5), dispersive body gets
-  `roughness` 0 (Calib-Dispersion-Rough awaits its Iray reference).
+  `roughness` 0. Calib-Dispersion-Rough (Iray, 5000 samples) confirms it:
+  every Abbe 20 sphere renders clear in Iray as in Octane at glossy
+  roughness 0.3 / 0.6 and refraction roughness 0.3 / 0.6 (detail 8.0 –
+  14.4 vs Octane 8.4 – 14.5, brightness 1.01 – 1.03 × Iray); the same
+  spheres without Abbe are frosted at 0.6 in both.
   Calib-Dispersion (8 spheres, Abbe 0 – 60, IOR 1.33 – 2.4): brightness
   1.02 – 1.04 × Iray; Octane's spectral dispersion shows ~2× the colour
   fringes of Iray's (RGB: spectral rendering off) at Abbe 10 – 30 — kept
