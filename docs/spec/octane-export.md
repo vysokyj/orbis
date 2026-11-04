@@ -588,7 +588,7 @@ with one setting changed; Iray references at 5000 samples), Octane at
 | Max SSS Path Length N | `maxScatterDepth` min(128, N) | the same bound (volume vertices); not rendered |
 | Firefly Filter off | `giClamp` 10⁶ (Octane's maximum: no clamp) instead of 20 | Iray's filter clamps outliers like Octane's GI clamp; Calib-RS-FireflyOff changes neither renderer's pixels in this scene |
 | Pixel Filter, Radius r | `filtersize` 1.2 × σ / σ_default (Octane's range 1–8) | σ of Iray's filter: Gauss r / 3 (it ends at 3 σ), box r / √3, triangle r / √6 (width 2r, the .mi's `gauss 3`). Measured as the extra Gaussian blur that turns one render into another: Iray Gauss 1.5 → 3 +0.9 px, → box 1.5 +0.8 px (predicted 0.87 and 0.70 from σ 0.5); Octane `filtersize` 1.2 → 1.8 / 2.4 / 4 +0.6 / +0.8 / +1.5 px, i.e. σ ≈ 0.38 × size (1.2 ≈ Iray's default 0.5). Exported: Calib-RS-PixelRadius3 +0.8, -PixelBox +0.7 px over Octane's default |
-| Bloom Filter (Threshold T, Radius r, Brightness Scale k) | render target's post processing on: `cutoff` T / 10⁴ × the imager's exposure, `bloom_power` k (**not calibrated**), `spreadStart` 0.0001, `spreadEnd` r, `glare_power` 0 | see Bloom below |
+| Bloom Filter (Threshold T, Radius r, Brightness Scale k) | render target's post processing on: `cutoff` T / 10⁴ × the imager's exposure, `bloom_power` k, `spreadStart` 0.0001, `spreadEnd` r, `glare_power` 0 | see Bloom below |
 
 **Bloom.** DAZ passes all four channels as they are (`.mi`: Calib-RS-Bloom,
 -Mi-Bloom). Iray's threshold is in its raw pixel values, before the tone
@@ -599,12 +599,29 @@ Iray *replaces* what is over the threshold by its Gaussian blur. Octane's
 `cutoff` is measured after the exposure, so T ÷ the dome scale (Iray's
 10⁴ per unit of Octane's environment power, `DOME_INTENSITY_SCALE`) × the
 imager's exposure is the same pixel (DAZ's default 2000 at EV 13: 0.28).
-Octane's bloom *adds* a multi-scale glow: at cutoff 0, power 1 / 4 it
-added 1 % / 4 % of the image (fit a 0.98, b 0.03, σ 4–24 px); it can't
-replace the frame by its blur as Iray does at T = 1 — a setting nobody
-uses. The power for a realistic threshold needs Iray references
-(Calib-RS-Bloom2000 / -Bloom10000, Iray batch on #43); until then it is
-Iray's brightness scale. Octane X rendered every post-processing variant
+Iray's bloom, fitted on Calib-RS-Bloom2000 / -Bloom10000 against
+Calib-Glass (5000 samples, display-linear) as B = I − w + k·G_σ(w),
+w = max(I − t, 0): σ 16 px, k 0.98 / 0.97 (the brightness scale 1), the
+threshold t 0.050 / 0.235 of the display's white — the export's cutoff for
+this scene (exposure 0.2475) is 0.0495 / 0.247, within 5 %: the conversion
+holds, and Octane's exposed value is the display-linear one. The fit
+leaves 1/18 and 1/12 of the change unexplained; the mean stays (1.0001):
+Iray moves the light over the threshold into a 16 px halo. At DAZ's
+default 2000 that is nearly the whole frame (the floor blooms).
+
+Octane's bloom *adds* a wide, faint glow and takes nothing from the bright
+pixels: at that cutoff, power 1 adds 0.66 % / 0.09 % to the mean, power 4
+2.6 % (linear in the power), mostly as a broad lift of the bright sky; in
+Iray's halo ring it gives 1/28 (power 1) to 1/7 (power 4) of Iray's added
+light, and over the blooming cores it brightens where Iray darkens
+(correlation with Iray's change −0.1). Spread start 0.01, end 0.02 / 0.2
+change it by less than the noise. Matching the halo would take power ≈ 28
+and +18 % on the whole frame, against the light amount (Goal); the
+export keeps `bloom_power` = k, Octane's subtle glow scaled as Iray's
+brightness scale scales its halo (NVIDIA's Iray manual aims the filter
+at subtle halos around emitters). Neither renderer can do the other's: Iray's
+threshold 1 (Calib-RS-Bloom) replaces the frame by its blur. Octane X
+rendered every post-processing variant
 without trouble (the crash in #37 was with its post-volume fog).
 
 **Not mapped**, with the reason:

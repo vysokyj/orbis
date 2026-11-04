@@ -114,6 +114,54 @@ cutoff is "measured after the exposure" (pin description), so the export
 writes T / 10⁴ × exposure. The power needs Iray at a realistic threshold:
 Calib-RS-Bloom2000 / -Bloom10000 generated for the next Iray batch.
 
+### Threshold 2000 / 10000 (Iray Server, 5000 samples, 18c3a65)
+
+No headless DAZ needed: the two scenes are Calib-Glass with other render
+settings, so their dumps are Calib-Glass's with `scene` changed (the cache
+name hashes the scene path).
+
+Iray against Calib-Glass, display-linear: the mean stays (1.00007 /
+0.99999), mean |Δ| 0.0060 / 0.0015, 12.8 % / 2.1 % of pixels change by
+> 0.01. Fit B = I − w + k·G_σ(w), w = max(I − t, 0) per channel
+(rms of Δ 0.0194 / 0.0105):
+
+| T | t | σ px | k | rms |
+|---|---|---|---|---|
+| 2000 | 0.00 | 16 | 0.93 | 0.0020 |
+| 2000 | **0.05** | **16** | **0.98** | **0.0011** |
+| 2000 | 0.07 | 16 | 1.04 | 0.0018 |
+| 2000 | 0.20 | 16 | 1.29 | 0.0121 |
+| 10000 | 0.20 | 16 | 0.87 | 0.0024 |
+| 10000 | **0.23** | **16** | **0.97** | **0.0009** |
+| 10000 | 0.26 | 16 | 1.04 | 0.0021 |
+
+σ 14 / 18 fit worse. The export's cutoff (T / 10⁴ × exposure 0.2475):
+0.0495 / 0.247 — matches t within 5 %. Brightness scale 1 → k ≈ 1: the
+three-step composite (cut, blur, add back × scale) of NVIDIA's manual,
+energy-conserving at scale 1. At 2000 the floor (0.2) and the whole sky
+bloom: DAZ's default is a strong effect in a scene at EV 13.
+
+Octane (Enhanced + Final, 400 samples, Calib-RS-Bloom2000's export with
+pins changed; `off` = post processing off as baseline; Octane off / Iray
+plain mean 1.035). Differences smoothed σ 3 px; halo = where Iray adds
+> 0.003, core = where it takes > 0.003:
+
+| variant | mean added | halo Iray / Octane | core Iray / Octane | corr. in halo |
+|---|---|---|---|---|
+| cutoff 0.0495, power 1 (= export, T 2000) | +0.66 % | 0.0183 / 0.0007 (×28) | −0.0202 / +0.0019 | −0.15 |
+| power 4 | +2.6 % | 0.0183 / 0.0025 (×7) | −0.0202 / +0.0075 | −0.16 |
+| spreadStart 0.01 | +0.63 % | ×22 | | −0.02 |
+| spreadStart 0.01, End 0.02 | +0.65 % | ×25 | | −0.02 |
+| spreadEnd 0.2 | +0.64 % | ×27 | | −0.14 |
+| cutoff 0.2475, power 1 (= export, T 10000) | +0.09 % | 0.0077 / 0.0002 (×37) | −0.0145 / +0.0014 | −0.08 |
+
+Octane's glow is a broad lift of the bright sky (σ of a single-Gaussian
+fit 8–64 px, at the noise level), linear in the power, nearly blind to
+the spread pins, and never darkens. Matching Iray's halo would take power
+≈ 28 and +18 % on the frame. **Decision: `bloom_power` = brightness scale**
+(Octane's subtle glow, scaled as Iray scales its halo), cutoff and
+`spreadEnd` = r unchanged — now measured, not a placeholder.
+
 ## Octane pin ranges (probe 43)
 
 filtersize 1–8, giClamp 0.001–10⁶, maxScatterDepth 1–256, diffuse /
@@ -137,6 +185,11 @@ started — Octane X was crashing (the user saw it). Not repeated. Not
 mapped (spec says why).
 
 ## Process
+
+- Two `octane-render.sh` runs waiting for the lock at once (this one and
+  #40's) overwrote each other's `orbis_jobs.txt`; both failed with
+  "failed to import". Fixed on master (a07902a, #74): the lock is taken
+  before the job list.
 
 - `timeout` doesn't exist on macOS: the first probe-43 run silently didn't
   start and the probe log read was a crashed session's old file (dated

@@ -92,9 +92,11 @@ const SPREAD_START: f64 = 0.0001;
 /// of Calib-RS-Bloom bloomed, DAZ's default is 2000): ÷ the dome scale
 /// (Iray's 10⁴ per unit of Octane's power) × the exposure gives Octane's
 /// cutoff. Iray's radius (σ = radius × width / 6 in Calib-RS-Bloom) is the
-/// largest spread. Iray replaces what is over the threshold by its blur;
-/// Octane adds a glow — the power is Iray's brightness scale, not
-/// calibrated (#43).
+/// largest spread. Iray moves what is over the threshold into its blur
+/// (Calib-RS-Bloom2000 / -10000: thresholds 0.050 / 0.235 of white against
+/// the cutoffs 0.0495 / 0.247 written here). Octane adds a faint, wide glow
+/// instead; matching Iray's halo would take power ≈ 28 and light the whole
+/// frame, so the power stays Iray's brightness scale (#43, spec Bloom).
 pub(super) fn post_processing(bloom: Option<&Bloom>, exposure: f64) -> PostProcessing {
     match bloom {
         None => PostProcessing { on: false, cutoff: 0.0, bloom_power: 1.0, spread: (SPREAD_START, 1.0) },
@@ -183,5 +185,12 @@ mod tests {
         // DAZ's default threshold 2000 at EV 13: 0.2 of the dome's unit, exposed.
         assert!(p.on && (p.cutoff - 0.28).abs() < 1e-9, "{p:?}");
         assert_eq!((p.bloom_power, p.spread), (1.0, (SPREAD_START, 0.05)));
+        // Calib-RS-Bloom2000 / -10000 (exposure 0.2475): Iray's fitted
+        // thresholds 0.050 / 0.235 of white.
+        for (t, iray) in [(2000.0, 0.050), (10000.0, 0.235)] {
+            let o = options(&[("Bloom Filter Enable", json!(true)), ("Bloom Filter Threshold", json!(t))]);
+            let c = post_processing(o.bloom.as_ref(), 0.2475).cutoff;
+            assert!((c / iray - 1.0).abs() < 0.06, "{t}: {c}");
+        }
     }
 }
