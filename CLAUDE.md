@@ -41,6 +41,7 @@ never wait for CI - the local `cargo test` before a push is the gate.
 | `src/daz_material.rs` | DSON materials: merged Iray channels |
 | `src/layered_image.rs` | DAZ Layered Image Editor stacks → flattened images |
 | `src/texture_budget.rs` | Texture memory budget, downscaling |
+| `src/bake.rs` | Per-texel baking: exact 8-bit decode / encode tables, parallel rows |
 | `src/vdb.rs` | OpenVDB header: grid names |
 | `src/ies.rs` | IES (LM-63) light profiles: candela table, power |
 | `src/orbx.rs` | ORBX container writer/reader (reverse-engineered) |

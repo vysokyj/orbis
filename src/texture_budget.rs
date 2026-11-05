@@ -75,6 +75,14 @@ pub fn downscale(data: &[u8], limit: u32) -> Result<Option<Vec<u8>>> {
     Ok(Some(out))
 }
 
+/// `f` over `items` on a thread each, results in `items`' order.
+pub fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    std::thread::scope(|s| {
+        let handles: Vec<_> = items.iter().map(|i| s.spawn(|| f(i))).collect();
+        handles.into_iter().map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e))).collect()
+    })
+}
+
 /// Scale every texture in `files` (in place) to `limit`, in parallel. Returns
 /// how many were scaled; unreadable ones are left as they are (logged).
 pub fn downscale_all(files: &mut [(String, Vec<u8>)], limit: u32) -> usize {

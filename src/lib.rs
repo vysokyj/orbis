@@ -4,6 +4,7 @@
 //! texture memory budget. The `orbis` binary is the command-line front end
 //! the DAZ Studio script runs; other tools can use this crate directly.
 
+pub mod bake;
 pub mod daz;
 pub mod daz_material;
 pub mod iray;

@@ -299,25 +299,36 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
         }
         let n_files = textures.files.len().max(1);
         progress.report(65, "writing the .orbx");
-        for (k, (asset, file)) in textures.files.iter().enumerate() {
-            progress.report(65 + (30 * k / n_files) as u32, &format!("writing textures ({}/{})", k + 1, textures.files.len()));
-            let data = std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
-            let data = match report.texture_limit.map(|l| crate::texture_budget::downscale(&data, l)) {
-                Some(Ok(Some(small))) => {
-                    scaled += 1;
-                    small
-                }
-                _ => data,
-            };
-            w.add(asset, &data)?;
+        // Read and scaled a batch at a time across the cores (decoding and
+        // resizing 4K maps one by one took 74 s on a multi-figure scene,
+        // #78), written in order.
+        let limit = report.texture_limit;
+        let batch = std::thread::available_parallelism().map_or(4, |n| n.get()) * 2;
+        let mut done = 0;
+        for part in textures.files.chunks(batch) {
+            let loaded = crate::texture_budget::par_map(part, |(_, file)| {
+                let data = std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
+                Ok::<_, anyhow::Error>(match limit.map(|l| crate::texture_budget::downscale(&data, l)) {
+                    Some(Ok(Some(small))) => (small, true),
+                    _ => (data, false),
+                })
+            });
+            for ((asset, _), r) in part.iter().zip(loaded) {
+                progress.report(65 + (30 * done / n_files) as u32, &format!("writing textures ({}/{})", done + 1, textures.files.len()));
+                done += 1;
+                let (data, small) = r?;
+                scaled += usize::from(small);
+                w.add(asset, &data)?;
+            }
         }
-        for (asset, data) in &textures.generated {
-            match report.texture_limit.map(|l| crate::texture_budget::downscale(data, l)) {
-                Some(Ok(Some(small))) => {
-                    scaled += 1;
-                    w.add(asset, &small)?;
-                }
-                _ => w.add(asset, data)?,
+        for part in textures.generated.chunks(batch) {
+            let small = crate::texture_budget::par_map(part, |(_, data)| match limit.map(|l| crate::texture_budget::downscale(data, l)) {
+                Some(Ok(Some(small))) => Some(small),
+                _ => None,
+            });
+            for ((asset, data), small) in part.iter().zip(small) {
+                scaled += usize::from(small.is_some());
+                w.add(asset, small.as_deref().unwrap_or(data))?;
             }
         }
         for (asset, file) in &vdb_files {

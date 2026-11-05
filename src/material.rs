@@ -234,10 +234,14 @@ impl Textures {
         let open = |src: &str| dirs.iter().map(|d| d.join(src.trim_start_matches('/'))).find(|p| p.is_file()).and_then(|f| image::open(f).ok()).map(|i| i.to_rgb8());
         let (ia, ib) = (open(a)?, open(b)?);
         let ib = if ib.dimensions() == ia.dimensions() { ib } else { image::imageops::resize(&ib, ia.width(), ia.height(), image::imageops::FilterType::Triangle) };
-        let lin = |c: u8| crate::daz_material::colour_to_linear(f32::from(c) / 255.0);
-        let out = image::RgbImage::from_fn(ia.width(), ia.height(), |x, y| {
-            let (pa, pb) = (ia.get_pixel(x, y).0, ib.get_pixel(x, y).0);
-            image::Rgb([0, 1, 2].map(|k| ((wa * lin(pa[k]) + wb * lin(pb[k])).clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0 + 0.5) as u8))
+        let (lin, enc) = (crate::bake::decode_lut(), crate::bake::Encoder::srgb());
+        let stride = ia.width() as usize * 3;
+        let out = crate::bake::par_rgb(ia.width(), ia.height(), |y, px| {
+            let at = y as usize * stride;
+            let (ra, rb) = (&ia.as_raw()[at..at + stride], &ib.as_raw()[at..at + stride]);
+            for (i, o) in px.iter_mut().enumerate() {
+                *o = enc.encode(wa * lin[ra[i] as usize] + wb * lin[rb[i] as usize]);
+            }
         });
         let mut png = Vec::new();
         out.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
@@ -280,13 +284,13 @@ impl Textures {
     /// An image derived from a map's luminance: each texel's luminance `l`
     /// (decoded at gamma 2.2) → `f(l)` (linear RGB), written as a PNG
     /// encoded at `gamma` — MDL's `file_texture` offsets and scales baked in.
-    fn derived(&mut self, dirs: &[PathBuf], src: &str, key: &str, gamma: f32, f: impl Fn(f32) -> [f32; 3]) -> Option<String> {
+    fn derived(&mut self, dirs: &[PathBuf], src: &str, key: &str, gamma: f32, f: impl Fn(f32) -> [f32; 3] + Sync) -> Option<String> {
         self.derived_mono(dirs, src, key, gamma, Mono::Average, f)
     }
 
     /// `derived` from the texel's channel `mono` picks (#77) instead of its
     /// luminance (`Mono::Average` keeps the luminance).
-    fn derived_mono(&mut self, dirs: &[PathBuf], src: &str, key: &str, gamma: f32, mono: Mono, f: impl Fn(f32) -> [f32; 3]) -> Option<String> {
+    fn derived_mono(&mut self, dirs: &[PathBuf], src: &str, key: &str, gamma: f32, mono: Mono, f: impl Fn(f32) -> [f32; 3] + Sync) -> Option<String> {
         if let Some(a) = self.by_source.get(key) {
             return Some(a.clone());
         }
@@ -298,16 +302,33 @@ impl Textures {
             return None;
         };
         let img = image::open(&file).ok()?.to_rgba8();
-        let decode = |c: u8| crate::daz_material::colour_to_linear(f32::from(c) / 255.0);
-        let out = image::RgbImage::from_fn(img.width(), img.height(), |x, y| {
-            let p = img.get_pixel(x, y).0;
-            let l = match mono {
-                Mono::Average => 0.2126 * decode(p[0]) + 0.7152 * decode(p[1]) + 0.0722 * decode(p[2]),
+        let (decode, enc) = (crate::bake::decode_lut(), crate::bake::Encoder::for_gamma(gamma));
+        let luminance = |p: [u8; 4]| 0.2126 * decode[p[0] as usize] + 0.7152 * decode[p[1] as usize] + 0.0722 * decode[p[2] as usize];
+        let texel = |l: f32| f(l).map(|v| enc.encode(v));
+        // A channel takes 256 values, and so does a grey texel's luminance:
+        // `f` once per byte (#78). A coloured texel under Average goes
+        // through `f` itself.
+        let table: [[u8; 3]; 256] = std::array::from_fn(|c| {
+            let c = c as u8;
+            texel(match mono {
+                Mono::Average => luminance([c, c, c, 255]),
                 // Alpha is linear coverage, not gamma-encoded.
-                Mono::Alpha => f32::from(p[3]) / 255.0,
-                _ => decode(pick_channel(p, mono)),
-            };
-            image::Rgb(f(l).map(|v| (v.clamp(0.0, 1.0).powf(1.0 / gamma) * 255.0 + 0.5) as u8))
+                Mono::Alpha => f32::from(c) / 255.0,
+                _ => decode[c as usize],
+            })
+        });
+        let stride = img.width() as usize * 4;
+        let out = crate::bake::par_rgb(img.width(), img.height(), |y, px| {
+            let row = &img.as_raw()[y as usize * stride..][..stride];
+            for (p, o) in row.chunks_exact(4).zip(px.chunks_exact_mut(3)) {
+                let p = [p[0], p[1], p[2], p[3]];
+                o.copy_from_slice(&match mono {
+                    Mono::Average if p[0] != p[1] || p[1] != p[2] => texel(luminance(p)),
+                    Mono::Average => table[p[0] as usize],
+                    Mono::Alpha => table[p[3] as usize],
+                    _ => table[pick_channel(p, mono) as usize],
+                });
+            }
         });
         let mut png = Vec::new();
         out.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
@@ -345,40 +366,72 @@ impl Textures {
             let rel = src.trim_start_matches('/');
             dirs.iter().map(|dir| dir.join(rel)).find(|p| p.is_file()).and_then(|f| image::open(f).ok()).map(|i| i.to_rgb8())
         };
-        let d_img = d.and_then(open);
-        let tc_img = tc.and_then(open);
+        // The two maps decode, and later low-pass, side by side (#78).
+        let (d_img, tc_img) = std::thread::scope(|s| {
+            let t = s.spawn(|| tc.and_then(open));
+            (d.and_then(open), t.join().ok().flatten())
+        });
         let (w, h) = d_img.as_ref().or(tc_img.as_ref()).map(|i| i.dimensions())?;
         let tc_img = tc_img.map(|i| if i.dimensions() == (w, h) { i } else { image::imageops::resize(&i, w, h, image::imageops::FilterType::Triangle) });
-        let decode = |c: u8| crate::daz_material::colour_to_linear(f32::from(c) / 255.0);
-        let encode = |v: f32| (v.clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0 + 0.5) as u8;
+        let (decode, enc) = (crate::bake::decode_lut(), crate::bake::Encoder::srgb());
         let low = |i: &image::RgbImage| {
             let small = image::imageops::resize(i, 32, 32, image::imageops::FilterType::Triangle);
             image::imageops::resize(&small, w, h, image::imageops::FilterType::Triangle)
         };
-        let d_low = d_img.as_ref().map(low);
-        let tc_low = tc_img.as_ref().map(low);
-        let out = image::RgbImage::from_fn(w, h, |x, y| {
-            let dp = d_img.as_ref().map_or([255; 3], |i| i.get_pixel(x, y).0);
-            let tp = tc_img.as_ref().map_or([255; 3], |i| i.get_pixel(x, y).0);
-            let dl = d_low.as_ref().map_or(dp, |i| i.get_pixel(x, y).0);
-            let tl = tc_low.as_ref().map_or(tp, |i| i.get_pixel(x, y).0);
-            let colour = |d: [u8; 3], t: [u8; 3], t2: [u8; 3]| [0, 1, 2].map(|k| a[k] * decode(d[k]) + b[k] * decode(t[k]) * decode(t2[k]));
-            let (v, vl) = (colour(dp, tp, tl), colour(dl, tl, tl));
-            let (lo, hi) = (vl.iter().copied().fold(f32::MAX, f32::min), vl.iter().copied().fold(0.0f32, f32::max));
-            let sat = if hi > 0.0 { 1.0 - lo / hi } else { 0.0 };
-            let e = if sat >= 0.75 { (sat / 0.75).min(1.3) } else { ((sat - SKIN_HUE_SAT_FLOOR) / (0.75 - SKIN_HUE_SAT_FLOOR)).max(0.0) };
-            image::Rgb([0, 1, 2].map(|k| {
-                let hue = SKIN_HUE_OPENPBR[k].powf(e);
-                encode(v[k] * hue * ((vl[k] * hue).max(1e-4) / 0.3).powf(SKIN_DARK_GAIN))
-            }))
+        let (d_low, tc_low) = std::thread::scope(|s| {
+            let t = s.spawn(|| tc_img.as_ref().map(low));
+            (d_img.as_ref().map(low), t.join().ok().flatten())
         });
+        let stride = w as usize * 3;
+        fn row_of(i: &Option<image::RgbImage>, y: u32, stride: usize) -> Option<&[u8]> {
+            i.as_ref().map(|i| &i.as_raw()[y as usize * stride..][..stride])
+        }
+        let px = |r: Option<&[u8]>, x: usize, or: [u8; 3]| r.map_or(or, |r| [r[3 * x], r[3 * x + 1], r[3 * x + 2]]);
+        let colour = |d: [u8; 3], t: [u8; 3], t2: [u8; 3]| [0, 1, 2].map(|k| a[k] * decode[d[k] as usize] + b[k] * decode[t[k] as usize] * decode[t2[k] as usize]);
+        let out = crate::bake::par_rgb(w, h, |y, out| {
+            let (dr, tr, dlr, tlr) = (row_of(&d_img, y, stride), row_of(&tc_img, y, stride), row_of(&d_low, y, stride), row_of(&tc_low, y, stride));
+            // The hue and dark gain depend on the low-passed texels alone,
+            // which run in long equal stretches: worked out once per stretch.
+            let mut memo: Option<([u8; 3], [u8; 3], [f32; 3], [f32; 3])> = None;
+            for x in 0..w as usize {
+                let dp = px(dr, x, [255; 3]);
+                let tp = px(tr, x, [255; 3]);
+                let dl = px(dlr, x, dp);
+                let tl = px(tlr, x, tp);
+                let (hue, gain) = match memo {
+                    Some((md, mt, hue, gain)) if md == dl && mt == tl => (hue, gain),
+                    _ => {
+                        let vl = colour(dl, tl, tl);
+                        let (lo, hi) = (vl.iter().copied().fold(f32::MAX, f32::min), vl.iter().copied().fold(0.0f32, f32::max));
+                        let sat = if hi > 0.0 { 1.0 - lo / hi } else { 0.0 };
+                        let e = if sat >= 0.75 { (sat / 0.75).min(1.3) } else { ((sat - SKIN_HUE_SAT_FLOOR) / (0.75 - SKIN_HUE_SAT_FLOOR)).max(0.0) };
+                        let hue = SKIN_HUE_OPENPBR.map(|c| c.powf(e));
+                        let gain = [0, 1, 2].map(|k| ((vl[k] * hue[k]).max(1e-4) / 0.3).powf(SKIN_DARK_GAIN));
+                        memo = Some((dl, tl, hue, gain));
+                        (hue, gain)
+                    }
+                };
+                let v = colour(dp, tp, tl);
+                for k in 0..3 {
+                    out[3 * x + k] = enc.encode(v[k] * hue[k] * gain[k]);
+                }
+            }
+        });
+        // The detail mask of a texel and its low-passed value, per channel:
+        // a table over both bytes.
         let detail = d_img.as_ref().zip(d_low.as_ref()).map(|(di, dl)| {
-            image::RgbImage::from_fn(w, h, |x, y| {
-                let (p, q) = (di.get_pixel(x, y).0, dl.get_pixel(x, y).0);
-                image::Rgb([0, 1, 2].map(|k| {
-                    let t = ((decode(p[k]) / decode(q[k]).max(1e-3) - 0.35) / 0.35).clamp(0.0, 1.0);
-                    encode(t * t * (3.0 - 2.0 * t))
-                }))
+            let table: Vec<u8> = (0..65536usize)
+                .map(|pq| {
+                    let t = ((decode[pq >> 8] / decode[pq & 255].max(1e-3) - 0.35) / 0.35).clamp(0.0, 1.0);
+                    enc.encode(t * t * (3.0 - 2.0 * t))
+                })
+                .collect();
+            crate::bake::par_rgb(w, h, |y, out| {
+                let at = y as usize * stride;
+                let (p, q) = (&di.as_raw()[at..at + stride], &dl.as_raw()[at..at + stride]);
+                for i in 0..stride {
+                    out[i] = table[(p[i] as usize) << 8 | q[i] as usize];
+                }
             })
         });
         let base = d.or(tc).and_then(|s| Path::new(s).file_stem()).and_then(|n| n.to_str()).unwrap_or("skin");
@@ -6301,5 +6354,88 @@ mod tests {
             assert!(is_eye(n), "{n}");
         }
         assert!(!is_eye("Genesis_9_Face") && !is_eye("Genesis_9_Eyes_EyeMoisture_Left") && !is_eye("Genesis_9_Eyelashes_Eyelashes_Upper"));
+    }
+
+    /// The skin, roughness and blend bakes through the lookup tables and
+    /// threads (#78) give the bytes of the per-texel `powf` they replaced
+    /// (kept here as the reference), on noise maps of odd sizes.
+    #[test]
+    fn bakes_match_the_per_texel_formulas() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut seed = 12345u32;
+        let mut noise = |w: u32, h: u32, grey: bool| {
+            image::RgbImage::from_fn(w, h, |_, _| {
+                let mut b = || {
+                    seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                    (seed >> 24) as u8
+                };
+                let c = [b(), b(), b()];
+                image::Rgb(if grey { [c[0]; 3] } else { c })
+            })
+        };
+        let (d, tc, g) = (noise(101, 37, false), noise(40, 30, false), noise(53, 19, true));
+        let mut g2 = g.clone();
+        g2.put_pixel(3, 4, image::Rgb([10, 200, 90]));
+        for (name, img) in [("d.png", &d), ("tc.png", &tc), ("g.png", &g2)] {
+            img.save(dir.path().join(name)).unwrap();
+        }
+        let dirs = vec![dir.path().to_path_buf()];
+        let decode = |c: u8| colour_to_linear(f32::from(c) / 255.0);
+        let encode = |v: f32, gamma: f32| (v.clamp(0.0, 1.0).powf(1.0 / gamma) * 255.0 + 0.5) as u8;
+        let png = |tex: &Textures, asset: &str| image::load_from_memory(&tex.generated.iter().find(|(a, _)| a == asset).unwrap().1).unwrap().to_rgb8();
+
+        let mut tex = Textures::default();
+        let (a, b) = ([0.6, 0.5, 0.4], [0.3, 0.2, 0.25]);
+        let (colour, detail) = tex.derived_skin(&dirs, Some("d.png"), Some("tc.png"), "skin", a, b).unwrap();
+        let (w, h) = d.dimensions();
+        let tc = image::imageops::resize(&tc, w, h, image::imageops::FilterType::Triangle);
+        let low = |i: &image::RgbImage| image::imageops::resize(&image::imageops::resize(i, 32, 32, image::imageops::FilterType::Triangle), w, h, image::imageops::FilterType::Triangle);
+        let (dl, tl) = (low(&d), low(&tc));
+        let want = image::RgbImage::from_fn(w, h, |x, y| {
+            let (dp, tp, dlp, tlp) = (d.get_pixel(x, y).0, tc.get_pixel(x, y).0, dl.get_pixel(x, y).0, tl.get_pixel(x, y).0);
+            let colour = |d: [u8; 3], t: [u8; 3], t2: [u8; 3]| [0, 1, 2].map(|k| a[k] * decode(d[k]) + b[k] * decode(t[k]) * decode(t2[k]));
+            let (v, vl) = (colour(dp, tp, tlp), colour(dlp, tlp, tlp));
+            let (lo, hi) = (vl.iter().copied().fold(f32::MAX, f32::min), vl.iter().copied().fold(0.0f32, f32::max));
+            let sat = if hi > 0.0 { 1.0 - lo / hi } else { 0.0 };
+            let e = if sat >= 0.75 { (sat / 0.75).min(1.3) } else { ((sat - SKIN_HUE_SAT_FLOOR) / (0.75 - SKIN_HUE_SAT_FLOOR)).max(0.0) };
+            image::Rgb([0, 1, 2].map(|k| {
+                let hue = SKIN_HUE_OPENPBR[k].powf(e);
+                encode(v[k] * hue * ((vl[k] * hue).max(1e-4) / 0.3).powf(SKIN_DARK_GAIN), 2.2)
+            }))
+        });
+        assert!(png(&tex, &colour) == want, "skin colour");
+        let want = image::RgbImage::from_fn(w, h, |x, y| {
+            let (p, q) = (d.get_pixel(x, y).0, dl.get_pixel(x, y).0);
+            image::Rgb([0, 1, 2].map(|k| {
+                let t = ((decode(p[k]) / decode(q[k]).max(1e-3) - 0.35) / 0.35).clamp(0.0, 1.0);
+                encode(t * t * (3.0 - 2.0 * t), 2.2)
+            }))
+        });
+        assert!(png(&tex, &detail.unwrap()) == want, "skin detail");
+
+        // A luminance bake (grey texels from the table, one coloured texel
+        // through `f`) and a channel bake.
+        let f = |l: f32| [l.powf(0.7), (0.2 + 0.5 * l).sqrt(), 1.0 - l];
+        for (mono, gamma) in [(Mono::Average, 1.0), (Mono::Average, 2.2), (Mono::Green, 1.0), (Mono::Maximum, 1.8)] {
+            let asset = tex.derived_mono(&dirs, "g.png", &format!("g{mono:?}{gamma}"), gamma, mono, f).unwrap();
+            let want = image::RgbImage::from_fn(g2.width(), g2.height(), |x, y| {
+                let p = g2.get_pixel(x, y).0;
+                let l = match mono {
+                    Mono::Average => 0.2126 * decode(p[0]) + 0.7152 * decode(p[1]) + 0.0722 * decode(p[2]),
+                    _ => decode(pick_channel([p[0], p[1], p[2], 255], mono)),
+                };
+                image::Rgb(f(l).map(|v| encode(v, gamma)))
+            });
+            assert!(png(&tex, &asset) == want, "{mono:?} at {gamma}");
+        }
+
+        let asset = tex.blend(&dirs, "d.png", "tc.png", 0.7, 0.4).unwrap();
+        let tc_file = image::open(dir.path().join("tc.png")).unwrap().to_rgb8();
+        let tcr = image::imageops::resize(&tc_file, w, h, image::imageops::FilterType::Triangle);
+        let want = image::RgbImage::from_fn(w, h, |x, y| {
+            let (pa, pb) = (d.get_pixel(x, y).0, tcr.get_pixel(x, y).0);
+            image::Rgb([0, 1, 2].map(|k| encode(0.7 * decode(pa[k]) + 0.4 * decode(pb[k]), 2.2)))
+        });
+        assert!(png(&tex, &asset) == want, "blend");
     }
 }
