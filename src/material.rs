@@ -1854,10 +1854,13 @@ impl Ocs<'_> {
     /// Octane Hair material (type 147) in albedo mode: the hair colour and
     /// transmission colour, each its map's mean × its tint (strands have no
     /// UVs), mixed by `HAIR_COLOUR_SHARE` / `HAIR_TRANSMISSION_SHARE` — at the
-    /// root and at the tip, blended along each strand as Iray blends its
-    /// root and tip lobes (`hair_albedo_pin`); longitudinal and azimuthal
-    /// roughness from `base_roughness`; the specular tinted down to the
-    /// glossy layer's weight.
+    /// root and at the tip, under 1 − Highlight Weight with the highlight
+    /// colour's share over it (`hair_albedo`), blended along each strand as
+    /// Iray blends its root and tip lobes (`hair_albedo_pin`); longitudinal
+    /// and azimuthal roughness from `base_roughness`; the specular the
+    /// glossy layer's weight under 1 − Highlight Weight, the highlight
+    /// colour over it; `separation` left out (Octane's `offset` only dimmed
+    /// the hair, Calib-Hair-hl).
     fn hair(&mut self, indent: usize, name: &str, mat: &Material) {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='147' name='{}'>", "", esc(name));
@@ -1874,12 +1877,14 @@ impl Ocs<'_> {
         };
         let (root, root_t) = (colour("Hair Root Color"), colour("Root Transmission Color"));
         let (tip, tip_t) = (colour("Hair Tip Color"), colour("Tip Transmission Color"));
-        let albedo = |c: [f32; 3], t: [f32; 3]| [0, 1, 2].map(|k| HAIR_COLOUR_SHARE * c[k] + HAIR_TRANSMISSION_SHARE * t[k]);
+        let (hl_root, hl_tip) = (colour("Highlight Root Color"), colour("Tip Highlight Color"));
+        let hw = mat.float("Highlight Weight").unwrap_or(0.11).clamp(0.0, 1.0);
+        let albedo = |c: [f32; 3], t: [f32; 3], h: [f32; 3]| hair_albedo(c, t, h, hw);
         self.value_pin(i, "hairMode", 57, 2, "0"); // albedo
         let (bias, gain) = (mat.float("Root To Tip Bias").unwrap_or(0.5), mat.float("Root to Tip Gain").unwrap_or(0.5));
-        self.hair_albedo_pin(i, albedo(root, root_t), albedo(tip, tip_t), bias, gain);
+        self.hair_albedo_pin(i, albedo(root, root_t, hl_root), albedo(tip, tip_t, hl_tip), bias, gain);
         let gloss = mat.float("Glossy Layer Weight").unwrap_or(1.0).clamp(0.0, 1.0);
-        self.rgb_pin(i, "specular", [gloss; 3]);
+        self.rgb_pin(i, "specular", [0, 1, 2].map(|k| (1.0 - hw) * gloss + hw * 0.5 * (hl_root[k] + hl_tip[k])));
         let rough = mat.float("base_roughness").unwrap_or(0.2).clamp(0.0, 1.0);
         self.float_pin(i, "roughness", rough);
         self.float_pin(i, "roughnessV", rough);
@@ -3117,6 +3122,22 @@ fn omni_hair(mat: &Material) -> Option<OmniHair> {
 /// Iray in luminance; Octane's Hair is linear in its albedo (× 0.6 → × 0.6).
 const HAIR_COLOUR_SHARE: f32 = 0.046;
 const HAIR_TRANSMISSION_SHARE: f32 = 0.110;
+/// The highlight colour's share of the Hair albedo per unit Highlight
+/// Weight: Iray's `dual_lobe_hair` lays its highlight glossy over the rest
+/// by a `weighted_layer` (no Fresnel), so Highlight Weight hw takes hw of
+/// the light and leaves 1 − hw. Fitted on Calib-Hair-hl (hw 0.8, blue
+/// highlight, local): hair median 1.00 / 1.05 / 1.03 × Iray (RGB, linear),
+/// mean luminance on par with Calib-Hair's (0.84 vs 0.85 × Iray); 0.25 was
+/// 1.48 × in blue (#42).
+const HAIR_HIGHLIGHT_SHARE: f32 = 0.15;
+
+/// The Hair albedo at one end of the strand: the hair and transmission
+/// colours' shares under 1 − `highlight_weight`, the highlight colour's
+/// over it (`HAIR_HIGHLIGHT_SHARE`).
+fn hair_albedo(hair: [f32; 3], transmission: [f32; 3], highlight: [f32; 3], highlight_weight: f32) -> [f32; 3] {
+    let hw = highlight_weight;
+    [0, 1, 2].map(|k| (1.0 - hw) * (HAIR_COLOUR_SHARE * hair[k] + HAIR_TRANSMISSION_SHARE * transmission[k]) + hw * HAIR_HIGHLIGHT_SHARE * highlight[k])
+}
 /// Segments that sample DAZ's root-to-tip blend into the Hair albedo's
 /// Gradient when its bias / gain bend it (`hair_albedo_pin`).
 const HAIR_BLEND_POINTS: usize = 16;
@@ -5326,6 +5347,7 @@ mod tests {
             {"channel": {"id": "Hair Tip Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/brown.png"}},
             {"channel": {"id": "Glossy Layer Weight", "current_value": 0.22}},
             {"channel": {"id": "base_roughness", "current_value": 0.35}},
+            {"channel": {"id": "Highlight Weight", "current_value": 0.0}},
         ]));
         let (hx, tex) = material_inputs(&[("Curls".into(), hair, 0.0)], &[dir.path().to_path_buf()], HashMap::new(), 4000, SkinShader::None);
         assert!(hx.contains("type='147' name='Curls'"), "{hx}");
@@ -5344,6 +5366,31 @@ mod tests {
     }
 
     #[test]
+    fn hair_highlight_weight_lays_its_colour_over_the_rest() {
+        // Calib-Hair-hl's settings: Highlight Weight 0.8, a blue highlight
+        // (0.2, 0.4, 1 as entered), Glossy Layer Weight 0.25.
+        let blue = [0.2f32, 0.4, 1.0].map(crate::daz_material::colour_to_linear);
+        let hair = mat(json!([
+            {"channel": {"id": "Hair Root Color", "current_value": [1, 1, 1]}},
+            {"channel": {"id": "Hair Tip Color", "current_value": [1, 1, 1]}},
+            {"channel": {"id": "Highlight Root Color", "current_value": [0.2, 0.4, 1.0]}},
+            {"channel": {"id": "Tip Highlight Color", "current_value": [0.2, 0.4, 1.0]}},
+            {"channel": {"id": "Highlight Weight", "current_value": 0.8}},
+            {"channel": {"id": "Glossy Layer Weight", "current_value": 0.25}},
+            {"channel": {"id": "separation", "current_value": 0.2}},
+        ]));
+        let hx = material_inputs(&[("Hair".into(), hair, 0.0)], &[], HashMap::new(), 4000, SkinShader::None).0;
+        // Albedo: 0.2 × the white hair / transmission shares + 0.8 × 0.15 × blue.
+        let a = [0, 1, 2].map(|k| 0.2 * (HAIR_COLOUR_SHARE + HAIR_TRANSMISSION_SHARE) + 0.8 * HAIR_HIGHLIGHT_SHARE * blue[k]);
+        assert!(hx.contains(&format!(">{} {} {}<", num(a[0]), num(a[1]), num(a[2]))), "{hx}");
+        // Specular: 0.2 × the glossy layer's weight + 0.8 × the highlight colour.
+        let s = blue.map(|b| 0.2 * 0.25 + 0.8 * b);
+        assert!(hx.contains(&format!(">{} {} {}<", num(s[0]), num(s[1]), num(s[2]))), "{hx}");
+        // separation is left out (Octane's `offset` only dimmed the hair).
+        assert!(!hx.contains("<pin name='offset'>"), "{hx}");
+    }
+
+    #[test]
     fn hair_root_to_tip_blend_follows_bias_and_gain() {
         let ocs = |extra: serde_json::Value| {
             let mut chs = vec![
@@ -5351,6 +5398,7 @@ mod tests {
                 json!({"channel": {"id": "Root Transmission Color", "current_value": [0, 0, 0]}}),
                 json!({"channel": {"id": "Hair Tip Color", "current_value": [1, 1, 1]}}),
                 json!({"channel": {"id": "Tip Transmission Color", "current_value": [1, 1, 1]}}),
+                json!({"channel": {"id": "Highlight Weight", "current_value": 0.0}}),
             ];
             chs.extend(extra.as_array().unwrap().iter().cloned());
             material_inputs(&[("Hair".into(), mat(serde_json::Value::Array(chs)), 0.0)], &[], HashMap::new(), 4000, SkinShader::None).0

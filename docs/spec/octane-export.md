@@ -1327,7 +1327,8 @@ two `dual_lobe_hair` instances, root colours and tip colours, under a
 (Calib-Mi-Hair / -Hair2's .mi: the tip colours and bias / gain do reach
 Iray; bias / gain at 0.5 are left out as the MDL's default). Before #42 the
 Blended shader took the root colours only. Roughness both ways from
-`base_roughness`; specular = `Glossy Layer Weight`. Why: Iray's Blended
+`base_roughness`; specular = `Glossy Layer Weight` (with the highlight's
+share, below). Why: Iray's Blended
 Dual Lobe hair follows its transmission colour more than its hair colour —
 Calib-Hair (blond) and two copies with dark brown hair or transmission
 colours (render strands, 2× widths), fitted on the front-lit crown:
@@ -1339,19 +1340,37 @@ saturation curve fits both; open (#42). Backlit strands glow through
 (Octane's TT lobe) where Iray's stay dark: kept, it is Octane's more
 plausible take (the Enhanced look).
 
-Not mapped (#42): **Highlight Weight / Highlight Root / Tip Highlight
-Color / highlight_roughness** — Iray's `dual_lobe_hair` puts a glossy
-highlight layer (that weight, colour, roughness²) over the hair-coloured
-glossy (`Glossy Layer Weight`, base_roughness²); Octane's Hair has one R
-lobe whose strength is its Fresnel (IOR) and `specular` tint, so the
-highlight needs Iray references of strand hair to fit (Calib-Hair-hl,
-local). **separation** tilts the two glossy lobes' normals ±separation
-along the tangent (shifts the highlights); Octane's `offset` (cuticle tilt)
-is the analogue, its units unmeasured — left at 0 until the same
-references. **Anisotropy / Anisotropy Rotations**: on strands the
-`anisotropy_conversion` tangent is the strand's; Octane's fibre BSDF is
-anisotropic by construction — nothing to map. **strength** reaches nothing
-in Iray (Calib-Mi-Hair2's .mi).
+**Highlight** (#42): albedo = (1 − hw) × the above + hw × 0.15 × the
+highlight colour (`HAIR_HIGHLIGHT_SHARE`; Highlight Root / Tip Highlight
+Color at each end, hw = Highlight Weight); specular = (1 − hw) ×
+`Glossy Layer Weight` + hw × the highlight colour (root / tip mean). Why:
+`dual_lobe_hair` lays its highlight glossy (that colour, roughness²) over
+the hair-coloured glossy and the base by a `weighted_layer` — no Fresnel,
+so hw takes hw of the light and leaves 1 − hw; Octane's Hair has one R
+lobe (Fresnel-weighted, too weak for 80 % of the light), so the share goes
+into the albedo, the tint onto the R lobe. Calib-Hair-hl (Calib-Hair with
+hw 0.8, highlight (0.2, 0.4, 1), separation 0.2; local), hair masked:
+median 1.00 / 1.05 / 1.03 × Iray (RGB), mean luminance 0.84 × (Calib-Hair
+0.85 ×); unmapped it was 2.17 × (median) and grey. 0.25 was 1.48 × in blue.
+At Calib-Hair's hw 0.049 (pale highlight) the hair mean (same mask) is
+0.85 × Iray, its dark copies 0.88 / 0.84 ×, unchanged within 1 %; on the
+dark-rooted -tip copies the pale highlight adds 2 % (mean).
+**highlight_roughness**: not mapped (Octane's Hair has one roughness for
+all lobes; Calib-Hair-hl's equals its base_roughness, so it can't be fitted
+there). **separation** tilts the two glossy lobes' normals ±separation
+along the tangent, in opposite directions; Octane's `offset` (cuticle
+tilt, float, slider 0 – 1) tilts its one R lobe: on Calib-Hair-hl offset
+0.2 dimmed the hair 18 % (median) and lowered the log-luminance correlation
+with Iray 0.950 → 0.932, 1.0 dimmed it 40 % — left at 0. **Anisotropy /
+Anisotropy Rotations**: on strands the `anisotropy_conversion` tangent is
+the strand's; Octane's fibre BSDF is anisotropic by construction — nothing
+to map. **strength** reaches nothing in Iray (Calib-Mi-Hair2's .mi).
+
+**Root → tip, checked against Iray** (Calib-Hair-tip: root dark brown, tip
+blond; -tipbg: + bias 0.2 / gain 0.7; local): hair mean 0.94 / 0.92 ×
+Iray in luminance, the dark crown 1.20 / 1.19 ×, the blond top tuft 1.03 /
+1.03 × (linear medians); tipbg / tip in Octane 0.98 × Iray's ratio (hair
+mean; crown 0.75 vs 0.80) — the bent blend lands where Iray's does.
 
 **OmniHair** ("OmniHair Root-Tip Blend", a brick graph on
 `OmniSurface::OmniHairBase`: Chiang's hair BSDF, as Octane's Hair is) →
