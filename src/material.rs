@@ -850,7 +850,7 @@ impl Ocs<'_> {
         let rough = iray_gloss_roughness(mat).unwrap_or_else(|| iray_roughness(mat, rough, inverted));
         let aniso = Anisotropy::glossy(mat);
         self.aniso_brdf_pin(j + 1, aniso.saturates(rough));
-        self.gloss_roughness_pins(j + 1, mat, rough_ch, rough, true, aniso);
+        self.gloss_roughness_pins(j + 1, mat, rough_ch, rough, RoughCurve::Ggx, aniso);
         if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
             self.image_pin(j + 1, "normal", &asset, false, 1.0, 1.0);
         }
@@ -1006,7 +1006,7 @@ impl Ocs<'_> {
         let (rough, aniso) = (top_coat_roughness(mat), Anisotropy::top_coat(mat));
         self.aniso_brdf_pin(j + 1, aniso.saturates(rough));
         self.gloss_ggx = false;
-        self.gloss_roughness_pins(j + 1, mat, None, rough, true, aniso);
+        self.gloss_roughness_pins(j + 1, mat, None, rough, RoughCurve::Ggx, aniso);
         self.float_pin(j + 1, "ior", top_coat_ior(mat));
         self.coat_bump_pins(j + 1, mat, "bump", "normal");
         self.round_edges_pin(j + 1, mat);
@@ -1055,7 +1055,7 @@ impl Ocs<'_> {
         let (rough, aniso) = (top_coat_roughness(mat), Anisotropy::top_coat(mat));
         self.aniso_brdf_pin(j + 1, aniso.saturates(rough));
         self.gloss_ggx = false;
-        self.gloss_roughness_pins(j + 1, mat, None, rough, true, aniso);
+        self.gloss_roughness_pins(j + 1, mat, None, rough, RoughCurve::Ggx, aniso);
         self.coat_bump_pins(j + 1, mat, "bump", "normal");
         self.round_edges_pin(j + 1, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
@@ -1592,7 +1592,7 @@ impl Ocs<'_> {
     /// with the same curve. `stretch` is Iray's v / u roughness ratio
     /// (`Anisotropy::stretch`, 1 isotropic): the map then bakes Octane's
     /// roughness of both axes (`anisotropic_roughness`).
-    fn roughness_pin(&mut self, indent: usize, mat: &Material, channel: Option<&str>, value: f32, ggx: bool, stretch: f32) {
+    fn roughness_pin(&mut self, indent: usize, mat: &Material, channel: Option<&str>, value: f32, curve: RoughCurve, stretch: f32) {
         let Some((ch, map)) = channel.and_then(|c| Some((c, mat.image(c)?.to_string()))) else {
             return self.float_pin(indent, "roughness", value);
         };
@@ -1601,12 +1601,13 @@ impl Ocs<'_> {
         let squared = mat.float(if inverted { "Glossiness Squared" } else { "Roughness Squared" }).unwrap_or(1.0) > 0.0;
         // `derived` decodes at 2.2; the map's own gamma rescales that.
         let g = data_gamma(mat, ch) / crate::iray::COLOUR_GAMMA;
-        let key = if stretch == 1.0 { format!("roughness|{map}|{v}|{inverted}|{squared}|{ggx}|{g}") } else { format!("roughness|{map}|{v}|{inverted}|{squared}|{ggx}|{g}|{stretch}") };
+        let c = curve.key();
+        let key = if stretch == 1.0 { format!("roughness|{map}|{v}|{inverted}|{squared}|{c}|{g}") } else { format!("roughness|{map}|{v}|{inverted}|{squared}|{c}|{g}|{stretch}") };
         let asset = self.textures.derived(self.dirs, &map, &key, 1.0, |l| {
             let m = l.max(0.0).powf(g) * v;
             let r = (if inverted { 1.0 - m } else { m }).clamp(0.0, 1.0);
             let r = if squared { r * r } else { r };
-            [anisotropic_roughness(r, stretch, ggx).0; 3]
+            [anisotropic_roughness(r, stretch, curve).0; 3]
         });
         match asset {
             Some(asset) => self.image_pin(indent, "roughness", &asset, true, 1.0, 1.0),
@@ -1621,10 +1622,10 @@ impl Ocs<'_> {
     /// Octane's slider 0 – 1). Returns the lobe's isotropic equivalent (both
     /// axes' geometric mean, the roughness itself when isotropic), for a
     /// coating at the gloss's roughness.
-    fn gloss_roughness_pins(&mut self, indent: usize, mat: &Material, channel: Option<&str>, r: f32, ggx: bool, aniso: Anisotropy) -> f32 {
+    fn gloss_roughness_pins(&mut self, indent: usize, mat: &Material, channel: Option<&str>, r: f32, curve: RoughCurve, aniso: Anisotropy) -> f32 {
         let stretch = aniso.stretch();
-        let (rough, a) = anisotropic_roughness(r.clamp(0.0, 1.0), stretch, ggx);
-        self.roughness_pin(indent, mat, channel, rough, ggx, stretch);
+        let (rough, a) = anisotropic_roughness(r.clamp(0.0, 1.0), stretch, curve);
+        self.roughness_pin(indent, mat, channel, rough, curve, stretch);
         if a == 0.0 {
             return rough;
         }
@@ -1716,7 +1717,7 @@ impl Ocs<'_> {
         if let Some(dl) = dual_lobe.filter(|_| coat && rough_ch.and_then(|c| mat.image(c)).is_none()) {
             rough = dl.blended_roughness(rough);
         }
-        self.roughness_pin(i, mat, rough_ch, rough.clamp(0.0, 1.0), false, 1.0);
+        self.roughness_pin(i, mat, rough_ch, rough.clamp(0.0, 1.0), RoughCurve::Linear, 1.0);
         let lobe1 = dual_lobe.filter(|_| !coat).map_or(1.0, |dl| dl.lobe1);
         let (weight, ch) = match dual_lobe {
             Some(dl) => (dl.share, "Dual Lobe Specular Reflectivity"),
@@ -2314,15 +2315,7 @@ impl Ocs<'_> {
             None if refraction_rough => iray(mat).and_then(|u| u.float("refraction_roughness")).unwrap_or_else(|| iray_roughness(mat, rough, inverted)),
             None => iray_roughness(mat, rough, inverted),
         };
-        // Octane blurs a refraction ~3× more at the same roughness: Iray's
-        // Refraction Roughness 0.3 (0.09 squared) matched Octane's 0.02 –
-        // 0.03, not 0.09 (frosted) (Calib-Glass R6).
-        let rough_ch = if refraction_rough {
-            rough *= REFRACTION_ROUGHNESS_SCALE;
-            None
-        } else {
-            rough_ch
-        };
+        let rough_ch = if refraction_rough { None } else { rough_ch };
         // With dispersion Iray's transmission is perfectly smooth whatever
         // the roughness (DAZ's MDL, `refraction_base`); a mostly refractive
         // body takes that for Universal's one roughness.
@@ -2338,21 +2331,29 @@ impl Ocs<'_> {
         if let Some(dl) = active_dual_lobe.filter(|_| coat > 0.0 && rough_ch.and_then(|c| mat.image(c)).is_none()) {
             rough = dl.blended_roughness(rough);
         }
-        // GGX at √r for the gloss (`gloss_roughness`); a refraction keeps
-        // Octane's default BSDF it was calibrated on.
+        // A mostly refractive body (not thin-walled: its transmission
+        // doesn't blur) refracts through Beckmann at √r, shared roughness or
+        // its own (`GLASS_BRDF`); other glosses GGX energy preserving
+        // (`gloss_roughness`), a Top Coat over the glass too.
+        let glass = !thin && !mirror && refraction >= 0.5 && weighted.is_none();
         self.gloss_ggx = !refraction_rough;
         // Iray's anisotropy on the gloss (and the metal: both take the
         // glossy layer's); a refraction's roughness keeps it isotropic.
         let aniso = if refraction_rough || dispersive { Anisotropy::default() } else { Anisotropy::glossy(mat) };
-        self.aniso_brdf_pin(i, !oren_nayar && aniso.saturates(rough));
-        let ggx = self.gloss_ggx;
+        let curve = if glass {
+            self.value_pin(i, "brdf", 57, 2, GLASS_BRDF);
+            RoughCurve::Beckmann
+        } else {
+            self.aniso_brdf_pin(i, !oren_nayar && aniso.saturates(rough));
+            if self.gloss_ggx { RoughCurve::Ggx } else { RoughCurve::Linear }
+        };
         let rough = if oren_nayar {
             // No gloss to share it with: the diffuse's σ (see `base_flat`).
             self.value_pin(i, "diffuseBrdf", 57, 2, DIFFUSE_BRDF_OREN_NAYAR);
             self.float_pin(i, "roughness", sigma);
             sigma
         } else {
-            self.gloss_roughness_pins(i, mat, rough_ch, rough, ggx, aniso)
+            self.gloss_roughness_pins(i, mat, rough_ch, rough, curve, aniso)
         };
 
         // Lobe 2 of a dual lobe specular as the coating (#26): Calib-DualLobe
@@ -2923,9 +2924,6 @@ fn is_eye(name: &str) -> bool {
         || n.ends_with("eye_right")
 }
 
-/// See the roughness in `universal`.
-const REFRACTION_ROUGHNESS_SCALE: f32 = 0.3;
-
 /// Iray's Base Color Effect 1 (Scatter & Transmit) on a translucent
 /// surface: its diffuse and its translucency as Universal's albedo and
 /// transmission shares. See `universal`.
@@ -3416,6 +3414,50 @@ fn ggx_roughness(r: f32) -> f32 {
 /// `Ocs::gloss_roughness`'s curve.
 const GGX_ROUGHNESS_CURVE: f32 = 1.85;
 
+/// How Iray's (MDL, squared) roughness `r` becomes Universal's `roughness`
+/// pin, for the BSDF model the pin goes with.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum RoughCurve {
+    /// As is (Octane's default BSDF, the skins' shaders).
+    Linear,
+    /// `ggx_roughness`: an Uber gloss under GGX energy preserving.
+    Ggx,
+    /// √r under Beckmann (`brdf` 1): rough glass (`GLASS_BRDF`).
+    Beckmann,
+}
+
+impl RoughCurve {
+    fn apply(self, r: f32) -> f32 {
+        match self {
+            RoughCurve::Linear => r.clamp(0.0, 1.0),
+            RoughCurve::Ggx => ggx_roughness(r),
+            RoughCurve::Beckmann => r.clamp(0.0, 1.0).sqrt(),
+        }
+    }
+
+    /// Its part of a derived roughness map's cache key (the bool it was).
+    fn key(self) -> &'static str {
+        match self {
+            RoughCurve::Linear => "false",
+            RoughCurve::Ggx => "true",
+            RoughCurve::Beckmann => "beckmann",
+        }
+    }
+}
+
+/// Universal's `brdf` for a refractive body: Beckmann (1; probe 104).
+/// Iray's Uber refracts through `simple_glossy_bsdf` (DAZ's MDL
+/// `choose_bsdf`, `dfm_glossy`): a Phong distribution of exponent 2 / r²
+/// with no multiple-scattering compensation (`multiscatter_tint` left at
+/// 0, MDL spec 21.1.3: rough lobes lose albedo). Phong of exponent n is
+/// Beckmann at α = √(2 / (n + 2)) ≈ r (Walter et al. 2007), and Octane's
+/// roughness pin is √α. Calib-Dispersion-Rough's rough spheres (#72):
+/// GGX energy preserving 1.19 / 1.19 × Iray at r 0.36 (the energy
+/// Iray's lobe loses comes back), plain GGX 0.86 / 0.85 (its long tail
+/// loses more), Beckmann at √r 1.09 / 1.07 with Iray's blur (detail 1.4 /
+/// 1.6 vs 1.2 / 1.5; at r 0.09 8.3 / 5.4 vs 8.3 / 5.4).
+const GLASS_BRDF: &str = "1";
+
 /// Iray Uber's anisotropy of a glossy lobe (`base::anisotropy_conversion`,
 /// MDL SDK's `base.mdl`): roughness_u = r, roughness_v = r / (1 − a)
 /// (r / 0.0001 at a = 1), the tangent turned by 2π · rotation about the
@@ -3484,8 +3526,8 @@ impl Anisotropy {
 /// Calib-Aniso's streaks came out short and bright (rough 0.1, aniso 1:
 /// highlight elongation 1.96 against Iray's 9.9, mean 1.52 × Iray), at v
 /// 9.85 and 1.15 × (#23).
-fn anisotropic_roughness(r: f32, stretch: f32, ggx: bool) -> (f32, f32) {
-    let curve = |x: f32| if ggx { ggx_roughness(x) } else { x.clamp(0.0, 1.0) };
+fn anisotropic_roughness(r: f32, stretch: f32, curve: RoughCurve) -> (f32, f32) {
+    let curve = |x: f32| curve.apply(x);
     if stretch == 1.0 {
         return (curve(r), 0.0);
     }
@@ -4892,7 +4934,18 @@ mod tests {
         let (bx, _) = material_inputs(&[("Bottle".into(), bottle, 1.0)], &dirs, HashMap::new(), 8980, SkinShader::None);
         let tr = &bx[bx.find("<pin name='transmission'>").unwrap()..];
         assert!(tr[..200].contains("1 0.217638 1"), "refraction colour, linear: {tr}");
-        assert!(bx.contains("<attr name='value' type='6'>0.027</attr>"), "refraction roughness, squared, × 0.3: {bx}");
+        // Its own roughness 0.3 (0.09 squared) as Beckmann's √r (#72).
+        let pin = |x: &str, p: &str| x[x.find(&format!("<pin name='{p}'>")).unwrap()..].split("</attr>").next().unwrap().rsplit('>').next().unwrap().to_string();
+        assert_eq!((pin(&bx, "brdf"), pin(&bx, "roughness")), (GLASS_BRDF.to_string(), num(0.3)), "{bx}");
+        // Shared with a rough glossy layer: the same rule on the glossy
+        // roughness, the reflection included.
+        let frosted = mat(json!([
+            {"channel": {"id": "Refraction Weight", "current_value": 1}},
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 1}},
+            {"channel": {"id": "Glossy Roughness", "current_value": 0.6}},
+        ]));
+        let (fx, _) = material_inputs(&[("Frosted".into(), frosted, 1.0)], &dirs, HashMap::new(), 8985, SkinShader::None);
+        assert_eq!((pin(&fx, "brdf"), pin(&fx, "roughness")), (GLASS_BRDF.to_string(), num(0.6)), "{fx}");
         // −ln(0.5^2.2) / 0.05 m = 30.5 per m in R and G, none in B.
         let medium = &bx[bx.find("<pin name='medium'>").expect("absorption medium")..];
         assert!(medium.contains("type='58'") && medium.contains("30.49") && medium.contains("1 1 0"), "{medium}");

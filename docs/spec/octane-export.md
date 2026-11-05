@@ -786,8 +786,8 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   over a matte grey): the head-on tint at IOR 1.91 is 0.77 – 0.83, the
   diffuse Iray leaves 0.77 – 0.81; 1.09 – 1.20 × Iray with the earlier
   fitted albedo dimming, 0.96 – 1.14 now (#31).
-- **BSDF model and roughness.** Uber Universal materials (not refractive
-  ones, nor the skins' Standard Surface / OpenPBR) use GGX energy
+- **BSDF model and roughness.** Uber Universal materials (not rough glass
+  — Beckmann, see Refraction — nor the skins' Standard Surface / OpenPBR) use GGX energy
   preserving (`brdf` 6; plain GGX lost light on rough lobes: Calib-Glossy
   roughness 0.6 1.17 → 1.01 × Iray, DualLobe2's r 0.36 1.25 → 1.08) at
   roughness min(r + 1.85 r², √r), r = Iray's roughness after its squaring; the
@@ -1093,8 +1093,23 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   its own Refraction Color / Roughness (Glossiness in Base Mixing 1 / 2)
   when off: shared, a green Refraction Color and roughness 0.3 changed
   nothing in Iray. A mostly refractive surface (weight ≥ 0.5) with its own
-  roughness gets it on Universal's one `roughness`, squared as usual and
-  × 0.3: Iray's 0.3 matched Octane's 0.02 – 0.03, Octane frosted at 0.09.
+  roughness gets it on Universal's one `roughness`, squared as usual.
+  **Rough glass** (refraction ≥ 0.5, not thin-walled; shared or own
+  roughness) → `brdf` 1 (Beckmann) at roughness √r, r = Iray's roughness
+  after its squaring. Why (DAZ's MDL, #72): Uber refracts through
+  `simple_glossy_bsdf` — Phong of exponent 2 / r², v-cavities shadowing —
+  with no multiple-scattering compensation (`multiscatter_tint` 0, so its
+  rough lobes lose light, MDL spec 21.1.3). Phong of exponent n is
+  Beckmann at α = √(2 / (n + 2)) ≈ r, and Octane's roughness is √α: no
+  fitted constant. GGX energy preserving (the gloss rule above) gives
+  back the light Iray's lobe loses: Calib-Dispersion-Rough's spheres at
+  r 0.36 1.19 (shared) / 1.14 (own, then at Octane's default BSDF × 0.3,
+  a Calib-Glass R6 fit, too sharp) × Iray; plain GGX loses more than Iray
+  (0.86 / 0.85, its long tail); Beckmann at √r 1.09 / 1.07 with Iray's
+  blur (detail 1.4 / 1.6 vs Iray's 1.2 / 1.5; at r 0.09 8.3 / 5.4 vs
+  8.3 / 5.4; Calib-Glass R6 6.4 = Iray, was 6.7), the clear spheres
+  1.02 – 1.04 as before. What is left at 0.36 (~5 % over the scene's
+  1.03) is Smith vs v-cavities shadowing; Octane has no v-cavities.
   **Thin Walled** → `transmissionType` 2 (Thin wall), no volume. Iray shows
   a thin-walled glass sphere without any reflection — invisible; Octane's
   thin wall keeps its Fresnel reflection, kept as the more plausible.
