@@ -13,7 +13,7 @@
 //! Parameters this module doesn't produce are absent from [`uber`]'s
 //! result: not covered, not defaulted.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde_json::Value;
 
@@ -85,9 +85,15 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     let mixing = ch.int("Base Mixing", 0);
     out.insert("base_mixing", Arg::Enum(if mixing == 2 { "blm_normalized" } else { "blm_layered" }));
 
-    // Base colour: linear (a pure 2.2 power) × Diffuse Strength.
+    // Base colour: linear (a pure 2.2 power) × Diffuse Strength; a
+    // Diffuse Strength map attenuates the colour (`attenuate_color`,
+    // Calib-Mi-AoA3).
     let strength = ch.float("Diffuse Strength", 1.0);
-    out.insert("diffuse_color", ch.color_or_map("diffuse", [0.5; 3], strength));
+    let diffuse = match ch.map("Diffuse Strength", MapKind::Grey, [strength; 3]) {
+        Some(m) if ch.image("diffuse").is_none() => Arg::Map(Map { scale: ch.color("diffuse", [0.5; 3]).map(|c| c * strength), ..m }),
+        _ => ch.color_or_map("diffuse", [0.5; 3], strength),
+    };
+    out.insert("diffuse_color", diffuse);
     let metallic = if mixing == 0 { ch.float("Metallic Weight", 0.0) } else { 0.0 };
     let refraction = ch.float("Refraction Weight", 0.0);
     let backscattering = ch.float("Backscattering Weight", 0.0);
@@ -102,7 +108,8 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     // Glossy.
     let weight = if mixing == 2 { ch.float("Glossy Weight", 0.0) } else { ch.float("Glossy Layered Weight", 0.0) };
     out.insert("glossy_weight", Arg::Float(if mixing == 2 { weight } else { 0.0 }));
-    out.insert("glossy_layered_weight", Arg::Float(if mixing == 2 { 1.0 } else { weight }));
+    // A map drives the layered weight, scaled by the value (Calib-Mi-AoA3).
+    out.insert("glossy_layered_weight", if mixing == 2 { Arg::Float(1.0) } else { ch.float_or_map("Glossy Layered Weight", 0.0) });
     out.insert("glossy_enable", Arg::Bool(diffuse_on && weight > 0.0));
     // Weighted mixing without gloss leaves the colour at the MDL default.
     let colour = if mixing == 2 && weight <= 0.0 { Arg::Color([0.5; 3]) } else { ch.color_or_map("Glossy Color", [1.0; 3], 1.0) };
@@ -704,6 +711,141 @@ pub fn daz_default_as_uber(mat: &Material) -> Option<Material> {
     set("Cutout Opacity", Value::from(f64::from(ch.float("transparency", 1.0))));
     Some(out)
 }
+
+/// Any legacy shader DAZ converts to Iray Uber, as the Uber it renders:
+/// DAZ Default ([`daz_default_as_uber`]), the scripted 3Delight shaders
+/// ([`legacy_shader_as_uber`], here with their maps as DAZ hands them —
+/// none), AoA Subsurface ([`aoa_subsurface_as_uber`]). None for others.
+pub fn as_uber(mat: &Material) -> Option<Material> {
+    daz_default_as_uber(mat).or_else(|| legacy_shader_as_uber(mat, false)).or_else(|| aoa_subsurface_as_uber(mat))
+}
+
+/// Whether the material is one of DAZ Studio's scripted 3Delight shaders
+/// (UberSurface, HumanSurface, dzGlossy, dzPlastic, … —
+/// `studio/material/daz_shader`).
+pub fn is_legacy_shader(mat: &Material) -> bool {
+    mat.shader.is_some() && !mat.brick
+}
+
+/// A scripted 3Delight shader as the Iray Uber DAZ Studio 6 renders it
+/// (Calib-Mi-Legacy, -Legacy2; #64). DAZ Studio 6 has no 3Delight: it
+/// can't load the shader's definition script, so the material keeps only
+/// Diffuse Color and Opacity Strength, whatever the shader or the channels
+/// an older save carries. Iray gets the diffuse colour (linear) and the
+/// opacity as Cutout Opacity — **without their maps** — and Iray Uber's
+/// MDL defaults otherwise: a glossy layer at weight 1, white, roughness 1.
+/// `keep_maps` keeps the two maps (the export's choice: what the scene
+/// means; DAZ's Iray drops them). None for other shaders.
+pub fn legacy_shader_as_uber(mat: &Material, keep_maps: bool) -> Option<Material> {
+    if !is_legacy_shader(mat) {
+        return None;
+    }
+    let mut out = Material { channels: HashMap::new(), shader: None, url: None, ..mat.clone() };
+    for (from, to) in [("diffuse", "diffuse"), ("transparency", "Cutout Opacity")] {
+        if let Some(c) = mat.channels.get(from) {
+            let image = if keep_maps { c.image.clone() } else { None };
+            out.channels.insert(to.to_string(), crate::daz_material::Channel { image, ..c.clone() });
+        }
+    }
+    for (id, v) in [
+        ("Base Mixing", Value::from(0)),
+        ("Glossy Layered Weight", Value::from(1.0)),
+        ("Glossy Color", Value::from(vec![1.0, 1.0, 1.0])),
+        ("Glossy Roughness", Value::from(1.0)),
+        ("Roughness Squared", Value::from(false)),
+        ("Thin Walled", Value::from(true)),
+    ] {
+        out.channels.insert(id.to_string(), crate::daz_material::Channel { value: v, image: None, gamma: None });
+    }
+    Some(out)
+}
+
+/// Whether the material is Age of Armour's Subsurface shader (a 3Delight
+/// brick graph in DAZ Studio's default resources), by its definition.
+pub fn is_aoa_subsurface(mat: &Material) -> bool {
+    mat.brick && mat.url.as_deref().is_some_and(|u| u.split('#').next().unwrap_or("").ends_with("/AoA_Subsurface/AoA_Subsurface.dsf"))
+}
+
+/// AoA Subsurface as the Iray Uber DAZ renders it (Calib-Mi-AoA, -AoA2,
+/// -AoA3, -AoA4; #64). Its diffuse, Diffuse Strength, bump, normal map,
+/// displacement, tiling and opacity carry Uber's own channel ids and pass as
+/// they are (Normal Map Strength doesn't reach Iray). Specular is the glossy
+/// layer as in DAZ Default — weight = the colour's strongest channel
+/// (linear) × Specular Strength, its hue as the glossy colour — but with
+/// roughness 1 − Glossiness. Specular 2 (`color2`, Strength `value222`,
+/// Glossiness `strength22`) becomes the top coat by the same rule, roughness
+/// min(1.5 (1 − g), 1) — or the glossy layer itself when Specular Strength
+/// is 0. Maps: the Specular Strength map drives the glossy weight, a colour
+/// map the glossy / top coat colour (its Color Effect 1); maps on the
+/// glossinesses or the Specular 2 Strength don't reach Iray. Reflection,
+/// velvet and ambient don't either; subsurface (only with SSS Material Type
+/// Custom) isn't reproduced. None for other shaders.
+pub fn aoa_subsurface_as_uber(mat: &Material) -> Option<Material> {
+    if !is_aoa_subsurface(mat) {
+        return None;
+    }
+    use crate::daz_material::Channel;
+    let ch = Channels(mat);
+    let mut out = Material { channels: HashMap::new(), brick: false, mdl: Vec::new(), url: None, ..mat.clone() };
+    for id in ["diffuse", "Diffuse Strength", "Bump Strength", "Normal Map", "Displacement Strength", "Minimum Displacement", "Maximum Displacement", "Horizontal Tiles", "Vertical Tiles", "Horizontal Offset", "Vertical Offset"] {
+        if let Some(c) = mat.channels.get(id) {
+            out.channels.insert(id.to_string(), c.clone());
+        }
+    }
+    if let Some(c) = mat.channels.get("transparency") {
+        out.channels.insert("Cutout Opacity".into(), c.clone());
+    }
+    // Normal Map Strength (`alpha`) doesn't reach Iray: the factor stays 1.
+    if let Some(c) = out.channels.get_mut("Normal Map") {
+        c.value = Value::Null;
+    }
+    let encode = |c: [f32; 3]| Value::from(c.map(|x| f64::from(x.max(0.0).powf(1.0 / COLOUR_GAMMA))).to_vec());
+    let image = |id: &str| mat.channels.get(id).and_then(|c| c.image.clone());
+    let mut set = |id: &str, v: Value, image: Option<String>| {
+        out.channels.insert(id.to_string(), Channel { value: v, image, gamma: None });
+    };
+    // A lobe from a colour × strength: (weight, hue).
+    let lobe = |colour: &str, strength: &str, default: f32| {
+        let c = ch.color(colour, [1.0; 3]);
+        let peak = c.into_iter().fold(0.0, f32::max);
+        let w = peak * ch.float(strength, default);
+        if w > 0.0 { (w, c.map(|x| x / peak)) } else { (0.0, c) }
+    };
+    let spec2_rough = (AOA_SPECULAR2_ROUGHNESS * (1.0 - ch.float("strength22", 0.85))).clamp(0.0, 1.0);
+    let primary = ch.float("Specular Strength", 0.5) > 0.0;
+    let (weight, hue, rough, weight_map, colour_id) = if primary {
+        let (w, h) = lobe("Specular Color", "Specular Strength", 0.5);
+        (w, h, (1.0 - ch.float("Glossiness", 0.65)).clamp(0.0, 1.0), image("Specular Strength"), "Specular Color")
+    } else {
+        let (w, h) = lobe("color2", "value222", 0.0);
+        (w, h, spec2_rough, None, "color2")
+    };
+    set("Base Mixing", Value::from(0), None);
+    set("Glossy Layered Weight", Value::from(f64::from(weight)), weight_map);
+    set("Glossy Color", encode(hue), image(colour_id));
+    set("Glossy Color Effect", Value::from(i32::from(image(colour_id).is_some())), None);
+    set("Glossy Roughness", Value::from(f64::from(rough)), None);
+    set("Roughness Squared", Value::from(false), None);
+    // Subsurface (on, SSS Material Type Custom) closes the surface.
+    let sss = ch.float("value23", 0.0) > 0.0 && ch.int("sssmaterial", 9) == 0;
+    set("Thin Walled", Value::from(!sss), None);
+    if primary {
+        let (w, h) = lobe("color2", "value222", 0.0);
+        if w > 0.0 {
+            set("Top Coat Weight", Value::from(f64::from(w)), None);
+            set("Top Coat Color", encode(h), image("color2"));
+            set("Top Coat Color Effect", Value::from(i32::from(image("color2").is_some())), None);
+            set("Top Coat Roughness", Value::from(f64::from(spec2_rough)), None);
+            set("Top Coat Thin Film", Value::from(0.0), None);
+        }
+    }
+    Some(out)
+}
+
+/// AoA Subsurface's Specular 2 roughness per unit of (1 − glossiness),
+/// clamped to 1 (Calib-Mi-AoA*: Glossiness 0.95 / 0.9 / 0.85 / 0.8 / 0.5 /
+/// 0.2 gave 0.075 / 0.15 / 0.225 / 0.3 / 0.75 / 1).
+pub const AOA_SPECULAR2_ROUGHNESS: f32 = 1.5;
 
 /// See [`daz_default_as_uber`]: Calib-Mi-DzDefault2's glossiness 0.3 / 0.5 /
 /// 0.7 / 0.9 / 0.95 gave 0.5453 / 0.3078 / 0.1292 / 0.0200 / 0.0061.
@@ -1380,6 +1522,30 @@ mod tests {
     use std::collections::HashMap;
     use std::path::Path;
 
+    #[test]
+    fn legacy_shaders_are_recognised_and_keep_maps_only_for_the_export() {
+        let images = HashMap::new();
+        let mut mat = Material::from_dson(&serde_json::json!({"id": "Default", "extra": [{"type": "studio/material/daz_shader", "definition": "support/DAZ/shaderDefinitions/surface/dzglossyDef.dsa"}]}), &images);
+        mat.merge(
+            &serde_json::json!({"url": "#Default", "extra": [{"type": "studio/material/daz_shader"}],
+                "diffuse": {"channel": {"id": "diffuse", "current_value": [0.8, 0.4, 0.2], "image_file": "/Runtime/Textures/hair.jpg"}},
+                "transparency": {"channel": {"id": "transparency", "current_value": 1, "image_file": "/Runtime/Textures/alpha.jpg"}}}),
+            &images,
+        );
+        assert_eq!(mat.shader.as_deref(), Some("support/DAZ/shaderDefinitions/surface/dzglossyDef.dsa"));
+        let iray = as_uber(&mat).unwrap();
+        assert!(iray.image("diffuse").is_none() && iray.image("Cutout Opacity").is_none());
+        let export = legacy_shader_as_uber(&mat, true).unwrap();
+        assert_eq!(export.image("Cutout Opacity"), Some("/Runtime/Textures/alpha.jpg"));
+        assert_eq!(export.image("diffuse"), Some("/Runtime/Textures/hair.jpg"));
+        assert_eq!(Channels(&export).float("Glossy Layered Weight", 0.0), 1.0);
+
+        let aoa = Material::from_dson(&serde_json::json!({"url": "/data/Age%20of%20Armour/Subsurface%20Shaders/AoA_Subsurface/AoA_Subsurface.dsf#AoA_Subsurface", "extra": [{"type": "studio/material/daz_brick"}]}), &images);
+        assert!(is_aoa_subsurface(&aoa) && !is_legacy_shader(&aoa));
+        let other = Material::from_dson(&serde_json::json!({"url": "/data/x/Other.dsf#Other", "extra": [{"type": "studio/material/daz_brick"}]}), &images);
+        assert!(as_uber(&other).is_none());
+    }
+
     /// `node label/surface` → the scene's merged material, as the export
     /// reads it (definition + the scene's own channels).
     fn scene_materials(duf: &Path) -> HashMap<String, Material> {
@@ -1460,6 +1626,10 @@ mod tests {
         if mdl.starts_with("base::gloss_to_rough") {
             return fixture_map(&a["glossiness"]).map(|m| Map { gloss_to_rough: true, ..m });
         }
+        if mdl.starts_with("daz_3d::irayubermaterial::attenuate_color") {
+            let c = f32s(&a["color_value"]).filter(|c| c.len() == 3)?;
+            return fixture_map(&a["attenuation"]).map(|m| Map { scale: [0, 1, 2].map(|i| m.scale[i] * c[i]), ..m });
+        }
         if mdl.starts_with("base::texture_return.tint") {
             return file(&a["s"], MapKind::Colour, scale(&a["s"]));
         }
@@ -1509,13 +1679,19 @@ mod tests {
                     continue;
                 }
                 let mat = mats.get(key).unwrap_or_else(|| panic!("{scene}: no material {key}"));
-                let converted = daz_default_as_uber(mat);
+                let converted = as_uber(mat);
                 let mat = converted.as_ref().unwrap_or(mat);
+                // AoA Subsurface's subsurface (SSS Material Type Custom)
+                // isn't reproduced (`aoa_subsurface_as_uber`).
+                let aoa_sss = mi["args"].get("sub_surface_enable").is_some() && converted.is_some() && mats.get(key).is_some_and(is_aoa_subsurface);
                 checked += 1;
                 if mi["mdl"] != uber_entry(mat) {
                     wrong.push(format!("MDL entry: {scene} {key}: DAZ {}, ours {}", mi["mdl"], uber_entry(mat)));
                 }
                 for (param, ours) in uber(mat) {
+                    if aoa_sss && (["sub_surface_", "scattering_", "transmitted_", "absorption_"].iter().any(|p| param.starts_with(p)) || param == "glossy_ior") {
+                        continue;
+                    }
                     let theirs = match mi["args"].get(param) {
                         Some(v) => fixture_arg(v, &ours),
                         None => uber_default(param),

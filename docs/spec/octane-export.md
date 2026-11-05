@@ -668,6 +668,47 @@ tuned by calibration; only what the Octane side makes of the parameters is.
 Where this spec states a channel conversion that `src/iray.rs` contradicts,
 `src/iray.rs` wins (#62).
 
+### Legacy shaders → Iray Uber (#41, #64)
+
+DAZ Studio renders its old shaders in Iray as an Iray Uber material; the
+export converts them the same way on load (`usd::mesh::scene_materials`,
+`iray::as_uber`), so everything after sees Uber channels:
+
+- **DAZ Default** (`daz_default_as_uber`, Calib-Mi-DzDefault2): diffuse ×
+  diffuse_strength; glossy weight = the specular colour's strongest channel
+  (linear) × specular_strength, its hue the glossy colour, roughness
+  (1 − glossiness)^1.7; refraction at its strength, colour and IOR;
+  transparency as Cutout Opacity. Ambient, reflection and the lighting
+  model don't reach Iray.
+- **Scripted 3Delight shaders** (`studio/material/daz_shader`: UberSurface,
+  HumanSurface, dzGlossy / dzMetal / dzPlastic / dzSkin / dzMatte / toon,
+  …; `legacy_shader_as_uber`, Calib-Mi-Legacy, -Legacy2). DAZ Studio 6 has
+  no 3Delight and can't load their definition scripts: the material keeps
+  only Diffuse Color and Opacity Strength, whatever the shader or what an
+  older (DAZ Studio 4) save carries. Iray gets the diffuse colour and the
+  opacity as Cutout Opacity **without their maps**, and Uber's MDL defaults
+  otherwise: a white glossy layer at weight 1, roughness 1, thin-walled.
+  The export takes that, but **keeps the diffuse and opacity maps** (what
+  the scene means — a beard's colour and alpha cards — which Iray loses).
+- **AoA Subsurface** (Age of Armour's 3Delight brick graph, in DAZ's
+  default resources; `aoa_subsurface_as_uber`, Calib-Mi-AoA … -AoA4):
+  diffuse × Diffuse Strength, bump, normal map (its strength doesn't reach
+  Iray: factor 1), displacement, tiling and opacity pass as Uber's
+  same-named channels, maps included. Specular: glossy weight = Specular
+  Color's strongest channel (linear) × Specular Strength, hue as the
+  colour, roughness 1 − Glossiness (not squared). Specular 2 → the top coat
+  by the same rule, roughness min(1.5 (1 − g), 1) — or the glossy layer
+  itself when Specular Strength is 0. A Specular Strength map drives the
+  glossy weight, a colour map the glossy / top-coat colour (Color Effect
+  1); maps on the glossinesses or Specular 2 Strength don't reach Iray, nor
+  do reflection, velvet or ambient. Subsurface (on with SSS Material Type
+  Custom: Iray gets a closed volume) isn't reproduced; the other SSS
+  presets give Iray nothing.
+
+DAZ keeps a `color`-typed channel (DAZ Default's, the scripted shaders') in
+8 bits: a generated 0.3 reaches Iray as 77/255 (saved scenes are already
+quantised).
+
 ### Universal (130) — default
 
 - **albedo** = diffuse map (sRGB) × the diffuse colour, or the colour; ×
@@ -1970,7 +2011,8 @@ to calibrate on ([calibration](../calibration.md#the-scenes)):
   [#31](https://github.com/vysokyj/orbis/issues/31), diffuse overlay
   maps [#71](https://github.com/vysokyj/orbis/issues/71), dispersion
   [#33](https://github.com/vysokyj/orbis/issues/33), DAZ Default shader
-  [#41](https://github.com/vysokyj/orbis/issues/41), brick / MDL shaders
+  [#41](https://github.com/vysokyj/orbis/issues/41), legacy 3Delight shaders
+  [#64](https://github.com/vysokyj/orbis/issues/64), brick / MDL shaders
   [#21](https://github.com/vysokyj/orbis/issues/21), skin hue
   [#19](https://github.com/vysokyj/orbis/issues/19), eyes
   [#20](https://github.com/vysokyj/orbis/issues/20), hair

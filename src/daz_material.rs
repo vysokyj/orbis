@@ -38,6 +38,14 @@ pub struct Material {
     pub mdl: Vec<String>,
     /// A DAZ brick (Shader Mixer) graph, whatever it names.
     pub brick: bool,
+    /// One of DAZ Studio's scripted 3Delight shaders
+    /// (`studio/material/daz_shader`: UberSurface, dzGlossy, …): its
+    /// definition script, "" where only the scene material names the type.
+    pub shader: Option<String>,
+    /// The scene material's definition (`url`, percent-decoded): a library
+    /// file's material (`/data/…/AoA_Subsurface.dsf#AoA_Subsurface`) or the
+    /// scene's own (`#Default`).
+    pub url: Option<String>,
     /// Its node's object axes X, Y, Z in world space (unit length), where
     /// the dump gives the node's transform: an Emission Profile lies in
     /// the mesh's object space in Iray, the export's meshes in world space.
@@ -81,11 +89,20 @@ impl Material {
                 }
             }
         }
+        if let Some(u) = m.get("url").and_then(Value::as_str) {
+            self.url = Some(crate::dson::percent_decode(u));
+        }
         let mut weighted_brick = false;
         for e in m.get("extra").and_then(Value::as_array).into_iter().flatten() {
             for c in e.get("channels").and_then(Value::as_array).into_iter().flatten() {
                 if let Some(c) = c.get("channel") {
                     add(c);
+                }
+            }
+            if e.get("type").and_then(Value::as_str) == Some("studio/material/daz_shader") {
+                let definition = e.get("definition").and_then(Value::as_str).unwrap_or("");
+                if self.shader.as_deref().is_none_or(str::is_empty) {
+                    self.shader = Some(definition.to_string());
                 }
             }
             if e.get("type").and_then(Value::as_str) == Some("studio/material/daz_brick") {

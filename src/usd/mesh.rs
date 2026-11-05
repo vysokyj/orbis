@@ -200,9 +200,13 @@ pub(super) fn scene_materials(lib: &mut Library, instance_id: &str) -> HashMap<S
         for c in mat.channels.values_mut() {
             c.gamma = c.image.as_ref().and_then(|i| gammas.get(i)).copied();
         }
-        // DAZ's default shader renders as the Iray Uber material DAZ makes
-        // of it (`crate::iray::daz_default_as_uber`).
-        let mat = Rc::new(crate::iray::daz_default_as_uber(&mat).unwrap_or(mat));
+        // DAZ's legacy shaders render as the Iray Uber material DAZ makes
+        // of them (`crate::iray::daz_default_as_uber`,
+        // `legacy_shader_as_uber`, `aoa_subsurface_as_uber`). The scripted
+        // 3Delight shaders keep their diffuse and opacity maps, which
+        // DAZ's Iray drops (#64).
+        let converted = crate::iray::daz_default_as_uber(&mat).or_else(|| crate::iray::legacy_shader_as_uber(&mat, true)).or_else(|| crate::iray::aoa_subsurface_as_uber(&mat));
+        let mat = Rc::new(converted.unwrap_or(mat));
         for g in m.get("groups").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
             out.insert(g.to_string(), mat.clone());
         }

@@ -58,6 +58,7 @@ thing at a time.
 | `Calib-Thin-*` | thin-walled translucency: w, Translucency Color, front- / backlit, Base Color Effect (`-bce`) | [Universal](spec/octane-export.md#universal-130--default) | [#45](https://github.com/vysokyj/orbis/issues/45) |
 | `Calib-Glass` | refraction: IOR, colour, roughness, thin walls, absorption | [Universal](spec/octane-export.md#universal-130--default) | — |
 | `Calib-Mixing` | Base Mixing 1 / 2 and Top Coat as room surfaces use them | [Universal](spec/octane-export.md#universal-130--default) | — |
+| `Calib-Mi-Legacy*`, `Calib-Mi-AoA*` | legacy 3Delight shaders (UberSurface, DS Defaults presets, AoA Subsurface) as DAZ hands them to Iray; .mi only | [Legacy shaders](spec/octane-export.md#legacy-shaders--iray-uber-41-64) | [#64](https://github.com/vysokyj/orbis/issues/64) |
 | `Calib-Headlamp-*` | the camera headlamp: mode × Auto Headlamp, with and without a dome | — | [#22](https://github.com/vysokyj/orbis/issues/22) |
 | `Calib-Aniso` | glossy / top coat anisotropy | [Universal](spec/octane-export.md#universal-130--default) | [#23](https://github.com/vysokyj/orbis/issues/23) |
 | `Calib-Aniso2` | anisotropy rotation sign, weighted / rotated top coat, backscattering, 0.25 / 0.75 | [Universal](spec/octane-export.md#universal-130--default) | [#23](https://github.com/vysokyj/orbis/issues/23) |
