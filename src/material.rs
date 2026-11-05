@@ -2322,7 +2322,24 @@ impl Ocs<'_> {
             // base folded into one colour, else a Mix texture (#71).
             let overlay = diffuse_overlay(mat);
             let overlay_colour = |ov: &DiffuseOverlay| [0, 1, 2].map(|k| ov.colour[k] * share[k] * overlay_flat);
-            match diffuse.and_then(|t| self.textures.asset(self.dirs, &t)) {
+            // A Diffuse Strength map attenuates the colour (Iray's
+            // `attenuate_color`, Calib-Mi-AoA3): a Multiply of the map (its
+            // value is in `base_color` / the power already) and the albedo.
+            let strength_map = mat.image("Diffuse Strength").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)).filter(|_| overlay.is_none() && !self.has_damp_or_ao(mat));
+            let diffuse_asset = diffuse.and_then(|t| self.textures.asset(self.dirs, &t));
+            if let Some(map) = strength_map {
+                let id = self.id();
+                self.pin_open(i, "albedo");
+                let _ = writeln!(self.out, "{:j$}<node id='{id}' type='39'>", "", j = i + 1);
+                self.image_pin(i + 2, "texture1", &map, true, data_gamma(mat, "Diffuse Strength"), 1.0);
+                match &diffuse_asset {
+                    Some(asset) => self.tinted_image_pin(i + 2, "texture2", asset, diffuse_weight * mix * base_flat, tint),
+                    None => self.rgb_pin(i + 2, "texture2", [0, 1, 2].map(|k| mat.base_color()[k] * diffuse_weight * share[k] * base_flat)),
+                }
+                let _ = writeln!(self.out, "{:j$}</node>", "", j = i + 1);
+                self.pin_close(i);
+            } else {
+            match diffuse_asset {
                 Some(asset) if self.has_damp_or_ao(mat) => self.damp_ao_albedo(i, mat, &asset, diffuse_weight * mix * base_flat, tint),
                 Some(asset) => match overlay.filter(|_| mat.channel("Overlay Alpha Mask").is_none()) {
                     Some(ov) => self.diffuse_overlay_pin(i, &ov, overlay_colour(&ov), |w, j| w.tinted_image_pin(j, "texture1", &asset, diffuse_weight * mix * base_flat, tint)),
@@ -2339,6 +2356,7 @@ impl Ocs<'_> {
                         None => self.rgb_pin(i, "albedo", base),
                     }
                 }
+            }
             }
         }
 
@@ -5465,6 +5483,43 @@ mod tests {
         close(power("/t/h512.png", json!([{"channel": {"id": "Horizontal Tiles", "current_value": 2}}, {"channel": {"id": "Vertical Tiles", "current_value": 2}}]), Some(BUMP_REF_UV_SCALE)), 1.5);
         // A surface twice as large per UV unit: twice.
         close(power("/t/h512.png", json!([]), Some(2.0 * BUMP_REF_UV_SCALE)), 6.0);
+    }
+
+    #[test]
+    fn diffuse_strength_map_and_bump_with_normal_map_reach_universal() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("t")).unwrap();
+        for f in ["strength.png", "colour.png", "height.png", "normal.png"] {
+            std::fs::write(dir.path().join("t").join(f), b"x").unwrap();
+        }
+        let dirs = vec![dir.path().to_path_buf()];
+        let export = |ch: serde_json::Value| material_inputs(&[("Ball".into(), mat(ch), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None).0;
+        let albedo = |x: &str| x[x.find("<pin name='albedo'>").unwrap()..x.find("<pin name='albedo'>").unwrap() + 1500].to_string();
+        // Iray's attenuate_color(strength map, colour): a Multiply of the
+        // map and the colour (× the value, in the base colour).
+        let x = export(json!([
+            {"channel": {"id": "diffuse", "current_value": [1, 0.5, 0.25]}},
+            {"channel": {"id": "Diffuse Strength", "current_value": 0.8, "image_file": "/t/strength.png"}},
+        ]));
+        let a = albedo(&x);
+        assert!(a[..120].contains("type='39'") && a.contains("strength.png"), "{a}");
+        // With a colour map: the map × the tinted colour map.
+        let x = export(json!([
+            {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/t/colour.png"}},
+            {"channel": {"id": "Diffuse Strength", "current_value": 1, "image_file": "/t/strength.png"}},
+        ]));
+        let a = albedo(&x);
+        assert!(a[..120].contains("type='39'") && a.contains("strength.png") && a.contains("colour.png"), "{a}");
+        // A height and a normal map together: Iray blends the bump onto the
+        // normal-mapped surface (base_bump2); Universal's bump and normal
+        // pins do the same (Octane applies the bump over the normal map).
+        let x = export(json!([
+            {"channel": {"id": "Bump Strength", "current_value": 0.5, "image_file": "/t/height.png"}},
+            {"channel": {"id": "Normal Map", "current_value": 1, "image_file": "/t/normal.png"}},
+        ]));
+        let after = |name: &str| x.find(&format!("<pin name='{name}'>")).map(|p| x[p..p + 600].to_string());
+        assert!(after("bump").is_some_and(|p| p.contains("height.png")), "{x}");
+        assert!(after("normal").is_some_and(|p| p.contains("normal.png")), "{x}");
     }
 
     #[test]

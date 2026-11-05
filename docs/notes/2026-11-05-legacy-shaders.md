@@ -74,7 +74,8 @@ diffuse colour and opacity (S4 0.3) pass.
 The export (`legacy_shader_as_uber(mat, true)`) takes this but keeps the
 diffuse and opacity maps: the user's 41 DS6-saved UberSurface materials
 are mostly hair / beard cards with an alpha map, which Iray renders as
-opaque, flat cards. Decision asked on #64.
+opaque, flat cards. Decided on #64: keep them in every look (Octane over
+Iray — the scene means alpha-mapped hair).
 
 ### AoA Subsurface: a real conversion
 
@@ -170,8 +171,25 @@ opacity, S7 tiled diffuse + bump, S8 normal map + displacement. No errors.
   generated scene, not the preset's defaults.
 - Pick 8-bit-exact colours for `color` channels in generated scenes.
 
+## Octane side of the new Uber inputs (second pass)
+
+- Diffuse Strength map: Universal's albedo = Multiply(the map, data gamma;
+  the colour × strength × the usual weights), or × the tinted colour map.
+  Not combined with a diffuse overlay or damp / AO (none seen with it).
+  Calib-Mi-AoA3 S4 rendered the tiles darkening the base as Iray's
+  attenuation would.
+- Height + normal map: `uber()` now gives `base_bump` = normal,
+  `base_bump2` = height (fixture AoA3 S8 passes). The MDL blends the
+  secondary bump onto the base normal (`add_detail_normal` →
+  `base::blend_normals`, weights 1). The export already put the height map
+  on Universal's `bump` and the normal map on `normal`; whether Octane
+  combines them or lets one win wasn't documented (manual silent), so a
+  scratch copy of AoA3 had S1 a normal map only (dimples), S2 a bump only
+  (ridges), S3 both: S3 showed dimples and ridges together — Octane
+  applies the bump over the normal-mapped surface, the same composition.
+  Nothing to change in the export but a test.
+
 ## Open
 
-On #64: whether the export should drop the scripted shaders' maps as Iray
-does; AoA's subsurface; bump + normal map together on Uber (`base_bump2`,
-seen here first) isn't in the export yet.
+Nothing on #64. AoA's Custom subsurface stays unmapped (spec: scattering
+amount not deciphered, no scene uses it).

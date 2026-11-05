@@ -688,8 +688,10 @@ export converts them the same way on load (`usd::mesh::scene_materials`,
   older (DAZ Studio 4) save carries. Iray gets the diffuse colour and the
   opacity as Cutout Opacity **without their maps**, and Uber's MDL defaults
   otherwise: a white glossy layer at weight 1, roughness 1, thin-walled.
-  The export takes that, but **keeps the diffuse and opacity maps** (what
-  the scene means — a beard's colour and alpha cards — which Iray loses).
+  The export takes that, but **keeps the diffuse and opacity maps** in
+  every look (decided on #64, under Octane over Iray: what the scene means
+  — a beard's colour and its alpha-mapped cards — which Iray loses and
+  renders as flat, opaque cards).
 - **AoA Subsurface** (Age of Armour's 3Delight brick graph, in DAZ's
   default resources; `aoa_subsurface_as_uber`, Calib-Mi-AoA … -AoA4):
   diffuse × Diffuse Strength, bump, normal map (its strength doesn't reach
@@ -701,9 +703,22 @@ export converts them the same way on load (`usd::mesh::scene_materials`,
   itself when Specular Strength is 0. A Specular Strength map drives the
   glossy weight, a colour map the glossy / top-coat colour (Color Effect
   1); maps on the glossinesses or Specular 2 Strength don't reach Iray, nor
-  do reflection, velvet or ambient. Subsurface (on with SSS Material Type
-  Custom: Iray gets a closed volume) isn't reproduced; the other SSS
-  presets give Iray nothing.
+  do reflection, velvet or ambient. **Subsurface is not mapped**: with SSS
+  Material Type Custom Iray gets a closed volume (absorption σa = 100 ×
+  absorb / Shading Scale, deciphered) and a scattering amount that isn't
+  deciphered, and no scene in My Library has it on — the export keeps the
+  surface closed, as Iray, but adds no medium. The other SSS presets give Iray
+  nothing.
+
+Two Uber inputs these scenes showed first (any shader): a **Diffuse
+Strength map** attenuates the colour (`attenuate_color`) — Universal's
+albedo is a Multiply of the map and the colour (or the tinted colour map);
+a **height and a normal map together** — the normal map is the base bump
+and the height map a secondary one blended onto it (`add_detail_normal`,
+`base::blend_normals`) — go on Universal's `normal` and `bump` pins, which
+Octane combines the same way (the bump over the normal-mapped surface; a
+scratch scene with dimples as the normal map, ridges as the bump showed
+both).
 
 DAZ keeps a `color`-typed channel (DAZ Default's, the scripted shaders') in
 8 bits: a generated 0.3 reaches Iray as 77/255 (saved scenes are already
