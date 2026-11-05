@@ -22,6 +22,9 @@ const DIFFUSE_BRDF_OREN_NAYAR: &str = "2";
 /// Octane's `namedColorSpace` values (Lua `octane.namedColorSpace`).
 const COLOUR_SPACE_SRGB: u32 = 1;
 const COLOUR_SPACE_LINEAR_SRGB: u32 = 2;
+/// "Linear sRGB + legacy gamma": the only colour space that reads an
+/// image's `gamma` pin (sRGB ignores it).
+const COLOUR_SPACE_LEGACY_GAMMA: u32 = 6;
 
 /// Iray works photometrically under a camera exposure (EV 13 by default);
 /// physical renderers that take watts (Blender, Octane) match its look at
@@ -474,6 +477,19 @@ const BUMP_REF_WIDTH: f32 = 512.0;
 const BUMP_REF_UV_SCALE: f64 = 0.542;
 
 /// The gamma Iray reads a float channel's map at ([`DATA_MAP_GAMMA`]).
+/// The colour space an image node reads its map in at `gamma`: linear at
+/// 1, sRGB at 2.2 (the colour maps' and data maps' default), else linear
+/// sRGB + legacy gamma, the only one where Octane applies the `gamma` pin.
+fn image_colour_space(gamma: f32) -> u32 {
+    if gamma <= 1.0 {
+        COLOUR_SPACE_LINEAR_SRGB
+    } else if (gamma - 2.2).abs() < 0.01 {
+        COLOUR_SPACE_SRGB
+    } else {
+        COLOUR_SPACE_LEGACY_GAMMA
+    }
+}
+
 fn data_gamma(mat: &Material, channel: &str) -> f32 {
     mat.image_gamma(channel).unwrap_or(DATA_MAP_GAMMA)
 }
@@ -1313,7 +1329,11 @@ impl Ocs<'_> {
         // Octane reads `gamma` only in its "linear sRGB + legacy gamma" colour
         // space; the pin's default is linear sRGB, which left colour maps
         // undecoded (pale, washed-out skin and clothes).
-        self.colour_space_pin(i + 1, if gamma > 1.0 { COLOUR_SPACE_SRGB } else { COLOUR_SPACE_LINEAR_SRGB });
+        // A gamma other than 2.2 (an image's own `map_gamma`, a squared
+        // weight map at 4.4) needs the legacy-gamma space: in sRGB Octane
+        // ignores the pin, and Calib-Overlay's squared belts rendered
+        // unsquared, 4–14 × Iray (#71).
+        self.colour_space_pin(i + 1, image_colour_space(gamma));
         self.float_pin(i + 1, "power", power);
         // Wrap around: DAZ figures lay their surfaces out in UV tiles (UDIM —
         // torso at U 1–2, arms 2–3, …), each tile using its own texture.
@@ -4436,6 +4456,8 @@ mod tests {
         assert!(a.contains("type='38'") && a.contains("weight.png") && a.contains("colour.png"), "{a}");
         let amount = &a[a.find("<pin name='amount'>").unwrap()..a.find("<pin name='texture1'>").unwrap()];
         assert!(amount.contains("weight.png") && amount.contains("4.4 0 0") && amount.contains("0.25"), "{amount}");
+        // At 4.4 only the legacy-gamma colour space reads the pin (sRGB ignores it).
+        assert!(amount.contains(&format!("<attr name='colorSpace' type='2'>{COLOUR_SPACE_LEGACY_GAMMA}</attr>")), "{amount}");
         // A flat overlay over a diffuse map: the Mix at the weight.
         let over_map = mat(json!([
             {"channel": {"id": "Base Mixing", "current_value": 0}},

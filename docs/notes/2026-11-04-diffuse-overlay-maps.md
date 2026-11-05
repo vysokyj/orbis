@@ -63,9 +63,9 @@ Octane, enhanced-final, 400 samples: V1 shows white belts fading to the
 red base (0.5 / 0.25 belts at 2.2: 0.22 / 0.05 overlay), V2 / V3 the
 same belts darker (squared), V4 / V5 the checker half over red (V5 at a
 quarter), V6 – V8 the checker on the weight belts only, V7 tinted, V8
-duller (Oren-Nayar flat term). No Iray reference yet: Calib-Overlay
-(5000 samples) is listed for the next Iray batch on #71, which stays
-open until it is compared.
+duller (Oren-Nayar flat term). Compared with Iray on 2026-11-05
+([note](2026-11-05-overlay-maps-iray.md)): the squared belts had not
+reached Octane (sRGB ignores the gamma pin), fixed there.
 
 ## Lessons
 

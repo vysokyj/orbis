@@ -995,8 +995,14 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   Calib-Map-TopCoat's red weighted coat B 4.29 → 1.81, its Fresnel coat
   with effect 1 1.09 / 1.09 / 1.16. Maps: DAZ's .mi export of
   Calib-Overlay passes the weight map as `square_float(map × w)` and the
-  colour map with the linear colour as its `color_scale` (#71; an Iray
-  reference of Calib-Overlay is pending there).
+  colour map with the linear colour as its `color_scale` (#71). Against
+  Iray's render of Calib-Overlay (enhanced-final, sphere discs, Y): weight
+  map 1.04, squared 1.04, × 0.5 squared 1.05, colour map 1.03 (squared
+  1.03), both 1.04, tinted 1.05 — as Calib-Diffuse's smooth sphere (1.08).
+  The squared map must be read at 4.4 in the legacy-gamma colour space
+  (Textures, colour space): in sRGB it rendered unsquared, the 0.5 / 0.25
+  belts G 4.5 / 14 × Iray. With Overlay Roughness 1 the overlay reads
+  0.85 (as the flat 0.89 below).
 - **Diffuse Roughness** σ (Iray's diffuse is Oren-Nayar at σ, DAZ's MDL;
   the .mi export hands σ over as is) → where Universal has no gloss,
   metal, refraction or transmission on its one `roughness` pin (Glossy
@@ -1102,8 +1108,11 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   correlation with the Iray render 0.87–0.98; raw offsets matched only the
   untiled V ones, `offset · tiles` none of the tiled ones.
 - **Colour space.** Colour maps are sRGB; bump and normal maps are
-  linear. Every image node gets `initialColorSpaceSelected` = 1, and the
-  HDRI stays linear. Why: without the attribute, data maps were decoded as
+  linear. A map read at any other gamma (an image's own `map_gamma`, a
+  squared overlay weight map at 4.4) goes in "linear sRGB + legacy gamma"
+  (6) with that gamma: Octane applies the `gamma` pin only there and
+  ignores it in sRGB (Calib-Overlay's squared belts, #71). Every image
+  node gets `initialColorSpaceSelected` = 1, and the HDRI stays linear. Why: without the attribute, data maps were decoded as
   sRGB and sunglasses came out nearly clear (probes 55–57). With it the
   lenses tint like Iray's, brightness unchanged (Octane2 moved 0.28 / 255).
 - **Float channels' maps are read at gamma 2.2.** This covers roughness,
