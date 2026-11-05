@@ -1215,14 +1215,23 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   1.13 → 1.08 in luminance; mid greys move ≤ 2 %).
 - **OOT Hairblending 2** (Outoftouch's hair, a brick graph on Iray Uber's
   weighted base): the brick without a "Base Mixing" channel reads as Base
-  Mixing 2 (`DzMdlIrayUberWeighted`); its diffuse, translucency and glossy
-  colours each blend in their `… Overlay Color` where `Overlay Alpha Mask`
-  is light (Blend Colors, normal mode) — a Mix texture (`overlaid_pin`).
-  Calib-OOT (Rose Hair, local: DAZ Store content): the crown's hue went
-  from orange (r/g 1.25, b/g 0.59 × Iray: the base layer alone) to
-  1.03 / 0.96; its brightness 2.24 → 0.62 × Iray — Iray's glints (glossy
-  and Top Coat anisotropy 1, the Top Coat's colour maps) were not
-  exported then (anisotropy since #23; colour maps #25).
+  Mixing 2 (`DzMdlIrayUberWeighted`); its terminal MDL is DAZ's own Uber
+  stack (`add_top_coat` → `add_uber_volume` → `add_geometry` →
+  `normalized_base`, DAZ's .mi of Calib-OOT), so the Uber path exports it.
+  Its diffuse, translucency, glossy and top-coat colours are NVIDIA's
+  `blend_colors(colour map, … Overlay Color map, normal, weight)`, and the
+  weight DAZ passes is **the value of `Overlay Alpha Mask`**, not its map
+  (`pass_float(0)` in the .mi; the alpha map is nowhere in it). The
+  presets' black value turns the overlay off: the colour maps alone.
+  Another value blends the overlay at that constant weight (the mean of
+  the linear colour — DAZ's colour → float reduction is a guess)
+  (`overlaid_pin`; the top coat's overlay is not exported). Calib-OOT (Rose Hair, local: store content) against
+  its Iray render: blended by the alpha map the hair came out dark-rooted,
+  crown 0.81 / fringe 0.64 × Iray (r/g 1.02 / 1.20 v 1.05 / 1.23); with
+  the overlay off 0.96 / 0.79 (1.09 / 1.27), side 0.92. The rest (Iray's
+  paler, softer strands) is the per-map tiling Iray gets — the diffuse
+  map at 0.6 tiles on u, the gloss weight at 1.2 (`image_modification`,
+  [#77](https://github.com/vysokyj/orbis/issues/77)) — and the glints.
 - **Howie Farkes's terrain shader** (Grassy Grove's HFGG Terrain, a brick
   graph): the albedo is its diffuse map × its AO map (both tiled with the
   material's Map Tiles) darkened toward `Damp Color` by `Damp Map` (Blend
@@ -1277,8 +1286,20 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
     with that F0 (0.2 → 2.62), metal, transparency and cutout opacity;
     glossiness → roughness = Iray's `base::architectural_gloss_to_rough`
     (MDL SDK `base.mdl`): √(2 · 2^(−4 − 14 g)), a mirror at g = 1, 0.35 at
-    0, 0.03 at 0.5 (before: (1 − g)², a guess). Its anisotropy (default 1,
-    isotropic) and `refr_gloss` are not exported.
+    0, 0.03 at 0.5 (before: (1 − g)², a guess). Anisotropy in mia's
+    semantic (`anisotropy_conversion` with `mia_anisotropy_semantic`):
+    above 1 u = r · √a, v = r / √a, below v = r / a^¼, u = r · a^¼; each
+    axis on the GGX curve, Octane's roughness the longer, `anisotropyTexture`
+    (v − u) / (v + u) (negative: stretched along u), `rotation` 1 − Iray's.
+    Transparency t (`weighted_layer(t, transmit lobe, diffuse)`): diffuse
+    × (1 − t), `transmission` = refr_color × t through a transmit-only
+    lobe — `specular` 0 (Octane still refracts) — at roughness
+    `architectural_gloss_to_rough(refr_gloss)` and `ior` = Index of
+    Refraction (refr_ior), under the rough-glass rule (Beckmann at √r);
+    the reflection on the coating at √r of its own roughness and the
+    reflection curve's IOR. Glossiness < 1, anisotropy and glass are on
+    Calib-NVIDIA2 (the mapping verified against DAZ's .mi; Iray reference
+    pending).
     Calib-NVIDIA (Iray 5000 samples, Octane 1024; sphere disk luminance,
     Octane / Iray; floor 1.04): Metal Brushed 1.02, Cast Iron 1.11,
     concrete 1.00, polished 0.95, porcelain 1.09, granite 1.09, resin 1.04,

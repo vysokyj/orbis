@@ -541,6 +541,13 @@ struct MdlDielectric {
     /// Resin's base: a tinted glossy reflect + transmit (rough coloured
     /// glass) under the clear coat.
     transmission: Option<[f32; 3]>,
+    /// Architectural's transmission instead: a transmit-only lobe of its
+    /// own roughness and IOR (`refr_gloss`, `refr_ior`) under the
+    /// reflection (no tinted reflection of its own, unlike resin's).
+    refraction: Option<(f32, f32)>,
+    /// Architectural's anisotropic reflection: MDL roughness (u, v) and
+    /// the tangent's rotation in turns (`base::anisotropy_conversion`).
+    aniso: Option<(f32, f32, f32)>,
     metallic: bool,
     opacity: f32,
 }
@@ -586,6 +593,8 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
         bump,
         tiles,
         transmission: None,
+        refraction: None,
+        aniso: None,
         metallic: false,
         opacity: 1.0,
     };
@@ -629,9 +638,28 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
                 (1.0 + f0) / (1.0 - f0)
             };
             d.metallic = mat.float("refl_is_metal").unwrap_or(0.0) > 0.0;
-            let transparency = mat.float("transparency").unwrap_or(0.0);
+            // mia's anisotropy semantic (`anisotropy_conversion`,
+            // `mia_anisotropy_semantic`): above 1 u = r · √a, v = r / √a;
+            // below, v = r / a^¼, u = r · a^¼; 1 is isotropic.
+            let a = mat.float("anisotropy").unwrap_or(1.0);
+            let rotation = mat.float("anisotropy_rotation").unwrap_or(0.0);
+            if (a - 1.0).abs() > 1e-4 || rotation != 0.0 {
+                let r = d.roughness;
+                let (u, v) = if a > 1.0 {
+                    let iso = (1.0 / a).sqrt().max(1e-4);
+                    (r / iso, r * iso)
+                } else {
+                    let iso = a.max(0.0).sqrt().sqrt().max(1e-4);
+                    (r * iso, r / iso)
+                };
+                d.aniso = Some((u, v, rotation));
+            }
+            // weighted_layer(transparency, transmit lobe, diffuse).
+            let transparency = mat.float("transparency").unwrap_or(0.0).clamp(0.0, 1.0);
             if transparency > 0.0 {
                 d.transmission = Some(mat.color("refr_color").unwrap_or([1.0; 3]).map(|c| c * transparency));
+                d.albedo = MdlAlbedo::Colour(diffuse.map(|c| c * (1.0 - transparency)));
+                d.refraction = Some((architectural_gloss_to_rough(mat.float("refr_gloss").unwrap_or(1.0)), mat.float("Index of Refraction").unwrap_or(1.4)));
             }
             d.opacity = mat.float("Cutout Opacity").unwrap_or(1.0);
             d.bump = mat.image("Bump Strength").map(|m| (m.to_string(), mat.float("Bump Strength").unwrap_or(1.0))).filter(|(_, a)| *a > 0.0);
@@ -1232,20 +1260,54 @@ impl Ocs<'_> {
         // at √r) came out redder and darker in the middle (g/r 0.28 v
         // Iray's 0.22, centre 0.83 ×) than Octane's default BSDF at r as is
         // (0.24, 0.92 ×; Calib-NVIDIA).
-        let curve = if m.transmission.is_some() { RoughCurve::Linear } else { RoughCurve::Ggx };
-        if m.transmission.is_none() {
-            self.value_pin(i, "brdf", 57, 2, "6");
+        // Architectural's glass: the rough-glass rule (Beckmann at √r) for
+        // its transmit lobe, and the reflection over it on the coating at
+        // √r under the same model (Phong ≈ Beckmann α = r).
+        let curve = match (m.transmission.is_some(), m.refraction.is_some()) {
+            (_, true) => RoughCurve::Beckmann,
+            (true, false) => RoughCurve::Linear,
+            _ => RoughCurve::Ggx,
+        };
+        if let Some((u, v, rotation)) = m.aniso.filter(|_| m.transmission.is_none()) {
+            // Each axis on the GGX curve, Octane's roughness the long one,
+            // as for the Uber's anisotropy (#23); plain GGX past 1.
+            let (u, v) = (u.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
+            let saturated = u.max(v) >= 1.0;
+            self.value_pin(i, "brdf", 57, 2, if saturated { "2" } else { "6" });
+            self.float_pin(i, roughness_pin, ggx_roughness(u.max(v)));
+            let (cu, cv) = (ggx_roughness(u), ggx_roughness(v));
+            if cu + cv > 0.0 {
+                self.float_pin(i, "anisotropyTexture", ((cv - cu) / (cv + cu)).clamp(-1.0, 1.0));
+            }
+            if rotation.rem_euclid(1.0) != 0.0 {
+                self.float_pin(i, "rotation", (1.0 - rotation).rem_euclid(1.0));
+            }
+        } else {
+            match curve {
+                RoughCurve::Ggx => self.value_pin(i, "brdf", 57, 2, "6"),
+                RoughCurve::Beckmann => self.value_pin(i, "brdf", 57, 2, GLASS_BRDF),
+                RoughCurve::Linear => {}
+            }
+            self.float_pin(i, roughness_pin, curve.apply(m.roughness.clamp(0.0, 1.0)));
         }
-        let rough = curve.apply(m.roughness.clamp(0.0, 1.0));
-        self.float_pin(i, roughness_pin, rough);
-        if let Some(t) = m.transmission {
+        if let (Some(t), Some((refr_rough, refr_ior))) = (m.transmission, m.refraction) {
+            // A transmit-only lobe: no reflection of its own.
+            self.rgb_pin(i, "specular", [0.0; 3]);
+            self.float_pin(i, "roughness", curve.apply(refr_rough.clamp(0.0, 1.0)));
+            self.rgb_pin(i, "transmission", t);
+            self.float_pin(i, "coatingIor", m.ior);
+            self.float_pin(i, "ior", refr_ior);
+        } else if let Some(t) = m.transmission {
             // The base reflects its tint and lets it through (rough glass).
+            let rough = curve.apply(m.roughness.clamp(0.0, 1.0));
             self.rgb_pin(i, "specular", t);
             self.float_pin(i, "roughness", rough);
             self.rgb_pin(i, "transmission", t);
             self.float_pin(i, "coatingIor", m.ior);
+            self.float_pin(i, "ior", m.ior);
+        } else {
+            self.float_pin(i, "ior", m.ior);
         }
-        self.float_pin(i, "ior", m.ior);
         if let Some((map, amount)) = &m.bump {
             if *amount > 0.0 {
                 if let Some(asset) = self.textures.asset(self.dirs, map) {
@@ -1479,11 +1541,15 @@ impl Ocs<'_> {
     }
 
     /// A colour map (`tinted_image_pin`) under OOT Hairblending's overlay:
-    /// its `<channel> Overlay Color` blended in where `Overlay Alpha Mask`
-    /// is light (Blend Colors, normal mode — the hair's second colour, tips
-    /// or streaks), as a Mix texture (38). Without an overlay the map alone.
-    /// Only with the mask: Iray Uber's own "Diffuse Overlay Color" is
-    /// another layer (#32).
+    /// its `<channel> Overlay Color` blended in by `Overlay Alpha Mask`
+    /// (NVIDIA's `blend_colors`, normal mode) as a Mix texture (38). DAZ
+    /// hands Iray the mask channel's *value* as the blend weight, not its
+    /// map (Calib-OOT's .mi: `weight: pass_float(0)` beside the textures,
+    /// the alpha map nowhere): at the presets' black value the overlay is
+    /// off and the map is alone. Blended by the map, Calib-OOT's hair came
+    /// out dark-rooted, 0.81 (crown) / 0.64 (fringe) × Iray; without the
+    /// overlay 0.96 / 0.79 with Iray's hue. Only with a mask channel: Iray
+    /// Uber's own "Diffuse Overlay Color" is another layer (#32).
     fn overlaid_pin(&mut self, i: usize, pin: &str, mat: &Material, channel: &str, asset: &str, power: f32, tint: [f32; 3]) {
         let overlay_name = match channel {
             "diffuse" => "Diffuse Overlay Color",
@@ -1492,9 +1558,11 @@ impl Ocs<'_> {
             _ => "",
         };
         let normal_mode = mat.float("Overlay Mode").unwrap_or(0.0) as i32 == 0;
-        let mask = mat.image("Overlay Alpha Mask").filter(|_| normal_mode && !overlay_name.is_empty()).map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t));
-        let overlay = mat.image(overlay_name).map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t));
-        let (Some(mask), Some(overlay)) = (mask, overlay) else {
+        // The colour value as a float: DAZ's reduction isn't in the .mi at
+        // 0 — the mean of the linear colour is a guess for other values.
+        let weight = mat.color("Overlay Alpha Mask").map_or(0.0, |c| (c[0] + c[1] + c[2]) / 3.0).clamp(0.0, 1.0);
+        let overlay = mat.image(overlay_name).filter(|_| normal_mode && weight > 0.0).map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t));
+        let Some(overlay) = overlay else {
             return self.tinted_image_pin(i, pin, asset, power, tint);
         };
         let overlay_tint = mat.color(overlay_name).unwrap_or([1.0; 3]);
@@ -1502,7 +1570,7 @@ impl Ocs<'_> {
         self.pin_open(i, pin);
         let j = i + 1;
         let _ = writeln!(self.out, "{:j$}<node id='{id}' type='38'>", "");
-        self.image_pin(j + 1, "amount", &mask, true, 2.2, 1.0);
+        self.float_pin(j + 1, "amount", weight);
         self.tinted_image_pin(j + 1, "texture1", asset, power, tint);
         self.tinted_image_pin(j + 1, "texture2", &overlay, power, overlay_tint);
         let _ = writeln!(self.out, "{:j$}</node>", "");
@@ -2256,7 +2324,7 @@ impl Ocs<'_> {
             let overlay_colour = |ov: &DiffuseOverlay| [0, 1, 2].map(|k| ov.colour[k] * share[k] * overlay_flat);
             match diffuse.and_then(|t| self.textures.asset(self.dirs, &t)) {
                 Some(asset) if self.has_damp_or_ao(mat) => self.damp_ao_albedo(i, mat, &asset, diffuse_weight * mix * base_flat, tint),
-                Some(asset) => match overlay.filter(|_| mat.image("Overlay Alpha Mask").is_none()) {
+                Some(asset) => match overlay.filter(|_| mat.channel("Overlay Alpha Mask").is_none()) {
                     Some(ov) => self.diffuse_overlay_pin(i, &ov, overlay_colour(&ov), |w, j| w.tinted_image_pin(j, "texture1", &asset, diffuse_weight * mix * base_flat, tint)),
                     None => self.overlaid_pin(i, "albedo", mat, "diffuse", &asset, diffuse_weight * mix * base_flat, tint),
                 },
@@ -4586,6 +4654,44 @@ mod tests {
         assert!(!z.contains("<pin name='brdf'>") && z.contains(">0.25<"), "{z}");
     }
 
+    /// Arch+Design glass: a transmit-only lobe (specular 0) at refr_gloss
+    /// and refr_ior under Beckmann, the reflection on the coating; mia's
+    /// anisotropy above 1 stretches along u (negative Octane anisotropy).
+    #[test]
+    fn architectural_glass_and_anisotropy() {
+        let arch = |chs: serde_json::Value| {
+            let mut m = Material::from_dson(&json!({"extra": [{"channels": chs}]}), &HashMap::new());
+            m.mdl = vec!["nvidia::architectural::architectural".into()];
+            Rc::new(m)
+        };
+        let glass = arch(json!([
+            {"channel": {"id": "transparency", "current_value": 1}},
+            {"channel": {"id": "refr_gloss", "current_value": 0.2}},
+            {"channel": {"id": "Index of Refraction", "current_value": 1.5}},
+        ]));
+        let (x, _) = material_inputs(&[("Glass".into(), glass, 1.0)], &[], HashMap::new(), 9600, SkinShader::None);
+        let pin = |x: &str, p: &str| {
+            let a = &x[x.find(&format!("<pin name='{p}'>")).unwrap()..];
+            let v = &a[a.find("<attr name='value'").unwrap()..];
+            v[v.find('>').unwrap() + 1..v.find("</attr>").unwrap()].to_string()
+        };
+        assert_eq!(pin(&x, "brdf"), GLASS_BRDF, "{x}");
+        assert_eq!(pin(&x, "specular"), "0 0 0", "{x}");
+        assert_eq!(pin(&x, "roughness"), num(architectural_gloss_to_rough(0.2).sqrt()), "{x}");
+        assert_eq!(pin(&x, "ior"), num(1.5), "{x}");
+        assert!(x.contains("<pin name='coating'>") && x.contains("<pin name='transmission'>"), "{x}");
+        let aniso = arch(json!([
+            {"channel": {"id": "refl_gloss", "current_value": 0.3}},
+            {"channel": {"id": "anisotropy", "current_value": 4}},
+        ]));
+        let (y, _) = material_inputs(&[("Aniso".into(), aniso, 1.0)], &[], HashMap::new(), 9700, SkinShader::None);
+        let r = architectural_gloss_to_rough(0.3);
+        let (u, v) = (ggx_roughness(r * 2.0), ggx_roughness(r / 2.0));
+        assert_eq!(pin(&y, "roughness"), num(u), "{y}");
+        let a: f32 = pin(&y, "anisotropyTexture").parse().unwrap();
+        assert!((a - (v - u) / (v + u)).abs() < 1e-5 && a < 0.0, "{a}");
+    }
+
     /// Arch+Design glossiness → roughness as Iray's
     /// `base::architectural_gloss_to_rough` (MDL SDK `base.mdl`).
     #[test]
@@ -4596,7 +4702,7 @@ mod tests {
     }
 
     #[test]
-    fn oot_overlay_blends_the_second_colour_by_its_mask() {
+    fn oot_overlay_blends_by_the_mask_value() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("Runtime/Textures")).unwrap();
         for f in ["base.png", "over.png", "mask.png"] {
@@ -4611,7 +4717,17 @@ mod tests {
         let (x, _) = material_inputs(&[("Hair".into(), hair, 1.0)], &dirs, HashMap::new(), 9100, SkinShader::None);
         let albedo = &x[x.find("<pin name='albedo'>").unwrap()..];
         let albedo = &albedo[..albedo.find("<pin name='specular'>").unwrap_or(albedo.len())];
-        assert!(albedo.contains("type='38'") && albedo.contains("mask.png") && albedo.contains("over.png") && albedo.contains("base.png"), "{albedo}");
+        // The mask's black value is the blend weight (DAZ's .mi): base only.
+        assert!(!albedo.contains("type='38'") && !albedo.contains("over.png") && albedo.contains("base.png"), "{albedo}");
+        let white = mat(json!([
+            {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/base.png"}},
+            {"channel": {"id": "Diffuse Overlay Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/over.png"}},
+            {"channel": {"id": "Overlay Alpha Mask", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/mask.png"}},
+        ]));
+        let (w, _) = material_inputs(&[("White".into(), white, 1.0)], &dirs, HashMap::new(), 9150, SkinShader::None);
+        let albedo = &w[w.find("<pin name='albedo'>").unwrap()..];
+        let albedo = &albedo[..albedo.find("<pin name='specular'>").unwrap_or(albedo.len())];
+        assert!(albedo.contains("type='38'") && !albedo.contains("mask.png") && albedo.contains("over.png") && albedo.contains("base.png"), "{albedo}");
         // Without the mask: Iray Uber's own Diffuse Overlay, not this.
         let plain = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/base.png"}},
@@ -5761,8 +5877,12 @@ mod tests {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
         let dirs = crate::daz::content_dirs();
         let read = |p: &std::path::Path| -> Value { serde_json::from_str(&crate::dson::decompress_scene(&std::fs::read(p).unwrap()).unwrap()).unwrap() };
-        let doc = read(&root.join("calib/scenes/Calib-NVIDIA.duf"));
-        let mi: Value = serde_json::from_str(&std::fs::read_to_string(root.join("calib/references/mi/Calib-NVIDIA.json")).unwrap()).unwrap();
+        let (mut checked, mut wrong) = (0, Vec::new());
+        // Calib-NVIDIA2: architectural's glossiness, anisotropy and glass,
+        // asphalt, ceramic tiles, resin variants.
+        for scene in ["Calib-NVIDIA", "Calib-NVIDIA2"] {
+        let doc = read(&root.join(format!("calib/scenes/{scene}.duf")));
+        let mi: Value = serde_json::from_str(&std::fs::read_to_string(root.join(format!("calib/references/mi/{scene}.json"))).unwrap()).unwrap();
         let images = crate::daz_material::image_library(&doc);
         let mut label = HashMap::new();
         for n in doc.pointer("/scene/nodes").and_then(Value::as_array).into_iter().flatten() {
@@ -5771,7 +5891,6 @@ mod tests {
             }
         }
         let near = |a: f32, b: f64| (f64::from(a) - b).abs() < 1e-4;
-        let (mut checked, mut wrong) = (0, Vec::new());
         for m in doc.pointer("/scene/materials").and_then(Value::as_array).into_iter().flatten() {
             let url = crate::dson::percent_decode(m["url"].as_str().unwrap_or(""));
             let Some((file, _)) = url.split_once('#').filter(|(f, _)| f.contains("NVIDIA MDL Examples")) else { continue };
@@ -5807,13 +5926,32 @@ mod tests {
                         // Architectural: diffuse, reflectivity × the reflection colour's peak.
                         let pass = |k: &str| args[k]["args"]["v"].clone();
                         let diffuse: Vec<f64> = pass("diffuse").as_array().unwrap().iter().filter_map(Value::as_f64).collect();
-                        check("diffuse", matches!(d.albedo, MdlAlbedo::Colour(c) if (0..3).all(|k| near(c[k], diffuse[k]))));
+                        // weighted_layer(transparency, transmit, diffuse).
+                        let opaque = 1.0 - pass("transparency").as_f64().unwrap_or(0.0);
+                        check("diffuse", matches!(d.albedo, MdlAlbedo::Colour(c) if (0..3).all(|k| near(c[k], diffuse[k] * opaque))));
                         check("reflectivity", matches!(d.gloss, MdlGloss::Weight(w) if near(w, pass("reflectivity").as_f64().unwrap())));
+                        let gloss = pass("refl_gloss").as_f64().unwrap() as f32;
+                        let r = architectural_gloss_to_rough(gloss);
+                        check("glossiness", near(d.roughness, f64::from(r)));
+                        let a = pass("anisotropy").as_f64().unwrap() as f32;
+                        if a > 1.0 {
+                            check("anisotropy", d.aniso.is_some_and(|(u, v, _)| near(u, f64::from(r * a.sqrt())) && near(v, f64::from(r / a.sqrt()))));
+                        } else {
+                            check("isotropic", d.aniso.is_none());
+                        }
+                        if pass("transparency").as_f64().unwrap() > 0.0 {
+                            let refr = architectural_gloss_to_rough(pass("refr_gloss").as_f64().unwrap() as f32);
+                            check("refraction", d.refraction.is_some_and(|(rr, ior)| near(rr, f64::from(refr)) && near(ior, args["refr_ior"].as_f64().unwrap())));
+                        }
                     }
+                }
+                if let Some(r) = args["roughness"].as_f64() {
+                    check("roughness", near(d.roughness, r));
                 }
             } else {
                 check("recognised", false);
             }
+        }
         }
         wrong.sort();
         assert!(checked > 0 && wrong.is_empty(), "{} of {checked} NVIDIA example values differ from DAZ's .mi:\n{}", wrong.len(), wrong.join("\n"));

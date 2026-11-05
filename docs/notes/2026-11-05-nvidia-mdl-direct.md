@@ -106,11 +106,55 @@ new curve; glossiness < 1 is now Iray's formula but not seen in a render.
 - "Compiled into Iray" was wrong for `architectural_gloss_to_rough`:
   check the open MDL SDK's `base.mdl` first.
 
+## Calib-NVIDIA2 (for the Iray batch)
+
+Built from Calib-NVIDIA with `daz-apply-presets.dsa` (DAZ's NVIDIA MDL
+Examples presets), the channel values edited in the .duf, then opened and
+saved again by DAZ (that it opens and keeps the values), dumped, .mi
+exported (`calib/references/mi/Calib-NVIDIA2.json`). Spheres, left to
+right:
+
+| node | material | why |
+|---|---|---|
+| A1 | asphalt (preset, 4 × 4 tiles) | not on Calib-NVIDIA |
+| A2 | ceramic tiles small (preset) | not on Calib-NVIDIA |
+| A3 | architectural, glossiness 0.3, diffuse 0.2 | r 0.083 by Iray's curve, 0.49 by the old guess |
+| A4 | architectural, glossiness 0 | r 0.35 (the curve's top), guess 1.0 |
+| A5 | architectural, glossiness 0.3, anisotropy 4 | mia semantic: u 0.165, v 0.041 |
+| A6 | architectural, transparency 1, refr_gloss 0.2 | transmit lobe r 0.134, IOR 1.5 |
+| A7 | resin, base colour grey 0.9 (0.79 linear) | resin's level without its hue |
+| A8 | resin, roughness 0.02 | resin's colour without the blur |
+
+A first build kept Calib-NVIDIA's concrete bump maps on A3 / A4 (the
+preset left Bump Strength's image; DAZ passed it to Iray too): cleared.
+The .mi confirms every mapped value (test
+`nvidia_examples_match_daz_mi_export` now reads both scenes: 37 values).
+Octane (512 samples) renders them plausibly: A6 refracts with `specular`
+0. No Iray reference yet.
+
+## OOT Hairblending (Calib-OOT, local, store content)
+
+The brick graph ends in DAZ's own Uber stack (`add_top_coat` →
+`add_uber_volume` → `add_geometry` → `normalized_base`, from DAZ's .mi of
+Calib-OOT). The overlay is NVIDIA's `blend_colors(base map, overlay map,
+normal, weight)` and the weight is `pass_float(0)`: the Overlay Alpha
+Mask's value (black in the presets), its map not passed at all. The
+export blended by the map.
+
+| Calib-OOT, Octane / Iray | crown | side | fringe |
+|---|---|---|---|
+| blended by the alpha map (before) | 0.81, r/g 1.02 v 1.05 | 0.89 | 0.64, r/g 1.20 v 1.23 |
+| overlay off (the .mi's weight 0; now) | 0.96, r/g 1.09 | 0.92 | 0.79, r/g 1.27 |
+
+Also from the .mi: `color_scale` 0.505 on the diffuse map = the channel's
+0.733 decoded; per-map tiling (`image_modification`: diffuse 0.6 on u,
+gloss weight 1.2) that the export ignores everywhere: #77. Iray's strands
+look paler and softer; the tiling and the glints are the likely rest.
+
 ## Open (#21)
 
 - Resin's level vs hue (fitted × 0.8).
-- Architectural glossiness < 1, anisotropy, `refr_gloss`: no reference.
-- Asphalt and ceramic tiles small are not on Calib-NVIDIA: mapped the same
-  way, no Iray check.
-- OOT Hairblending hair: exported (overlay Mix, see the spec), not
-  re-checked against Iray here.
+- Calib-NVIDIA2's Iray reference (5000 samples): architectural
+  glossiness / anisotropy / glass, asphalt, ceramic tiles, resin variants.
+- OOT hair: per-map tiling (#77); a non-black Overlay Alpha Mask value
+  (the colour → float reduction is a guess, no scene has one).

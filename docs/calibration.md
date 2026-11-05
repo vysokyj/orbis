@@ -86,10 +86,12 @@ thing at a time.
 
 Some checks need scenes that stay on the developer's machine because they
 use DAZ Store or DAZ library content: a strand-hair figure (`Calib-Hair`,
-its dark variants, the eye close-up `Calib-Eye`) and the NVIDIA MDL shader
-spheres (`Calib-NVIDIA`, [#21](https://github.com/vysokyj/orbis/issues/21)).
-They and their renders are **never committed**, nor is anything from a
-user's own scenes.
+its dark variants, the eye close-up `Calib-Eye`) and the OOT hair
+(`Calib-OOT`). They and their renders are **never committed**, nor is
+anything from a user's own scenes. The NVIDIA MDL shader spheres
+(`Calib-NVIDIA`, `Calib-NVIDIA2`,
+[#21](https://github.com/vysokyj/orbis/issues/21)) use only the NVIDIA MDL
+Examples that ship with DAZ Studio and are in `calib/scenes`.
 
 ## The loop
 
