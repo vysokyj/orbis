@@ -1,0 +1,115 @@
+// ORBIS calibration: node render flags (#36), built in a headless DAZ Studio
+// by scripts/dev/daz-script.sh with DONE_FILE=<out dir>/node-flags.done.
+// Arguments: base scene (Calib-L-Distant-45.duf), Genesis 9.duf (DAZ's
+// free base figure), out dir, "--", then the content directories. Writes
+// into the out dir:
+// - Calib-Mi-Priority: Render Priority off its default on every mesh
+//   (Lowest, Low, Highest, Above Normal), for DAZ's .mi export only.
+// - Calib-CastShadows-Off: Cast Shadows off on the sphere and on an
+//   instance of it at x 120 (Iray Photoreal ignores shadow_cast; the
+//   Iray reference shows whether DAZ hands it over some other way).
+// - Calib-Shell-G9: Genesis 9 with a geometry shell (red, Body and Arms
+//   shown, l_forearm and l_pectoral facets hidden); the cubes and the sphere
+//   removed; the shell is the figure's child, as DAZ's own Create > New
+//   Geometry Shell makes it. The camera is aimed by
+//   make-node-flag-scenes.py afterwards.
+// ECMAScript 3 (QtScript): var only, ASCII only.
+(function () {
+    var a = App.scriptArgs;
+    var sBase = a[0], sG9 = a[1], sOut = a[2];
+    var oContent = App.getContentMgr();
+    for (var i = 4; i < a.length; i++) oContent.addContentDirectory(a[i], false);
+    var sLog = "";
+    function log(s) { sLog += s + "\n"; }
+    function node(sLabel) {
+        for (var n = 0; n < Scene.getNumNodes(); n++) {
+            if (Scene.getNode(n).getLabel() == sLabel) return Scene.getNode(n);
+        }
+        return null;
+    }
+    function set(oNode, sProp, v) {
+        var p = oNode.findProperty(sProp);
+        if (!p) { log("no " + sProp + " on " + oNode.getLabel()); return; }
+        p.setValue(v);
+    }
+    function open() {
+        Scene.clear();
+        return oContent.openFile(sBase, false);
+    }
+    function save(sName) {
+        log(sName + ": " + Scene.saveScene(sOut + "/" + sName + ".duf"));
+    }
+    function instance() {
+        var oSphere = node("Sphere");
+        var oInst = new DzInstanceNode();
+        oInst.setName("SphereInstance");
+        oInst.setLabel("SphereInstance");
+        Scene.addNode(oInst);
+        oInst.findProperty("Instance Target").setValue(oSphere);
+        oInst.getXPosControl().setValue(120);
+        set(oInst, "Cast Shadows", false);
+        return oSphere;
+    }
+
+    if (open()) {
+        set(node("Cube1"), "Render Priority", 0);
+        set(node("Cube2"), "Render Priority", 1);
+        set(node("Cube3"), "Render Priority", 6);
+        set(node("Sphere"), "Render Priority", 4);
+        set(node("Plane"), "Render Priority", 2);
+        save("Calib-Mi-Priority");
+    }
+    if (open()) {
+        set(instance(), "Cast Shadows", false);
+        save("Calib-CastShadows-Off");
+    }
+    if (open()) {
+        var aGone = ["Cube1", "Cube2", "Cube3", "Sphere"];
+        for (var g = 0; g < aGone.length; g++) Scene.removeNode(node(aGone[g]));
+        Scene.selectAllNodes(false);
+        log("g9 " + oContent.openFile(sG9, true));
+        var oFig = null;
+        for (var n = 0; n < Scene.getNumNodes(); n++) {
+            if (Scene.getNode(n).inherits("DzFigure") && Scene.getNode(n).getLabel() == "Genesis 9") oFig = Scene.getNode(n);
+        }
+        var oShell = new DzGeometryShellNode();
+        oShell.setName("G9Shell");
+        oShell.setLabel("G9Shell");
+        Scene.addNode(oShell);
+        oFig.addNodeChild(oShell, false);
+        oShell.getShellNodeControl().setValue(oFig);
+        // The visibility channels appear once the shell has its geometry.
+        oShell.update();
+        oShell.finalize();
+        if (oShell.getObject()) oShell.getObject().forceCacheUpdate(oShell, false);
+        for (var p = 0; p < oShell.getNumProperties(); p++) {
+            var q = oShell.getProperty(p);
+            if (/_vis$/.test(q.name)) log("  shell prop " + q.name + " | " + q.getPath());
+        }
+        var aOn = ["Body", "Arms"], aAll = ["Fingernails", "Toenails", "Legs", "Mouth Cavity", "Arms", "Head", "Body"];
+        for (var m = 0; m < aAll.length; m++) {
+            var c = oShell.findMaterialGroupVisibilityControl(aAll[m]);
+            if (!c) { log("no surface control " + aAll[m]); continue; }
+            c.setValue(aOn.indexOf(aAll[m]) >= 0);
+        }
+        var aFacetsOff = ["l_forearm", "l_pectoral"];
+        for (var f = 0; f < aFacetsOff.length; f++) {
+            var fc = oShell.findFacetGroupVisibilityControl(aFacetsOff[f]);
+            if (!fc) { log("no facet control " + aFacetsOff[f]); continue; }
+            fc.setValue(false);
+        }
+        var oShape = oShell.getObject() ? oShell.getObject().getCurrentShape() : null;
+        log("shell shape " + oShape + ", materials " + (oShape ? oShape.getNumMaterials() : -1));
+        for (var k = 0; oShape && k < oShape.getNumMaterials(); k++) {
+            var oMat = oShape.getMaterial(k);
+            var dc = oMat.findProperty("Diffuse Color");
+            if (dc) dc.setColorValue(new Color(220, 30, 30));
+        }
+        save("Calib-Shell-G9");
+    }
+    var oDone = new DzFile(sOut + "/node-flags.done");
+    oDone.open(DzFile.WriteOnly | DzFile.Truncate);
+    oDone.write(sLog);
+    oDone.close();
+    App.delayedExit();
+})();

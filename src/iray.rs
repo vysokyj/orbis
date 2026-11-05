@@ -1576,7 +1576,8 @@ mod tests {
     //! Every rule against DAZ's own `.mi` export of the calibration scenes.
     use super::*;
     use crate::daz_material::{image_library, Material};
-    use std::collections::HashMap;
+    use serde_json::json;
+    use std::collections::{HashMap, HashSet};
     use std::path::Path;
 
     #[test]
@@ -1935,6 +1936,45 @@ mod tests {
 
     fn by_id<'a>(nodes: &'a [(Value, Value, HashMap<String, Value>)], prefix: &str) -> Option<&'a HashMap<String, Value>> {
         nodes.iter().find(|(d, n, _)| [d, n].iter().any(|v| v["id"].as_str().is_some_and(|i| i.starts_with(prefix)))).map(|(_, _, c)| c)
+    }
+
+    /// A node's Render Priority and Cast Shadows don't reach Iray: every
+    /// mesh instance in DAZ's .mi has all its render flags on (`shadow 3`
+    /// and the rest) and `label` 0, whatever the node or an instance node
+    /// of it says (Calib-Mi-Priority: Lowest, Low, Below Normal, Above Normal,
+    /// Highest;
+    /// Calib-CastShadows-Off: the sphere and an instance of it; #36). Iray
+    /// Photoreal ignores `shadow_cast` anyway (Iray manual 4.3.5).
+    #[test]
+    fn render_priority_and_cast_shadows_dont_reach_iray() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let (mut priorities, mut shadowless, mut wrong) = (HashSet::new(), 0, Vec::new());
+        for f in std::fs::read_dir(root.join("calib/references/mi")).unwrap() {
+            let f = f.unwrap().path();
+            let scene = f.file_stem().unwrap().to_string_lossy().to_string();
+            let fixture: Value = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();
+            let Some(objects) = fixture["objects"].as_object() else { continue };
+            let nodes = scene_nodes(&root.join(format!("calib/scenes/{scene}.duf"))).1;
+            for (label, mi) in objects {
+                let Some((_, _, ch)) = nodes.iter().find(|(d, n, _)| n["label"].as_str().or(d["label"].as_str()) == Some(label.as_str())) else {
+                    wrong.push(format!("{scene} {label}: no such node"));
+                    continue;
+                };
+                priorities.insert(ch.get("Render Priority").and_then(Value::as_i64).unwrap_or(3));
+                shadowless += usize::from(ch.get("Cast Shadows").and_then(Value::as_bool) == Some(false));
+                for (k, v) in [("visible", json!(true)), ("shadow_mode", json!(3)), ("transparency_mode", json!(3))] {
+                    if mi["flags"][k] != v {
+                        wrong.push(format!("{scene} {label}: {k} {}", mi["flags"][k]));
+                    }
+                }
+                if mi["attrs"]["label"] != json!(0) {
+                    wrong.push(format!("{scene} {label}: label {}", mi["attrs"]["label"]));
+                }
+            }
+        }
+        // The fixtures must cover what is claimed: every priority, shadowless nodes and an instance.
+        assert!(priorities.len() >= 6 && priorities.contains(&0) && priorities.contains(&6) && shadowless >= 2, "fixtures cover priorities {priorities:?}, {shadowless} shadowless nodes");
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
     }
 
     #[test]

@@ -1209,16 +1209,13 @@ fn camera_headlamp_when_iray_lights_with_it() {
 }
 
 #[test]
-fn cast_shadows_off_becomes_an_object_layer_input() {
+fn cast_shadows_off_still_casts() {
+    // DAZ doesn't hand Iray a node's Cast Shadows (#36): the mesh is
+    // exported as any other, and the template loads no object layers.
     let vis = |id: &str, on: bool| json!({"channel": {"id": id, "current_value": on}});
     let meshes = host_with_channels(json!([vis("Cast Shadows", false)]));
-    assert!(meshes[0].no_shadow);
-    assert!(!host_with_channels(json!([]))[0].no_shadow);
-    assert_eq!(shadowless_prims(&meshes), ["Body"]);
-    let layers: Vec<_> = shadowless_prims(&meshes).into_iter().map(|p| (p, "shadow_visibility", false)).collect();
-    let xml = crate::material::object_layer_inputs(&layers, 160_000);
-    assert!(xml.contains("type='20017' name='/Scene/Body_object'") && xml.contains("<pin name='shadow_visibility'>"), "{xml}");
-    assert!(xml.contains("<attr name='value' type='1'>0</attr>"));
+    let faces = |m: &[Mesh]| m.iter().map(|m| (m.name.clone(), m.subsets.len(), m.points.len())).collect::<Vec<_>>();
+    assert_eq!(faces(&meshes), faces(&host_with_channels(json!([]))));
     assert!(include_str!("../../assets/octane/project.ocs").contains(OBJECT_LAYERS_HIDDEN), "the template's import setting");
 }
 

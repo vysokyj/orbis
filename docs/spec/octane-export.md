@@ -234,14 +234,16 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   up to 0.3 mm under the skin in creases (0.12–0.21 mm above once fixed),
   which random-walk skin lit as white lines along the NGV8 Color Layer's
   outline (Octane4, probes 62–71).
-- **Cast Shadows off**: the prim's object layer has shadow visibility off.
-  The USD graph then loads all object layers (`objectLayerImport` 3, the
-  template's is 1, none) and the export fills the input it creates per prim,
-  `/Scene/<prim>_object` (type 20017), with an object layer (type 65)
-  carrying only `shadow_visibility` 0; the prims without one keep a default
-  layer (Calib-L-Distant-45 with the sphere's off: no sphere shadow, the
-  cubes' as before; probes 100–102). An instanced mesh keeps its shadow —
-  its input's path isn't probed.
+- **Cast Shadows** and **Render Priority** are **not mapped**: DAZ doesn't
+  hand them to Iray. In its .mi every mesh instance has all render flags on
+  (`shadow 3`, …) and `label` 0, whatever the node or an instance node of
+  it says (Calib-Mi-Priority: five priorities from Lowest to Highest;
+  Calib-CastShadows-Off: the sphere and an instance of it; test in
+  `src/iray.rs`), and Iray Photoreal ignores `shadow_cast` anyway (Iray
+  manual 4.3.5) — as for a light's Cast Shadows (#35). Why it matters: the
+  first export (probes 100–102) took the sphere's shadow away, which Iray
+  draws. Octane's object layer input per prim (`/Scene/<prim>_object`,
+  `objectLayerImport` 3) is still what shows a light to the camera.
 - **Hidden surfaces and facet groups**: any node (not only a shell) drops
   the material groups its `material_group_<group>_vis` channels switch off
   and the facet groups (`polygon_groups`, a figure's bone regions) its
@@ -250,7 +252,11 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   (k: the graft's index among its host's grafts): NGV8's shells switch off
   the host's `Hip` and the Effect Layer `WG_0_Rectum` / `WG_0_Vagina`, yet
   show the graft's own Hip facets. The NGV8 shells are the only users of
-  these channels in My Library; not checked against an Iray render yet.
+  these channels in My Library. DAZ creates them only on a geometry shell
+  (a figure has no such channels), and hands Iray the shell cut the same
+  way: Calib-Shell-G9 (Genesis 9 with a red shell, Body and Arms shown,
+  `l_forearm` and `l_pectoral` facets off) has 343 776 shell triangles in
+  the .mi and in the export; the Iray render is pending (#36).
 - **Visible grafts are welded into their host mesh**: graft points follow the
   host's, border vertices are remapped onto their paired host vertex, graft
   groups are named `<graft node>_<group>` and keep the graft's materials and

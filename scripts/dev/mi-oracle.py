@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """What DAZ Studio hands Iray, from its .mi export (scripts/dev/daz-export-mi.dsa),
-as JSON: render options, camera, environment, lights and every material's MDL
+as JSON: render options, camera, environment, lights, mesh instances' render
+flags (visible, shadow, label, matte...) and every material's MDL
 call with its arguments, textures and light profiles inlined (path, gamma;
 IES path, flags, hermite degree, resolution). No geometry. These
 are the oracle the DAZ -> Iray conversions in src/iray.rs are tested against
@@ -139,7 +140,7 @@ def parse(path):
             shaders[name] = {"call": call, "args": args, "attrs": attrs}
         elif kind == "instance":
             m = re.match(r'instance "([^"]+)" "([^"]+)"', head)
-            inst = {"name": m.group(1), "item": m.group(2), "material": [], "attrs": {}, "transform": None}
+            inst = {"name": m.group(1), "item": m.group(2), "material": [], "attrs": {}, "flags": {}, "transform": None}
             for j, l in enumerate(body):
                 s = l.strip()
                 if s.startswith("material "):
@@ -149,6 +150,10 @@ def parse(path):
                 a = re.match(r'attribute \S+ "([^"]+)" (.*)$', s)
                 if a:
                     inst["attrs"][a.group(1)] = value(a.group(2))
+                f = re.match(r'(hide|visible|shadow|transparency|finalgather|globillum|caustic|reflection|refraction|trace) (\S+)$', s)
+                if f:
+                    # "finalgather on" and "finalgather 3" both occur: keep each.
+                    inst["flags"][f.group(1) + ("_mode" if f.group(2).isdigit() else "")] = value(f.group(2))
             instances.append(inst)
         elif kind == "light":
             name = re.match(r'light "([^"]+)"', head).group(1)
@@ -203,12 +208,14 @@ def parse(path):
         out["args"] = args
         return out
 
-    scene = {"options": {}, "camera": camera, "environment": None, "lights": {}, "materials": {}}
+    scene = {"options": {}, "camera": camera, "environment": None, "lights": {}, "materials": {}, "objects": {}}
     if options:
         env = options.pop("environment_function", None)
         scene["options"] = options
         if env:
             scene["environment"] = tree(env)
+    seen = set()
+    handles = {inst["attrs"].get("handle", strip_id(inst["name"])) for inst in instances}
     for inst in instances:
         handle = inst["attrs"].get("handle", strip_id(inst["name"]))
         if inst["item"] in lights:
@@ -218,7 +225,16 @@ def parse(path):
                 "material": tree(l["shader"]) if l["shader"] else None,
                 "transform": inst["transform"],
             }
+        if inst["material"]:
+            # A mesh instance's render flags and attributes (#36).
+            scene["objects"][handle] = {"flags": inst["flags"], "attrs": {k: v for k, v in inst["attrs"].items() if k != "handle"}}
         for mat in inst["material"]:
+            # An instance node's copy uses its target's materials: they go
+            # under the target (named after it), once.
+            owner = strip_id(mat).split("__", 1)[0]
+            if mat in seen or owner != handle and owner in handles:
+                continue
+            seen.add(mat)
             surface = strip_id(mat).split("__", 1)[-1]
             t = tree(mat)
             t["attrs"] = {k: v for k, v in shaders.get(mat, {}).get("attrs", {}).items() if k != "material_id"}

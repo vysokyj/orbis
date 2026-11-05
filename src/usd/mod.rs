@@ -157,20 +157,6 @@ pub fn export_scene_usdz(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
 const OBJECT_LAYERS_HIDDEN: &str = "<attr name='objectLayerImport' type='2'>1</attr>";
 const OBJECT_LAYERS_ALL: &str = "<attr name='objectLayerImport' type='2'>3</attr>";
 
-/// The prims that cast no shadow (`Cast Shadows` off). An instanced mesh's
-/// object layer input isn't known (not probed): it keeps its shadow.
-fn shadowless_prims(meshes: &[Mesh]) -> Vec<String> {
-    let mut out = Vec::new();
-    for m in meshes.iter().filter(|m| m.no_shadow) {
-        if m.instances.is_some() {
-            tracing::warn!(mesh = %m.label, "Octane export: Cast Shadows off on an instanced mesh, left casting");
-        } else {
-            out.push(m.name.clone());
-        }
-    }
-    out
-}
-
 /// Convert `scene` into an Octane package (`.orbx`) at `out`: the scene as an
 /// embedded binary USD layer (`.usdc`), imported by a USD graph in `project.ocs`, with a render
 /// target wired to it and the scene's DAZ camera. Octane X opens it from its
@@ -196,7 +182,6 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     let uv = uv_scales(&meshes);
     let mut environment = scene_environment(&mut lib);
     let ground_y = environment.as_ref().map_or(0.0, |e| ground_height(e, &meshes));
-    let shadowless = shadowless_prims(&meshes);
     let name = scene.file_stem().and_then(|s| s.to_str()).unwrap_or("scene");
     let mut scaled = 0;
     write_atomically(out, |f| {
@@ -220,11 +205,7 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
         // The shadow-catching ground stands in for Iray's ground under an HDRI
         // backdrop; without a map there is nothing for its shadow to sit on.
         let ground = environment.as_ref().filter(|e| e.map.is_some() && !opts.no_ground).and_then(|e| Some((e.ground_shadow?, ground_y)));
-        let layers: Vec<(String, &str, bool)> = shadowless
-            .iter()
-            .map(|p| (p.clone(), "shadow_visibility", false))
-            .chain(camera_shown_lights(&lights).into_iter().map(|p| (p, "camera_visibility", true)))
-            .collect();
+        let layers: Vec<(String, &str, bool)> = camera_shown_lights(&lights).into_iter().map(|p| (p, "camera_visibility", true)).collect();
         let iray_ground = ground_y;
         // VDB volumes, each file packed once.
         let mut vdb_files: Vec<(String, PathBuf)> = Vec::new();

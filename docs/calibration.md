@@ -84,6 +84,7 @@ thing at a time.
 | `Calib-RS-*` | render settings: caustics, path length, firefly filter, bloom, pixel filter, spectral | — | [#43](https://github.com/vysokyj/orbis/issues/43) |
 | `Calib-L-Opt-*` | light options: decay, shadow intensity / softness / colour, illumination, render emitter, cast shadows, temperature; `-Rect-*`: render emitter with the rect in the frame (Facing), light portal under a dome | — | [#35](https://github.com/vysokyj/orbis/issues/35) |
 | `Calib-L-IES-*` | IES light profiles: a point light (level, turned down), a rect, an emissive plane's Emission Profile, with DAZ's `light_profile_test.ies` or the synthetic `calib/ies/Orbis-Asym.ies` (copied to My Library/Runtime/ORBIS); the floor from above | — | [#34](https://github.com/vysokyj/orbis/issues/34) |
+| `Calib-Mi-Priority`, `Calib-CastShadows-Off`, `Calib-Shell-G9` | node render flags: Render Priority (.mi only), Cast Shadows off on a mesh and an instance node, a geometry shell on Genesis 9 with hidden surfaces and facet groups (`daz-build-node-flags.dsa` + `make-node-flag-scenes.py`) | not mapped / cut as DAZ does (Iray pending) | [#36](https://github.com/vysokyj/orbis/issues/36) |
 
 Some checks need scenes that stay on the developer's machine because they
 use DAZ Store or DAZ library content: a strand-hair figure (`Calib-Hair`,

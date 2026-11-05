@@ -29,6 +29,9 @@ Layer is hidden in all the scenes); not checked against Iray.
 
 ## Cast Shadows in Octane
 
+(Removed on 2026-11-05: DAZ doesn't hand Cast Shadows to Iray, and Iray
+Photoreal ignores `shadow_cast` — [2026-11-05](2026-11-05-node-flags-iray.md).)
+
 Probes 100–102 on Calib-L-Distant-45 (plane, three cubes, a sphere, a
 distant light):
 

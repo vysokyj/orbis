@@ -4664,8 +4664,8 @@ fn environment_texture_at(
 /// one per prim, `/Scene/<prim>_object` (lights `/Scene/Lights/<prim>_object`),
 /// once it loads all object layers (`objectLayerImport` 3, probes 100–102):
 /// for each `(stem, pin, value)` an object layer (type 65) with that
-/// visibility pin set — `shadow_visibility` off for DAZ's `Cast Shadows`
-/// off on a mesh, `camera_visibility` on for a light the camera sees (#35).
+/// visibility pin set — `camera_visibility` on for a light the camera sees
+/// (#35). (Not for DAZ's `Cast Shadows`: it doesn't reach Iray, #36.)
 /// Node ids start at `first_id`.
 pub fn object_layer_inputs(layers: &[(String, &str, bool)], first_id: u32) -> String {
     let mut out = String::new();
