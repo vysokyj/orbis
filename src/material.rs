@@ -927,9 +927,15 @@ impl Ocs<'_> {
     /// light sent back toward where it came from — over diffuse and gloss
     /// (under metal, refraction, flakes and coat), tinted by Glossy Color
     /// while Share Glossy Inputs is on (DAZ doesn't even pass Backscattering
-    /// Color then), else by its own colour. Octane has no retro-reflective
-    /// lobe: a Mix material (19) of a metal in that colour at a broad
-    /// roughness (`material1`, amount = the weight) and the surface (#29).
+    /// Color then), else by its own colour. MDL's lobe is the
+    /// retro-reflective part of a halfway-vector disk model (exponent
+    /// 2 / r², no Fresnel, no multiscatter compensation). Octane X has no
+    /// retro-reflective lobe (the manual's Retro-Reflective option isn't in
+    /// this version): a Mix material (19) of a metal in that colour at full
+    /// strength (`material1`, amount = the weight) whose shading normal is
+    /// the direction to the viewer (`retro_normal_pin`) — a mirror about it
+    /// sends light back where it came from, its GGX lobe around that
+    /// direction —, and the surface (#29, #73).
     fn backscatter_mix_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
@@ -943,12 +949,14 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:j$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
         let shared = mat.float("Share Glossy Inputs").unwrap_or(1.0) > 0.0;
         let colour = if shared { mat.color("Glossy Color").unwrap_or([1.0; 3]) } else { mat.color("Backscattering Color").unwrap_or([0.5; 3]) };
-        let colour = colour.map(|c| c * backscatter_return(r));
         self.rgb_pin(j + 1, "albedo", colour);
         self.rgb_pin(j + 1, "edgeTint", colour);
         self.float_pin(j + 1, "metallic", 1.0);
         self.gloss_ggx = true;
-        self.brdf_pin(j + 1);
+        // Plain GGX: single scattering, as DAZ leaves the lobe's
+        // `multiscatter_tint` at 0 (no energy compensation).
+        self.value_pin(j + 1, "brdf", 57, 2, "2");
+        self.retro_normal_pin(j + 1);
         let rough = self.gloss_roughness(r);
         self.float_pin(j + 1, "roughness", rough.clamp(0.0, 1.0));
         self.top_coat(j + 1, mat, 0.0);
@@ -967,6 +975,24 @@ impl Ocs<'_> {
         self.pin_close(i);
         self.displacement_pin(i, mat);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
+    }
+
+    /// The shading normal turned toward the viewer, so that the mirror
+    /// about it sends each ray back where it came from: an OSL texture (117)
+    /// in the `normal` pin giving the direction to the viewer (−I) in the
+    /// frame Octane reads tangent-space normal maps in — T = dP/du made
+    /// perpendicular to N, B = N × T (probe renders 2026-11-05: Ray
+    /// Direction's own "tangent" space is another frame and rendered a
+    /// distorted mirror; flipping or swapping its channels didn't help).
+    /// Without UVs (dP/du ∥ N or zero) the normal stays unperturbed.
+    fn retro_normal_pin(&mut self, indent: usize) {
+        let id = self.id();
+        self.pin_open(indent, "normal");
+        let i = indent + 1;
+        let _ = writeln!(self.out, "{:i$}<node id='{id}' type='117' name='retro normal'>", "");
+        let _ = writeln!(self.out, "{:i$} <attr name='shaderCode' type='10'>{}</attr>", "", esc(RETRO_NORMAL_OSL));
+        let _ = writeln!(self.out, "{:i$}</node>", "");
+        self.pin_close(indent);
     }
 
     /// Iray's anisotropic Top Coat in Layering Modes 0, 2 and 3 (Universal's
@@ -2612,17 +2638,19 @@ fn backscatter_weight(mat: &Material) -> f32 {
     mat.float("Backscattering Weight").unwrap_or(0.0).clamp(0.0, 1.0)
 }
 
-/// What Iray's backscattering lobe sends back, as a share of what Octane's
-/// mirror in its place reflects, by Iray's (squared) roughness r: 5.7 r
-/// e^(−r / 0.168). The lobe replaces the surface by its weight (a
-/// `weighted_layer`) and returns light from behind the camera: at r 0 only
-/// from exactly there — Calib-Map-Misc's unshared smooth lobe at weight
-/// 0.5 halved its sphere (1.89 × Iray without it) —, at r 0.09 G 0.136,
-/// at 0.49 0.085 (Calib-Backscatter at weight 1, white gloss colour over
-/// red), where Octane's mirror gave ~0.45 / 0.55. Fitted under one HDRI (#29).
-fn backscatter_return(r: f32) -> f32 {
-    (5.7 * r * (-r / 0.168).exp()).clamp(0.0, 1.0)
+/// `retro_normal_pin`'s shader: the direction to the viewer as a
+/// tangent-space normal (0..1 encoding).
+const RETRO_NORMAL_OSL: &str = "shader OrbisRetroNormal(output color c = color(0.5, 0.5, 1.0)) {
+    vector n = normalize(N);
+    vector t = dPdu - dot(dPdu, n) * n;
+    if (length(t) > 1e-8) {
+        t = normalize(t);
+        vector b = cross(n, t);
+        vector w = -normalize(I);
+        c = color(dot(w, t), dot(w, b), dot(w, n)) * 0.5 + 0.5;
+    }
 }
+";
 
 /// See `flake_share`.
 const FLAKE_COVERAGE: f32 = 0.4;
@@ -5412,6 +5440,30 @@ mod tests {
         // Backscattering Anisotropy alone never reaches Iray.
         let back = ball(json!([{"channel": {"id": "Backscattering Anisotropy", "current_value": 0.8}}]));
         assert_eq!(pin(&back, "anisotropyTexture"), None);
+    }
+
+    #[test]
+    fn backscattering_is_a_retro_reflecting_mirror() {
+        let chs = json!([
+            {"channel": {"id": "diffuse", "current_value": [0.45, 0.05, 0.04]}},
+            {"channel": {"id": "Backscattering Weight", "current_value": 1.0}},
+            {"channel": {"id": "Backscattering Roughness", "current_value": 0.3}},
+        ]);
+        let (x, _) = material_inputs(&[("Ball".into(), mat(chs), 1.0)], &[], HashMap::new(), 5000, SkinShader::None);
+        let lobe = &x[x.find("Ball backscatter'>").expect(&x)..];
+        let lobe = &lobe[..lobe.find("Ball base'>").unwrap()];
+        // The lobe in Glossy Color (white) as it is — no fitted dimming —,
+        // plain GGX at the gloss curve of Iray's r 0.09, the normal turned
+        // toward the viewer by the OSL texture.
+        assert!(lobe.contains("<pin name='albedo'>") && lobe.contains("type='8'>1 1 1<"), "{lobe}");
+        let brdf = &lobe[lobe.find("<pin name='brdf'>").unwrap()..];
+        assert_eq!(brdf.split("type='2'>").nth(1).unwrap().split('<').next(), Some("2"));
+        let rough = &lobe[lobe.find("<pin name='roughness'>").unwrap()..];
+        let rough: f32 = rough[rough.find("type='6'>").unwrap() + 9..].split('<').next().unwrap().parse().unwrap();
+        assert!((rough - ggx_roughness(0.09)).abs() < 1e-5, "{rough}");
+        let normal = &lobe[lobe.find("<pin name='normal'>").expect(lobe)..];
+        assert!(normal.contains("type='117'") && normal.contains("shaderCode") && normal.contains("-normalize(I)"), "{normal}");
+        assert!(normal.contains("cross(n, t)"), "{normal}");
     }
 
     #[test]
