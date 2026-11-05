@@ -21,6 +21,98 @@ pub struct Channel {
     /// The image's own gamma (`image_library` `map_gamma`), when it sets one
     /// (0 is DAZ's automatic).
     pub gamma: Option<f32>,
+    /// DAZ's per-map texture-instance settings (`image_modification`), when
+    /// the channel saves them.
+    pub image_mod: Option<ImageMod>,
+}
+
+/// DAZ's per-map settings of one channel's image (`image_modification`,
+/// #77): what DAZ hands Iray as the `file_texture`'s uvw transform, colour
+/// scale / offset and mono source (Calib-Mi-ImageMod, -ImageMod2):
+/// - uvw = (uv · material tiles + (material offset u, −v)) · `tiles` +
+///   (`tiling_offset` u, −v);
+/// - the value = the channel's value × (`scale` · t + `offset`), t the
+///   texel, or 1 − t when `invert`; a bump or normal map takes the tiles
+///   only;
+/// - `mono`: which of the texel's channels a grey channel reads.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ImageMod {
+    pub tiles: [f32; 2],
+    pub tiling_offset: [f32; 2],
+    pub scale: f32,
+    pub offset: f32,
+    pub invert: bool,
+    pub mono: Mono,
+}
+
+/// `grayscale_mode`: how a grey channel reads a colour texel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mono {
+    /// DAZ's default (`mono_average`).
+    Average,
+    /// One channel (`redchannel` …): DAZ zeroes the other channels' scale
+    /// and offset and passes `mono_maximum`.
+    Red,
+    Green,
+    Blue,
+    /// `mono_maximum`.
+    Maximum,
+    /// `mono_alpha` (1 where the image has no alpha).
+    Alpha,
+}
+
+impl Default for ImageMod {
+    fn default() -> Self {
+        ImageMod { tiles: [1.0; 2], tiling_offset: [0.0; 2], scale: 1.0, offset: 0.0, invert: false, mono: Mono::Average }
+    }
+}
+
+impl ImageMod {
+    /// From a channel's `image_modification` object; missing fields at
+    /// DAZ's defaults.
+    pub fn from_dson(v: &Value) -> Self {
+        let f = |k: &str, d: f32| v.get(k).and_then(Value::as_f64).map_or(d, |x| x as f32);
+        let mono = match v.get("grayscale_mode").and_then(Value::as_str).unwrap_or("average") {
+            "redchannel" => Mono::Red,
+            "greenchannel" => Mono::Green,
+            "bluechannel" => Mono::Blue,
+            "maximum" => Mono::Maximum,
+            "alpha" => Mono::Alpha,
+            _ => Mono::Average,
+        };
+        ImageMod {
+            tiles: [f("horizontal_tiles", 1.0), f("vertical_tiles", 1.0)],
+            tiling_offset: [f("horizontal_tiling_offset", 0.0), f("vertical_tiling_offset", 0.0)],
+            scale: f("scale", 1.0),
+            offset: f("offset", 0.0),
+            invert: v.get("invert").and_then(Value::as_bool).unwrap_or(false),
+            mono,
+        }
+    }
+
+    /// Only the UV placement (a bump or normal map: DAZ passes nothing
+    /// else).
+    pub fn placement(self) -> Self {
+        ImageMod { tiles: self.tiles, tiling_offset: self.tiling_offset, ..ImageMod::default() }
+    }
+
+    /// The texel's value range: t = 0 maps to `lo`, t = 1 to `hi` (before
+    /// the channel's value), None when it is 0 … 1.
+    pub fn value_range(self) -> Option<(f32, f32)> {
+        let (lo, hi) = if self.invert { (self.offset + self.scale, self.offset) } else { (self.offset, self.offset + self.scale) };
+        (lo != 0.0 || hi != 1.0).then_some((lo, hi))
+    }
+
+    /// A texel value t (the picked channel, decoded) through scale,
+    /// offset and invert.
+    pub fn apply(self, t: f32) -> f32 {
+        self.scale * if self.invert { 1.0 - t } else { t } + self.offset
+    }
+
+    /// The per-map tiles, as a usable divisor (DAZ's 0 counts as 1).
+    pub fn tiles_or_one(self) -> [f32; 2] {
+        self.tiles.map(|t| if t > 0.0 { t } else { 1.0 })
+    }
 }
 
 /// A material group's merged channels.
@@ -80,7 +172,8 @@ impl Material {
                     images.get(&crate::dson::percent_decode(r.trim_start_matches('#'))).cloned()
                 })
                 .filter(|s| !s.is_empty());
-            self.channels.insert(id.to_string(), Channel { value, image, gamma: None });
+            let image_mod = c.get("image_modification").filter(|v| v.is_object()).map(ImageMod::from_dson);
+            self.channels.insert(id.to_string(), Channel { value, image, gamma: None, image_mod });
         };
         if let Some(obj) = m.as_object() {
             for v in obj.values() {
@@ -121,7 +214,7 @@ impl Material {
             }
         }
         if weighted_brick && !self.channels.contains_key("Base Mixing") {
-            self.channels.insert("Base Mixing".into(), Channel { value: Value::from(2), image: None, gamma: None });
+            self.channels.insert("Base Mixing".into(), Channel { value: Value::from(2), image: None, gamma: None, image_mod: None });
         }
     }
 
@@ -187,6 +280,12 @@ impl Material {
             return None;
         }
         self.channel(id)?.image.as_deref()
+    }
+
+    /// DAZ's per-map settings of the channel's image (identity when it
+    /// saves none).
+    pub fn image_mod(&self, id: &str) -> ImageMod {
+        self.channel(id).and_then(|c| c.image_mod).unwrap_or_default()
     }
 
     /// Base color (Iray `diffuse` / "Base Color") × Diffuse Strength, which
@@ -431,6 +530,24 @@ mod tests {
         ]}]});
         let g = Material::from_dson(&gloss, &images);
         assert!((g.roughness() - 0.2).abs() < 1e-6, "{}", g.roughness());
+    }
+
+    #[test]
+    fn image_modification_per_channel() {
+        let m = Material::from_dson(&json!({"extra": [{"channels": [
+            {"channel": {"id": "Glossy Roughness", "current_value": 0.7, "image_file": "/r.png",
+                "image_modification": {"grayscale_mode": "greenchannel", "scale": 1.5, "offset": -0.1, "invert": true, "horizontal_tiles": 2, "horizontal_tiling_offset": 0, "vertical_tiles": 1, "vertical_tiling_offset": 0.25}}},
+            {"channel": {"id": "Glossy Weight", "current_value": 1, "image_file": "/w.png"}},
+        ]}]}), &HashMap::new());
+        let r = m.image_mod("Glossy Roughness");
+        assert_eq!((r.tiles, r.tiling_offset, r.mono, r.invert), ([2.0, 1.0], [0.0, 0.25], Mono::Green, true));
+        // DAZ's .mi: 0.7 × (1.5 (1 − t) − 0.1) = 0.98 − 1.05 t.
+        assert!((r.apply(0.0) * 0.7 - 0.98).abs() < 1e-6 && (r.apply(1.0) * 0.7 + 0.07).abs() < 1e-6);
+        assert_eq!(r.value_range(), Some((1.4, -0.1)));
+        assert_eq!(r.placement(), ImageMod { tiles: [2.0, 1.0], tiling_offset: [0.0, 0.25], ..ImageMod::default() });
+        // None saved: the identity, no value range.
+        assert_eq!(m.image_mod("Glossy Weight"), ImageMod::default());
+        assert_eq!(ImageMod::default().value_range(), None);
     }
 
     #[test]

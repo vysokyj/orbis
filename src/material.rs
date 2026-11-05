@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-use crate::daz_material::{colour_to_linear, Material};
+use crate::daz_material::{colour_to_linear, ImageMod, Material, Mono};
 
 /// Octane version written into each node's `compatibilityVersion`.
 const COMPAT: &str = "15050000";
@@ -249,10 +249,44 @@ impl Textures {
         Some(asset)
     }
 
+    /// A packed image's channel `mono` picks (DAZ's `grayscale_mode`, #77)
+    /// as a one-channel PNG of the same bytes (the same encoding, so the
+    /// image node decodes it as it would the original); None when the
+    /// image can't be read.
+    fn channel(&mut self, asset: &str, mono: Mono) -> Option<String> {
+        let key = format!("channel|{asset}|{mono:?}");
+        if let Some(a) = self.by_source.get(&key) {
+            return Some(a.clone());
+        }
+        let img = if let Some((_, file)) = self.files.iter().find(|(a, _)| a == asset) {
+            image::open(file).ok()?
+        } else {
+            image::load_from_memory(&self.generated.iter().find(|(a, _)| a == asset)?.1).ok()?
+        };
+        let img = img.to_rgba8();
+        let out = image::GrayImage::from_fn(img.width(), img.height(), |x, y| {
+            let p = img.get_pixel(x, y).0;
+            image::Luma([pick_channel(p, mono)])
+        });
+        let mut png = Vec::new();
+        out.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+        let stem = Path::new(asset).file_stem().and_then(|n| n.to_str()).unwrap_or("map");
+        let new = format!("assets/tex/{:04}_{stem}_{}.png", self.files.len() + self.generated.len(), format!("{mono:?}").to_lowercase());
+        self.generated.push((new.clone(), png));
+        self.by_source.insert(key, new.clone());
+        Some(new)
+    }
+
     /// An image derived from a map's luminance: each texel's luminance `l`
     /// (decoded at gamma 2.2) → `f(l)` (linear RGB), written as a PNG
     /// encoded at `gamma` — MDL's `file_texture` offsets and scales baked in.
     fn derived(&mut self, dirs: &[PathBuf], src: &str, key: &str, gamma: f32, f: impl Fn(f32) -> [f32; 3]) -> Option<String> {
+        self.derived_mono(dirs, src, key, gamma, Mono::Average, f)
+    }
+
+    /// `derived` from the texel's channel `mono` picks (#77) instead of its
+    /// luminance (`Mono::Average` keeps the luminance).
+    fn derived_mono(&mut self, dirs: &[PathBuf], src: &str, key: &str, gamma: f32, mono: Mono, f: impl Fn(f32) -> [f32; 3]) -> Option<String> {
         if let Some(a) = self.by_source.get(key) {
             return Some(a.clone());
         }
@@ -263,11 +297,16 @@ impl Textures {
             }
             return None;
         };
-        let img = image::open(&file).ok()?.to_rgb8();
+        let img = image::open(&file).ok()?.to_rgba8();
         let decode = |c: u8| crate::daz_material::colour_to_linear(f32::from(c) / 255.0);
         let out = image::RgbImage::from_fn(img.width(), img.height(), |x, y| {
             let p = img.get_pixel(x, y).0;
-            let l = 0.2126 * decode(p[0]) + 0.7152 * decode(p[1]) + 0.0722 * decode(p[2]);
+            let l = match mono {
+                Mono::Average => 0.2126 * decode(p[0]) + 0.7152 * decode(p[1]) + 0.0722 * decode(p[2]),
+                // Alpha is linear coverage, not gamma-encoded.
+                Mono::Alpha => f32::from(p[3]) / 255.0,
+                _ => decode(pick_channel(p, mono)),
+            };
             image::Rgb(f(l).map(|v| (v.clamp(0.0, 1.0).powf(1.0 / gamma) * 255.0 + 0.5) as u8))
         });
         let mut png = Vec::new();
@@ -684,6 +723,34 @@ fn uv_translation(tiles: [f32; 2], offsets: [f32; 2]) -> (f32, f32) {
     (-offsets[0] / tiles[0], offsets[1] / tiles[1])
 }
 
+/// Octane's texture transform (scale, translation) for a map placed by the
+/// material's tiling (tiles u, v, offsets u, v) and the map's own settings
+/// (#77). Iray's uvw transform is uv · (material tiles · map tiles) +
+/// (material offset u · map tiles u + map offset u, −(… v)) (DAZ's .mi,
+/// Calib-Mi-ImageMod); as Octane's, scale 1 / that, and the translation
+/// `uv_translation` of it — the map's own offset counted in its tiles.
+/// None when it is the identity.
+fn uv_transform(tiling: Option<[f32; 4]>, m: ImageMod) -> Option<([f32; 2], (f32, f32))> {
+    let [tu, tv, ou, ov] = tiling.unwrap_or([1.0, 1.0, 0.0, 0.0]);
+    let pt = m.tiles_or_one();
+    let tiles = [tu * pt[0], tv * pt[1]];
+    let offsets = [ou * pt[0] + m.tiling_offset[0], ov * pt[1] + m.tiling_offset[1]];
+    (tiles != [1.0, 1.0] || offsets != [0.0, 0.0]).then(|| ([1.0 / tiles[0], 1.0 / tiles[1]], uv_translation(tiles, offsets)))
+}
+
+/// A texel's byte for DAZ's `grayscale_mode` (#77): one channel, the
+/// largest (`mono_maximum`), or alpha; the average for `Average`.
+fn pick_channel(p: [u8; 4], mono: Mono) -> u8 {
+    match mono {
+        Mono::Red => p[0],
+        Mono::Green => p[1],
+        Mono::Blue => p[2],
+        Mono::Maximum => p[0].max(p[1]).max(p[2]),
+        Mono::Alpha => p[3],
+        Mono::Average => ((u16::from(p[0]) + u16::from(p[1]) + u16::from(p[2])) / 3) as u8,
+    }
+}
+
 /// Builds node XML with unique ids.
 struct Ocs<'a> {
     out: String,
@@ -718,6 +785,11 @@ struct Ocs<'a> {
     gloss_ggx: bool,
     /// The current material's UV scale (m per UV unit, `UvScales`).
     uv_scale: Option<f64>,
+    /// DAZ's per-map settings (`ImageMod`, #77) of the channel whose image
+    /// is being written (`with_map`): `image_pin` places the image by them
+    /// and the material's tiling, and applies their value range and grey
+    /// channel.
+    map_mod: ImageMod,
 }
 
 fn esc(s: &str) -> String {
@@ -882,8 +954,8 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:j$}<node id='{gid}' type='130' name='{} gloss'>", "", esc(name));
         let _ = writeln!(self.out, "{:j$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
         let gloss_color = mat.color("Glossy Color").unwrap_or([1.0; 3]);
-        match mat.image("Glossy Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            Some(asset) => self.tinted_image_pin(j + 1, "albedo", &asset, 1.0, gloss_color),
+        match self.channel_map(mat, "Glossy Color") {
+            Some((asset, m)) => self.with_map(m, |w| w.tinted_image_pin(j + 1, "albedo", &asset, 1.0, gloss_color)),
             None => self.rgb_pin(j + 1, "albedo", gloss_color),
         }
         // Iray's weighted gloss has no Fresnel either: its colour to the edge.
@@ -895,8 +967,8 @@ impl Ocs<'_> {
         let aniso = Anisotropy::glossy(mat);
         self.aniso_brdf_pin(j + 1, aniso.saturates(rough));
         self.gloss_roughness_pins(j + 1, mat, rough_ch, rough, RoughCurve::Ggx, aniso);
-        if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            self.image_pin(j + 1, "normal", &asset, false, 1.0, 1.0);
+        if let Some((asset, m)) = self.channel_map(mat, "Normal Map") {
+            self.with_map(m.placement(), |w| w.image_pin(j + 1, "normal", &asset, false, 1.0, 1.0));
         }
         self.base_bump_pin(j + 1, mat, "bump");
         self.round_edges_pin(j + 1, mat);
@@ -1070,8 +1142,8 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:j$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
         let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
         let (colour, coat) = color_effect(mat, "Top Coat Color Effect", mat.color("Top Coat Color").unwrap_or([1.0; 3]), coat);
-        match mat.image("Top Coat Weight").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            Some(asset) => self.image_pin(j + 1, "specular", &asset, true, 1.0, coat),
+        match self.channel_map(mat, "Top Coat Weight") {
+            Some((asset, m)) => self.with_map(m, |w| w.image_pin(j + 1, "specular", &asset, true, 1.0, coat)),
             None => self.rgb_pin(j + 1, "specular", colour.map(|c| c * coat)),
         }
         self.gloss_ggx = true;
@@ -1102,8 +1174,8 @@ impl Ocs<'_> {
         let i = indent + 1;
         let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
         let (colour, coat) = color_effect(mat, "Top Coat Color Effect", mat.color("Top Coat Color").unwrap_or([1.0; 3]), coat);
-        match mat.image("Top Coat Weight").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            Some(asset) => self.image_pin(i, "amount", &asset, true, 1.0, coat),
+        match self.channel_map(mat, "Top Coat Weight") {
+            Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "amount", &asset, true, 1.0, coat)),
             None => self.float_pin(i, "amount", coat),
         }
         // The coat is over the base's film, under its own.
@@ -1114,8 +1186,8 @@ impl Ocs<'_> {
         let j = i + 1;
         let _ = writeln!(self.out, "{:j$}<node id='{cid}' type='130' name='{} top coat'>", "", esc(name));
         let _ = writeln!(self.out, "{:j$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
-        match mat.image("Top Coat Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            Some(asset) => self.tinted_image_pin(j + 1, "albedo", &asset, 1.0, colour),
+        match self.channel_map(mat, "Top Coat Color") {
+            Some((asset, m)) => self.with_map(m, |w| w.tinted_image_pin(j + 1, "albedo", &asset, 1.0, colour)),
             None => self.rgb_pin(j + 1, "albedo", colour),
         }
         // A weighted layer has no Fresnel: the colour to the edge, where
@@ -1333,8 +1405,8 @@ impl Ocs<'_> {
         let (colour, coat) = color_effect(mat, "Top Coat Color Effect", mat.color("Top Coat Color").unwrap_or([1.0; 3]), coat);
         // A weight map (data) × the weight, as for the glossy layer:
         // Gabriela 8's face coats only where hers is light (Calib-Skin).
-        match mat.image("Top Coat Weight").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            Some(asset) => self.image_pin(i, "coating", &asset, true, 1.0, coat),
+        match self.channel_map(mat, "Top Coat Weight") {
+            Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "coating", &asset, true, 1.0, coat)),
             None => self.rgb_pin(i, "coating", colour.map(|c| c * coat)),
         }
         let rough = self.gloss_roughness(top_coat_roughness(mat));
@@ -1352,10 +1424,13 @@ impl Ocs<'_> {
     /// (Calib-BumpRes, Info kernel normals: 256 / 1024 / 4096 px alike,
     /// tiles 2 or the sphere at half size as at twice the power). So the
     /// power scales with the reference width / the map's, the material's
-    /// UV scale / the reference's, and 1 / the tiles.
+    /// UV scale / the reference's, and 1 / the tiles — the material's ×
+    /// the map's own (`map_mod`, #77).
     fn bump_power(&self, asset: &str, factor: f32) -> f32 {
         let width = self.textures.size(asset).map_or(BUMP_REF_WIDTH, |(w, h)| ((w as f32) * (h as f32)).sqrt().max(1.0));
-        let tiles = self.tiling.map_or(1.0, |[tu, tv, ..]| (tu * tv).abs().sqrt().max(1e-3));
+        let pt = self.map_mod.tiles_or_one();
+        let tiles = self.tiling.map_or(1.0, |[tu, tv, ..]| (tu * tv).abs().sqrt()) * (pt[0] * pt[1]).abs().sqrt();
+        let tiles = tiles.max(1e-3);
         let size = self.uv_scale.map_or(1.0, |s| (s / BUMP_REF_UV_SCALE) as f32);
         factor * BUMP_POWER * BUMP_REF_WIDTH / width * size / tiles
     }
@@ -1371,51 +1446,63 @@ impl Ocs<'_> {
     /// coat's and the base's height maps together as their sum (a Mix
     /// texture at ½ of both at twice the power: Iray's B7 shows both).
     fn coat_bump_pins(&mut self, i: usize, mat: &Material, bump_pin: &str, normal_pin: &str) {
-        let asset = |s: &mut Self, id: &str| mat.image(id).map(str::to_string).and_then(|t| s.textures.asset(s.dirs, &t));
+        // Bump and normal maps take only their placement (#77).
+        let asset = |s: &mut Self, id: &str| s.channel_map(mat, id).map(|(a, m)| (a, m.placement()));
         let coat = asset(self, "Top Coat Bump");
         let coat_normal = mat.float("Top Coat Bump Mode").unwrap_or(0.0) as i32 == 1;
-        let coat_height = coat.clone().filter(|_| !coat_normal).map(|a| (a, mat.float("Top Coat Bump").unwrap_or(1.0))).filter(|(_, f)| *f > 0.0);
+        let coat_height = coat.clone().filter(|_| !coat_normal).map(|(a, m)| (a, mat.float("Top Coat Bump").unwrap_or(1.0), m)).filter(|(_, f, _)| *f > 0.0);
         match (coat_height, self.base_bump(mat)) {
-            (Some((c, cf)), Some((b, bf))) => {
+            (Some((c, cf, cm)), Some((b, bf, bm))) => {
                 let id = self.id();
                 self.pin_open(i, bump_pin);
                 let j = i + 1;
                 let _ = writeln!(self.out, "{:j$}<node id='{id}' type='38'>", "");
                 self.float_pin(j + 1, "amount", 0.5);
-                let (cp, bp) = (self.bump_power(&c, cf), self.bump_power(&b, bf));
-                self.image_pin(j + 1, "texture1", &c, true, 1.0, 2.0 * cp);
-                self.image_pin(j + 1, "texture2", &b, true, 1.0, 2.0 * bp);
+                self.with_map(cm, |w| {
+                    let cp = w.bump_power(&c, cf);
+                    w.image_pin(j + 1, "texture1", &c, true, 1.0, 2.0 * cp);
+                });
+                self.with_map(bm, |w| {
+                    let bp = w.bump_power(&b, bf);
+                    w.image_pin(j + 1, "texture2", &b, true, 1.0, 2.0 * bp);
+                });
                 let _ = writeln!(self.out, "{:j$}</node>", "");
                 self.pin_close(i);
             }
-            (Some((a, f)), None) | (None, Some((a, f))) => {
-                let p = self.bump_power(&a, f);
-                self.image_pin(i, bump_pin, &a, true, 1.0, p)
-            }
+            (Some((a, f, m)), None) | (None, Some((a, f, m))) => self.with_map(m, |w| {
+                let p = w.bump_power(&a, f);
+                w.image_pin(i, bump_pin, &a, true, 1.0, p)
+            }),
             (None, None) => {}
         }
         match (&coat, coat_normal) {
-            (Some(a), true) => self.image_pin(i, normal_pin, a, false, 1.0, 1.0),
+            (Some((a, m)), true) => self.with_map(*m, |w| w.image_pin(i, normal_pin, a, false, 1.0, 1.0)),
             _ => {
-                if let Some(a) = asset(self, "Normal Map") {
-                    self.image_pin(i, normal_pin, &a, false, 1.0, 1.0);
+                if let Some((a, m)) = asset(self, "Normal Map") {
+                    self.with_map(m, |w| w.image_pin(i, normal_pin, &a, false, 1.0, 1.0));
                 }
             }
         }
     }
 
-    /// Iray Uber's base height map: Bump Strength's map and its value, the
-    /// factor DAZ hands Iray's `file_bump_texture` (none at 0).
-    fn base_bump(&mut self, mat: &Material) -> Option<(String, f32)> {
+    /// Iray Uber's base height map: Bump Strength's map, its value (the
+    /// factor DAZ hands Iray's `file_bump_texture`; none at 0) and its
+    /// placement (#77).
+    fn base_bump(&mut self, mat: &Material) -> Option<(String, f32, ImageMod)> {
         let f = mat.float("Bump Strength").unwrap_or(1.0);
-        mat.image("Bump Strength").filter(|_| f > 0.0).map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)).map(|a| (a, f))
+        if f <= 0.0 {
+            return None;
+        }
+        self.channel_map(mat, "Bump Strength").map(|(a, m)| (a, f, m.placement()))
     }
 
     /// The base's height map on `pin` at `bump_power` of Bump Strength.
     fn base_bump_pin(&mut self, i: usize, mat: &Material, pin: &str) {
-        if let Some((a, f)) = self.base_bump(mat) {
-            let p = self.bump_power(&a, f);
-            self.image_pin(i, pin, &a, true, 1.0, p);
+        if let Some((a, f, m)) = self.base_bump(mat) {
+            self.with_map(m, |w| {
+                let p = w.bump_power(&a, f);
+                w.image_pin(i, pin, &a, true, 1.0, p);
+            });
         }
     }
 
@@ -1459,9 +1546,53 @@ impl Ocs<'_> {
         self.value_pin(indent, pin, 33, 8, &format!("{} {} {}", num(c[0]), num(c[1]), num(c[2])));
     }
 
+    /// Writes `f` with `m` as the per-map settings of the images it writes
+    /// (`map_mod`), restoring the previous ones after.
+    fn with_map<R>(&mut self, m: ImageMod, f: impl FnOnce(&mut Self) -> R) -> R {
+        let old = std::mem::replace(&mut self.map_mod, m);
+        let r = f(self);
+        self.map_mod = old;
+        r
+    }
+
+    /// A channel's image as a package asset, with the channel's per-map
+    /// settings (for `with_map`).
+    fn channel_map(&mut self, mat: &Material, ch: &str) -> Option<(String, ImageMod)> {
+        let t = mat.image(ch)?.to_string();
+        let asset = self.textures.asset(self.dirs, &t)?;
+        Some((asset, mat.image_mod(ch)))
+    }
+
     /// An image texture pin: RGB (34) or greyscale (36); `gamma` 2.2 for
     /// colour maps, 1 for data; `power` multiplies the texture.
+    ///
+    /// The current per-map settings (`map_mod`, #77) apply as DAZ hands
+    /// them Iray (Calib-Mi-ImageMod): a grey map reads its picked channel
+    /// (a one-channel copy of the image); a scale, offset or invert maps
+    /// the texel t through `power` × (lo + (hi − lo) t) — a Mix texture (38)
+    /// by the image between the two values; the placement goes to the
+    /// image's UV transform (`uv_transform`).
     fn image_pin(&mut self, indent: usize, pin: &str, asset: &str, grey: bool, gamma: f32, power: f32) {
+        let m = self.map_mod;
+        let picked = if grey && m.mono != Mono::Average { self.textures.channel(asset, m.mono) } else { None };
+        let asset = picked.as_deref().unwrap_or(asset);
+        let Some((lo, hi)) = m.value_range() else {
+            return self.image_node(indent, pin, asset, grey, gamma, power);
+        };
+        let id = self.id();
+        self.pin_open(indent, pin);
+        let i = indent + 1;
+        let _ = writeln!(self.out, "{:i$}<node id='{id}' type='38'>", "");
+        self.image_node(i + 1, "amount", asset, grey, gamma, 1.0);
+        // Amount 1 is `texture2` (see `film_tint_open`).
+        self.float_pin(i + 1, "texture1", power * lo);
+        self.float_pin(i + 1, "texture2", power * hi);
+        let _ = writeln!(self.out, "{:i$}</node>", "");
+        self.pin_close(indent);
+    }
+
+    /// The image texture node itself (see `image_pin`).
+    fn image_node(&mut self, indent: usize, pin: &str, asset: &str, grey: bool, gamma: f32, power: f32) {
         let id = self.id();
         self.pin_open(indent, pin);
         let i = indent + 1;
@@ -1487,15 +1618,14 @@ impl Ocs<'_> {
         self.value_pin(i + 1, "borderModeU", 57, 2, "0");
         self.value_pin(i + 1, "borderModeV", 57, 2, "0");
         // Iray tiles a material's maps N times: the texture shrinks to 1/N.
-        if let Some([tu, tv, ou, ov]) = self.tiling {
+        if let Some(([su, sv], (ou, ov))) = uv_transform(self.tiling, self.map_mod) {
             let tid = self.id();
             let j = i + 1;
             self.pin_open(j, "transform");
             let _ = writeln!(self.out, "{:j$} <node id='{tid}' type='67'>", "");
             let _ = writeln!(self.out, "{:j$}  <attr name='rotationOrder' type='2'>2</attr>", "");
             let _ = writeln!(self.out, "{:j$}  <attr name='rotation' type='8'>0 0 0</attr>", "");
-            let _ = writeln!(self.out, "{:j$}  <attr name='scale' type='8'>{} {} 1</attr>", "", num(1.0 / tu), num(1.0 / tv));
-            let (ou, ov) = uv_translation([tu, tv], [ou, ov]);
+            let _ = writeln!(self.out, "{:j$}  <attr name='scale' type='8'>{} {} 1</attr>", "", num(su), num(sv));
             let _ = writeln!(self.out, "{:j$}  <attr name='translation' type='8'>{} {} 0</attr>", "", num(ou), num(ov));
             let _ = writeln!(self.out, "{:j$} </node>", "");
             self.pin_close(j);
@@ -1562,8 +1692,9 @@ impl Ocs<'_> {
         // 0 — the mean of the linear colour is a guess for other values.
         let weight = mat.color("Overlay Alpha Mask").map_or(0.0, |c| (c[0] + c[1] + c[2]) / 3.0).clamp(0.0, 1.0);
         let overlay = mat.image(overlay_name).filter(|_| normal_mode && weight > 0.0).map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t));
+        let m = mat.image_mod(channel);
         let Some(overlay) = overlay else {
-            return self.tinted_image_pin(i, pin, asset, power, tint);
+            return self.with_map(m, |w| w.tinted_image_pin(i, pin, asset, power, tint));
         };
         let overlay_tint = mat.color(overlay_name).unwrap_or([1.0; 3]);
         let id = self.id();
@@ -1571,8 +1702,9 @@ impl Ocs<'_> {
         let j = i + 1;
         let _ = writeln!(self.out, "{:j$}<node id='{id}' type='38'>", "");
         self.float_pin(j + 1, "amount", weight);
-        self.tinted_image_pin(j + 1, "texture1", asset, power, tint);
-        self.tinted_image_pin(j + 1, "texture2", &overlay, power, overlay_tint);
+        self.with_map(m, |w| w.tinted_image_pin(j + 1, "texture1", asset, power, tint));
+        let om = mat.image_mod(overlay_name);
+        self.with_map(om, |w| w.tinted_image_pin(j + 1, "texture2", &overlay, power, overlay_tint));
         let _ = writeln!(self.out, "{:j$}</node>", "");
         self.pin_close(i);
     }
@@ -1605,12 +1737,12 @@ impl Ocs<'_> {
         let j = i + 1;
         let _ = writeln!(self.out, "{:j$}<node id='{id}' type='38'>", "");
         match weight_map {
-            Some((asset, gamma)) => self.image_pin(j + 1, "amount", &asset, true, gamma, ov.weight),
+            Some((asset, gamma)) => self.with_map(ov.weight_mod, |w| w.image_pin(j + 1, "amount", &asset, true, gamma, ov.weight)),
             None => self.float_pin(j + 1, "amount", ov.weight),
         }
         base(self, j + 1);
         match colour_map {
-            Some(asset) => self.tinted_image_pin(j + 1, "texture2", &asset, 1.0, colour),
+            Some(asset) => self.with_map(ov.colour_mod, |w| w.tinted_image_pin(j + 1, "texture2", &asset, 1.0, colour)),
             None => self.rgb_pin(j + 1, "texture2", colour),
         }
         let _ = writeln!(self.out, "{:j$}</node>", "");
@@ -1660,7 +1792,7 @@ impl Ocs<'_> {
         };
         open_multiply(self, i, "albedo");
         let j = i + 2;
-        self.tinted_image_pin(j, "texture1", diffuse, power, tint);
+        self.with_map(mat.image_mod("diffuse"), |w| w.tinted_image_pin(j, "texture1", diffuse, power, tint));
         match (&ao, &damp) {
             (Some(ao), Some(damp)) => {
                 open_multiply(self, j, "texture2");
@@ -1731,9 +1863,8 @@ impl Ocs<'_> {
     /// A float pin driven by `channel`'s texture when it has one (scaled by
     /// `value`), else the constant `value`.
     fn float_or_map(&mut self, indent: usize, pin: &str, mat: &Material, channel: Option<&str>, value: f32) {
-        let tex = channel.and_then(|c| mat.image(c)).map(str::to_string);
-        match tex.and_then(|t| self.textures.asset(self.dirs, &t)) {
-            Some(asset) => self.image_pin(indent, pin, &asset, true, data_gamma(mat, channel.unwrap_or_default()), value),
+        match channel.and_then(|c| self.channel_map(mat, c)) {
+            Some((asset, m)) => self.with_map(m, |w| w.image_pin(indent, pin, &asset, true, data_gamma(mat, channel.unwrap_or_default()), value)),
             None => self.float_pin(indent, pin, value),
         }
     }
@@ -1756,14 +1887,19 @@ impl Ocs<'_> {
         let g = data_gamma(mat, ch) / crate::iray::COLOUR_GAMMA;
         let c = curve.key();
         let key = if stretch == 1.0 { format!("roughness|{map}|{v}|{inverted}|{squared}|{c}|{g}") } else { format!("roughness|{map}|{v}|{inverted}|{squared}|{c}|{g}|{stretch}") };
-        let asset = self.textures.derived(self.dirs, &map, &key, 1.0, |l| {
-            let m = l.max(0.0).powf(g) * v;
+        // The map's own scale / offset / invert and grey channel (#77)
+        // go into the bake; its placement stays the image node's.
+        let im = mat.image_mod(ch);
+        let key = if im == ImageMod::default() { key } else { format!("{key}|{im:?}") };
+        let picked_gamma = if im.mono == Mono::Alpha { 1.0 } else { g };
+        let asset = self.textures.derived_mono(self.dirs, &map, &key, 1.0, im.mono, |l| {
+            let m = im.apply(l.max(0.0).powf(picked_gamma)) * v;
             let r = (if inverted { 1.0 - m } else { m }).clamp(0.0, 1.0);
             let r = if squared { r * r } else { r };
             [anisotropic_roughness(r, stretch, curve).0; 3]
         });
         match asset {
-            Some(asset) => self.image_pin(indent, "roughness", &asset, true, 1.0, 1.0),
+            Some(asset) => self.with_map(im.placement(), |w| w.image_pin(indent, "roughness", &asset, true, 1.0, 1.0)),
             // An image it can't read: the map as is (a glossiness, its value).
             None => self.float_or_map(indent, "roughness", mat, Some(ch).filter(|_| !inverted), value),
         }
@@ -1831,12 +1967,12 @@ impl Ocs<'_> {
         let i = indent + 1;
         let blackbody = temperature > 0.0;
         let _ = writeln!(self.out, "{:i$}<node id='{id}' type='{}'>", "", if blackbody { 53 } else { 54 });
-        let tint = mat.image("Emission Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t));
+        let tint = self.channel_map(mat, "Emission Color");
         // Iray multiplies the blackbody (or plain) emission by the colour:
         // left out, Fetroom's dark purple trims and door (0.1, 0, 0.1) glowed
         // white at full power — the room twice as bright, the door grey.
         match &tint {
-            Some(asset) => self.tinted_image_pin(i + 1, "efficiency or texture", asset, 1.0, color),
+            Some((asset, m)) => self.with_map(*m, |w| w.tinted_image_pin(i + 1, "efficiency or texture", asset, 1.0, color)),
             None => self.rgb_pin(i + 1, "efficiency or texture", color),
         }
         self.value_pin(i + 1, "power", 6, 8, &format!("{} 0 0", num(watts as f32)));
@@ -1877,8 +2013,8 @@ impl Ocs<'_> {
             None => (glossy.min(1.0) * reflectivity_share(glossy_reflectivity(mat)), "Glossy Reflectivity"),
         };
         let lobe = if glossy > 0.0 { glossy } else { mat.float("Dual Lobe Specular Weight").unwrap_or(0.0) }.min(1.0);
-        match mat.image(ch).map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            Some(asset) => self.image_pin(i, "specular", &asset, true, data_gamma(mat, ch), lobe * 2.0 * lobe1),
+        match self.channel_map(mat, ch) {
+            Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "specular", &asset, true, data_gamma(mat, ch), lobe * 2.0 * lobe1)),
             None => self.float_pin(i, "specular", weight * lobe1),
         }
         match dual_lobe.filter(|dl| !coat && dl.lobe1 < 1.0) {
@@ -1949,9 +2085,11 @@ impl Ocs<'_> {
         }
         let colour = [0, 1, 2].map(|k| mat.base_color()[k] * tint[k]);
         let diffuse = mat.image("diffuse").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t));
+        // The baked skin colour keeps the diffuse map's placement (#77).
+        let dm = mat.image_mod("diffuse");
         let colour_pin = |w: &mut Self, pin: &str| match (&baked, &diffuse) {
-            (Some((asset, _)), _) => w.image_pin(i, pin, asset, false, 2.2, 1.0),
-            (None, Some(asset)) => w.tinted_image_pin(i, pin, asset, 1.0, colour),
+            (Some((asset, _)), _) => w.with_map(dm.placement(), |w| w.image_pin(i, pin, asset, false, 2.2, 1.0)),
+            (None, Some(asset)) => w.with_map(dm, |w| w.tinted_image_pin(i, pin, asset, 1.0, colour)),
             (None, None) => w.rgb_pin(i, pin, colour),
         };
         colour_pin(self, "baseColor");
@@ -1969,7 +2107,7 @@ impl Ocs<'_> {
             // they stay dark like Iray's. Elsewhere all of the colour goes
             // through it — at subsurface 0.5 Octane rendered 0.67 – 0.73 of
             // the colour whatever it was (Calib-SSS's spheres).
-            Some((_, Some(detail))) => self.image_pin(i, "subsurface", detail, true, 2.2, 1.0),
+            Some((_, Some(detail))) => self.with_map(dm.placement(), |w| w.image_pin(i, "subsurface", detail, true, 2.2, 1.0)),
             Some((_, None)) => self.float_pin(i, "subsurface", 1.0),
             None => self.float_pin(i, "subsurface", translucency),
         }
@@ -1991,8 +2129,8 @@ impl Ocs<'_> {
         let g = mat.float("SSS Direction").unwrap_or(0.0).clamp(-0.95, 0.95);
         self.value_pin(i, "subsurfaceAnisotropy", 6, 9, &format!("{} 0 0 0", num(g)));
 
-        if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            self.image_pin(i, "normal", &asset, false, 1.0, 1.0);
+        if let Some((asset, m)) = self.channel_map(mat, "Normal Map") {
+            self.with_map(m.placement(), |w| w.image_pin(i, "normal", &asset, false, 1.0, 1.0));
         }
         self.base_bump_pin(i, mat, "bump");
         self.round_edges_pin(i, mat);
@@ -2327,13 +2465,14 @@ impl Ocs<'_> {
             // value is in `base_color` / the power already) and the albedo.
             let strength_map = mat.image("Diffuse Strength").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)).filter(|_| overlay.is_none() && !self.has_damp_or_ao(mat));
             let diffuse_asset = diffuse.and_then(|t| self.textures.asset(self.dirs, &t));
+            let dm = mat.image_mod("diffuse");
             if let Some(map) = strength_map {
                 let id = self.id();
                 self.pin_open(i, "albedo");
                 let _ = writeln!(self.out, "{:j$}<node id='{id}' type='39'>", "", j = i + 1);
-                self.image_pin(i + 2, "texture1", &map, true, data_gamma(mat, "Diffuse Strength"), 1.0);
+                self.with_map(mat.image_mod("Diffuse Strength"), |w| w.image_pin(i + 2, "texture1", &map, true, data_gamma(mat, "Diffuse Strength"), 1.0));
                 match &diffuse_asset {
-                    Some(asset) => self.tinted_image_pin(i + 2, "texture2", asset, diffuse_weight * mix * base_flat, tint),
+                    Some(asset) => self.with_map(dm, |w| w.tinted_image_pin(i + 2, "texture2", asset, diffuse_weight * mix * base_flat, tint)),
                     None => self.rgb_pin(i + 2, "texture2", [0, 1, 2].map(|k| mat.base_color()[k] * diffuse_weight * share[k] * base_flat)),
                 }
                 let _ = writeln!(self.out, "{:j$}</node>", "", j = i + 1);
@@ -2342,7 +2481,7 @@ impl Ocs<'_> {
             match diffuse_asset {
                 Some(asset) if self.has_damp_or_ao(mat) => self.damp_ao_albedo(i, mat, &asset, diffuse_weight * mix * base_flat, tint),
                 Some(asset) => match overlay.filter(|_| mat.channel("Overlay Alpha Mask").is_none()) {
-                    Some(ov) => self.diffuse_overlay_pin(i, &ov, overlay_colour(&ov), |w, j| w.tinted_image_pin(j, "texture1", &asset, diffuse_weight * mix * base_flat, tint)),
+                    Some(ov) => self.diffuse_overlay_pin(i, &ov, overlay_colour(&ov), |w, j| w.with_map(dm, |w| w.tinted_image_pin(j, "texture1", &asset, diffuse_weight * mix * base_flat, tint))),
                     None => self.overlaid_pin(i, "albedo", mat, "diffuse", &asset, diffuse_weight * mix * base_flat, tint),
                 },
                 None => {
@@ -2423,11 +2562,11 @@ impl Ocs<'_> {
             // default (Octane1, probe 60).
             if let Some(asset) = mat.image("Glossy Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
                 self.overlaid_pin(i, "specular", mat, "Glossy Color", &asset, weight, gloss_color);
-            } else if let Some(asset) = mat.image("Glossy Layered Weight").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
+            } else if let Some((asset, m)) = self.channel_map(mat, "Glossy Layered Weight") {
                 // The glossy layer's weight map (data) × its weight: the
                 // GSOV4 leather's 0.33 gloss with a seam mask rendered 3.4×
                 // Iray's sheen with Universal's full white one (Fetroom).
-                self.image_pin(i, "specular", &asset, true, data_gamma(mat, "Glossy Layered Weight"), weight);
+                self.with_map(m, |w| w.image_pin(i, "specular", &asset, true, data_gamma(mat, "Glossy Layered Weight"), weight));
             } else if weight < 1.0 || gloss_color != [1.0; 3] || self.film.is_some() {
                 // (Universal's default is white; a film tints it.)
                 self.rgb_pin(i, "specular", gloss_color.map(|c| c * weight));
@@ -2456,8 +2595,8 @@ impl Ocs<'_> {
             // Iray Uber's map is squared with its weight (twice its gamma);
             // PBRSkin's is read as is.
             let squared = !crate::iray::is_pbrskin(mat);
-            match (mirror, mat.image("Metallic Weight").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t))) {
-                (false, Some(asset)) => self.image_pin(i, "metallic", &asset, true, if squared { 2.0 } else { 1.0 } * data_gamma(mat, "Metallic Weight"), m),
+            match (mirror, self.channel_map(mat, "Metallic Weight")) {
+                (false, Some((asset, im))) => self.with_map(im, |w| w.image_pin(i, "metallic", &asset, true, if squared { 2.0 } else { 1.0 } * data_gamma(mat, "Metallic Weight"), m)),
                 (false, None) => self.float_pin(i, "metallic", m),
                 (true, _) => self.float_pin(i, "metallic", metallic.max(0.0)),
             }
@@ -2607,8 +2746,8 @@ impl Ocs<'_> {
         }
 
         // Surface detail.
-        if let Some(asset) = mat.image("Normal Map").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            self.image_pin(i, "normal", &asset, false, 1.0, 1.0);
+        if let Some((asset, m)) = self.channel_map(mat, "Normal Map") {
+            self.with_map(m.placement(), |w| w.image_pin(i, "normal", &asset, false, 1.0, 1.0));
         }
         self.base_bump_pin(i, mat, "bump");
         self.round_edges_pin(i, mat);
@@ -2861,6 +3000,9 @@ struct DiffuseOverlay {
     /// the weight (`square_float` over the map, Calib-Overlay V3), so
     /// twice the map's gamma at the weight² (#71).
     weight_map: Option<(String, f32)>,
+    /// The weight and colour maps' per-map settings (#77).
+    weight_mod: ImageMod,
+    colour_mod: ImageMod,
 }
 
 impl DiffuseOverlay {
@@ -2875,12 +3017,12 @@ fn diffuse_overlay(mat: &Material) -> Option<DiffuseOverlay> {
             let (weight, weight_map) = match u.map("diffuse_overlay_weight") {
                 Some(m) => {
                     let gamma = data_gamma(mat, "Diffuse Overlay Weight") * if m.squared { 2.0 } else { 1.0 };
-                    (if m.squared { m.scale[0] * m.scale[0] } else { m.scale[0] }, Some((m.image, gamma)))
+                    (if m.squared { m.value[0] * m.value[0] } else { m.value[0] }, Some((m.image, gamma)))
                 }
                 None => (u.float("diffuse_overlay_weight").unwrap_or(0.0), None),
             };
             let (colour, colour_map) = match u.map("diffuse_overlay_color") {
-                Some(m) => (m.scale, Some(m.image)),
+                Some(m) => (m.value, Some(m.image)),
                 None => (u.color("diffuse_overlay_color").unwrap_or([0.5; 3]), None),
             };
             (colour, colour_map, weight, weight_map)
@@ -2898,7 +3040,8 @@ fn diffuse_overlay(mat: &Material) -> Option<DiffuseOverlay> {
     };
     let (colour, weight) = color_effect(mat, "Diffuse Overlay Color Effect", colour, weight);
     let weight = weight.clamp(0.0, 1.0);
-    (weight > 0.0).then_some(DiffuseOverlay { colour, colour_map, weight, weight_map })
+    let (weight_mod, colour_mod) = (mat.image_mod("Diffuse Overlay Weight"), mat.image_mod("Diffuse Overlay Color"));
+    (weight > 0.0).then_some(DiffuseOverlay { colour, colour_map, weight, weight_map, weight_mod, colour_mod })
 }
 
 /// What Universal's albedo keeps per channel under a Base Mixing 1 gloss of
@@ -3875,7 +4018,7 @@ fn ies_projection_rotation(frame: &[[f64; 3]; 3]) -> [f64; 3] {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None, map_mod: ImageMod::default() };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -4097,7 +4240,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, dome_groun
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None, map_mod: ImageMod::default() };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -4321,7 +4464,7 @@ fn environment_texture_at(
     first_id: u32,
     origin: Option<[f64; 3]>,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None, map_mod: ImageMod::default() };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -4437,7 +4580,7 @@ pub fn material_inputs_scaled(
 ) -> (String, Textures) {
     let Shading { skin, thin_glass_ior_one, max_transmission } = shading.into();
     let mut textures = Textures { layered, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None, map_mod: ImageMod::default() };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -4539,6 +4682,60 @@ mod tests {
         assert_eq!(uv_translation([1.0, 1.0], [0.125, 0.125]), (-0.125, 0.125));
         assert_eq!(uv_translation([2.0, 2.0], [0.125, 0.125]), (-0.0625, 0.0625));
         assert_eq!(uv_translation([3.0, 2.0], [0.0, 0.125]), (0.0, 0.0625));
+    }
+
+    /// A map's own tiles multiply the material's; its tiling offset adds to
+    /// the material's offset × its tiles (DAZ's .mi, Calib-Mi-ImageMod's
+    /// I2: uvw scale 3 × 6, translation 0.325, −0.85).
+    #[test]
+    fn per_map_placement_composes_with_the_materials() {
+        let m = ImageMod { tiles: [2.0, 3.0], tiling_offset: [0.125, 0.25], ..ImageMod::default() };
+        let (scale, (tu, tv)) = uv_transform(Some([1.5, 2.0, 0.1, 0.2]), m).unwrap();
+        assert!((scale[0] - 1.0 / 3.0).abs() < 1e-6 && (scale[1] - 1.0 / 6.0).abs() < 1e-6, "{scale:?}");
+        assert!((tu + 0.325 / 3.0).abs() < 1e-6 && (tv - 0.85 / 6.0).abs() < 1e-6, "{tu} {tv}");
+        // The material's alone: as before (#65).
+        let (_, t) = uv_transform(Some([2.0, 2.0, 0.125, 0.125]), ImageMod::default()).unwrap();
+        assert_eq!(t, uv_translation([2.0, 2.0], [0.125, 0.125]));
+        assert!(uv_transform(None, ImageMod::default()).is_none());
+    }
+
+    /// Each Octane image node gets its channel's per-map settings (#77):
+    /// placement in its UV transform, scale / offset / invert as a Mix
+    /// between the two values, a grey channel as a one-channel copy; a bump
+    /// takes the placement only.
+    #[test]
+    fn per_map_settings_reach_each_image_node() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = image::RgbImage::from_fn(2, 2, |x, y| image::Rgb([200, (x * 100) as u8, (y * 100) as u8]));
+        for f in ["c.png", "g.png", "b.png"] {
+            img.save(dir.path().join(f)).unwrap();
+        }
+        let dirs = vec![dir.path().to_path_buf()];
+        let m = mat(json!([
+            {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/c.png",
+                "image_modification": {"invert": true, "scale": 0.5, "offset": 0.1, "horizontal_tiles": 2}}},
+            {"channel": {"id": "Horizontal Tiles", "current_value": 3}},
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 0.8, "image_file": "/g.png",
+                "image_modification": {"grayscale_mode": "redchannel"}}},
+            {"channel": {"id": "Glossy Roughness", "current_value": 0.4}},
+            {"channel": {"id": "Bump Strength", "current_value": 1, "image_file": "/b.png",
+                "image_modification": {"invert": true, "scale": 2, "vertical_tiles": 4}}},
+        ]));
+        let (x, _) = material_inputs(&[("M".into(), m, 1.0)], &dirs, HashMap::new(), 9600, SkinShader::None);
+        let pin = |name: &str| {
+            let p = &x[x.find(&format!("<pin name='{name}'>")).unwrap_or_else(|| panic!("no {name}: {x}"))..];
+            let end = p.find("\n  <pin name=").unwrap_or(p.len());
+            p[..end].to_string()
+        };
+        // Diffuse: tiles 3 × 2 = 6 on u; 1 − t at 0.5 scale + 0.1 → 0.6 … 0.1.
+        let albedo = pin("albedo");
+        assert!(albedo.contains("type='38'") && albedo.contains("<attr name='scale' type='8'>0.166667 1 1</attr>"), "{albedo}");
+        // Glossy weight: the red channel's copy, the material's tiles only.
+        let specular = pin("specular");
+        assert!(specular.contains("_red.png") && specular.contains("<attr name='scale' type='8'>0.333333 1 1</attr>") && !specular.contains("type='38'"), "{specular}");
+        // Bump: no value range, its own vertical tiles.
+        let bump = pin("bump");
+        assert!(!bump.contains("type='38'") && bump.contains("<attr name='scale' type='8'>0.333333 0.25 1</attr>"), "{bump}");
     }
 
     fn mat(chs: serde_json::Value) -> Rc<Material> {
@@ -5008,7 +5205,7 @@ mod tests {
         // subsurface weight; a gloss. A readable diffuse map to bake from.
         image::RgbImage::from_pixel(8, 8, image::Rgb([200, 150, 120])).save(dir.path().join("Runtime/Textures/skin.jpg")).unwrap();
         let mut chromatic = (*sss).clone();
-        chromatic.channels.insert("SSS Mode".into(), crate::daz_material::Channel { value: json!(1), image: None, gamma: None });
+        chromatic.channels.insert("SSS Mode".into(), crate::daz_material::Channel { value: json!(1), image: None, gamma: None, image_mod: None });
         let chromatic = std::rc::Rc::new(chromatic);
         let (ox, _) = material_inputs(&[("Torso".into(), chromatic, 1.0)], &dirs, HashMap::new(), 8100, SkinShader::OpenPbr);
         assert!(ox.contains("type='505' name='Torso'"), "{ox}");
@@ -5906,7 +6103,7 @@ mod tests {
     #[test]
     fn mdl_metal_roughness_is_the_long_axis() {
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.02, 0.4), rough_v: (String::new(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;

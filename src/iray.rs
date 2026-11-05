@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use serde_json::Value;
 
-use crate::daz_material::Material;
+use crate::daz_material::{Material, Mono};
 
 /// One MDL argument as DAZ passes it.
 #[derive(Debug, Clone, PartialEq)]
@@ -45,14 +45,25 @@ pub struct Map {
     pub image: String,
     pub kind: MapKind,
     /// The channel's value as the map's factor (`color_scale`): linear for
-    /// a colour channel, as is for a float one; a bump's strength.
+    /// a colour channel, as is for a float one; a bump's strength. With
+    /// the per-map scale and invert (`ImageMod`) folded in.
     pub scale: [f32; 3],
+    /// Added to the texel × `scale` (`color_offset`): the channel's value ×
+    /// the per-map offset (and scale, when inverted).
+    pub offset: [f32; 3],
+    /// Which texel channel a grey map reads (`mono_source`).
+    pub mono: Mono,
+    /// The channel's value as the factor, before the per-map settings
+    /// (the Octane side applies those itself: `Material::image_mod`).
+    pub value: [f32; 3],
     /// A glossiness map turned into roughness (`base::gloss_to_rough`).
     pub gloss_to_rough: bool,
     /// Then squared (`square_float`, Roughness / Glossiness Squared).
     pub squared: bool,
-    /// UV tiles (u, v) and offsets: Horizontal / Vertical Tiles and
-    /// Offset, the vertical offset negated.
+    /// The uvw transform's scale (u, v) and translation (u, v): the
+    /// material's Horizontal / Vertical Tiles and Offset (the vertical
+    /// offset negated), then the map's own tiles and tiling offsets
+    /// (`ImageMod`).
     pub tiling: [f32; 4],
     /// The image's own gamma (`map_gamma`); None leaves it to Iray
     /// ("auto").
@@ -89,8 +100,8 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     // Diffuse Strength map attenuates the colour (`attenuate_color`,
     // Calib-Mi-AoA3).
     let strength = ch.float("Diffuse Strength", 1.0);
-    let diffuse = match ch.map("Diffuse Strength", MapKind::Grey, [strength; 3]) {
-        Some(m) if ch.image("diffuse").is_none() => Arg::Map(Map { scale: ch.color("diffuse", [0.5; 3]).map(|c| c * strength), ..m }),
+    let diffuse = match ch.map("Diffuse Strength", MapKind::Grey, ch.color("diffuse", [0.5; 3]).map(|c| c * strength)) {
+        Some(m) if ch.image("diffuse").is_none() => Arg::Map(m),
         _ => ch.color_or_map("diffuse", [0.5; 3], strength),
     };
     out.insert("diffuse_color", diffuse);
@@ -437,11 +448,33 @@ impl Channels<'_> {
         }
     }
 
+    /// The channel's map, `scale` its value as the factor, with the
+    /// channel's per-map settings (`ImageMod`, Calib-Mi-ImageMod, -ImageMod2):
+    /// the map's tiles multiply the material's, its tiling offset adds to
+    /// the material's offset × its tiles; scale / offset / invert become
+    /// the colour scale and offset; a one-channel grey mode zeroes the
+    /// other channels and reads their maximum. A bump or normal map takes
+    /// the placement only.
     fn map(&self, id: &str, kind: MapKind, scale: [f32; 3]) -> Option<Map> {
-        let image = self.image(id)?.to_string();
-        let gamma = self.0.channels.get(id).and_then(|c| c.gamma);
-        let tiling = [self.float("Horizontal Tiles", 1.0), self.float("Vertical Tiles", 1.0), self.float("Horizontal Offset", 0.0), -self.float("Vertical Offset", 0.0)];
-        Some(Map { image, kind, scale, gloss_to_rough: false, squared: false, tiling, gamma })
+        let c = self.0.channels.get(id)?;
+        let image = c.image.clone()?;
+        let im = c.image_mod.unwrap_or_default();
+        let bump = matches!(kind, MapKind::Bump | MapKind::Normal);
+        let im = if bump { im.placement() } else { im };
+        let (mt, mo) = ([self.float("Horizontal Tiles", 1.0), self.float("Vertical Tiles", 1.0)], [self.float("Horizontal Offset", 0.0), self.float("Vertical Offset", 0.0)]);
+        let (pt, po) = (im.tiles, im.tiling_offset);
+        let tiling = [mt[0] * pt[0], mt[1] * pt[1], mo[0] * pt[0] + po[0], -(mo[1] * pt[1] + po[1])];
+        let mask = match im.mono {
+            Mono::Red => [1.0, 0.0, 0.0],
+            Mono::Green => [0.0, 1.0, 0.0],
+            Mono::Blue => [0.0, 0.0, 1.0],
+            _ => [1.0; 3],
+        };
+        let (s, o) = if im.invert { (-im.scale, im.offset + im.scale) } else { (im.scale, im.offset) };
+        let value = scale;
+        let offset = [0, 1, 2].map(|i| scale[i] * o * mask[i]);
+        let scale = [0, 1, 2].map(|i| scale[i] * s * mask[i]);
+        Some(Map { image, kind, scale, offset, mono: im.mono, value, gloss_to_rough: false, squared: false, tiling, gamma: c.gamma })
     }
 
     fn color_or_map(&self, id: &str, default: [f32; 3], scale: f32) -> Arg {
@@ -695,8 +728,8 @@ pub fn daz_default_as_uber(mat: &Material) -> Option<Material> {
     let ch = Channels(mat);
     let mut out = mat.clone();
     let mut set = |id: &str, v: Value| {
-        let image = out.channels.get(id).and_then(|c| c.image.clone());
-        out.channels.insert(id.to_string(), crate::daz_material::Channel { value: v, image, gamma: None });
+        let (image, image_mod) = out.channels.get(id).map_or((None, None), |c| (c.image.clone(), c.image_mod));
+        out.channels.insert(id.to_string(), crate::daz_material::Channel { value: v, image, gamma: None, image_mod });
     };
     let spec = ch.color("specular", [0.6f32.powf(COLOUR_GAMMA); 3]);
     let peak = spec.into_iter().fold(0.0, f32::max);
@@ -763,7 +796,7 @@ pub fn legacy_shader_as_uber(mat: &Material, keep_maps: bool) -> Option<Material
         ("Roughness Squared", Value::from(false)),
         ("Thin Walled", Value::from(true)),
     ] {
-        out.channels.insert(id.to_string(), crate::daz_material::Channel { value: v, image: None, gamma: None });
+        out.channels.insert(id.to_string(), crate::daz_material::Channel { value: v, image: None, gamma: None, image_mod: None });
     }
     Some(out)
 }
@@ -810,7 +843,7 @@ pub fn aoa_subsurface_as_uber(mat: &Material) -> Option<Material> {
     let encode = |c: [f32; 3]| Value::from(c.map(|x| f64::from(x.max(0.0).powf(1.0 / COLOUR_GAMMA))).to_vec());
     let image = |id: &str| mat.channels.get(id).and_then(|c| c.image.clone());
     let mut set = |id: &str, v: Value, image: Option<String>| {
-        out.channels.insert(id.to_string(), Channel { value: v, image, gamma: None });
+        out.channels.insert(id.to_string(), Channel { value: v, image, gamma: None, image_mod: None });
     };
     // A lobe from a colour × strength: (weight, hue).
     let lobe = |colour: &str, strength: &str, default: f32| {
@@ -1616,11 +1649,22 @@ mod tests {
         let f32s = |x: &Value| x.as_array().map(|a| a.iter().filter_map(Value::as_f64).map(|f| f as f32).collect::<Vec<_>>());
         let file = |f: &Value, kind: MapKind, scale: [f32; 3]| -> Option<Map> {
             let t = &f["args"]["texture"]["texture"];
+            // `file_texture`'s defaults: no offset, `mono_alpha`.
+            let offset = f32s(&f["args"]["color_offset"]).map_or([0.0; 3], |c| [c[0], c[1], c[2]]);
+            let mono = match f["args"]["mono_source"].as_str() {
+                Some("mono_average") => Mono::Average,
+                Some("mono_maximum") => Mono::Maximum,
+                Some("mono_luminance") => return None,
+                _ => Mono::Alpha,
+            };
             let m = f32s(&f["args"]["uvw"]["args"]["transform"]).unwrap_or_else(|| vec![1.0, 0., 0., 0., 0., 1.0, 0., 0., 0., 0., 1.0, 0., 0., 0., 0., 1.0]);
             Some(Map {
                 image: t["path"].as_str()?.to_string(),
                 kind,
                 scale,
+                offset,
+                mono,
+                value: scale,
                 gloss_to_rough: false,
                 squared: false,
                 tiling: [m[0], m[5], m[12], m[13]],
@@ -1636,7 +1680,7 @@ mod tests {
         }
         if mdl.starts_with("daz_3d::irayubermaterial::attenuate_color") {
             let c = f32s(&a["color_value"]).filter(|c| c.len() == 3)?;
-            return fixture_map(&a["attenuation"]).map(|m| Map { scale: [0, 1, 2].map(|i| m.scale[i] * c[i]), ..m });
+            return fixture_map(&a["attenuation"]).map(|m| Map { scale: [0, 1, 2].map(|i| m.scale[i] * c[i]), offset: [0, 1, 2].map(|i| m.offset[i] * c[i]), ..m });
         }
         if mdl.starts_with("base::texture_return.tint") {
             return file(&a["s"], MapKind::Colour, scale(&a["s"]));
@@ -1653,6 +1697,14 @@ mod tests {
         None
     }
 
+    fn mi_mono(m: Mono) -> &'static str {
+        match m {
+            Mono::Average => "mono_average",
+            Mono::Alpha => "mono_alpha",
+            Mono::Red | Mono::Green | Mono::Blue | Mono::Maximum => "mono_maximum",
+        }
+    }
+
     fn close(a: &Arg, b: &Arg) -> bool {
         // The .mi prints 6 significant digits.
         let near = |x: f32, y: f32| (x - y).abs() <= 1e-5 + 1e-5 * x.abs().max(y.abs());
@@ -1664,8 +1716,11 @@ mod tests {
             (Arg::Map(x), Arg::Map(y)) => {
                 x.image.trim_start_matches('/') == y.image.trim_start_matches('/')
                     && x.kind == y.kind
-                    && (0..3).all(|i| near(x.scale[i], y.scale[i]))
+                    && (0..3).all(|i| near(x.scale[i], y.scale[i]) && near(x.offset[i], y.offset[i]))
                     && (0..4).all(|i| near(x.tiling[i], y.tiling[i]))
+                    // The .mi names the source a one-channel mode reads by
+                    // (`mono_maximum`); a bump has none.
+                    && (matches!(x.kind, MapKind::Bump | MapKind::Normal) || mi_mono(x.mono) == mi_mono(y.mono))
                     && (x.gloss_to_rough, x.squared, x.gamma) == (y.gloss_to_rough, y.squared, y.gamma)
             }
             _ => a == b,

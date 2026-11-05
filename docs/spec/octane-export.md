@@ -1260,6 +1260,37 @@ quantised).
   spheres (V +0.125, V −0.375, U, tiles 2 × 2 and 3 × 2 with offsets),
   correlation with the Iray render 0.87–0.98; raw offsets matched only the
   untiled V ones, `offset · tiles` none of the tiled ones.
+- **Per-map image modifications** (`image_modification` on a channel,
+  #77; DAZ's .mi of Calib-Mi-ImageMod and -ImageMod2, fixtures in
+  `calib/references/mi`). DAZ hands each map's `file_texture`:
+  - uvw = uv · (material tiles · map tiles) + (material offset_u · map
+    tiles_u + map tiling offset_u, −(material offset_v · map tiles_v + map
+    tiling offset_v)) — the map's tiles multiply the material's, its own
+    offset adds in its tile units. Each Octane image node gets its own
+    transform from that by the rule above: scale 1 / the product,
+    translation (−T_u / S_u, −T_v / S_v) of Iray's translation T and scale
+    S (`uv_transform`).
+  - The value = the channel's value × (scale · t + offset), t the texel or
+    1 − t with Invert (`color_scale`, `color_offset`); e.g. Glossy
+    Roughness 0.7, invert, scale 1.5, offset −0.1 → 0.98 − 1.05 t. In
+    Octane a Mix texture (38) with the image as amount between value ×
+    lo and value × hi (t = 0 / 1); baked maps (roughness) take it in the
+    bake.
+  - Grey mode: average (`mono_average`, the default); red / green / blue
+    channel zero the other channels' scale and offset and read the
+    maximum; maximum (`mono_maximum`); alpha (`mono_alpha`, 1 without
+    alpha). Octane reads a one-channel copy of the image (the bytes kept,
+    so the image node decodes it as before; baked maps pick the channel in
+    the bake).
+  - Bump, normal and Top Coat Bump maps take the placement only: DAZ
+    passes no scale, offset or invert for them (I7's inverted, scaled bump
+    reached Iray as the plain factor). Their `bump_power` counts the map's
+    tiles with the material's.
+  How common (the user's 476 scenes, 110 with `image_modification`):
+  invert in 80 scenes (Glossy Roughness 58, Top Coat Roughness 42 — mostly
+  glossiness maps on a roughness channel), per-map tiles in 38, scale 29,
+  grey mode 18 (overlay and make-up weights by alpha), tiling offsets 13
+  (Calib-Skin's normal maps at 1: a whole period), offset 2.
 - **Colour space.** Colour maps are sRGB; bump and normal maps are
   linear. A map read at any other gamma (an image's own `map_gamma`, a
   squared overlay weight map at 4.4) goes in "linear sRGB + legacy gamma"
@@ -1310,7 +1341,7 @@ quantised).
   the overlay off 0.96 / 0.79 (1.09 / 1.27), side 0.92. The rest (Iray's
   paler, softer strands) is the per-map tiling Iray gets — the diffuse
   map at 0.6 tiles on u, the gloss weight at 1.2 (`image_modification`,
-  [#77](https://github.com/vysokyj/orbis/issues/77)) — and the glints.
+  exported since [#77](https://github.com/vysokyj/orbis/issues/77)) — and the glints.
 - **Howie Farkes's terrain shader** (Grassy Grove's HFGG Terrain, a brick
   graph): the albedo is its diffuse map × its AO map (both tiled with the
   material's Map Tiles) darkened toward `Damp Color` by `Damp Map` (Blend

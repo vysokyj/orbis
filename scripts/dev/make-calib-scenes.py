@@ -16,6 +16,8 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-Overlay: Diffuse Overlay with weight / colour maps (#71).
 - Calib-BumpRes: one height map at 256 / 1024 / 4096 px, bump factors,
   UV tiles and a half-size sphere (#75): Iray's bump vs the map's size.
+- Calib-Mi-ImageMod, -ImageMod2: per-map image modifications (#77) - tiles, tiling
+  offsets, scale / offset / invert, grey channel - for DAZ's .mi export.
 - Calib-DOF-*: depth of field, focus at 1.5 m with the spheres at ~4.6 m,
   f/4, f/8, f/16 — to check Iray's 10x aperture.
 
@@ -345,6 +347,10 @@ made.append((save(d, 'Calib-Mixing'), mixing_labels))
 # --- Feature spheres for the coverage issues (#22–#43): eight Uber spheres
 # each, one channel family varied, everything else plain (no translucency,
 # refraction, top coat, dual lobe); the base colour and gloss per scene.
+IMAGE_MOD_DEFAULTS = {'grayscale_mode': 'average', 'scale': 1, 'offset': 0, 'invert': False, 'horizontal_tiles': 1,
+                      'horizontal_tiling_offset': 0, 'vertical_tiles': 1, 'vertical_tiling_offset': 0}
+
+
 def uber_spheres(name, colour, plain, variants):
     d = copy.deepcopy(base)
     d_nodes = {n['id']: n for n in d['scene']['nodes']}
@@ -366,10 +372,18 @@ def uber_spheres(name, colour, plain, variants):
         ch = next(e for e in lm['extra'] if e['type'] == 'studio_material_channels')['channels']
         for k, v in {'Base Mixing': 0, 'Metallic Weight': 0.0, 'Dual Lobe Specular Weight': 0.0, 'Top Coat Weight': 0.0,
                      'Translucency Weight': 0.0, 'Refraction Weight': 0.0, **plain, **over}.items():
+            # A map given as (path, {field: value}) carries DAZ's per-map
+            # texture-instance settings (`image_modification`, #77), the
+            # fields it leaves out at DAZ's defaults.
+            imod = None
+            if isinstance(k, tuple) and isinstance(v, tuple):
+                v, imod = v[0], {**IMAGE_MOD_DEFAULTS, **v[1]}
             if isinstance(k, tuple) and k[0] == 'diffuse':
                 # The base colour's map: on the scene material's top-level
                 # channel, as DAZ saves it (see Calib-Mixing).
                 m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': over.get('diffuse', [1.0, 1.0, 1.0]), 'image_file': v}}
+                if imod:
+                    m['diffuse']['channel']['image_modification'] = imod
                 lib_images = d.setdefault('image_library', [])
                 if not any(i['id'] == v for i in lib_images):
                     lib_images.append({'id': v, 'name': os.path.basename(v), 'map_gamma': 0, 'map': [{'url': v, 'label': os.path.basename(v)}]})
@@ -385,6 +399,8 @@ def uber_spheres(name, colour, plain, variants):
                 typ = k[2] if len(k) > 2 else 'float'
                 value = over.get(k[0], [1.0, 1.0, 1.0] if typ == 'float_color' else 1.0)
                 sc['channels'].append({'channel': {'id': k[0], 'type': typ, 'current_value': value, 'image_file': v}})
+                if imod:
+                    sc['channels'][-1]['channel']['image_modification'] = imod
                 lib_images = d.setdefault('image_library', [])
                 if not any(i['id'] == v for i in lib_images):
                     lib_images.append({'id': v, 'name': os.path.basename(v), 'map_gamma': 0, 'map': [{'url': v, 'label': os.path.basename(v)}]})
@@ -935,6 +951,47 @@ uber_spheres('Calib-Map-Offset', [0.6, 0.6, 0.6], {'Glossy Layered Weight': 1.0,
     ('O4 V -0.375', {('diffuse', 'image'): TILES, 'diffuse': [0.8, 0.6, 0.4], 'Vertical Offset': -0.375}),
     ('O5 tiles 2 U V 0.125', {('diffuse', 'image'): TILES, 'diffuse': [0.8, 0.6, 0.4], 'Horizontal Tiles': 2.0, 'Vertical Tiles': 2.0, 'Horizontal Offset': 0.125, 'Vertical Offset': 0.125}),
     ('O6 tiles 3x2 V 0.125', {('diffuse', 'image'): TILES, 'diffuse': [0.8, 0.6, 0.4], 'Horizontal Tiles': 3.0, 'Vertical Tiles': 2.0, 'Vertical Offset': 0.125}),
+])
+# Per-map image modifications (#77): DAZ's texture-instance settings on one
+# channel's map (`image_modification`) — tiles and tiling offsets against
+# the material's tiles and offsets, scale / offset / invert, the grey
+# channel. Only DAZ's .mi export decides (`file_texture`'s uvw transform,
+# colour scale / offset, mono source). A ramp image (ours: red along U,
+# green along V, a blue checker) makes value changes and the channel pick
+# visible.
+RAMP = '/Runtime/Textures/ORBIS/calib-imagemod-ramp.png'
+ramp_path = os.path.join(os.path.dirname(out_dir), RAMP.lstrip('/'))
+if not os.path.exists(ramp_path):
+    from PIL import Image
+    import numpy as np
+    yy, xx = (np.mgrid[0:512, 0:512] + 0.5) / 512
+    checker = ((np.floor(xx * 8) + np.floor(yy * 8)) % 2) * 0.8 + 0.1
+    rgb = np.stack([0.1 + 0.8 * xx, 0.1 + 0.8 * (1 - yy), checker], -1)
+    Image.fromarray((rgb * 255).round().astype(np.uint8)).save(ramp_path)
+uber_spheres('Calib-Mi-ImageMod', [0.6, 0.6, 0.6], {'Glossy Layered Weight': 1.0, 'Glossy Roughness': 0.3}, [
+    ('I1 map tiles 3x2', {('diffuse', 'image'): (TILES, {'horizontal_tiles': 3, 'vertical_tiles': 2}), 'diffuse': [0.8, 0.6, 0.4]}),
+    ('I2 map and material tiles offsets', {('diffuse', 'image'): (TILES, {'horizontal_tiles': 2, 'vertical_tiles': 3, 'horizontal_tiling_offset': 0.125, 'vertical_tiling_offset': 0.25}),
+                                           'Horizontal Tiles': 1.5, 'Vertical Tiles': 2.0, 'Horizontal Offset': 0.1, 'Vertical Offset': 0.2}),
+    ('I3 colour scale offset', {('diffuse', 'image'): (RAMP, {'scale': 0.5, 'offset': 0.2}), 'diffuse': [0.8, 0.6, 0.4]}),
+    ('I4 colour invert', {('diffuse', 'image'): (RAMP, {'invert': True}), 'diffuse': [0.8, 0.6, 0.4]}),
+    ('I5 roughness invert scale offset', {('Glossy Roughness', 'image'): (RAMP, {'invert': True, 'scale': 1.5, 'offset': -0.1, 'horizontal_tiles': 2}), 'Glossy Roughness': 0.7}),
+    ('I6 gloss weight red channel', {('Glossy Layered Weight', 'image'): (RAMP, {'grayscale_mode': 'redchannel', 'scale': 0.6, 'offset': 0.3}), 'Glossy Layered Weight': 0.9}),
+    ('I7 bump tiles invert scale', {('Bump Strength', 'image'): (TILES, {'horizontal_tiles': 4, 'vertical_tiles': 4, 'invert': True, 'scale': 2}), 'Bump Strength': 0.6}),
+    ('I8 per-map tiles differ', {('diffuse', 'image'): (TILES, {'horizontal_tiles': 0.5, 'vertical_tiling_offset': 0.375}), 'diffuse': [0.8, 0.6, 0.4],
+                                 ('Glossy Roughness', 'image'): (RAMP, {'horizontal_tiles': 3, 'grayscale_mode': 'alpha'}), 'Glossy Roughness': 0.8, 'Vertical Tiles': 2.0}),
+])
+# The other grey channels, scale above 1 on colour maps, opacity and coat
+# maps, and a normal map's tiles with the tiling offset 1 the Calib-Skin
+# figures' normal maps carry.
+uber_spheres('Calib-Mi-ImageMod2', [0.6, 0.6, 0.6], {'Glossy Layered Weight': 1.0, 'Glossy Roughness': 0.3}, [
+    ('J1 roughness green channel', {('Glossy Roughness', 'image'): (RAMP, {'grayscale_mode': 'greenchannel'}), 'Glossy Roughness': 0.8}),
+    ('J2 roughness blue channel', {('Glossy Roughness', 'image'): (RAMP, {'grayscale_mode': 'bluechannel'}), 'Glossy Roughness': 0.8}),
+    ('J3 roughness maximum', {('Glossy Roughness', 'image'): (RAMP, {'grayscale_mode': 'maximum'}), 'Glossy Roughness': 0.8}),
+    ('J4 coat weight invert offset', {('Top Coat Weight', 'image'): (RAMP, {'invert': True, 'offset': 0.25}), 'Top Coat Weight': 0.8}),
+    ('J5 opacity scale', {('Cutout Opacity', 'image'): (RAMP, {'scale': 0.8}), 'Cutout Opacity': 1.0}),
+    ('J6 gloss colour scale 2', {('Glossy Color', 'image', 'float_color'): (RAMP, {'scale': 2}), 'Glossy Color': [0.9, 0.5, 0.3]}),
+    ('J7 translucency colour scale', {'Translucency Weight': 0.5, ('Translucency Color', 'image', 'float_color'): (RAMP, {'scale': 1.5, 'offset': 0.1}), 'Translucency Color': [0.7, 0.7, 0.7]}),
+    ('J8 normal map tiles', {('Normal Map', 'image'): (TILES, {'horizontal_tiles': 3, 'vertical_tiles': 3, 'horizontal_tiling_offset': 1, 'vertical_tiling_offset': 1}), 'Normal Map': 1.0}),
 ])
 # Emission by Luminance Units: 0 cd/m², 1 kcd/m², 2 cd/ft², 3 kcd/ft², 4 lm, 5 W.
 uber_spheres('Calib-Mi-Emit', [0.6, 0.6, 0.6], {'Emission Color': [1.0, 0.9, 0.8], 'Luminance': 300.0}, [
