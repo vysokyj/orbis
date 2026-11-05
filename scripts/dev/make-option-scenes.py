@@ -6,7 +6,7 @@
 Variants of existing generated scenes (DAZ built-ins and primitives only), no
 DAZ Studio needed. Written into My Library/Scenes (ORBIS_LIBRARY or the
 argument) and copied into calib/scenes; existing scenes are kept (--force).
-- Calib-Tone-*  tonemapper: vignetting, per-component burn, saturation, white point (#38)
+- Calib-Tone-*  tonemapper: vignetting, per-component burn, saturation, white point (#38, #70)
 - Calib-Env-*   environment: tint, dome rotation / orientation, lighting blur / resolution,
                 intensity, ground, matte fog, ground fog, dome modes (#37, #65); Calib-Env-Mi-*
                 for DAZ's .mi export only (every fog / dome channel off its default, #37)
@@ -90,7 +90,10 @@ TONE = [('Vignette05', {'Vignetting': 0.5}), ('Vignette1', {'Vignetting': 1.0}),
         ('BurnComp-off', {'Burn Highlights Per Component': False, 'Burn Highlights': 0.5}),
         ('BurnComp-on', {'Burn Highlights Per Component': True, 'Burn Highlights': 0.5}),
         ('Sat0', {'Saturation': 0.0}), ('Sat15', {'Saturation': 1.5}),
-        ('WhiteWarm', {'White Point': [1.0, 0.8, 0.6]}), ('WhiteScale2', {'White Point Scale': 2.0})]
+        ('WhiteWarm', {'White Point': [1.0, 0.8, 0.6]}), ('WhiteScale2', {'White Point Scale': 2.0}),
+        # Other hues settle the white point's normalisation k (#70): the mean
+        # of wp^2.2 and its Rec. 709 luminance differ by 11 % / 22 % here.
+        ('WhiteCool', {'White Point': [0.6, 0.8, 1.0]}), ('WhiteGreen', {'White Point': [0.9, 1.0, 0.7]})]
 variants('Calib-Tone-Default', 'Calib-Tone', 'Tonemapper Options', TONE)
 
 ENV = [('Tint', {'Environment Tint': [1.0, 0.5, 0.3]}), ('Rot90', {'Dome Rotation': 90.0}),

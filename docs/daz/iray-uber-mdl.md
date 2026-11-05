@@ -89,7 +89,8 @@ Found beyond it:
   focal (mm) / (2 · f-stop) when DOF is on, the focus distance as is.
 - **Tone mapping** (`iray::tone`): Film ISO, Shutter Speed, Aperture,
   burn, crush, gamma, saturation, vignetting, cm² factor as they are
-  (Exposure Value isn't passed); white point × its scale.
+  (Exposure Value isn't passed); white point linearised (^2.2) × its
+  scale (`mip_whitepoint`).
 - **Environment** (`iray::environment`): an HDRI dome at Environment
   Intensity × Environment Map × 10 000; Scene Only none; sun-sky's
   multiplier, haze, disk intensity / scale, saturation, horizon as they

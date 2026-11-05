@@ -560,7 +560,7 @@ fn iray_tone_mapping_drives_the_imager() {
     });
     let mut lib = Library::new(vec![], duf);
     let tone = scene_tone_mapping(&mut lib);
-    assert_eq!(tone.white_point, [0.8, 0.9, 1.0]);
+    assert_eq!(tone.white_point, [0.8f64.powf(2.2), 0.9f64.powf(2.2), 1.0], "linearised, as DAZ hands Iray");
     assert_eq!(tone.octane_exposure(1.4), 2.8, "EV 12 is one stop brighter than DAZ's 13");
     let cams = vec![("Camera".to_string(), framing_camera(&[]))];
     // Burn 0.25 is beyond Octane's imager: Iray's curve as a LUT, the
@@ -568,8 +568,9 @@ fn iray_tone_mapping_drives_the_imager() {
     let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &tone, false, None, true, &crate::iray::RenderOptions::default());
     assert!(ocs.contains("0.175000 0 0 0") && ocs.contains("1.200000 0 0 0"), "exposure 2.8 / 16, saturation");
     assert!(ocs.contains("type='103'") && ocs.contains(&format!("<attr name='filename' type='11'>{TONE_LUT_ASSET}</attr>")));
-    assert!(ocs.contains("0.800000 0.900000 1.000000"));
-    let plain = ToneMapping { burn_highlights: 1.0, ..tone.clone() };
+    // The white point is in the LUT; Octane's white balance stays white.
+    assert!(ocs.contains("<attr name='value' type='8'>1.000000 1.000000 1.000000</attr>"));
+    let plain = ToneMapping { burn_highlights: 1.0, white_point: [2.0; 3], ..tone.clone() };
     let ocs = project_ocs("Shot", "scene.usdz", &cams, (1280, 720), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &plain, false, None, true, &crate::iray::RenderOptions::default());
     assert!(ocs.contains("2.800000 0 0 0") && !ocs.contains("type='103'") && !ocs.contains("@TONE_LUT@"));
     assert!(tone.burn_per_component && tone.vignetting == 0.0 && !ocs.contains("@VIGNETTING@"));
@@ -940,6 +941,34 @@ fn iray_tone_curve() {
     let mid: f64 = rows[2048].split(' ').next().unwrap().parse().unwrap();
     assert!((mid - want((2048.0f64 / 4095.0).powf(2.2) * 16.0)).abs() < 1e-6, "{mid}");
     assert!(lut.contains("LUT_1D_SIZE 4096"));
+}
+
+#[test]
+fn white_point_gains() {
+    // Calib-Tone-WhiteWarm: Iray divides by the (linear) white point and
+    // keeps the mean (#70): 0.646 / wp per channel.
+    let lin = [1.0f64, 0.8f64.powf(2.2), 0.6f64.powf(2.2)];
+    let t = ToneMapping { white_point: lin, ..ToneMapping::default() };
+    let k = lin.iter().sum::<f64>() / 3.0;
+    let g = t.white_gains();
+    for i in 0..3 {
+        assert!((g[i] - k / lin[i]).abs() < 1e-12);
+    }
+    assert!((g[0] - 0.646).abs() < 0.001 && (g[2] - 1.987).abs() < 0.001, "{g:?}");
+    // The white point itself maps to grey at its own mean.
+    let out = t.iray_rgb(lin.map(|v| v * 0.1));
+    assert!((out[0] - out[1]).abs() < 1e-12 && (out[1] - out[2]).abs() < 1e-12);
+    // Not Octane's imager: a LUT with the gains per channel.
+    assert!(!t.is_plain());
+    let lut = t.cube_lut();
+    let row: Vec<f64> = lut.lines().filter(|l| l.starts_with(|c: char| c.is_ascii_digit())).nth(1000).unwrap().split(' ').map(|x| x.parse().unwrap()).collect();
+    let x = (1000.0f64 / 4095.0).powf(2.2) * LUT_HEADROOM;
+    for i in 0..3 {
+        assert!((row[i] - (x * g[i]).powf(1.0 / 2.2).min(1.0)).abs() < 1e-6, "{row:?}");
+    }
+    // A grey white point at any scale changes nothing (Calib-Tone-WhiteScale2).
+    let grey = ToneMapping { white_point: [2.0; 3], ..ToneMapping::default() };
+    assert!(grey.is_plain() && grey.white_gains().iter().all(|g| (g - 1.0).abs() < 1e-12));
 }
 
 #[test]

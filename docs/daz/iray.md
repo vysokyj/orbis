@@ -108,5 +108,7 @@ scales the shadow; Iray keeps the sky's fill in a full shadow (an umbra at
 ## Tone mapping ("Tonemapper Options" node)
 
 `Exposure Value` (EV, default 13), `cm2 Factor`, `White Point` ×
-`White Point Scale` (the colour that maps to white), `Saturation`,
+`White Point Scale` (the colour that maps to white; DAZ hands Iray
+`White Point`^2.2 × scale as `mip_whitepoint`, and Iray divides each
+channel by it, keeping the mean), `Saturation`,
 `Burn Highlights` (1 = no burn), `Crush Blacks`. Switched off = DAZ defaults.

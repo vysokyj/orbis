@@ -507,9 +507,9 @@ focus on the plane at the focus distance (perspective models) or the sphere
 | skin | Universal | Standard Surface + random-walk SSS |
 | imager exposure | **1.4** × 2^(13 − EV) × cm² (Variants) | **1.4** × 2^(13 − EV) × cm² |
 | imager response | **Gamma 2.2** (403) | same |
-| highlight compression | 0; Burn < 1, Crush > 0 or Gamma ≠ 2.2 → a tone LUT (below) | same |
+| highlight compression | 0; Burn < 1, Crush > 0, Gamma ≠ 2.2 or a coloured White Point → a tone LUT (below) | same |
 | vignetting | Iray's cos(θ)^v fitted as Octane's frame-space cone per camera (below) | same |
-| white balance / saturation | DAZ White Point × Scale / Saturation | same |
+| white balance / saturation | white (the White Point is in the tone LUT, below) / Saturation | same |
 | denoiser | off | **on**, during the render (`denoiserOnce` off, `maxDenoiserInterval` 20) |
 
 Why path tracing for final: direct lighting renders random-walk SSS grey and
@@ -596,6 +596,32 @@ least-squares fit of 1 − v_o · e to cos(θ)^v over the frame
 Mean |Δ| 1.7 % / 2.7 % of the pixel, the frame's mean −0.3 % / −0.6 %: the
 amount matches, the shape can't (the cone, and Octane darkens the top edge
 as much as the side one).
+
+**White point** (#70): DAZ hands Iray `mip_whitepoint` = White Point^2.2 ×
+White Point Scale (`iray::white_point`, .mi fixtures Calib-Tone-WhiteWarm,
+-Cool, -Green, -WhiteScale2: the colour linearised, the scale not). Iray
+multiplies each linear channel by k / wp before the burn, k the mean of wp —
+the white point's hue goes grey, its intensity stays; a grey white point at
+any scale changes nothing. Octane's imager `white_balance` is a chromatic
+adaptation, not that division (raw wp on the pin: R/G 0.761, B/G 1.319 where
+the division gives 0.8 / 1.333; wp^2.2: R/G 0.471 for 0.612), so it stays
+white and the gains go into the tone LUT (`ToneMapping::white_gains`; the 1D
+LUT gets a column per channel, the 3D LUT takes them before the luminance
+burn). Calib-Tone-WhiteWarm ([1, 0.8, 0.6]) over -Default, linear means of
+the unclipped pixels:
+
+| | R | G | B |
+|---|---|---|---|
+| Iray | 0.651 | 1.062 | 2.001 |
+| Octane, white balance = raw wp (before) | 0.785 | 1.031 | 1.360 |
+| Octane, gains in the LUT | 0.646 | 1.055 | 1.987 |
+
+Octane against Iray's WhiteWarm: mean |Δ| 1.56 / 255 (before 9.9: R +9.1,
+B −20.2), Calib-Tone-Default's own 1.92. One hue can't separate k's
+candidates — Iray's 0.650 against the mean 0.646, the Rec. 709 luminance
+0.674; the mean is the closer one. -WhiteCool ([0.6, 0.8, 1]) and
+-WhiteGreen ([0.9, 1, 0.7]) settle it (mean / luminance differ by 11 % /
+22 % there).
 
 ### Render settings (#43)
 

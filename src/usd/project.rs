@@ -53,7 +53,6 @@ pub(super) fn project_ocs(
     // Iray's render settings (#43): bounces, GI clamp, pixel filter, bloom.
     let kernel = render_settings::kernel_xml(tuning.kernel, render);
     let base_exposure = tuning.base_exposure;
-    let [wr, wg, wb] = tone.white_point;
     // Iray's curve beyond the calibrated defaults (burn, crush, gamma) as a
     // custom LUT after the Gamma 2.2 response, the exposure lowered by its
     // headroom; Octane's highlight compression is far weaker than Iray's
@@ -79,7 +78,9 @@ pub(super) fn project_ocs(
         .replace("@EXPOSURE@", &format!("{:.6} 0 0 0", exposure))
         .replace("@HIGHLIGHT_COMPRESSION@", &format!("{:.6} 0 0 0", compression))
         .replace("@TONE_LUT@", &lut)
-        .replace("@WHITE_BALANCE@", &format!("{wr:.6} {wg:.6} {wb:.6}"))
+        // Iray's white point is a per-channel division, in the tone LUT;
+        // Octane's white balance (a chromatic adaptation) stays white (#70).
+        .replace("@WHITE_BALANCE@", "1.000000 1.000000 1.000000")
         .replace("@SATURATION@", &format!("{:.6} 0 0 0", tone.saturation))
         .replace("@DENOISER@", if denoise && tuning.denoiser { "1" } else { "0" });
     let start = template.find("@SCENE_NODES@").expect("template has @SCENE_NODES@") + "@SCENE_NODES@".len();

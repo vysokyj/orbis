@@ -304,7 +304,8 @@ fn sun_direction_node(lib: &mut Library, env: &Value, env_def: Option<&Value>, n
 pub struct ToneMapping {
     pub exposure_value: f64,
     pub cm2_factor: f64,
-    /// The colour that maps to white (`White Point` × `White Point Scale`).
+    /// The colour that maps to white, linear (Iray's `mip_whitepoint`:
+    /// `White Point`^2.2 × `White Point Scale`).
     pub white_point: [f64; 3],
     /// 1 = highlights left alone, 0 = fully compressed.
     pub burn_highlights: f64,
@@ -383,17 +384,36 @@ impl ToneMapping {
         (num / den).clamp(0.0, 1.0)
     }
 
-    /// Iray's curve on a linear colour: per channel, or with Burn
-    /// Highlights Per Component off the burn of its Rec. 709 luminance Y
-    /// as c · burn(Y) / Y, then crush and gamma per channel (Calib-Tone-
-    /// BurnComp-off predicted from -on's pixels within 0.44 / 255 where the
-    /// two differ by 3.1; Rec. 601 weights do as well, the mean or the
-    /// maximum of the channels 0.7 / 2.7).
+    /// Iray's white point correction as per-channel gains on the linear
+    /// colour: k / wp, k the mean of wp (`white_point`, linear) — the white
+    /// point's hue maps to grey, its intensity stays (Calib-Tone-WhiteWarm,
+    /// wp [1, 0.612, 0.325]: Iray over -Default 0.651 1.062 2.001 = 0.650 /
+    /// wp per channel; the mean gives 0.646, the Rec. 709 luminance 0.674,
+    /// #70). A grey white point at any scale: 1, 1, 1.
+    pub fn white_gains(&self) -> [f64; 3] {
+        let lin = self.white_point.map(|c| c.max(1e-6));
+        let k = (lin[0] + lin[1] + lin[2]) / 3.0;
+        lin.map(|l| k / l)
+    }
+
+    /// Whether the white point is grey (its gains all 1).
+    fn neutral_white(&self) -> bool {
+        self.white_gains().iter().all(|g| (g - 1.0).abs() < 1e-6)
+    }
+
+    /// Iray's tone mapping on a linear colour (after exposure): the white
+    /// point's gains (`white_gains`), then the curve per channel, or with
+    /// Burn Highlights Per Component off the burn of its Rec. 709
+    /// luminance Y as c · burn(Y) / Y, then crush and gamma per channel
+    /// (Calib-Tone-BurnComp-off predicted from -on's pixels within 0.44 /
+    /// 255 where the two differ by 3.1; Rec. 601 weights do as well, the
+    /// mean or the maximum of the channels 0.7 / 2.7).
     pub fn iray_rgb(&self, c: [f64; 3]) -> [f64; 3] {
+        let g = self.white_gains();
+        let c = [0, 1, 2].map(|i| c[i].max(0.0) * g[i]);
         if !self.luminance_burn() {
             return c.map(|v| self.iray_curve(v));
         }
-        let c = c.map(|v| v.max(0.0));
         let y = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
         let k = if y > 0.0 { self.burn(y) / y } else { 1.0 };
         c.map(|v| self.after_burn(v * k))
@@ -406,15 +426,18 @@ impl ToneMapping {
     }
 
     /// Whether Octane's own imager reproduces this: the calibrated defaults
-    /// (Burn 1, Crush 0, Gamma 2.2 — the Gamma 2.2 response).
+    /// (Burn 1, Crush 0, Gamma 2.2 — the Gamma 2.2 response) and a grey
+    /// white point (Octane's white balance is a chromatic adaptation, not
+    /// Iray's per-channel division, #70).
     pub fn is_plain(&self) -> bool {
-        self.burn_highlights >= 1.0 && self.crush_blacks <= 0.0 && (self.gamma - 2.2).abs() < 1e-3
+        self.burn_highlights >= 1.0 && self.crush_blacks <= 0.0 && (self.gamma - 2.2).abs() < 1e-3 && self.neutral_white()
     }
 
     /// Iray's curve as a 1D `.cube` LUT for Octane's imager: its input is
     /// the Gamma 2.2 response of c / `LUT_HEADROOM` (the exposure is
     /// divided by it, so highlights up to 16× white survive the response's
     /// clip at 1). Octane applies response, gamma, then LUT (`order` 0).
+    /// The white point's gains are in it, per channel.
     /// A luminance burn needs the channels together: a 3D LUT of
     /// `LUT_3D_SIZE`³ entries (red fastest, as `.cube` orders them), not
     /// clipped at 1 — a clip inside a cell bends what the interpolation
@@ -437,8 +460,8 @@ impl ToneMapping {
         let mut out = format!("TITLE \"ORBIS Iray tone mapping\"\nLUT_1D_SIZE {LUT_SIZE}\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\n");
         for i in 0..LUT_SIZE {
             let x = i as f64 / (LUT_SIZE - 1) as f64;
-            let v = self.iray_curve(x.powf(2.2) * LUT_HEADROOM).clamp(0.0, 1.0);
-            let _ = writeln!(out, "{v:.6} {v:.6} {v:.6}");
+            let [r, g, b] = self.iray_rgb([x.powf(2.2) * LUT_HEADROOM; 3]).map(|v| v.clamp(0.0, 1.0));
+            let _ = writeln!(out, "{r:.6} {g:.6} {b:.6}");
         }
         out
     }

@@ -1256,12 +1256,14 @@ pub fn burn_per_component(ch: &NodeChannels) -> bool {
     ch_bool(ch, "Burn Highlights Per Component", true)
 }
 
-/// The white point Iray tone-maps to (`mip_whitepoint`): White Point ×
-/// White Point Scale, as entered (not linearised).
+/// The white point Iray tone-maps to (`mip_whitepoint`): White Point
+/// linearised (^2.2) × White Point Scale (Calib-Tone-WhiteWarm, -Cool,
+/// -Green: [1, 0.8, 0.6] → [1, 0.612, 0.325]; -WhiteScale2: 2 → 2, the
+/// scale not linearised; #70).
 pub fn white_point(ch: &NodeChannels) -> [f64; 3] {
     let scale = ch_num(ch, "White Point Scale", 1.0);
     let wp = ch.get("White Point").and_then(Value::as_array);
-    [0, 1, 2].map(|i| wp.and_then(|a| a.get(i)).and_then(Value::as_f64).unwrap_or(1.0) * scale)
+    [0, 1, 2].map(|i| wp.and_then(|a| a.get(i)).and_then(Value::as_f64).unwrap_or(1.0).max(0.0).powf(2.2) * scale)
 }
 
 /// Iray's environment as DAZ sets it up, from the Environment Options
