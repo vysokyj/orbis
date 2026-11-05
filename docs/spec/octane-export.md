@@ -1411,13 +1411,20 @@ quantised).
     on the Uber gloss's GGX curve under energy-preserving GGX (`brdf` 6),
     bump × the Uber's bump power (`mdl_dielectric`). Granite's varnish is a
     mirror (roughness 0). Resin's base is a tinted glossy reflect +
-    transmit: specular and transmission its colour, the clear gloss as the
-    coating, Octane's default BSDF at the MDL roughness as is;
-    transmission × 0.8 (`RESIN_TRANSMISSION`, fitted) — at the full colour
-    1.24 – 1.36 × Iray with Iray's hue, × 0.8 1.04 and slightly redder
-    (g/r 0.24 v 0.22). The rough-glass rule (Beckmann at √r) made it
-    redder and dark in the middle (g/r 0.28, centre 0.83 ×), energy-
-    preserving GGX on the curve alike (0.26, 0.82 ×).
+    transmit (`simple_glossy_bsdf`, `scatter_reflect_transmit`): specular
+    and transmission its colour, which Octane, like Iray, applies at every
+    crossing — that keeps the hue — under the rough-glass rule (Beckmann at
+    √r; the clear gloss as the coating at √r), both × the lobe's albedo
+    **1 − 0.64 r** (`resin_lobe_albedo`). Why: Iray's lobe has no
+    multiple-scattering compensation (MDL spec 21.1.3) and loses light
+    with roughness. On Calib-NVIDIA2, at r 0.02 the full colour matched
+    Iray (A8 0.91 ×, g/r 0.14 v 0.12; the earlier fitted × 0.8 gave 0.71
+    and g/r 0.19). At r 0.25 the full colour was 1.23 – 1.46 × Iray under
+    every BSDF tried (default, plain or energy-preserving GGX on the curve,
+    Beckmann at √r); the albedo 0.84 brings the grey resin (A7) to 1.02 ×
+    and Calib-NVIDIA's red one to 1.05 × with g/r 0.25 v 0.22 (floors
+    1.04 – 1.05). The two roughnesses are measured; the line between them
+    is assumed.
     Architectural (mental ray's mia_material): diffuse × weight,
     reflectivity × the reflection colour's maximum tinted by it, without
     "Use Fresnel Term" Schlick's curve from the 0° reflectivity as the IOR
@@ -1440,8 +1447,9 @@ quantised).
     pending).
     Calib-NVIDIA (Iray 5000 samples, Octane 1024; sphere disk luminance,
     Octane / Iray; floor 1.04): Metal Brushed 1.02, Cast Iron 1.11,
-    concrete 1.00, polished 0.95, porcelain 1.09, granite 1.09, resin 1.04,
-    architectural 1.07; hue within 0.02 (g/r) – 0.04 (b/r) but resin.
+    concrete 1.00, polished 0.95, porcelain 1.09, granite 1.09, resin 1.05,
+    architectural 1.07; Calib-NVIDIA2: asphalt 1.05, ceramic tiles small
+    1.04 (floor 1.05); hue within 0.02 (g/r) – 0.04 (b/r) but resin.
     Porcelain's and granite's excess (centre 1.14) is the diffuse under a
     full Fresnel gloss, as on the Uber's glossy spheres (Calib-Glossy
     1.02 – 1.16), not theirs alone.

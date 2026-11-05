@@ -151,10 +151,91 @@ Also from the .mi: `color_scale` 0.505 on the diffuse map = the channel's
 gloss weight 1.2) that the export ignores everywhere: #77. Iray's strands
 look paler and softer; the tiling and the glints are the likely rest.
 
+## Calib-NVIDIA2 against Iray (evening)
+
+The Iray reference (2835a5c, 5000 samples) came out from another view
+than the export: DAZ had saved the scene without `current_camera` (it
+was built and saved while looking through the Perspective View), so the
+Iray Server rendered that view, which a .duf doesn't store, and `orbis`
+took the first camera node. The view was recovered from the reference:
+a pinhole fit (Gauss-Newton with damping, numpy) to the eight sphere
+centres and radii, the back floor corners and the left floor edge;
+checked first on an Octane render of Camera-1, whose known pose it
+reproduced (centres x 424 + 153 k, y 561). Result: position (142.9,
+188.1, 364.6) cm, X −13.96°, Y 21.99°, focal 89.1 mm, residual 1.3 px.
+The scene stays as DAZ saved it: its .mi fixture checks Camera-1 (65 mm),
+and a scene edited by hand would no longer be the one the fixture and
+the reference came from. The comparison ran on a scratch copy whose
+Camera-1 carries the fitted view (`current_camera` set, same dump);
+the next Calib-NVIDIA* scene must be saved with its camera current
+(check `current_camera` before queueing).
+
+Measure as above (disk r 0.75 of the sphere's radius, centre 0.35),
+Octane 512 samples for variants, 1024 for the final. Variants through a
+temporary per-material pin override (an env var in the export, removed).
+
+| sphere | disk | centre | g/r O v I | b/r O v I |
+|---|---|---|---|---|
+| A1 asphalt | 1.05 | 1.02 | 1.06 v 1.10 | 1.31 v 1.29 |
+| A2 ceramic tiles small | 1.04 | 1.04 | 1.12 v 1.11 | 1.27 v 1.26 |
+| A3 arch glossiness 0.3 | 0.90 | 1.01 | 1.16 v 1.13 | 1.50 v 1.40 |
+| A4 arch glossiness 0 | 1.01 | 1.01 | 1.13 v 1.13 | 1.39 v 1.40 |
+| A5 arch anisotropy 4 | 0.95 | 1.06 | 1.13 v 1.12 | 1.45 v 1.40 |
+| A6 arch glass, refr_gloss 0.2 | 1.46 | 1.42 | 1.16 v 1.16 | 1.52 v 1.53 |
+| A7 resin, grey base | 1.02 | 0.93 | 1.16 v 1.15 | 1.51 v 1.50 |
+| A8 resin, r 0.02 | 0.91 | 0.92 | 0.14 v 0.12 | 0.23 v 0.19 |
+
+(floor 1.05; final, with the resin rule below.)
+
+### Resin
+
+| variant | A7 grey (r 0.25) | A8 (r 0.02), g/r | Calib-NVIDIA red (r 0.25), g/r |
+|---|---|---|---|
+| default BSDF, r, T × 0.8 (before) | 1.00 / 0.86 | 0.71, 0.19 | 1.04 / 0.93, 0.24 |
+| default BSDF, r, T = colour | 1.46 / 1.28 | 0.93, 0.14 | 1.31 / 1.25, 0.18 |
+| plain GGX on the curve, T = colour | 1.32 / 1.23 | 0.93, 0.14 | 1.19 / 1.06, 0.21 |
+| Beckmann √r, T = colour | 1.36 / 1.27 | 0.93, 0.14 | 1.23 / 1.10, 0.20 |
+| Beckmann √r, T = colour, specular white | 1.38 / 1.27 | 1.14, 0.23 | 1.61 / 1.34, 0.35 |
+| **Beckmann √r, T = colour × (1 − 0.64 r)** | 1.02 / 0.93 | 0.91, 0.14 | 1.05 / 0.88, 0.25 |
+
+(Iray g/r: A8 0.12, Calib-NVIDIA 0.22.) A7's level against T: 1.00 at
+0.8, 1.46 at 1 — Octane tints at each crossing (a + b·T², a ≈ 0.18), as
+the MDL's tinted lobe does on the way in and out. With the full colour
+the smooth resin is right in level and hue, so the hue rule is the MDL's;
+the rough one is ~1.3 × too bright under every BSDF, so the excess is
+the level of the rough lobe, not its shape. Iray's `simple_glossy_bsdf`
+is Phong with a v-cavities shadowing term and no multiple-scattering
+compensation (MDL spec 21.1.3), which loses light as roughness grows;
+from A7 and the red resin the per-crossing albedo at r 0.25 is 0.82 –
+0.87 (Beckmann), taken as 1 − 0.64 r. The specular (the base's own
+reflection) carries the tint too: white made the red resin pink (g/r
+0.35). Beckmann √r replaces the default BSDF as the rough-glass rule the
+spec already has; at these levels the BSDFs differ by < 0.1.
+
+### Architectural
+
+- A4 (glossiness 0, r 0.35) and A5 (anisotropy) agree.
+- A3 (glossiness 0.3, r 0.083 by `architectural_gloss_to_rough`): Iray's
+  reflection is visibly blurrier. Octane's GGX roughness pin 0.096 (now)
+  0.90 ×, 0.2 0.99 ×, 0.3 1.09 ×; the look sits between 0.2 and 0.3 —
+  an MDL roughness of ~0.18, 2.2 × the formula's.
+- A6 (refr_gloss 0.2, r 0.134; Beckmann pin 0.366): 1.46 × Iray in every
+  third of the disk (top 1.54, middle 1.42, bottom 1.54). Iray's interior
+  is an even grey, no inverted environment; Octane shows the inverted
+  sky in the lower half. Coating off 1.38, specular white 1.50, IOR 1
+  (no refraction) 1.53, roughness pin 0.5 1.46, 0.6 1.41, 0.7 1.33, 0.85
+  1.15 — only the last looks like Iray (α 0.72, 5 × the formula's).
+- `architectural_gloss_to_rough` in the MDL SDK's `base.mdl` is the
+  formula in use (re-read). The two misses don't share a curve (A6 would
+  need more roughness at refr_gloss 0.2 than glossiness 0 gives), so no
+  rule from them. Iray batch: needs a series (reflection at glossiness
+  0.15 / 0.3 / 0.5 / 0.7, glass at refr_gloss 1 / 0.6 / 0.2 with
+  reflectivity 0) to see Iray's curve for each lobe.
+
 ## Open (#21)
 
-- Resin's level vs hue (fitted × 0.8).
-- Calib-NVIDIA2's Iray reference (5000 samples): architectural
-  glossiness / anisotropy / glass, asphalt, ceramic tiles, resin variants.
+- Architectural glossiness < 1 (A3, blurrier in Iray) and glass (A6,
+  1.46 ×): needs the Iray series above.
+- Resin's lobe albedo is measured at r 0.02 and 0.25 only.
 - OOT hair: per-map tiling (#77); a non-black Overlay Alpha Mask value
   (the colour → float reduction is a guess, no scene has one).

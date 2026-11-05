@@ -591,8 +591,20 @@ struct MdlDielectric {
     opacity: f32,
 }
 
-/// Resin's tinted base as Universal transmission: its colour × this.
-const RESIN_TRANSMISSION: f32 = 0.8;
+/// Resin's base tint × this = Octane's specular and transmission: what
+/// Iray's rough reflect + transmit lobe (`simple_glossy_bsdf`: Phong, a
+/// v-cavities shadowing term, no multiple-scattering compensation — MDL
+/// spec 21.1.3) keeps per crossing at MDL roughness r, against Octane's
+/// Beckmann. 1 − 0.64 r (`RESIN_LOSS`): at r 0.02 the full tint matched
+/// Iray (Calib-NVIDIA2 A8: 0.91 ×, g/r 0.14 v 0.12; × 0.8 gave 0.71 and
+/// g/r 0.19); at r 0.25 the full tint was 1.23 – 1.36 × Iray whatever the
+/// BSDF, and 0.84 brings the grey (A7) and the red (Calib-NVIDIA) resin to
+/// 1.02 / 1.05 × (floors 1.04 – 1.05). Measured at those two roughnesses.
+fn resin_lobe_albedo(r: f32) -> f32 {
+    (1.0 - RESIN_LOSS * r.clamp(0.0, 1.0)).max(0.0)
+}
+
+const RESIN_LOSS: f32 = 0.64;
 
 /// The NVIDIA dielectric a brick shader renders with, its parameters from
 /// the shader's channels and the MDL defaults (`nvidia/<module>.mdl`).
@@ -652,10 +664,10 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
         "porcelain" => d.albedo = MdlAlbedo::Colour(mat.color("diffuse").unwrap_or([0.85; 3])),
         "resin_polyurethane_matte" => {
             d.albedo = MdlAlbedo::Colour([0.0; 3]);
-            // At the full colour Octane's sphere came out 1.36 × Iray and
-            // redder (g/r 0.30 v 0.37); × 0.85 matched the hue, × 0.6 let
-            // too much background through (g/r 0.50) — Calib-NVIDIA.
-            d.transmission = Some(mat.color("diffuse").unwrap_or([0.8, 0.104, 0.144]).map(|c| c * RESIN_TRANSMISSION));
+            // The base's tint, met once per crossing as in Octane, keeps
+            // the hue; its rough lobe's loss sets the level
+            // (`resin_lobe_albedo`).
+            d.transmission = Some(mat.color("diffuse").unwrap_or([0.8, 0.104, 0.144]).map(|c| c * resin_lobe_albedo(d.roughness)));
         }
         _ => {
             // mental ray's mia_material: diffuse × weight; a reflection of
@@ -1327,19 +1339,13 @@ impl Ocs<'_> {
             }
         }
         // The MDL's `simple_glossy_bsdf` is the Uber's Phong lobe: GGX
-        // energy preserving on the gloss's curve (the Uber's rule). Not on
-        // resin's coated rough glass: there the rough-glass rule (Beckmann
-        // at √r) came out redder and darker in the middle (g/r 0.28 v
-        // Iray's 0.22, centre 0.83 ×) than Octane's default BSDF at r as is
-        // (0.24, 0.92 ×; Calib-NVIDIA).
-        // Architectural's glass: the rough-glass rule (Beckmann at √r) for
-        // its transmit lobe, and the reflection over it on the coating at
-        // √r under the same model (Phong ≈ Beckmann α = r).
-        let curve = match (m.transmission.is_some(), m.refraction.is_some()) {
-            (_, true) => RoughCurve::Beckmann,
-            (true, false) => RoughCurve::Linear,
-            _ => RoughCurve::Ggx,
-        };
+        // energy preserving on the gloss's curve (the Uber's rule). A lobe
+        // that transmits (resin's base, architectural's glass) takes the
+        // rough-glass rule (Beckmann at √r), and the reflection on the
+        // coating over it √r under the same model (Phong ≈ Beckmann α = r).
+        // At resin's level (`resin_lobe_albedo`) every BSDF tried came out
+        // alike (Calib-NVIDIA2 A7 1.32 – 1.46 at the full tint).
+        let curve = if m.transmission.is_some() { RoughCurve::Beckmann } else { RoughCurve::Ggx };
         if let Some((u, v, rotation)) = m.aniso.filter(|_| m.transmission.is_none()) {
             // Each axis on the GGX curve, Octane's roughness the long one,
             // as for the Uber's anisotropy (#23); plain GGX past 1.
@@ -4865,8 +4871,9 @@ mod tests {
         let resin = nvidia("resin_polyurethane_matte", json!([{"channel": {"id": "diffuse", "current_value": [1, 1, 1]}}]));
         let (z, _) = material_inputs(&[("Resin".into(), resin, 1.0)], &dirs, HashMap::new(), 9500, SkinShader::None);
         assert!(z.contains("<pin name='transmission'>") && z.contains("<pin name='coating'>"), "{z}");
-        // Resin keeps Octane's default BSDF at the MDL roughness.
-        assert!(!z.contains("<pin name='brdf'>") && z.contains(">0.25<"), "{z}");
+        // Resin's base: the rough-glass rule (Beckmann at √0.25), its white
+        // tint × the lobe's albedo at r 0.25 (0.84).
+        assert!(z.contains(&format!("type='2'>{GLASS_BRDF}<")) && z.contains(">0.5<") && z.contains(">0.84 0.84 0.84<"), "{z}");
     }
 
     /// Arch+Design glass: a transmit-only lobe (specular 0) at refr_gloss
@@ -6172,7 +6179,7 @@ mod tests {
             } else if let Some(d) = mdl_dielectric(&mat) {
                 match (&d.albedo, tex("diffuse_texture"), colour("base_color")) {
                     (MdlAlbedo::Map(m, _), Some(t), _) => check("diffuse map", name(m) == t),
-                    (_, _, Some(b)) if d.transmission.is_some() => check("resin colour", d.transmission.is_some_and(|t| (0..3).all(|k| near(t[k] / RESIN_TRANSMISSION, b[k])))),
+                    (_, _, Some(b)) if d.transmission.is_some() => check("resin colour", d.transmission.is_some_and(|t| (0..3).all(|k| near(t[k] / resin_lobe_albedo(d.roughness), b[k])))),
                     (MdlAlbedo::Colour(c), _, Some(b)) => check("base colour", (0..3).all(|k| near(c[k], b[k]))),
                     _ => {
                         // Architectural: diffuse, reflectivity × the reflection colour's peak.
