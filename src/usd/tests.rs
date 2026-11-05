@@ -945,16 +945,19 @@ fn iray_tone_curve() {
 
 #[test]
 fn white_point_gains() {
-    // Calib-Tone-WhiteWarm: Iray divides by the (linear) white point and
-    // keeps the mean (#70): 0.646 / wp per channel.
+    // Iray divides by the (linear) white point and keeps its CIE RGB
+    // luminance (#70): k / wp per channel, k as measured over
+    // Calib-Tone-Default (per-pixel medians).
+    for (wp, k) in [([1.0, 0.8, 0.6], 0.651), ([0.6, 0.8, 1.0], 0.531), ([0.9, 1.0, 0.7], 0.945)] {
+        let lin = wp.map(|c: f64| c.powf(2.2));
+        let g = ToneMapping { white_point: lin, ..ToneMapping::default() }.white_gains();
+        for i in 0..3 {
+            assert!((g[i] * lin[i] - k).abs() < 0.002, "{wp:?} {g:?}");
+        }
+    }
     let lin = [1.0f64, 0.8f64.powf(2.2), 0.6f64.powf(2.2)];
     let t = ToneMapping { white_point: lin, ..ToneMapping::default() };
-    let k = lin.iter().sum::<f64>() / 3.0;
     let g = t.white_gains();
-    for i in 0..3 {
-        assert!((g[i] - k / lin[i]).abs() < 1e-12);
-    }
-    assert!((g[0] - 0.646).abs() < 0.001 && (g[2] - 1.987).abs() < 0.001, "{g:?}");
     // The white point itself maps to grey at its own mean.
     let out = t.iray_rgb(lin.map(|v| v * 0.1));
     assert!((out[0] - out[1]).abs() < 1e-12 && (out[1] - out[2]).abs() < 1e-12);

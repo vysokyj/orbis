@@ -385,14 +385,16 @@ impl ToneMapping {
     }
 
     /// Iray's white point correction as per-channel gains on the linear
-    /// colour: k / wp, k the mean of wp (`white_point`, linear) — the white
-    /// point's hue maps to grey, its intensity stays (Calib-Tone-WhiteWarm,
-    /// wp [1, 0.612, 0.325]: Iray over -Default 0.651 1.062 2.001 = 0.650 /
-    /// wp per channel; the mean gives 0.646, the Rec. 709 luminance 0.674,
-    /// #70). A grey white point at any scale: 1, 1, 1.
+    /// colour: k / wp (`white_point`, linear), k = 1 / Σ yᵢ / wpᵢ with the
+    /// CIE 1931 RGB luminance weights y — the white point's hue maps to
+    /// grey and a white pixel keeps that luminance (#70). Iray over
+    /// Calib-Tone-Default, per-pixel medians: k 0.651 (WhiteWarm), 0.531
+    /// (WhiteCool), 0.945 (WhiteGreen); this gives 0.651 / 0.531 / 0.944.
+    /// The mean of wp (0.646 / 0.646 / 0.750) and its Rec. 709 luminance
+    /// (0.674 / 0.579 / 0.917) miss. A grey white point at any scale: 1, 1, 1.
     pub fn white_gains(&self) -> [f64; 3] {
         let lin = self.white_point.map(|c| c.max(1e-6));
-        let k = (lin[0] + lin[1] + lin[2]) / 3.0;
+        let k = 1.0 / (0..3).map(|i| CIE_RGB_Y[i] / lin[i]).sum::<f64>();
         lin.map(|l| k / l)
     }
 
@@ -472,6 +474,12 @@ impl ToneMapping {
 /// samples, so the same noise) — 1.4 / 2.4 / 255, Gladiator's mix 1.2;
 /// `^(1 + crush)` gave 2.3 / 4.2 / 1.7, a luminance-based crush 1.7 / 2.9.
 const CRUSH_KNEE: f64 = 0.3;
+
+/// The luminance Iray's white point keeps: the CIE 1931 RGB weights
+/// (Y row of CIE RGB → XYZ). Fitted free on Calib-Tone-WhiteWarm, -Cool and
+/// -Green as k = 1 / Σ wᵢ / wpᵢ, the three weights came out 0.177 0.813
+/// 0.010, summing to 1.000 (#70).
+const CIE_RGB_Y: [f64; 3] = [0.17697, 0.81240, 0.01063];
 
 /// Entries of the tone LUT.
 const LUT_SIZE: usize = 4096;

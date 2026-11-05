@@ -600,28 +600,30 @@ as much as the side one).
 **White point** (#70): DAZ hands Iray `mip_whitepoint` = White Point^2.2 ×
 White Point Scale (`iray::white_point`, .mi fixtures Calib-Tone-WhiteWarm,
 -Cool, -Green, -WhiteScale2: the colour linearised, the scale not). Iray
-multiplies each linear channel by k / wp before the burn, k the mean of wp —
-the white point's hue goes grey, its intensity stays; a grey white point at
-any scale changes nothing. Octane's imager `white_balance` is a chromatic
+multiplies each linear channel by k / wp before the burn, k = 1 / Σ yᵢ / wpᵢ
+with the CIE 1931 RGB luminance weights y = (0.17697, 0.81240, 0.01063) —
+the white point's hue goes grey, a white pixel keeps that luminance; a grey
+white point at any scale changes nothing. Octane's imager `white_balance` is a chromatic
 adaptation, not that division (raw wp on the pin: R/G 0.761, B/G 1.319 where
 the division gives 0.8 / 1.333; wp^2.2: R/G 0.471 for 0.612), so it stays
 white and the gains go into the tone LUT (`ToneMapping::white_gains`; the 1D
 LUT gets a column per channel, the 3D LUT takes them before the luminance
-burn). Calib-Tone-WhiteWarm ([1, 0.8, 0.6]) over -Default, linear means of
-the unclipped pixels:
+burn). Over -Default, per-pixel medians of the linear ratio (gamma 2.2,
+pixels 0.15–0.9 in both):
 
-| | R | G | B |
+| scene (White Point) | Iray R G B | Octane R G B | k: Iray / CIE RGB / mean / Rec. 709 |
 |---|---|---|---|
-| Iray | 0.651 | 1.062 | 2.001 |
-| Octane, white balance = raw wp (before) | 0.785 | 1.031 | 1.360 |
-| Octane, gains in the LUT | 0.646 | 1.055 | 1.987 |
+| WhiteWarm [1, 0.8, 0.6] | 0.652 1.063 2.003 | 0.650 1.063 2.001 | 0.651 / 0.651 / 0.646 / 0.674 |
+| WhiteCool [0.6, 0.8, 1] | 1.634 0.867 0.531 | 1.634 0.869 0.531 | 0.531 / 0.531 / 0.646 / 0.579 |
+| WhiteGreen [0.9, 1, 0.7] | 1.193 0.944 2.069 | 1.190 0.944 2.069 | 0.945 / 0.944 / 0.750 / 0.917 |
 
-Octane against Iray's WhiteWarm: mean |Δ| 1.56 / 255 (before 9.9: R +9.1,
-B −20.2), Calib-Tone-Default's own 1.92. One hue can't separate k's
-candidates — Iray's 0.650 against the mean 0.646, the Rec. 709 luminance
-0.674; the mean is the closer one. -WhiteCool ([0.6, 0.8, 1]) and
--WhiteGreen ([0.9, 1, 0.7]) settle it (mean / luminance differ by 11 % /
-22 % there).
+Iray's ratios are k / wp on every channel to 0.5 % (a diagonal in RGB;
+Bradford, CAT02 or von Kries adaptations miss by 3–25 %). Fitting k = 1 /
+Σ wᵢ / wpᵢ with three free weights gives 0.177 0.813 0.010, summing to
+1.000: CIE 1931 RGB's luminance row. Octane against Iray, mean |Δ| per
+pixel: WhiteWarm 1.95, -Cool 1.83, -Green 2.05 / 255, Calib-Tone-Default's
+own 1.92 (Octane's usual linear offset); before (white balance = raw wp)
+WhiteWarm was 9.9.
 
 ### Render settings (#43)
 
