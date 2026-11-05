@@ -42,6 +42,10 @@ pub struct Material {
     /// the dump gives the node's transform: an Emission Profile lies in
     /// the mesh's object space in Iray, the export's meshes in world space.
     pub frame: Option<[[f64; 3]; 3]>,
+    /// An Emission Profile's surface: its face normals in world space
+    /// (unit, binned) with their share of its area — what Octane's
+    /// Lambertian emitter keeps of the profile's flux.
+    pub emit_normals: Option<Vec<([f64; 3], f64)>>,
 }
 
 impl Material {

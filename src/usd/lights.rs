@@ -251,6 +251,12 @@ pub(super) fn light_watts(l: &SceneLight) -> f64 {
     factor * l.lumens / crate::material::DAZ_LUMENS_PER_WATT
 }
 
+/// An IES point or sphere light's power over the flux-kept profile's
+/// (`1 / mean_share`): Iray rendered Calib-L-IES-Point, -Point-Down and
+/// -Asym-Down at 1 / 4.00 of it (#34) — `ies_light` on a sphere spreads the
+/// flux over its whole surface, of which a direction sees a quarter.
+pub(super) const IES_POINT_SHARE: f64 = 4.0;
+
 /// The UsdLux prim name of each light (as `write_lights` names them).
 pub(super) fn light_prim_names(lights: &[SceneLight]) -> Vec<String> {
     let mut taken = HashSet::new();
@@ -267,12 +273,25 @@ pub(super) fn light_emitters(lights: &[SceneLight], ies: &mut dyn FnMut(&str) ->
         .filter(|(l, _)| l.cone_deg.is_none())
         .map(|(l, prim)| {
             let ies = l.profile.as_deref().and_then(|p| ies(p)).map(|(asset, profile)| {
-                // Iray's profile frame is the light's own (`ies_light`'s
-                // identity `global_frame`); the rect / disc prims are turned
-                // half round their X (`write_lights`), so their Y and Z
-                // point the other way.
-                let flip = if matches!(l.shape, LightShape::Rect { .. } | LightShape::Disk { .. }) { -1.0 } else { 1.0 };
-                crate::material::IesDistribution { asset, frame: [[1.0, 0.0, 0.0], [0.0, flip, 0.0], [0.0, 0.0, flip]], power_scale: 1.0 / profile.mean_share().max(1e-3), world: false }
+                // Iray's profile frame is the light's own turned half round
+                // its X (Calib-L-IES-*: the axis along the light's −Z, as a
+                // spot's beam, φ 0 along +X, φ 90 along −Y); the rect / disc
+                // prims are turned so already (`write_lights`).
+                // Power: a rect / disc keeps the flux through its front,
+                // Octane emitting Lambertian × the profile where Iray emits
+                // the profile (its axis the surface's normal); a point or
+                // sphere ¼ of the profile's mean share — Iray lit
+                // Calib-L-IES-Point, -Point-Down and -Asym-Down at 1 / 4.00 of
+                // the flux-kept profile, the shape the same.
+                let area = matches!(l.shape, LightShape::Rect { .. } | LightShape::Disk { .. });
+                let flip = if area { 1.0 } else { -1.0 };
+                let share = if area {
+                    let normals: &[([f64; 3], f64)] = if l.two_sided { &[([0.0, 0.0, 1.0], 0.5), ([0.0, 0.0, -1.0], 0.5)] } else { &[([0.0, 0.0, 1.0], 1.0)] };
+                    profile.lambert_share(normals)
+                } else {
+                    IES_POINT_SHARE * profile.mean_share()
+                };
+                crate::material::IesDistribution { asset, frame: [[1.0, 0.0, 0.0], [0.0, flip, 0.0], [0.0, 0.0, flip]], power_scale: 1.0 / share.max(1e-3), world: false }
             });
             crate::material::LightEmitter { prim, watts: light_watts(l), kelvin: l.kelvin, color: l.color, two_sided: l.two_sided, ies }
         })

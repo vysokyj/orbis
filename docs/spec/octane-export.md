@@ -1575,12 +1575,16 @@ profile; their .mi exports as fixtures):
   `emission_profile` (`iray::uber`): `measured_edf(global_distribution:
   true)` in the **mesh's object space**, the luminance divided by
   `light_profile_power`.
-- **Orientation in Iray** (from the MDL, not yet from a render): the
-  profile's θ = 0 lies on the frame's +z (NVIDIA's comment in `ies_light`),
-  φ = 0 on +x, φ = 90° on +y. So a DAZ point light's profile axis is its
-  **local +Z** — the opposite of a spot's beam (−Z): unrotated it points
-  forward (+Z), turned X −90° (a spot's "down") it points up. An emissive
-  surface's axis is its object +Z (a DAZ plane's lies in the plane).
+- **Orientation in Iray** (Iray references of Calib-L-IES-*, 5000
+  samples — not what NVIDIA's comment in `ies_light` suggests): the
+  profile's θ = 0 lies on the emitter's **local −Z**, φ = 0 on **+X**,
+  φ = 90° on **−Y** — the light's own frame turned half round X, the way a
+  spot's beam points. Point-Down (turned X −90°) showed a dark disc of
+  35° under the light (the file's 0 – 35° zero band; +Z would have made
+  it 19°); Asym-Down the downlight on the floor, its dim notch (φ 180)
+  towards −X and the φ 90 side (0.6) towards world +Z = local −Y. An
+  emissive surface likewise: Emit-Asym's plane (turned X 180°) throws its
+  downlight forwards along world +Z = object −Z.
 - **Octane**: the emission's `distribution` pin takes a greyscale image
   (36) reading the `.ies`, packed at `assets/ies/`, normalised to a peak of
   1 (`iesPhotometryMode` 1, as in Octane's hallway sample), through a
@@ -1589,21 +1593,47 @@ profile; their .mi exports as fixtures):
   axis **−Y**, φ 0 **+Z**, φ 90 **−X**; the projection's `transform` (order
   XYZ) turns that sphere into the coordinate space (X +90° moved the axis
   from −Y to −Z). `ies_projection_rotation` turns it onto Iray's frame:
-  lights in **object space** (the UsdLux prim is the light's own frame — a
-  rect / disc prim, turned half round X, with Y and Z negated), emissive
-  surfaces in **world space** along the node's axes (the export's meshes
-  are in world space; the dump's node transform).
-- **Power** × 1 / the peak-normalised profile's mean over the sphere
-  (`ies::Profile::mean_share` = ∫ I dΩ / (4π I_max)): Octane's distribution
-  only scales the emitter's radiance, Iray keeps the flux. Orbis-Asym
-  turned onto the floor, 300 lm (share 0.060), against the same light
-  without a profile at θ = 30°: φ 0 / 90 / 270 / 180 at 0.99 / 1.00 / 1.02
-  / 1.06 of Iray's I(ω) · 4π / ∫ I dΩ.
-- **Not settled**: the orientation (above) and the power of a rect, disc or
-  sphere and of an emissive surface — Octane's emitter is Lambertian × the
-  distribution, Iray's `measured_edf` on an area follows the profile; the
-  export takes the point light's rule for both. Iray references of the
-  Calib-L-IES-* scenes decide (#34).
+  lights in **object space** — a point / sphere prim is the light's own
+  frame, so Iray's is (X, −Y, −Z) of it (rotation 90 90 0); a rect / disc
+  prim is already turned half round X (`write_lights`), Iray's frame is
+  its own — emissive surfaces in **world space**, (X, −Y, −Z) of the
+  node's axes (the export's meshes are in world space; the dump's node
+  transform). All six scenes now light the same places as Iray.
+- **Power.** Octane's distribution only scales the emitter's radiance
+  (peak 1), Iray keeps the flux:
+  - **Point / sphere light**: × 1 / (4 × the peak-normalised profile's
+    mean over the sphere) (`ies::Profile::mean_share` = ∫ I dΩ / (4π
+    I_max); `IES_POINT_SHARE` 4). Iray lit Point, Point-Down and Asym-Down
+    at exactly 1/4 of the flux-kept profile (Octane / Iray 4.00 – 4.04
+    across the floor with × 1 / mean_share, either profile); with the 4:
+    0.997 – 1.009, the shape identical. (A probe without Iray, 300 lm, had
+    confirmed Octane's side: φ 0 / 90 / 270 / 180 at 0.99 / 1.00 / 1.02 /
+    1.06 of I(ω) · 4π / ∫ I dΩ.) Likely Iray's `ies_light` on its small
+    sphere: the flux spread over the whole surface, a direction seeing a
+    quarter of it.
+  - **Rect / disc light, emissive surface**: Iray emits the profile itself
+    (its intensity ∝ I(ω), no cosine: on Emit the ratio to the plain
+    emitter's Lambertian falls exactly with 1 / cos), Octane a Lambertian
+    emitter × the distribution, I(ω) · cos θ_n — a shape Octane can't
+    match. The power keeps the **flux through the front**: × 1 /
+    `Profile::lambert_share` = π I_max / ∫ I(ω) max(0, n · ω) dΩ, n the
+    surface normal in the profile's frame — the rect's / disc's axis, an
+    emissive mesh's face normals by area (`face_normal_shares`, ~5° bins;
+    a two-sided emitter averages front and back; without them the mean
+    share). For a downlight on a ceiling panel (light near the normal)
+    the shapes nearly agree; a profile throwing its light sideways lights
+    the floor below brighter in Octane and the walls dimmer:
+
+    | scene | Octane / Iray on the floor | ≈ / cos θ_n | flux, Octane / Iray |
+    |---|---|---|---|
+    | Rect (DAZ's batwing, axis = normal) | 1.44 – 1.66 | 2.02 | 0.93 |
+    | Emit (batwing, axis ⟂ normal) | 1.21 – 1.57 | 1.75 | 0.87 |
+    | Emit-Asym (downlight ⟂ normal, light at 53 – 60°) | 2.11 | 2.65 | 0.77 |
+
+    (flux = the ratio's constant × ∫ D cos / ∫ D over the front.) The old
+    rule (1 / mean_share for all) had the floor at 1.2 – 1.4, 1.2 – 1.6
+    and 1.05 there, but kept only 0.78 / 0.87 / 0.38 of the flux and
+    would make a downlight on a rect ~3× too bright.
 - **Not mapped**: an IES file's TILT data (the ORBIS parser skips them; Octane
   reads the file itself).
 

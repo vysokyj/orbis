@@ -234,6 +234,44 @@ pub(super) fn graft_facets(graft: &Topology, k: usize) -> Vec<String> {
     graft.facet_groups.iter().map(|f| format!("WG_{k}_{f}")).collect()
 }
 
+/// The faces' unit normals (Newell's, world space) binned to about 5° with
+/// their share of the faces' area — an Emission Profile's surface (#34).
+pub(super) fn face_normal_shares(points: &[[f32; 3]], counts: &[u32], indices: &[u32], starts: &[usize], faces: &[u32]) -> Vec<([f64; 3], f64)> {
+    let mut bins: HashMap<[i32; 3], ([f64; 3], f64)> = HashMap::new();
+    let mut total = 0.0;
+    for &f in faces {
+        let (s, c) = (starts[f as usize], counts[f as usize] as usize);
+        let mut n = [0.0f64; 3];
+        for k in 0..c {
+            let a = points[indices[s + k] as usize].map(f64::from);
+            let b = points[indices[s + (k + 1) % c] as usize].map(f64::from);
+            n[0] += (a[1] - b[1]) * (a[2] + b[2]);
+            n[1] += (a[2] - b[2]) * (a[0] + b[0]);
+            n[2] += (a[0] - b[0]) * (a[1] + b[1]);
+        }
+        let area = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt() / 2.0;
+        if area <= 0.0 {
+            continue;
+        }
+        let u = n.map(|x| x / (2.0 * area));
+        let e = bins.entry(u.map(|x| (x * 12.0).round() as i32)).or_insert(([0.0; 3], 0.0));
+        for i in 0..3 {
+            e.0[i] += u[i] * area;
+        }
+        e.1 += area;
+        total += area;
+    }
+    let mut out: Vec<([f64; 3], f64)> = bins
+        .into_values()
+        .filter_map(|(v, a)| {
+            let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+            (l > 0.0).then(|| (v.map(|x| x / l), a / total))
+        })
+        .collect();
+    out.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)));
+    out
+}
+
 /// An output mesh, ready to write.
 #[derive(Debug, Default)]
 pub(super) struct Mesh {
@@ -538,10 +576,16 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
                 v.map(|x| x / len)
             })
         });
-        for (m, open) in mesh.materials.iter_mut().zip(open) {
+        let starts: Vec<usize> = mesh.face_counts.iter().scan(0usize, |a, &c| {
+            let s = *a;
+            *a += c as usize;
+            Some(s)
+        }).collect();
+        for ((m, open), (_, faces)) in mesh.materials.iter_mut().zip(open).zip(&mesh.subsets) {
             let profiled = m.as_ref().is_some_and(|m| m.channel("Emission Profile").and_then(|c| c.value.as_str()).is_some_and(|p| !p.is_empty()));
             if let Some(m) = m.as_mut().filter(|_| prop || open || profiled) {
-                *m = Rc::new(crate::daz_material::Material { prop: m.prop || prop, open, frame: if profiled { frame } else { m.frame }, ..(**m).clone() });
+                let emit_normals = if profiled { Some(face_normal_shares(&mesh.points, &mesh.face_counts, &mesh.face_indices, &starts, faces)) } else { m.emit_normals.clone() };
+                *m = Rc::new(crate::daz_material::Material { prop: m.prop || prop, open, frame: if profiled { frame } else { m.frame }, emit_normals, ..(**m).clone() });
             }
         }
         mesh.label = n.label.clone();

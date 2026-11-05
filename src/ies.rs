@@ -3,9 +3,12 @@
 //!
 //! Iray scales a profile to the light's flux (`df::light_profile_power`,
 //! #34); Octane's distribution reads it normalised to a peak of 1 (the image
-//! node's `iesPhotometryMode` 1), so the emitter's power is raised by the
-//! peak-normalised profile's mean ([`Profile::mean_share`]) to keep Iray's
-//! flux.
+//! node's `iesPhotometryMode` 1), so the emitter's power is raised by what
+//! the peak-normalised profile keeps of a uniform emitter's flux: its mean
+//! over the sphere ([`Profile::mean_share`]) for a point light, its
+//! cosine-weighted mean over a surface's front ([`Profile::lambert_share`])
+//! for an area light or emissive surface, which Octane emits Lambertian ×
+//! the distribution.
 
 use anyhow::{bail, Context, Result};
 
@@ -112,6 +115,38 @@ impl Profile {
         }
         self.power() / (4.0 * std::f64::consts::PI * max)
     }
+
+    /// What a one-sided Lambertian emitter keeps of its flux with the
+    /// peak-normalised profile on it: ∫ I(ω) / I_max · max(0, n · ω) dΩ / π
+    /// over its front, averaged over `normals` (unit vectors in the
+    /// profile's frame — x φ 0°, y φ 90°, z θ 0° — with weights summing to
+    /// 1, e.g. a mesh's face normals by area). 1 for a uniform profile.
+    pub fn lambert_share(&self, normals: &[([f64; 3], f64)]) -> f64 {
+        let max = self.max();
+        if max <= 0.0 || normals.is_empty() {
+            return 1.0;
+        }
+        let (nt, np) = (180, 72);
+        let step = std::f64::consts::PI / nt as f64 * 2.0 * std::f64::consts::PI / np as f64;
+        let mut sums = vec![0.0; normals.len()];
+        for i in 0..nt {
+            let t = (i as f64 + 0.5) * 180.0 / nt as f64;
+            let (st, ct) = t.to_radians().sin_cos();
+            for j in 0..np {
+                let p = (j as f64 + 0.5) * 360.0 / np as f64;
+                let w = self.intensity(t, p) * st * step;
+                if w == 0.0 {
+                    continue;
+                }
+                let (sp, cp) = p.to_radians().sin_cos();
+                let d = [st * cp, st * sp, ct];
+                for (sum, (n, _)) in sums.iter_mut().zip(normals) {
+                    *sum += w * (n[0] * d[0] + n[1] * d[1] + n[2] * d[2]).max(0.0);
+                }
+            }
+        }
+        sums.iter().zip(normals).map(|(s, (_, wt))| s * wt).sum::<f64>() / (std::f64::consts::PI * max)
+    }
 }
 
 /// The interval of `xs` (ascending) holding `x`: its start and the fraction.
@@ -165,6 +200,22 @@ mod tests {
         assert_eq!(q.intensity(20.0, 270.0), 30.0);
         assert_eq!(q.intensity(20.0, 180.0), 10.0);
         assert_eq!(q.intensity(20.0, 45.0), 20.0);
+    }
+
+    #[test]
+    fn lambert_share_weighs_the_front_by_the_cosine() {
+        let v: Vec<f64> = (0..=18).map(|i| i as f64 * 10.0).collect();
+        let uniform = Profile::parse(&lm63("1 -1 1", &v, &[0.0], &[vec![100.0; v.len()]])).unwrap();
+        assert!((uniform.lambert_share(&[([0.0, 0.0, 1.0], 1.0)]) - 1.0).abs() < 1e-3);
+        assert!((uniform.lambert_share(&[([1.0, 0.0, 0.0], 0.5), ([0.0, -1.0, 0.0], 0.5)]) - 1.0).abs() < 1e-3);
+        // A hemisphere downlight on a surface facing along its axis keeps
+        // it all; facing away, nothing; sideways, half.
+        let down: Vec<f64> = v.iter().map(|t| if *t <= 90.0 { 100.0 } else { 0.0 }).collect();
+        let p = Profile::parse(&lm63("1 -1 1", &v, &[0.0], &[down])).unwrap();
+        assert!((p.lambert_share(&[([0.0, 0.0, 1.0], 1.0)]) - 1.0).abs() < 0.02, "{}", p.lambert_share(&[([0.0, 0.0, 1.0], 1.0)]));
+        assert!(p.lambert_share(&[([0.0, 0.0, -1.0], 1.0)]) < 0.02);
+        let side = p.lambert_share(&[([1.0, 0.0, 0.0], 1.0)]);
+        assert!((side - 0.5).abs() < 0.06, "{side}");
     }
 
     #[test]

@@ -468,16 +468,24 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     });
     assert_eq!(asked, ["/Runtime/ORBIS/Orbis-Asym.ies"]);
     let d = em[0].ies.as_ref().expect("an IES emitter");
-    assert_eq!(d.frame, [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
-    assert!((d.power_scale * share - 1.0).abs() < 1e-9 && !d.world);
+    // Iray's frame is the light's turned half round X (Calib-L-IES-*).
+    assert_eq!(d.frame, [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]]);
+    // A point light: ¼ of the flux-kept profile (Iray's renders).
+    assert!((d.power_scale * share * IES_POINT_SHARE - 1.0).abs() < 1e-9 && !d.world);
     let xml = crate::material::light_inputs(&em, 100);
     assert!(xml.contains("<pin name='distribution'>") && xml.contains("assets/ies/00_Orbis-Asym.ies") && xml.contains("<attr name='value' type='2'>3</attr>"), "object space: {xml}");
-    // Iray's axis (the light's +Z) onto Octane's (−Y): X −90°, φ 0 (+X) from Octane's +Z.
-    assert!(xml.contains("<attr name='rotation' type='8'>-90 90 0</attr>") || xml.contains("<attr name='rotation' type='8'>-90 90 -0</attr>"), "{xml}");
-    // A rect prim is turned half round X: its frame too.
+    // Iray's axis (the light's −Z) onto Octane's (−Y), φ 0 (+X) from Octane's +Z.
+    assert!(xml.contains("<attr name='rotation' type='8'>90 90 0</attr>"), "{xml}");
+    // A rect prim is turned half round X already: Iray's frame is its own.
     let rect = SceneLight { shape: LightShape::Rect { width: 0.5, height: 0.5 }, ..ies_point };
-    let em = light_emitters(&[rect], &mut |_| Some(("a.ies".into(), profile.clone())));
-    assert_eq!(em[0].ies.as_ref().unwrap().frame, [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]]);
+    let em = light_emitters(&[rect.clone()], &mut |_| Some(("a.ies".into(), profile.clone())));
+    let d = em[0].ies.as_ref().unwrap();
+    assert_eq!(d.frame, [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
+    // An area light keeps the flux through its front: Lambertian × profile.
+    let front = profile.lambert_share(&[([0.0, 0.0, 1.0], 1.0)]);
+    assert!((d.power_scale * front - 1.0).abs() < 1e-9 && front > share, "{front} {share}");
+    let two = light_emitters(&[SceneLight { two_sided: true, ..rect }], &mut |_| Some(("a.ies".into(), profile.clone())));
+    assert!(two[0].ies.as_ref().unwrap().power_scale > d.power_scale, "the back keeps less of a downlight");
 }
 
 #[test]
@@ -1377,4 +1385,14 @@ fn round_corners_not_across_materials_split_the_mesh() {
     assert_eq!(b.uvs, Some(((4..8).map(|i| [i as f32, 0.0]).collect(), (0..4).collect())));
     let (usda, _) = write_usda(&parts, &[]);
     assert!(usda.contains("def Mesh \"Box_B\""), "{usda}");
+}
+
+#[test]
+fn emission_profile_surface_normals_by_area() {
+    // A 2 × 1 quad facing −Y and a 1 × 1 quad facing +X.
+    let points = [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 0.0, 1.0], [0.0, 0.0, 1.0], [0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 1.0, 1.0], [0.0, 0.0, 1.0]];
+    let n = mesh::face_normal_shares(&points, &[4, 4], &[0, 1, 2, 3, 7, 6, 5, 4], &[0, 4], &[0, 1]);
+    assert_eq!(n.len(), 2);
+    assert!((n[0].0[1] + 1.0).abs() < 1e-9 && (n[0].1 - 2.0 / 3.0).abs() < 1e-9, "{n:?}");
+    assert!((n[1].0[0].abs() - 1.0).abs() < 1e-9 && (n[1].1 - 1.0 / 3.0).abs() < 1e-9, "{n:?}");
 }

@@ -1633,11 +1633,22 @@ impl Ocs<'_> {
         // space (`global_distribution`, identity frame), the luminance
         // divided by the profile's power — Octane's distribution in world
         // space along the node's axes, the power raised as for an IES light.
-        let ies = mat.channel("Emission Profile").and_then(|c| c.value.as_str()).filter(|p| !p.is_empty()).map(str::to_string).and_then(|p| self.textures.ies(self.dirs, &p)).map(|(asset, profile)| IesDistribution {
-            asset,
-            frame: mat.frame.unwrap_or([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
-            power_scale: 1.0 / profile.mean_share().max(1e-3),
-            world: true,
+        // Iray's profile axis is the object's −Z, φ 0 its +X, φ 90 its −Y
+        // (Calib-L-IES-Emit-Asym, as for lights). Iray emits the profile
+        // itself, Octane Lambertian × the profile: the power keeps the flux
+        // through the surface's front (`lambert_share` of its face normals).
+        let ies = mat.channel("Emission Profile").and_then(|c| c.value.as_str()).filter(|p| !p.is_empty()).map(str::to_string).and_then(|p| self.textures.ies(self.dirs, &p)).map(|(asset, profile)| {
+            let frame = mat.frame.map_or([[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]], |[x, y, z]| [x, y.map(|v| -v), z.map(|v| -v)]);
+            let share = match &mat.emit_normals {
+                Some(normals) => {
+                    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+                    let sides: &[f64] = if two_sided { &[1.0, -1.0] } else { &[1.0] };
+                    let local: Vec<([f64; 3], f64)> = sides.iter().flat_map(|s| normals.iter().map(move |(n, w)| (frame.map(|a| s * dot(a, *n)), w / sides.len() as f64))).collect();
+                    profile.lambert_share(&local)
+                }
+                None => profile.mean_share(),
+            };
+            IesDistribution { asset, frame, power_scale: 1.0 / share.max(1e-3), world: true }
         });
         let watts = watts * ies.as_ref().map_or(1.0, |d| d.power_scale);
         let temperature = mat.float("Emission Temperature").unwrap_or(0.0);
@@ -4213,6 +4224,9 @@ mod tests {
         let mut lamp = (*mat(chs("/Runtime/asym.ies"))).clone();
         // Turned half round X (facing down): its object Z is world −Z.
         lamp.frame = Some([[1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0]]);
+        // A plane facing down (world −Y): in Iray's frame (object X, −Y,
+        // −Z = world X, Y, Z) its normal is −y, φ 270.
+        lamp.emit_normals = Some(vec![([0.0, -1.0, 0.0], 1.0)]);
         let dirs = [dir.clone()];
         let (x, tex) = material_inputs(&[("Lamp".into(), Rc::new(lamp), 0.25)], &dirs, HashMap::new(), 9000, SkinShader::None);
         let (plain, _) = material_inputs(&[("Lamp".into(), mat(chs("")), 0.25)], &dirs, HashMap::new(), 9000, SkinShader::None);
@@ -4227,7 +4241,8 @@ mod tests {
             let v = &p[p.find("type='8'>").unwrap() + 9..];
             v[..v.find(' ').unwrap()].parse().unwrap()
         };
-        let share = crate::ies::Profile::parse(&std::fs::read_to_string(dir.join("Runtime/asym.ies")).unwrap()).unwrap().mean_share();
+        // The power over what Lambertian × the profile keeps of the flux.
+        let share = crate::ies::Profile::parse(&std::fs::read_to_string(dir.join("Runtime/asym.ies")).unwrap()).unwrap().lambert_share(&[([0.0, -1.0, 0.0], 1.0)]);
         assert!((power(&x) / power(&plain) * share - 1.0).abs() < 1e-3, "{} {} {share}", power(&x), power(&plain));
         std::fs::remove_dir_all(&dir).ok();
     }
