@@ -13,7 +13,7 @@ and My Library):
 | Scene | What | For |
 |-------|------|-----|
 | Calib-Mi-Priority | Calib-L-Distant-45, Render Priority Lowest / Low / Below Normal / Above Normal / Highest on the five meshes | .mi only |
-| Calib-CastShadows-Off | Calib-L-Distant-45, Cast Shadows off on the sphere and on an instance node of it at x 120 | .mi + Iray reference |
+| Calib-CastShadows-Off | Calib-L-Distant-45, Cast Shadows off on the sphere and on an instance node of it (X 120: on the sphere itself) | .mi + Iray reference |
 | Calib-Shell-G9 | Genesis 9 (DAZ's free base figure) on the plane, a geometry shell (red diffuse) with Body and Arms shown, facet groups `l_forearm` and `l_pectoral` off; render SubD 1 | .mi + Iray reference |
 
 Ways that didn't work at first:
@@ -66,9 +66,24 @@ materials listed; its triangles are only the shown faces:
 | G9Shell | 343 776 | 343 776 |
 
 So DAZ cuts a hidden surface and a hidden facet group away (a face goes
-when either is off), as the export does. Iray reference pending (#36).
+when either is off), as the export does — Iray agrees, below.
 
-## Open
+## Against Iray (2026-11-06)
 
-Iray references of Calib-CastShadows-Off and Calib-Shell-G9 (one batch with
-the other pending scenes).
+Iray Server, 5000 samples (85e965f); Octane Enhanced final.
+
+- The scenes the DAZ script saved have **no `current_camera`** (headless
+  `Scene.saveScene` leaves it out; Calib-L-Distant-45 has `#Camera-1`), so
+  Iray Server rendered DAZ's default perspective view, Octane the scene's
+  camera: no pixel ratios, only what is in the frame. The references stay
+  as they are (they match the scenes in git); a scene built headless needs
+  `scene.current_camera` written into the .duf.
+- The instance node at X 120 stands on the sphere (instances replace their
+  target's transform, and the sphere is at x 120): one sphere in the frame,
+  both copies with Cast Shadows off.
+- **Calib-CastShadows-Off**: Iray draws the sphere's shadow on the floor,
+  as Octane does now. Removing the mapping was right.
+- **Calib-Shell-G9**: Iray and Octane show the same thing: a red shell
+  over Body and Arms, grey skin through the hidden `l_pectoral` (a square
+  patch on her left breast) and the hidden `l_forearm`, head, hands and
+  legs grey. Octane's red shell has a few white specks (highlights).

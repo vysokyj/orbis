@@ -242,7 +242,8 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   `src/iray.rs`), and Iray Photoreal ignores `shadow_cast` anyway (Iray
   manual 4.3.5) — as for a light's Cast Shadows (#35). Why it matters: the
   first export (probes 100–102) took the sphere's shadow away, which Iray
-  draws. Octane's object layer input per prim (`/Scene/<prim>_object`,
+  draws (Calib-CastShadows-Off's Iray render: the sphere and its instance,
+  both off, cast it, as in Octane now). Octane's object layer input per prim (`/Scene/<prim>_object`,
   `objectLayerImport` 3) is still what shows a light to the camera.
 - **Hidden surfaces and facet groups**: any node (not only a shell) drops
   the material groups its `material_group_<group>_vis` channels switch off
@@ -256,7 +257,8 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   (a figure has no such channels), and hands Iray the shell cut the same
   way: Calib-Shell-G9 (Genesis 9 with a red shell, Body and Arms shown,
   `l_forearm` and `l_pectoral` facets off) has 343 776 shell triangles in
-  the .mi and in the export; the Iray render is pending (#36).
+  the .mi and in the export, and Iray and Octane show the same skin
+  patches through it (the left pectoral, the left forearm; #36).
 - **Visible grafts are welded into their host mesh**: graft points follow the
   host's, border vertices are remapped onto their paired host vertex, graft
   groups are named `<graft node>_<group>` and keep the graft's materials and
@@ -2040,7 +2042,11 @@ scene with a light.
   `hosek_wilkie_sky.mdl`, the same parameter as `base::sun_and_sky`),
   Octane's Daylight model by (angle / B)² — 0.76 fits it best
   (Calib-L-Mi-SunSky-Look, b 2: 11.5°, B 8.8°, the seen ground weight
-  within rms 0.04 of Iray's curve, probe 120). Only Faithful's Octane
+  within rms 0.04 of Iray's curve, probe 120). Against Iray's render of
+  Calib-L-Mi-SunSky-Look (both clipped above the ground, so only the
+  ground side measures): the ramp's 10–90 % is ~60 px in Faithful, ~75 px
+  in Iray (0.8 ×), Octane's horizon ~40 px higher (`Horizon Height` isn't
+  mapped). Only Faithful's Octane
   model blends: Hosek-Wilkie (Enhanced) keeps a hard horizon whatever
   `groundBlendAngle` / `groundStartAngle` say. Left to Octane's sky, as
   looks rather than lighting (DAZ passes them, Calib-L-Mi-SunSky-Look):

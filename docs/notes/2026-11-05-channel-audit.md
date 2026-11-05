@@ -70,6 +70,24 @@ Attempts:
 
 So: `groundBlendAngle` = max(1, 0.76 asin(b / 10)) — Faithful only.
 
+### Against Iray (2026-11-06)
+
+Iray Server, 5000 samples (85e965f), against Octane Faithful final, a
+strip at x 60–140 (no floor until y 840). The sky is clipped in both
+renders (1, 1, 0.97), so only the ground side of the ramp measures: the
+red channel's fall from 1 to the ground's value.
+
+| row | 460 | 480 | 500 | 520 | 540 | 560 | 580 | 600 |
+|---|---|---|---|---|---|---|---|---|
+| Iray ground weight | 0 | 0 | 0.10 | 0.35 | 0.58 | 0.81 | 0.94 | 1 |
+| Octane ground weight | 0.08 | 0.37 | 0.65 | 0.90 | 1 | 1 | 1 | 1 |
+
+10–90 %: Iray ~75 px, Octane ~60 px (0.8 ×); Octane's horizon ~40 px
+higher (Horizon Height 0.1 isn't mapped). The rule stands; #15 stays
+closed. Enhanced (Hosek-Wilkie) keeps its hard edge, as noted. Ground
+colour differs (Iray (0.69, 1, 0.54) clipped, Octane (0.37, 0.92, 0.55)):
+the Sun-Sky's overall level, not the blur.
+
 ## Architectural absorption in Octane
 
 `arch_absorption`: σa = −ln(c) / d, c = Absorption Color with Use Color

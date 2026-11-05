@@ -6,7 +6,8 @@
 // - Calib-Mi-Priority: Render Priority off its default on every mesh
 //   (Lowest, Low, Highest, Above Normal), for DAZ's .mi export only.
 // - Calib-CastShadows-Off: Cast Shadows off on the sphere and on an
-//   instance of it at x 120 (Iray Photoreal ignores shadow_cast; the
+//   instance of it (X 120: on the sphere itself, as an instance
+//   replaces its target's transform; Iray Photoreal ignores shadow_cast; the
 //   Iray reference shows whether DAZ hands it over some other way).
 // - Calib-Shell-G9: Genesis 9 with a geometry shell (red, Body and Arms
 //   shown, l_forearm and l_pectoral facets hidden); the cubes and the sphere
