@@ -1007,25 +1007,52 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   The squared map must be read at 4.4 in the legacy-gamma colour space
   (Textures, colour space): in sRGB it rendered unsquared, the 0.5 / 0.25
   belts G 4.5 / 14 × Iray. With Overlay Roughness 1 the overlay reads
-  0.85 (as the flat 0.89 below).
+  1.05 (0.85 under the classic A term, below).
 - **Diffuse Roughness** σ (Iray's diffuse is Oren-Nayar at σ, DAZ's MDL;
   the .mi export hands σ over as is) → where Universal has no gloss,
   metal, refraction or transmission on its one `roughness` pin (Glossy
   Layered Weight 0, no dual lobe, or the diffuse part of a weighted mix):
   `diffuseBrdf` 2 (Oren-Nayar) and `roughness` σ. Elsewhere Lambertian,
-  the albedo × Oren-Nayar's A term 1 − 0.5 σ² / (σ² + 0.33). **Diffuse
-  Overlay Roughness** σ₀: the overlay's share × A(σ₀) (÷ A(σ) under
-  Oren-Nayar). Maps of either are left out; the skin path
-  (`standard_surface`) keeps its fitted albedo. **Diffuse Strength**
-  scales the base colour (as DAZ does before the MDL).
+  the albedo × F(σ), the head-on albedo of Iray's Oren-Nayar:
+  F(σ) = π A = 1 / (1 + (1/2 − 2 / (3π)) σ) (0.874 at 0.5, 0.777 at 1).
+  **Diffuse Overlay Roughness** σ₀: the overlay's share × F(σ₀); under
+  Octane's Oren-Nayar, which stands in for Iray's at σ, × F(σ₀) / F(σ)
+  (an overlay at the base's roughness mixes in as is). Maps of either
+  are left out; the skin path (`standard_surface`) keeps its fitted
+  albedo. **Diffuse Strength** scales the base colour (as DAZ does
+  before the MDL).
 
-  Why: on Calib-Diffuse (flat red spheres, smooth sphere 1.08 × Iray)
-  Iray's σ 0.5 / 1 keep 0.78 / 0.62 of the smooth one's light, A(σ)
-  0.78 / 0.62; Lambert rendered 1.26 / 1.49 × Iray, Octane's Oren-Nayar
-  at σ 1.02 / 0.97 (enum 0 / 1 render Lambertian, 3 brighter: 1.10 /
-  1.12; at roughness 0 Oren-Nayar is Lambert — the pin is shared). The
-  white overlay at σ₀ 1 1.40 → 0.89 (σ₀ 0: 1.04). Strength 0.5 1.09,
-  overlay squared 1.04, overlay 1 blue 0.97 (#32).
+  Why F: `diffuse_reflection_bsdf` is Fujii's improved qualitative
+  Oren-Nayar since MDL 1.10 / Iray 2024.1 (the MDL spec and release
+  notes; DAZ Studio 6 ships Iray 2025.0), A = 1 / (π + (π/2 − 2/3) σ),
+  B = σ A, with σ = Diffuse Roughness as is (DAZ's MDL, the .mi export).
+  Seen head-on (n = v) its B term vanishes under any light, so π A is
+  what the lobe keeps of a Lambertian one there; elsewhere B shifts light
+  toward or away from the light, which a flat factor can't follow. On
+  Calib-Diffuse Iray's σ₀ 1 overlay kept 0.77 of the Lambertian at the
+  sphere's centre (F 0.777), 0.74 / 0.70 on the middle 60 % / 90 % disc
+  (the HDRI lights the spheres from behind: B darkens their rims). The
+  classic A term 1 − 0.5 σ² / (σ² + 0.33) (0.624 at 1) left the overlay
+  0.85 – 0.89 × Iray (#76). (#32 read Iray's σ 0.5 / 1 spheres at 0.78 /
+  0.62 of the smooth one's as A; that ratio crosses sphere positions,
+  where Octane's identical Lambertian spheres differ by 0.86.)
+
+  Numbers (enhanced-final, luminance Octane / Iray; the smooth spheres
+  1.04 – 1.08): Calib-Diffuse's white overlay at σ₀ 1, centre / middle
+  60 % / 90 % disc, 0.85 / 0.88 / 0.93 → 1.05 / 1.09 / 1.14 (Lambertian
+  1.40, #32); Calib-Overlay's V8 (both maps, σ₀ 1) overlay pixels 0.85 →
+  1.05, blue cells B 0.82 → 1.03, yellow R / G 0.88 / 0.83 → 1.07 / 1.04
+  — as its σ₀ 0 twin V6 (1.01, 1.05 / 1.03). The base at σ on Lambert × F
+  (the gloss path, tried on the matte spheres): σ 0.5 / 1 1.08 / 1.10 at
+  the centre, 1.10 / 1.15 on the middle disc (× the classic A: 0.99 /
+  0.92). Octane's Oren-Nayar at σ 0.5 / 1: 0.98 / 0.89 at the centre,
+  1.02 / 0.96 on the middle disc — the classic qualitative model (head-on
+  ~0.80 / 0.65 of its Lambertian), darker head-on than Iray's, but its
+  shape follows Iray's better (pixel correlation 0.979 vs 0.971 at σ 1),
+  so it stays where the pin is free (enum 0 / 1 render Lambertian, 3
+  brighter: 1.10 / 1.12; at roughness 0 Oren-Nayar is Lambert — the pin
+  is shared). Strength 0.5 1.09, overlay squared 1.04, overlay 1 blue
+  0.97 (#32).
 - **Metallic flakes** → a Mix material: a metal in the flakes' colour
   (`edgeTint` the same, roughness 0.5: the flakes' scattered normals) at
   Flakes Weight × 0.4 × density^1.3 over the surface; the top coat lies

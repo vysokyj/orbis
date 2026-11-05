@@ -2146,8 +2146,10 @@ impl Ocs<'_> {
         // pin the gloss, metal and transmission use too: only where none
         // of them is there does σ go on it (Calib-Diffuse, σ 0.5 / 1: Lambert
         // 1.26 / 1.49 × Iray, Oren-Nayar 1.02 / 0.97, the smooth sphere
-        // 1.08). Elsewhere the Lambertian albedo × Oren-Nayar's A term
-        // (`oren_nayar_flat`), the overlay's at its own roughness (#32).
+        // 1.08). Elsewhere the Lambertian albedo × the head-on albedo of
+        // Iray's Oren-Nayar (`oren_nayar_flat`), the overlay's at its own
+        // roughness (#32, #76); under Octane's Oren-Nayar, which stands in
+        // for Iray's at σ, the overlay's relative to the base's.
         let glossy = mat.float("Glossy Layered Weight").unwrap_or(0.0).max(mat.float("Glossy Weight").unwrap_or(0.0));
         let dual_lobe = DualLobe::of(mat);
         let no_gloss = weighted.is_some() || (!mirror && refraction == 0.0 && glossy <= 0.0 && dual_lobe.is_none() && mat.image("Glossy Layered Weight").is_none());
@@ -3357,14 +3359,18 @@ fn diffuse_roughness(mat: &Material, overlay: bool) -> f32 {
     iray(mat).and_then(|u| u.float(param)).or_else(|| mat.float(channel)).unwrap_or(0.0).clamp(0.0, 1.0)
 }
 
-/// Oren-Nayar's A term, 1 − 0.5 σ² / (σ² + 0.33): what a rough diffuse
-/// keeps of a Lambertian one under even light (Oren & Nayar 1994; its B
-/// term only returns light at grazing angles). Iray's Calib-Diffuse
-/// spheres at σ 0.5 / 1 kept 0.78 / 0.62 of the smooth one's, A says
-/// 0.78 / 0.62.
+/// What Iray's rough diffuse keeps of a Lambertian one head-on: the A
+/// term of Fujii's improved Oren-Nayar, which `diffuse_reflection_bsdf`
+/// is since MDL 1.10 / Iray 2024.1 (DAZ Studio 6 ships Iray 2025.0):
+/// π A = 1 / (1 + (1/2 − 2 / (3π)) σ), σ the MDL roughness as is. Seen
+/// head-on (n = v) the B term is zero under any light; elsewhere it only
+/// redistributes toward or away from the light. Iray's Calib-Diffuse
+/// overlay at σ 1 kept 0.77 of the Lambertian at the sphere's centre
+/// (π A 0.777), 0.74 / 0.70 on the middle 60 % / 90 % disc (back-lit);
+/// the classic qualitative A, 1 − 0.5 σ² / (σ² + 0.33) = 0.624, left the
+/// overlay 0.85 – 0.89 × Iray (#76).
 fn oren_nayar_flat(sigma: f32) -> f32 {
-    let s2 = sigma * sigma;
-    1.0 - 0.5 * s2 / (s2 + 0.33)
+    1.0 / (1.0 + (0.5 - 2.0 / (3.0 * std::f32::consts::PI)) * sigma)
 }
 
 /// The roughness Iray gets (squared) for the lobe `roughness_source`
@@ -4517,8 +4523,8 @@ mod tests {
         assert_eq!(pin(&x, "diffuseBrdf").as_deref(), Some(DIFFUSE_BRDF_OREN_NAYAR), "{x}");
         assert_eq!(pin(&x, "roughness").as_deref(), Some("0.5"), "{x}");
         assert_eq!(pin(&x, "albedo").as_deref(), Some("1 1 1"), "{x}");
-        // With a gloss on the roughness pin: Lambertian × A(σ), the overlay
-        // at its own roughness's.
+        // With a gloss on the roughness pin: Lambertian × Iray's head-on
+        // Oren-Nayar albedo at σ, the overlay at its own roughness's (#76).
         let glossy = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},
             {"channel": {"id": "Diffuse Roughness", "current_value": 1.0}},
@@ -4530,9 +4536,28 @@ mod tests {
         let (y, _) = material_inputs(&[("Glossy".into(), glossy, 1.0)], &dirs, HashMap::new(), 9200, SkinShader::None);
         assert!(pin(&y, "diffuseBrdf").is_none(), "{y}");
         let a = 0.5 * oren_nayar_flat(1.0) + 0.5 * oren_nayar_flat(0.5);
-        assert!((oren_nayar_flat(1.0) - 0.624).abs() < 1e-3 && (oren_nayar_flat(0.5) - 0.784).abs() < 1e-3);
+        // Fujii's π A at σ 1 / 0.5 (Iray's overlay kept 0.77 head-on), not
+        // the classic 0.624 / 0.784.
+        assert!((oren_nayar_flat(1.0) - 0.7765).abs() < 1e-3 && (oren_nayar_flat(0.5) - 0.8742).abs() < 1e-3);
+        assert_eq!(oren_nayar_flat(0.0), 1.0);
         let albedo: Vec<f32> = pin(&y, "albedo").unwrap().split(' ').map(|v| v.parse().unwrap()).collect();
         assert!(albedo.iter().all(|v| (v - a).abs() < 1e-4), "{albedo:?} vs {a}");
+        // Matte under Octane's Oren-Nayar at σ: an overlay at the same
+        // roughness mixes in as is; a smooth one × 1 / (π A(σ)).
+        for (sigma0, k) in [(1.0, 1.0), (0.0, 1.0 / oren_nayar_flat(1.0))] {
+            let matte = mat(json!([
+                {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},
+                {"channel": {"id": "Diffuse Roughness", "current_value": 1.0}},
+                {"channel": {"id": "Diffuse Overlay Weight", "current_value": 0.5}},
+                {"channel": {"id": "Diffuse Overlay Color", "current_value": [1, 1, 1]}},
+                {"channel": {"id": "Diffuse Overlay Roughness", "current_value": sigma0}},
+            ]));
+            let (z, _) = material_inputs(&[("MatteOverlay".into(), matte, 1.0)], &dirs, HashMap::new(), 9300, SkinShader::None);
+            assert_eq!(pin(&z, "diffuseBrdf").as_deref(), Some(DIFFUSE_BRDF_OREN_NAYAR), "{z}");
+            let albedo: Vec<f32> = pin(&z, "albedo").unwrap().split(' ').map(|v| v.parse().unwrap()).collect();
+            let want = 0.5 + 0.5 * k;
+            assert!(albedo.iter().all(|v| (v - want).abs() < 1e-4), "σ₀ {sigma0}: {albedo:?} vs {want}");
+        }
     }
 
     #[test]
