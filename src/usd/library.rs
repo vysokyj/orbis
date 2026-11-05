@@ -81,8 +81,8 @@ impl Library {
         let rel = path.trim_start_matches('/');
         let loaded = self.dirs.iter().map(|d| d.join(rel)).find(|p| p.is_file()).and_then(|p| {
             let text = decompress_scene(&std::fs::read(&p).ok()?).ok()?;
-            match serde_json::from_str::<Value>(&text) {
-                Ok(v) => Some(Rc::new(v)),
+            match serde_json::from_str::<DsonFile>(&text) {
+                Ok(v) => Some(Rc::new(v.0)),
                 Err(e) => {
                     tracing::warn!(path = %p.display(), error = %e, "unparseable DSON asset");
                     None
@@ -113,23 +113,83 @@ impl Library {
         }
     }
 
+    /// Like `entry`, but taking the entry out of its document: geometry and
+    /// UV sets are parsed once and cached as such, and as JSON values they
+    /// are the bulk of a scene's library (intake: 6.4 GB of 300 MB files).
+    fn take_entry(&mut self, url: &str, library: &str) -> Option<Value> {
+        let (file, id) = Self::split(url);
+        let take = |doc: &mut Value| {
+            let list = doc.get_mut(library)?.as_array_mut()?;
+            let at = list.iter().position(|e| e.get("id").and_then(Value::as_str).map(percent_decode).as_deref() == Some(id.as_str()))?;
+            Some(list.swap_remove(at))
+        };
+        if file.is_empty() {
+            return take(&mut self.duf);
+        }
+        self.file(&file)?;
+        match self.files.get_mut(&file) {
+            Some(Some(doc)) => match Rc::get_mut(doc) {
+                Some(doc) => take(doc),
+                None => self.entry(url, library),
+            },
+            _ => None,
+        }
+    }
+
+    /// A cache key: the URL's file and id, decoded — one entry however a
+    /// URL spells them (`take_entry` leaves nothing for a second look).
+    fn key(url: &str) -> String {
+        let (file, id) = Self::split(url);
+        format!("{file}#{id}")
+    }
+
     pub(super) fn topology(&mut self, url: &str) -> Option<Rc<Topology>> {
-        if let Some(t) = self.topologies.get(url) {
+        let key = Self::key(url);
+        if let Some(t) = self.topologies.get(&key) {
             return t.clone();
         }
-        let t = self.entry(url, "geometry_library").map(|g| Rc::new(parse_topology(&g, url)));
-        self.topologies.insert(url.to_string(), t.clone());
+        let t = self.take_entry(url, "geometry_library").map(|g| Rc::new(parse_topology(&g, url)));
+        self.topologies.insert(key, t.clone());
         t
     }
 
     /// A UV set by (absolute or scene-local) URL.
     pub(super) fn uv_set(&mut self, url: &str) -> Option<Rc<UvSet>> {
-        if let Some(u) = self.uv_sets.get(url) {
+        let key = Self::key(url);
+        if let Some(u) = self.uv_sets.get(&key) {
             return u.clone();
         }
-        let u = self.entry(url, "uv_set_library").map(|v| Rc::new(parse_uv_set(&v)));
-        self.uv_sets.insert(url.to_string(), u.clone());
+        let u = self.take_entry(url, "uv_set_library").map(|v| Rc::new(parse_uv_set(&v)));
+        self.uv_sets.insert(key, u.clone());
         u
+    }
+}
+
+/// A library file's JSON without its `modifier_library` (morphs and
+/// projection data — never read, half of a hair's 94 MB file).
+struct DsonFile(Value);
+
+impl<'de> Deserialize<'de> for DsonFile {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+        struct Top;
+        impl<'de> serde::de::Visitor<'de> for Top {
+            type Value = DsonFile;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a DSON object")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> std::result::Result<DsonFile, A::Error> {
+                let mut out = serde_json::Map::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    if key == "modifier_library" {
+                        map.next_value::<serde::de::IgnoredAny>()?;
+                    } else {
+                        out.insert(key, map.next_value()?);
+                    }
+                }
+                Ok(DsonFile(Value::Object(out)))
+            }
+        }
+        d.deserialize_map(Top)
     }
 }
 

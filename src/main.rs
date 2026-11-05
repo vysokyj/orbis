@@ -1,6 +1,6 @@
 //! `orbis` — export a saved DAZ Studio scene to Octane X.
 //!
-//! `orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz | --out-dir DIR] [--preview]
+//! `orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz|out.usda | --out-dir DIR] [--preview]
 //! [--no-ground] [--content-dir DIR]…`
 //! `orbis install [--library DIR]`
 //!
@@ -30,7 +30,8 @@ enum LookArg {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Export a saved scene (`.duf` and its scene dump) to `.orbx` or `.usdz`.
+    /// Export a saved scene (`.duf` and its scene dump) to `.orbx` or `.usdz`
+    /// (`.usda`: the scene layer as text).
     Export {
         /// The DAZ Studio scene.
         scene: PathBuf,

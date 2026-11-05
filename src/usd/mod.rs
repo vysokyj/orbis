@@ -35,6 +35,7 @@ mod project;
 mod render_settings;
 mod subdivide;
 mod usda;
+mod usdc;
 mod usdz;
 mod volume;
 #[cfg(test)]
@@ -52,6 +53,8 @@ use mesh::*;
 use project::*;
 use subdivide::*;
 pub use usda::*;
+pub use usdc::Patch;
+use usdc::UsdcWriter;
 pub use usdz::*;
 pub use crate::tuning::{Look, OctaneMode, Variant};
 
@@ -129,13 +132,23 @@ pub struct ExportReport {
 }
 
 /// Convert `scene` (the saved `.duf`) with its `dump` (written by DAZ Studio)
-/// into a `.usdz` at `out`.
+/// into a `.usdz` at `out` — or, named `.usda`, the scene's layer as text
+/// (to read; an export packs it binary).
 pub fn export_scene_usdz(scene: &Path, dump: &Path, out: &Path, opts: &ExportOptions) -> Result<ExportReport> {
     let (meshes, volumes, mut report, mut lib) = build_scene(scene, dump, opts)?;
     // The .usdz carries meshes only; the volumes go into project.ocs.
     report.skipped.extend(volumes.iter().map(|v| format!("{}: a VDB volume (only in .orbx)", v.label)));
-    let (layer, _) = write_usda(&meshes, &lights_iray_uses(&mut lib));
-    write_atomically(out, |f| write_usdz(f, &[("scene.usda", layer.as_bytes())]))?;
+    let lights = lights_iray_uses(&mut lib);
+    if out.extension().is_some_and(|e| e.eq_ignore_ascii_case("usda")) {
+        let (text, _) = write_usda(&meshes, &lights);
+        write_atomically(out, |f| Ok(f.write_all(text.as_bytes())?))?;
+        return Ok(report);
+    }
+    let mut layer = std::io::Cursor::new(Vec::new());
+    let mut w = UsdcWriter::new(&mut layer)?;
+    write_layer(&mut w, meshes, &lights)?;
+    w.finish()?;
+    write_atomically(out, |f| write_usdz(f, &[(LAYER, layer.get_ref())]))?;
     Ok(report)
 }
 
@@ -159,7 +172,7 @@ fn shadowless_prims(meshes: &[Mesh]) -> Vec<String> {
 }
 
 /// Convert `scene` into an Octane package (`.orbx`) at `out`: the scene as an
-/// embedded `.usdz`, imported by a USD graph in `project.ocs`, with a render
+/// embedded binary USD layer (`.usdc`), imported by a USD graph in `project.ocs`, with a render
 /// target wired to it and the scene's DAZ camera. Octane X opens it from its
 /// own Open panel or gallery (it refuses files handed over from outside).
 pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOptions) -> Result<ExportReport> {
@@ -177,114 +190,115 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     if let Some(h) = cameras.first().and_then(|(label, cam)| headlamp(&mut lib, label, cam, has_lights)) {
         lights.push(h);
     }
-    let (layer, materials) = write_usda(&meshes, &lights);
-    let name = scene.file_stem().and_then(|s| s.to_str()).unwrap_or("scene");
-    progress.report(60, "translating the materials");
-    let layered = crate::daz_material::layered_images(&lib.duf);
-    let tuning = opts.variant().tuning();
-    let (inputs, mut textures) = crate::material::material_inputs_scaled(&materials, &uv_scales(&meshes), &lib.dirs, layered, 200_000, &tuning);
+    // What needs the meshes, before they go into the layer one by one: a
+    // big scene's (60 M points) held beside a text copy of itself peaked
+    // at 23 GB.
+    let uv = uv_scales(&meshes);
     let mut environment = scene_environment(&mut lib);
-    if let Some(s) = environment.as_mut().and_then(|e| e.sun_sky.as_mut()) {
-        s.tune(&tuning);
-    }
-    let env_texture = crate::material::environment_texture(environment.as_ref(), &lib.dirs, &mut textures, 190_000);
-    let env_power = environment.as_ref().map(|e| if e.scene_only { 0.0 } else { e.intensity }).unwrap_or(1.0);
-    let emitters = light_emitters(&lights, &mut |p| textures.ies(&lib.dirs, p));
-    let light_inputs = crate::material::light_inputs(&emitters, 180_000);
-    // The shadow-catching ground stands in for Iray's ground under an HDRI
-    // backdrop; without a map there is nothing for its shadow to sit on.
-    let ground = environment
-        .as_ref()
-        .filter(|e| e.map.is_some() && !opts.no_ground)
-        .and_then(|e| Some((e.ground_shadow?, ground_height(e, &meshes))));
-    let layers: Vec<(String, &str, bool)> = shadowless_prims(&meshes)
-        .into_iter()
-        .map(|p| (p, "shadow_visibility", false))
-        .chain(camera_shown_lights(&lights).into_iter().map(|p| (p, "camera_visibility", true)))
-        .collect();
-    // The meshes are in the layer now; a big scene's (19.8 M points) held
-    // beside it, its package and every texture peaked at 16 GB.
-    let iray_ground = environment.as_ref().map_or(0.0, |e| ground_height(e, &meshes));
-    drop(meshes);
-    // VDB volumes, each file packed once.
-    let mut vdb_files: Vec<(String, PathBuf)> = Vec::new();
-    let mut octane_volumes: Vec<_> = volumes
-        .iter()
-        .map(|v| {
-            let asset = match vdb_files.iter().find(|(_, f)| *f == v.file) {
-                Some((a, _)) => a.clone(),
-                None => {
-                    let base = v.file.file_name().and_then(|n| n.to_str()).unwrap_or("volume.vdb");
-                    let safe: String = base.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect();
-                    let a = format!("assets/vdb/{:02}_{safe}", vdb_files.len());
-                    vdb_files.push((a.clone(), v.file.clone()));
-                    a
-                }
-            };
-            // VDB units are DAZ's cm: the node's transform, in meters.
-            crate::material::OctaneVolume { name: v.label.clone(), asset: Some(asset), grid: v.grid.clone(), transform: v.transform.map(|x| x * f64::from(CM)), scattering: v.scattering, absorption: v.absorption, anisotropy: v.anisotropy }
-        })
-        .collect();
-    // Iray's ground fog: slabs of uniform fog around the render camera.
-    let centre = cameras.first().map_or([0.0; 3], |(_, c)| c.pos);
-    if let Some(fog) = environment.as_ref().filter(|e| !e.scene_only).and_then(|e| e.ground_fog.as_ref()) {
-        for (k, s) in ground_fog_slabs(fog).iter().enumerate() {
-            let (min, max) = ([centre[0] - FOG_RADIUS, s.y0, centre[2] - FOG_RADIUS], [centre[0] + FOG_RADIUS, s.y1, centre[2] + FOG_RADIUS]);
-            octane_volumes.push(crate::material::OctaneVolume {
-                name: format!("DAZ ground fog {k}"),
-                asset: None,
-                grid: String::new(),
-                transform: crate::material::unit_box(min, max),
-                scattering: [0, 1, 2].map(|c| (fog.albedo[c] * s.extinction[c]) as f32),
-                absorption: [0, 1, 2].map(|c| ((1.0 - fog.albedo[c]) * s.extinction[c]) as f32),
-                anisotropy: fog.anisotropy as f32,
-            });
-        }
-    }
-    // Iray's dome ground: the HDRI projected from its virtual camera.
-    let dome_ground = environment.as_ref().filter(|e| !e.scene_only && e.draw_dome).and_then(|e| {
-        let height = iray_ground;
-        let texture = crate::material::projected_environment_texture(e, &lib.dirs, &mut textures, 175_000, [0.0, height + e.dome_ground?, 0.0])?;
-        Some(crate::material::DomeGround { texture, height, power: e.intensity })
-    });
-    let (scene_nodes, mesh_connect) = crate::material::scene_lights(&octane_spots(&lights), ground, dome_ground.as_ref(), &octane_volumes, 170_000, 1439);
-    let tone = scene_tone_mapping(&mut lib);
-    // Iray lights with a hidden dome (Draw Dome off) but shows black there;
-    // "Scene Only" has no dome light to begin with (power 0, black anyway).
-    let hide_dome = environment.as_ref().is_some_and(|e| !e.draw_dome && !e.scene_only);
-    let ocs = project_ocs(name, USDZ_ASSET, &cameras, render_size(&lib.duf), &env_texture, &tuning, &tone, hide_dome, environment.as_ref().and_then(|e| e.sun_sky.as_ref()), !opts.no_denoise, &crate::iray::render_options(&render_channels(&lib.duf)))
-        .replace(OBJECT_LAYERS_HIDDEN, if layers.is_empty() { OBJECT_LAYERS_HIDDEN } else { OBJECT_LAYERS_ALL })
-        .replace("@MATERIAL_INPUTS@", &(inputs + &light_inputs + &crate::material::object_layer_inputs(&layers, 160_000)))
-        .replace("@SCENE_NODES@", &scene_nodes)
-        .replace("@MESH_CONNECT@", &mesh_connect.to_string())
-        .replace("@ENV_POWER@", &format!("{env_power}"));
-    report.render_targets = cameras.len();
-    report.textures = textures.files.len() + textures.generated.len();
-    report.missing_textures = textures.missing.clone();
-    for t in &textures.missing {
-        tracing::info!(texture = %t, "Octane export: texture not found");
-    }
-    // Octane holds textures decoded; scale them down when they'd crowd out
-    // the GPU's (unified) memory. Only their headers are read here; each is
-    // read (and scaled) as it goes into the package.
-    let dims: Vec<_> = textures
-        .files
-        .iter()
-        .filter_map(|(_, f)| crate::texture_budget::file_dimensions(f))
-        .chain(textures.generated.iter().filter_map(|(_, d)| crate::texture_budget::dimensions(d)))
-        .collect();
-    report.texture_limit = crate::texture_budget::choose_limit(&dims, crate::texture_budget::BUDGET_BYTES);
-    if let Some(limit) = report.texture_limit {
-        tracing::info!(limit, "Octane export: textures scaled down to fit the memory budget");
-    }
-    let n_files = textures.files.len().max(1);
+    let ground_y = environment.as_ref().map_or(0.0, |e| ground_height(e, &meshes));
+    let shadowless = shadowless_prims(&meshes);
+    let name = scene.file_stem().and_then(|s| s.to_str()).unwrap_or("scene");
     let mut scaled = 0;
-    progress.report(65, "writing the .orbx");
     write_atomically(out, |f| {
         let mut w = crate::orbx::OrbxWriter::new(f, OCTANE_VERSION)?;
-        // The scene: the layer streamed into its .usdz inside the package.
-        w.begin(&format!("assets/{USDZ_ASSET}"))?;
-        write_usdz(&mut w, &[("scene.usda", layer.as_bytes())])?;
+        // The scene: the binary layer, streamed into the package.
+        w.begin(&format!("assets/{LAYER}"))?;
+        let mut usdc = UsdcWriter::new(&mut w)?;
+        let materials = write_layer(&mut usdc, meshes, &lights)?;
+        usdc.finish()?;
+        progress.report(60, "translating the materials");
+        let layered = crate::daz_material::layered_images(&lib.duf);
+        let tuning = opts.variant().tuning();
+        let (inputs, mut textures) = crate::material::material_inputs_scaled(&materials, &uv, &lib.dirs, layered, 200_000, &tuning);
+        if let Some(s) = environment.as_mut().and_then(|e| e.sun_sky.as_mut()) {
+            s.tune(&tuning);
+        }
+        let env_texture = crate::material::environment_texture(environment.as_ref(), &lib.dirs, &mut textures, 190_000);
+        let env_power = environment.as_ref().map(|e| if e.scene_only { 0.0 } else { e.intensity }).unwrap_or(1.0);
+        let emitters = light_emitters(&lights, &mut |p| textures.ies(&lib.dirs, p));
+        let light_inputs = crate::material::light_inputs(&emitters, 180_000);
+        // The shadow-catching ground stands in for Iray's ground under an HDRI
+        // backdrop; without a map there is nothing for its shadow to sit on.
+        let ground = environment.as_ref().filter(|e| e.map.is_some() && !opts.no_ground).and_then(|e| Some((e.ground_shadow?, ground_y)));
+        let layers: Vec<(String, &str, bool)> = shadowless
+            .iter()
+            .map(|p| (p.clone(), "shadow_visibility", false))
+            .chain(camera_shown_lights(&lights).into_iter().map(|p| (p, "camera_visibility", true)))
+            .collect();
+        let iray_ground = ground_y;
+        // VDB volumes, each file packed once.
+        let mut vdb_files: Vec<(String, PathBuf)> = Vec::new();
+        let mut octane_volumes: Vec<_> = volumes
+            .iter()
+            .map(|v| {
+                let asset = match vdb_files.iter().find(|(_, f)| *f == v.file) {
+                    Some((a, _)) => a.clone(),
+                    None => {
+                        let base = v.file.file_name().and_then(|n| n.to_str()).unwrap_or("volume.vdb");
+                        let safe: String = base.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' }).collect();
+                        let a = format!("assets/vdb/{:02}_{safe}", vdb_files.len());
+                        vdb_files.push((a.clone(), v.file.clone()));
+                        a
+                    }
+                };
+                // VDB units are DAZ's cm: the node's transform, in meters.
+                crate::material::OctaneVolume { name: v.label.clone(), asset: Some(asset), grid: v.grid.clone(), transform: v.transform.map(|x| x * f64::from(CM)), scattering: v.scattering, absorption: v.absorption, anisotropy: v.anisotropy }
+            })
+            .collect();
+        // Iray's ground fog: slabs of uniform fog around the render camera.
+        let centre = cameras.first().map_or([0.0; 3], |(_, c)| c.pos);
+        if let Some(fog) = environment.as_ref().filter(|e| !e.scene_only).and_then(|e| e.ground_fog.as_ref()) {
+            for (k, s) in ground_fog_slabs(fog).iter().enumerate() {
+                let (min, max) = ([centre[0] - FOG_RADIUS, s.y0, centre[2] - FOG_RADIUS], [centre[0] + FOG_RADIUS, s.y1, centre[2] + FOG_RADIUS]);
+                octane_volumes.push(crate::material::OctaneVolume {
+                    name: format!("DAZ ground fog {k}"),
+                    asset: None,
+                    grid: String::new(),
+                    transform: crate::material::unit_box(min, max),
+                    scattering: [0, 1, 2].map(|c| (fog.albedo[c] * s.extinction[c]) as f32),
+                    absorption: [0, 1, 2].map(|c| ((1.0 - fog.albedo[c]) * s.extinction[c]) as f32),
+                    anisotropy: fog.anisotropy as f32,
+                });
+            }
+        }
+        // Iray's dome ground: the HDRI projected from its virtual camera.
+        let dome_ground = environment.as_ref().filter(|e| !e.scene_only && e.draw_dome).and_then(|e| {
+            let height = iray_ground;
+            let texture = crate::material::projected_environment_texture(e, &lib.dirs, &mut textures, 175_000, [0.0, height + e.dome_ground?, 0.0])?;
+            Some(crate::material::DomeGround { texture, height, power: e.intensity })
+        });
+        let (scene_nodes, mesh_connect) = crate::material::scene_lights(&octane_spots(&lights), ground, dome_ground.as_ref(), &octane_volumes, 170_000, 1439);
+        let tone = scene_tone_mapping(&mut lib);
+        // Iray lights with a hidden dome (Draw Dome off) but shows black there;
+        // "Scene Only" has no dome light to begin with (power 0, black anyway).
+        let hide_dome = environment.as_ref().is_some_and(|e| !e.draw_dome && !e.scene_only);
+        let ocs = project_ocs(name, LAYER, &cameras, render_size(&lib.duf), &env_texture, &tuning, &tone, hide_dome, environment.as_ref().and_then(|e| e.sun_sky.as_ref()), !opts.no_denoise, &crate::iray::render_options(&render_channels(&lib.duf)))
+            .replace(OBJECT_LAYERS_HIDDEN, if layers.is_empty() { OBJECT_LAYERS_HIDDEN } else { OBJECT_LAYERS_ALL })
+            .replace("@MATERIAL_INPUTS@", &(inputs + &light_inputs + &crate::material::object_layer_inputs(&layers, 160_000)))
+            .replace("@SCENE_NODES@", &scene_nodes)
+            .replace("@MESH_CONNECT@", &mesh_connect.to_string())
+            .replace("@ENV_POWER@", &format!("{env_power}"));
+        report.render_targets = cameras.len();
+        report.textures = textures.files.len() + textures.generated.len();
+        report.missing_textures = textures.missing.clone();
+        for t in &textures.missing {
+            tracing::info!(texture = %t, "Octane export: texture not found");
+        }
+        // Octane holds textures decoded; scale them down when they'd crowd out
+        // the GPU's (unified) memory. Only their headers are read here; each is
+        // read (and scaled) as it goes into the package.
+        let dims: Vec<_> = textures
+            .files
+            .iter()
+            .filter_map(|(_, f)| crate::texture_budget::file_dimensions(f))
+            .chain(textures.generated.iter().filter_map(|(_, d)| crate::texture_budget::dimensions(d)))
+            .collect();
+        report.texture_limit = crate::texture_budget::choose_limit(&dims, crate::texture_budget::BUDGET_BYTES);
+        if let Some(limit) = report.texture_limit {
+            tracing::info!(limit, "Octane export: textures scaled down to fit the memory budget");
+        }
+        let n_files = textures.files.len().max(1);
+        progress.report(65, "writing the .orbx");
         for (k, (asset, file)) in textures.files.iter().enumerate() {
             progress.report(65 + (30 * k / n_files) as u32, &format!("writing textures ({}/{})", k + 1, textures.files.len()));
             let data = std::fs::read(file).with_context(|| format!("reading {}", file.display()))?;
@@ -333,8 +347,10 @@ fn lights_iray_uses(lib: &mut Library) -> Vec<SceneLight> {
     scene_lights(lib)
 }
 
-/// The embedded scene's file name inside an `.orbx`.
-const USDZ_ASSET: &str = "scene.usdz";
+/// The scene layer's file name inside an `.orbx` (under `assets/`) or a
+/// `.usdz`. Binary: Octane X imports it as it does text (probed on
+/// Calib-Hair, #16), a third of the size and written as it goes.
+const LAYER: &str = "scene.usdc";
 
 /// Octane version the `project.ocs` template was saved with (Octane X 2026.6).
 const OCTANE_VERSION: &str = "15050000";

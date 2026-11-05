@@ -19,7 +19,7 @@ wrong and changes in the same commit. Background on the other tools:
 [Opening](#opening) · [Open work](#open-work)
 
 Code: `src/`. Run: `cargo run --release -- export <scene.duf> -o
-<out.orbx|out.usdz>` (options in the [README](../../README.md#command-line)).
+<out.orbx|out.usdz|out.usda>` (options in the [README](../../README.md#command-line)).
 Calibration notes cite their scenes (`Calib-*`, see
 [calibration](../calibration.md#the-scenes); *Octane1*–*4*, *Fetroom*,
 *Gladiator*: the developer's production scenes) and Lua probe numbers;
@@ -390,16 +390,39 @@ placed by the node. Notes: [2026-10-29](../notes/2026-10-29-vdb-volumes.md).
 
 ## Package
 
-`.orbx` with `assets/scene.usdz` (stored, 64-byte aligned, own writer),
-textures `assets/tex/NNNN_<file>` (incl. flattened layered images), VDB
+`.orbx` with `assets/scene.usdc` — the scene as a **binary USD layer**
+(Pixar's crate format 0.8.0, own writer `src/usd/usdc.rs`; layout in
+[usd.md](../octane/usd.md#usdc-crate-layout)), textures `assets/tex/NNNN_<file>` (incl. flattened layered images), VDB
 volumes `assets/vdb/NN_<file>` and
 `project.ocs` from the template `assets/octane/project.ocs`.
+
+- **Binary layer, streamed.** Each mesh's arrays go into the package as
+  the layer is written and the mesh is dropped right after; the structure
+  (tokens, paths, specs, fields) follows, then the header is patched in the
+  package's first chunk. Integer arrays of 16+ use Pixar's integer coding
+  (deltas, 2-bit codes) in LZ4 blocks of literals only (valid LZ4, no match
+  search); floats as they are. A mesh's points are numbered in the order
+  its faces first use them (normals with them): a refined mesh's face,
+  edge and corner points come in three runs and its face indices took 4.0
+  bytes each, 1.2 in use order. Why: the text layer of intake (60 M mesh
+  points, 4.9 M strand points) was 9.6 GB — over the zip's 4 GiB, so no
+  `.usdz` could hold it — and the export peaked at 22.7 GB beside the
+  meshes. Octane X imports the bare `.usdc` and a `.usdz` holding one
+  alike, rendering as the text layer did (Calib-Hair, #16).
+- A `.usdz` export holds `scene.usdc` (stored, 64-byte aligned); `-o
+  x.usda` writes the same layer as text (`UsdaWriter`, also what the tests
+  read). Text keeps 5 decimals for points, 4 for normals, 6 for UVs and
+  widths; binary keeps the floats whole.
+- Library `.dsf` files are read without `modifier_library`, and a geometry
+  or UV set entry leaves its file's JSON once parsed (intake's 300 MB of
+  library files took 6.4 GB as JSON values). Notes:
+  [2026-11-05](../notes/2026-11-05-export-memory.md).
 
 Scene graph:
 
 ```
 Scene
-├─ "<scene> (DAZ 3D)"   USD import graph (type 2, filename assets/scene.usdz)
+├─ "<scene> (DAZ 3D)"   USD import graph (type 2, filename assets/scene.usdc)
 │    ├─ /Scene/Materials/<name>     material inputs (20007) → Octane materials
 │    ├─ /Scene/Lights/<prim>_light  emitter inputs → emissive materials
 │    └─ geometry (1439)              output linker
@@ -2031,7 +2054,6 @@ to calibrate on ([calibration](../calibration.md#the-scenes)):
   [#21](https://github.com/vysokyj/orbis/issues/21), skin hue
   [#19](https://github.com/vysokyj/orbis/issues/19), eyes
   [#20](https://github.com/vysokyj/orbis/issues/20), hair
-  [#16](https://github.com/vysokyj/orbis/issues/16),
   [#42](https://github.com/vysokyj/orbis/issues/42).
 - Lights and camera: IES profiles [#34](https://github.com/vysokyj/orbis/issues/34), light
   options [#35](https://github.com/vysokyj/orbis/issues/35), lens
@@ -2041,4 +2063,5 @@ to calibrate on ([calibration](../calibration.md#the-scenes)):
   [#36](https://github.com/vysokyj/orbis/issues/36), fog and finite dome
   [#37](https://github.com/vysokyj/orbis/issues/37), Iray render
   settings [#43](https://github.com/vysokyj/orbis/issues/43), Sun-Sky
-  channels [#18](https://github.com/vysokyj/orbis/issues/18).
+  channels [#18](https://github.com/vysokyj/orbis/issues/18), skin
+  texture baking time [#78](https://github.com/vysokyj/orbis/issues/78).

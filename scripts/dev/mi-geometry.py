@@ -3,7 +3,10 @@
 label), the vertex counts and how far each .mi vertex is from our mesh's
 surface, in world space — pose, morphs, SubD, as Iray gets them.
 
-  python3 scripts/dev/mi-geometry.py <scene.mi> <export.usdz>
+  python3 scripts/dev/mi-geometry.py <scene.mi> <export.usda>
+
+(`orbis export <scene.duf> -o <export.usda>`: the scene layer as text; an
+.orbx or .usdz holds it binary.)
 
 .mi objects are `trilist`s (vertices as big-endian float32 after
 "scalar `": position, normal, then each UV set), placed by their instance
@@ -128,7 +131,10 @@ def mi_objects(path):
 
 def usd_meshes(path):
     """Mesh name -> (points in cm, triangles)."""
-    text = zipfile.ZipFile(path).read('scene.usda').decode()
+    if path.endswith('.usda'):
+        text = open(path, encoding='utf-8').read()
+    else:  # a .usdz from before the binary layer
+        text = zipfile.ZipFile(path).read('scene.usda').decode()
     out = {}
     for m in re.finditer(r'def Mesh "([^"]+)"(.*?)\n    \}', text, re.S):
         body = m.group(2)

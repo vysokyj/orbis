@@ -65,6 +65,11 @@ pub struct OrbxWriter<'a, W: Write> {
     /// The file being written: path, first chunk, length so far, the
     /// unwritten tail of its data, whether it goes out as one chunk.
     current: Option<(String, usize, u64, Vec<u8>, bool)>,
+    /// Bytes written to `out` so far.
+    written: u64,
+    /// Where in `out` (as `written` counts) the current file's first chunk
+    /// data starts, once it is out.
+    first_data: Option<(u64, u64)>,
 }
 
 impl<'a, W: Write> OrbxWriter<'a, W> {
@@ -76,13 +81,18 @@ impl<'a, W: Write> OrbxWriter<'a, W> {
         header.extend_from_slice(version.as_bytes());
         header.push(0x00);
         out.write_all(&header)?;
-        Ok(OrbxWriter { out, chunks: Vec::new(), files: Vec::new(), current: None })
+        Ok(OrbxWriter { out, chunks: Vec::new(), files: Vec::new(), current: None, written: header.len() as u64, first_data: None })
     }
 
     fn chunk(&mut self, part: &[u8]) -> Result<()> {
+        let len = enc_u(part.len() as u64)?;
         self.out.write_all(&[0x3f])?;
-        self.out.write_all(&enc_u(part.len() as u64)?)?;
+        self.out.write_all(&len)?;
+        if self.first_data.is_none() {
+            self.first_data = Some((self.written + 1 + len.len() as u64, part.len() as u64));
+        }
         self.out.write_all(part)?;
+        self.written += 1 + len.len() as u64 + part.len() as u64;
         self.chunks.push(part.len() as u64);
         Ok(())
     }
@@ -92,6 +102,7 @@ impl<'a, W: Write> OrbxWriter<'a, W> {
     pub fn begin(&mut self, path: &str) -> Result<()> {
         self.end()?;
         self.current = Some((path.to_string(), self.chunks.len(), 0, Vec::new(), path.ends_with(".ocs")));
+        self.first_data = None;
         Ok(())
     }
 
@@ -158,6 +169,32 @@ impl<'a, W: Write> OrbxWriter<'a, W> {
             self.out.write_all(&idx)?;
             self.out.write_all(&len.to_le_bytes())?;
             self.out.write_all(&MAGIC)?;
+        }
+        Ok(())
+    }
+}
+
+impl<W: Write + std::io::Seek> OrbxWriter<'_, W> {
+    /// Overwrite bytes `at..` of the file begun last, already written — its
+    /// first chunk only (a header patched once the rest is known).
+    pub fn patch_current(&mut self, at: u64, data: &[u8]) -> std::io::Result<()> {
+        let end = at + data.len() as u64;
+        match self.first_data {
+            None => {
+                let Some((_, _, _, tail, _)) = self.current.as_mut() else { return Err(std::io::Error::other("orbx: no file begun")) };
+                let range = tail.get_mut(at as usize..end as usize).ok_or_else(|| std::io::Error::other("orbx: patch past the data"))?;
+                range.copy_from_slice(data);
+            }
+            Some((start, size)) => {
+                if end > size {
+                    return Err(std::io::Error::other("orbx: patch beyond the first chunk"));
+                }
+                let here = self.out.stream_position()?;
+                let back = self.written - (start + at);
+                self.out.seek(std::io::SeekFrom::Start(here - back))?;
+                self.out.write_all(data)?;
+                self.out.seek(std::io::SeekFrom::Start(here))?;
+            }
         }
         Ok(())
     }
@@ -346,6 +383,27 @@ mod tests {
         }
         w.finish().unwrap();
         assert!(streamed == whole);
+    }
+
+    /// A header patched once its file is written: in the first chunk when
+    /// that is out, else in the pending data.
+    #[test]
+    fn patches_the_start_of_the_current_file() {
+        let big: Vec<u8> = (0..(CHUNK * 2 + 5)).map(|i| (i * 3) as u8).collect();
+        let mut out = std::io::Cursor::new(Vec::new());
+        let mut w = OrbxWriter::new(&mut out, "15050000").unwrap();
+        w.begin("assets/small").unwrap();
+        w.write_all(b"....tail").unwrap();
+        w.patch_current(0, b"head").unwrap();
+        w.begin("assets/big").unwrap();
+        w.write_all(&[0; 8]).unwrap();
+        w.write_all(&big[8..]).unwrap();
+        w.patch_current(0, &big[..8]).unwrap();
+        assert!(w.patch_current(CHUNK as u64, b"x").is_err(), "past the first chunk");
+        w.finish().unwrap();
+        let (_, files) = read_orbx(out.get_ref()).unwrap();
+        assert_eq!(files[0], ("assets/small".to_string(), b"headtail".to_vec()));
+        assert!(files[1].1 == big);
     }
 
     /// The bundled Octane X sample, rebuilt from its own files, is identical.

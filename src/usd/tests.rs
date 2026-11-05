@@ -332,6 +332,22 @@ fn strand_hair_is_written_as_basis_curves() {
 }
 
 #[test]
+fn points_follow_the_faces_that_use_them() {
+    let mut m = Mesh { points: vec![[0.0; 3], [1.0, 0.0, 0.0], [2.0, 0.0, 0.0], [3.0, 0.0, 0.0], [4.0, 0.0, 0.0]], ..Default::default() };
+    m.face_counts = vec![3, 3];
+    m.face_indices = vec![3, 1, 4, 4, 1, 0];
+    m.normals = Some((0..5).map(|k| [k as f32, 1.0, 0.0]).collect());
+    let (points, indices, normals) = points_in_use_order(&m).unwrap();
+    assert_eq!(indices, [0, 1, 2, 2, 1, 3]);
+    let corners = |p: &[[f32; 3]], i: &[u32]| i.iter().map(|&i| p[i as usize]).collect::<Vec<_>>();
+    assert_eq!(corners(&points, &indices), corners(&m.points, &m.face_indices), "the same faces");
+    assert_eq!(points[4], [2.0, 0.0, 0.0], "an unused point goes last");
+    assert!(points.iter().zip(&normals.unwrap()).all(|(p, n)| p[0] == n[0]), "normals move with their points");
+    m.normal_indices = Some(vec![0; 6]);
+    assert!(points_in_use_order(&m).unwrap().2.is_none(), "indexed normals stay");
+}
+
+#[test]
 fn numbers_are_compact() {
     let mut s = String::new();
     for (x, d) in [(1.5f32, 5), (0.0123456, 5), (2.0, 5), (-0.000001, 5), (0.1, 4)] {
@@ -406,9 +422,9 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
 
     // A spot becomes an Octane analytic disk light (UsdLux shaping is lost
     // on import), wired with the USD geometry into a group.
-    let mut o = String::new();
-    write_lights(&mut o, &lights);
-    assert!(!o.contains("SpotLight"), "spots are not UsdLux lights");
+    let mut o = UsdaWriter::new();
+    write_lights(&mut o, &lights).unwrap();
+    assert!(!o.text.contains("SpotLight"), "spots are not UsdLux lights");
     let spots = octane_spots(&lights);
     // Iray's cos(θ · 90°/30°)⁴ beam: a soft Octane disk 0.78 × as wide.
     assert!((spots[0].spread_deg - 46.8).abs() < 1.0 && spots[0].watts == 10.0, "{:?}", spots[0]);
@@ -448,8 +464,9 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     point.cone_deg = None;
     point.lumens = 1500.0;
     point.label = "Bulb".into();
-    let mut o = String::new();
-    write_lights(&mut o, &[point.clone()]);
+    let mut w = UsdaWriter::new();
+    write_lights(&mut w, &[point.clone()]).unwrap();
+    let o = w.text;
     assert!(o.contains("def SphereLight \"Bulb\"") && o.contains("bool treatAsPoint = 1") && o.contains("float inputs:colorTemperature = 6500"));
     assert!(o.contains("float inputs:intensity = 0.058000") && o.contains("bool inputs:normalize = 1"), "{o}");
     let em = light_emitters(&[point.clone()], &mut |_| None);
@@ -745,11 +762,13 @@ fn exports_an_orbx_with_the_scene_and_project() {
     let (version, files) = crate::orbx::read_orbx(&std::fs::read(&out).unwrap()).unwrap();
     assert_eq!(version, OCTANE_VERSION);
     let names: Vec<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
-    assert_eq!(names, ["assets/scene.usdz", "project.ocs"]);
+    assert_eq!(names, ["assets/scene.usdc", "project.ocs"]);
     let ocs = String::from_utf8(files[1].1.clone()).unwrap();
     assert!(ocs.contains("type='56' name='My Scene'") && ocs.contains("-3.391028 0"));
-    let mut usdz = zip::ZipArchive::new(std::io::Cursor::new(files[0].1.clone())).unwrap();
-    assert_eq!(usdz.by_index(0).unwrap().name().unwrap(), "scene.usda");
+    assert!(ocs.contains("<attr name='filename' type='11'>assets/scene.usdc</attr>"));
+    // The binary layer, its header patched into the package's first chunk.
+    let layer = read_usdc(&files[0].1);
+    assert!(layer.prims().iter().any(|(path, ty)| path == "/Scene/Body" && ty == "Mesh"), "{:?}", layer.prims());
 
     // Off the calibrated tone mapping: the LUT the imager names is packed.
     let ch = |id: &str, v: Value| json!({"channel": {"id": id, "current_value": v}});
@@ -760,7 +779,7 @@ fn exports_an_orbx_with_the_scene_and_project() {
     export_scene_orbx(&scene_path, &dump_path, &out, &ExportOptions::default()).unwrap();
     let (_, files) = crate::orbx::read_orbx(&std::fs::read(&out).unwrap()).unwrap();
     let names: Vec<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
-    assert_eq!(names, ["assets/scene.usdz", TONE_LUT_ASSET, "project.ocs"]);
+    assert_eq!(names, ["assets/scene.usdc", TONE_LUT_ASSET, "project.ocs"]);
     assert!(String::from_utf8_lossy(&files[2].1).contains(TONE_LUT_ASSET));
 }
 
@@ -1395,4 +1414,331 @@ fn emission_profile_surface_normals_by_area() {
     assert_eq!(n.len(), 2);
     assert!((n[0].0[1] + 1.0).abs() < 1e-9 && (n[0].1 - 2.0 / 3.0).abs() < 1e-9, "{n:?}");
     assert!((n[1].0[0].abs() - 1.0).abs() < 1e-9 && (n[1].1 - 1.0 / 3.0).abs() < 1e-9, "{n:?}");
+}
+
+/// A `.usdc` read back as far as the tests look: tokens, paths and each
+/// spec's fields (`usdc.rs` writes LZ4 blocks of literals only, but this
+/// reads any LZ4).
+struct Crate {
+    data: Vec<u8>,
+    tokens: Vec<String>,
+    strings: Vec<u32>,
+    paths: Vec<String>,
+    /// (path, spec type, fields as (name, value rep)).
+    specs: Vec<(String, u32, Vec<(String, u64)>)>,
+}
+
+impl Crate {
+    fn prims(&self) -> Vec<(String, String)> {
+        self.specs.iter().filter(|s| s.1 == 6).map(|s| (s.0.clone(), self.token_field(&s.0, "typeName").unwrap_or_default())).collect()
+    }
+
+    fn field(&self, path: &str, name: &str) -> Option<u64> {
+        let spec = self.specs.iter().find(|s| s.0 == path)?;
+        spec.2.iter().find(|f| f.0 == name).map(|f| f.1)
+    }
+
+    fn token_field(&self, path: &str, name: &str) -> Option<String> {
+        self.field(path, name).map(|r| self.tokens[(r & 0xffff_ffff) as usize].clone())
+    }
+
+    fn u64_at(&self, at: usize) -> u64 {
+        u64::from_le_bytes(self.data[at..at + 8].try_into().unwrap())
+    }
+
+    /// An array value: its element count and where its data starts.
+    fn array(&self, rep: u64) -> (usize, usize) {
+        let at = (rep & ((1 << 48) - 1)) as usize;
+        (self.u64_at(at) as usize, at + 8)
+    }
+
+    fn ints(&self, rep: u64) -> Vec<u32> {
+        let (n, at) = self.array(rep);
+        if rep & (1 << 61) != 0 {
+            let size = self.u64_at(at) as usize;
+            decode_ints(&self.data[at + 8..at + 8 + size], n)
+        } else {
+            (0..n).map(|k| u32::from_le_bytes(self.data[at + 4 * k..at + 4 * k + 4].try_into().unwrap())).collect()
+        }
+    }
+
+    fn floats(&self, rep: u64) -> Vec<f32> {
+        let (n, at) = self.array(rep);
+        (0..n).map(|k| f32::from_le_bytes(self.data[at + 4 * k..at + 4 * k + 4].try_into().unwrap())).collect()
+    }
+}
+
+fn lz4_decode(src: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    let len = |i: &mut usize, mut l: usize| {
+        if l == 15 {
+            loop {
+                let b = src[*i];
+                *i += 1;
+                l += b as usize;
+                if b != 255 {
+                    break;
+                }
+            }
+        }
+        l
+    };
+    while i < src.len() {
+        let t = src[i];
+        i += 1;
+        let l = len(&mut i, (t >> 4) as usize);
+        out.extend_from_slice(&src[i..i + l]);
+        i += l;
+        if i >= src.len() {
+            break;
+        }
+        let off = u16::from_le_bytes([src[i], src[i + 1]]) as usize;
+        i += 2;
+        let m = len(&mut i, (t & 15) as usize) + 4;
+        for _ in 0..m {
+            out.push(out[out.len() - off]);
+        }
+    }
+    out
+}
+
+/// TfFastCompression framing: one block, or a count of int32-sized chunks.
+fn fast_decode(buf: &[u8]) -> Vec<u8> {
+    if buf[0] == 0 {
+        return lz4_decode(&buf[1..]);
+    }
+    let (mut out, mut p) = (Vec::new(), 1);
+    for _ in 0..buf[0] {
+        let n = i32::from_le_bytes(buf[p..p + 4].try_into().unwrap()) as usize;
+        out.extend(lz4_decode(&buf[p + 4..p + 4 + n]));
+        p += 4 + n;
+    }
+    out
+}
+
+fn decode_ints(buf: &[u8], n: usize) -> Vec<u32> {
+    let d = fast_decode(buf);
+    let common = i32::from_le_bytes(d[..4].try_into().unwrap());
+    let codes = &d[4..4 + (2 * n).div_ceil(8)];
+    let mut p = 4 + codes.len();
+    let mut prev = 0i32;
+    (0..n)
+        .map(|k| {
+            let v = match (codes[k / 4] >> (2 * (k % 4))) & 3 {
+                0 => common,
+                1 => {
+                    p += 1;
+                    d[p - 1] as i8 as i32
+                }
+                2 => {
+                    p += 2;
+                    i16::from_le_bytes([d[p - 2], d[p - 1]]) as i32
+                }
+                _ => {
+                    p += 4;
+                    i32::from_le_bytes(d[p - 4..p].try_into().unwrap())
+                }
+            };
+            prev = prev.wrapping_add(v);
+            prev as u32
+        })
+        .collect()
+}
+
+fn read_usdc(data: &[u8]) -> Crate {
+    assert_eq!(&data[..8], b"PXR-USDC");
+    assert_eq!(&data[8..11], &[0, 8, 0]);
+    let mut c = Crate { data: data.to_vec(), tokens: vec![], strings: vec![], paths: vec![], specs: vec![] };
+    let toc = c.u64_at(16) as usize;
+    let mut sections = HashMap::new();
+    for k in 0..c.u64_at(toc) as usize {
+        let at = toc + 8 + 32 * k;
+        let name = String::from_utf8(data[at..at + 16].iter().take_while(|&&b| b != 0).copied().collect()).unwrap();
+        sections.insert(name, c.u64_at(at + 16) as usize);
+    }
+    let compressed = |at: usize, n: usize| -> (Vec<u32>, usize) {
+        let size = u64::from_le_bytes(data[at..at + 8].try_into().unwrap()) as usize;
+        (decode_ints(&data[at + 8..at + 8 + size], n), at + 8 + size)
+    };
+    let at = sections["TOKENS"];
+    let n = c.u64_at(at) as usize;
+    let size = c.u64_at(at + 16) as usize;
+    let text = fast_decode(&data[at + 24..at + 24 + size]);
+    assert_eq!(text.len(), c.u64_at(at + 8) as usize);
+    c.tokens = text.split(|&b| b == 0).take(n).map(|t| String::from_utf8(t.to_vec()).unwrap()).collect();
+    let at = sections["STRINGS"];
+    c.strings = (0..c.u64_at(at) as usize).map(|k| u32::from_le_bytes(data[at + 8 + 4 * k..at + 12 + 4 * k].try_into().unwrap())).collect();
+    let at = sections["FIELDS"];
+    let n = c.u64_at(at) as usize;
+    let (names, at) = compressed(at + 8, n);
+    let size = c.u64_at(at) as usize;
+    let reps: Vec<u64> = fast_decode(&data[at + 8..at + 8 + size]).chunks(8).map(|b| u64::from_le_bytes(b.try_into().unwrap())).collect();
+    assert_eq!(reps.len(), n);
+    let at = sections["FIELDSETS"];
+    let (sets, _) = compressed(at + 8, c.u64_at(at) as usize);
+    let at = sections["PATHS"];
+    let n = c.u64_at(at) as usize;
+    let m = c.u64_at(at + 8) as usize;
+    let (idx, at) = compressed(at + 16, m);
+    let (elem, at) = compressed(at, m);
+    let (jumps, _) = compressed(at, m);
+    c.paths = vec![String::new(); n];
+    fn build(i: usize, parent: Option<&str>, c: &mut Crate, idx: &[u32], elem: &[u32], jumps: &[u32]) -> usize {
+        let mut i = i;
+        loop {
+            let me = i;
+            i += 1;
+            let path = match parent {
+                None => "/".to_string(),
+                Some(p) => {
+                    let e = elem[me] as i32;
+                    let sep = if e < 0 { "." } else if p == "/" { "" } else { "/" };
+                    format!("{p}{sep}{}", c.tokens[e.unsigned_abs() as usize])
+                }
+            };
+            c.paths[idx[me] as usize] = path.clone();
+            let j = jumps[me] as i32;
+            let (child, sibling) = (j > 0 || j == -1, j >= 0);
+            if child {
+                if sibling {
+                    build(me + j as usize, parent, c, idx, elem, jumps);
+                }
+                i = build(i, Some(&path), c, idx, elem, jumps);
+            }
+            if !sibling || child {
+                return i;
+            }
+        }
+    }
+    build(0, None, &mut c, &idx, &elem, &jumps);
+    let at = sections["SPECS"];
+    let n = c.u64_at(at) as usize;
+    let (spec_paths, at) = compressed(at + 8, n);
+    let (spec_sets, at) = compressed(at, n);
+    let (spec_types, _) = compressed(at, n);
+    for k in 0..n {
+        let mut fields = Vec::new();
+        let mut i = spec_sets[k] as usize;
+        while sets[i] != u32::MAX {
+            let f = sets[i] as usize;
+            fields.push((c.tokens[names[f] as usize].clone(), reps[f]));
+            i += 1;
+        }
+        c.specs.push((c.paths[spec_paths[k] as usize].clone(), spec_types[k], fields));
+    }
+    c
+}
+
+/// A layer with a bit of everything the export writes, its numbers exact
+/// in 5 decimals so text and binary say the same.
+fn sample_layer_meshes() -> (Vec<Mesh>, Vec<SceneLight>) {
+    let mat = Rc::new(crate::daz_material::Material::default());
+    let mut quad = Mesh { name: "Quad".into(), label: "A \"quad\"".into(), ..Default::default() };
+    // A strip of 40 quads: index arrays long enough to be compressed, with
+    // small, 16-bit and 32-bit differences.
+    for k in 0..41u32 {
+        quad.points.push([k as f32 * 0.125, 0.0, 0.0]);
+        quad.points.push([k as f32 * 0.125, 0.5, 0.0]);
+    }
+    for k in 0..40u32 {
+        quad.face_counts.push(4);
+        quad.face_indices.extend([2 * k, 2 * k + 2, 2 * k + 3, 2 * k + 1]);
+    }
+    let mut uv_idx: Vec<u32> = (0..160).map(|k| k % 3).collect();
+    (uv_idx[7], uv_idx[8], uv_idx[9]) = (70_000, 2_000_000_000, 1);
+    quad.uvs = Some((vec![[0.0, 0.0], [1.0, 0.0], [1.0, 0.75]], uv_idx));
+    quad.normals = Some(vec![[0.0, 0.0, 1.0]; 82]);
+    quad.subsets = vec![("Front".into(), (0..20).collect()), ("Back".into(), (20..40).collect())];
+    quad.materials = vec![Some(mat.clone()), None];
+    let mut hair = Mesh { name: "Hair".into(), label: "Hair".into(), ..Default::default() };
+    hair.points = vec![[0.0, 1.0, 0.0], [0.0, 0.875, 0.0], [0.25, 1.0, 0.0], [0.25, 0.75, 0.0]];
+    hair.face_counts = vec![2, 2];
+    hair.subsets = vec![("Hair".into(), vec![0, 1])];
+    hair.materials = vec![Some(mat)];
+    hair.curve_widths = Some(vec![0.0005, 0.00025, 0.0005, 0.00025]);
+    hair.instances = Some(vec![IDENTITY, [-1.0, 0.0, 0.0, 4.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0]]);
+    let light = SceneLight {
+        label: "Panel".into(),
+        shape: LightShape::Rect { width: 0.5, height: 0.25 },
+        transform: [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [1.0, 2.0, 3.0, 1.0]],
+        color: [1.0, 0.5, 0.25],
+        kelvin: Some(5000.0),
+        lumens: 0.0, // watts in 6 decimals in text
+        cone_deg: None,
+        beam_exponent: 1.0,
+        euler_deg: [0.0; 3],
+        rotation_order: "XYZ".into(),
+        translation: [1.0, 2.0, 3.0],
+        two_sided: false,
+        visible: false,
+        profile: None,
+    };
+    (vec![quad, hair], vec![light])
+}
+
+#[test]
+fn binary_layer_holds_what_the_text_one_says() {
+    let (meshes, lights) = sample_layer_meshes();
+    let mut buf = std::io::Cursor::new(Vec::new());
+    let mut w = UsdcWriter::new(&mut buf).unwrap();
+    let mats = write_layer(&mut w, &meshes, &lights).unwrap();
+    let size = w.finish().unwrap();
+    assert_eq!(size as usize, buf.get_ref().len());
+    assert_eq!(mats.len(), 2);
+    let c = read_usdc(buf.get_ref());
+    let mut prims = c.prims();
+    prims.sort();
+    let want = [
+        ("/Scene", "Xform"),
+        ("/Scene/Hair_copies", "PointInstancer"),
+        ("/Scene/Hair_copies/Prototypes", "Scope"),
+        ("/Scene/Hair_copies/Prototypes/Hair", "BasisCurves"),
+        ("/Scene/Lights", "Scope"),
+        ("/Scene/Lights/Panel", "RectLight"),
+        ("/Scene/Materials", "Scope"),
+        ("/Scene/Materials/Hair", "Material"),
+        ("/Scene/Materials/Hair/Surface", "Shader"),
+        ("/Scene/Materials/Quad_Front", "Material"),
+        ("/Scene/Materials/Quad_Front/Surface", "Shader"),
+        ("/Scene/Quad", "Mesh"),
+        ("/Scene/Quad/Back", "GeomSubset"),
+        ("/Scene/Quad/Front", "GeomSubset"),
+    ];
+    assert_eq!(prims, want.map(|(p, t)| (p.to_string(), t.to_string())));
+    assert_eq!(c.token_field("/", "defaultPrim").as_deref(), Some("Scene"));
+    let ints = |path: &str| c.ints(c.field(path, "default").unwrap());
+    assert_eq!(ints("/Scene/Quad.faceVertexIndices"), points_in_use_order(&meshes[0]).unwrap().1, "points in use order");
+    assert_eq!(ints("/Scene/Quad.primvars:st:indices"), meshes[0].uvs.as_ref().unwrap().1, "compressed ints round-trip");
+    assert_eq!(ints("/Scene/Quad/Back.indices"), (20..40).collect::<Vec<u32>>());
+    assert_eq!(ints("/Scene/Hair_copies/Prototypes/Hair.curveVertexCounts"), [2, 2], "short: plain");
+    assert_eq!(c.floats(c.field("/Scene/Hair_copies/Prototypes/Hair.widths", "default").unwrap()), [0.0005, 0.00025, 0.0005, 0.00025]);
+    assert_eq!(c.token_field("/Scene/Hair_copies/Prototypes/Hair.widths", "interpolation").as_deref(), Some("vertex"));
+    let display = c.field("/Scene/Quad", "displayName").unwrap();
+    assert_eq!(c.tokens[c.strings[(display & 0xffff_ffff) as usize] as usize], "A \"quad\"");
+    assert!(c.field("/Scene/Quad/Front.material:binding", "targetPaths").is_some());
+    assert!(c.field("/Scene/Materials/Hair.outputs:surface", "connectionPaths").is_some());
+    assert_eq!(crate::usd::usdc::f16_bits_for_test(1.0), 0x3c00);
+    assert_eq!(crate::usd::usdc::f16_bits_for_test(-2.0), 0xc000);
+    assert_eq!(crate::usd::usdc::f16_bits_for_test(std::f32::consts::FRAC_1_SQRT_2), 0x39a8);
+    assert_eq!(crate::usd::usdc::f16_bits_for_test(1e-6), 0x0011, "subnormal");
+
+    // Where Pixar's own tools are installed (macOS ships them), both forms
+    // print the same.
+    let usdcat = Path::new("/usr/bin/usdcat");
+    if !usdcat.exists() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (text, _) = write_usda(&meshes, &lights);
+    std::fs::write(dir.path().join("a.usda"), text).unwrap();
+    std::fs::write(dir.path().join("b.usdc"), buf.get_ref()).unwrap();
+    let cat = |f: &str| {
+        let o = std::process::Command::new(usdcat).arg(dir.path().join(f)).output().unwrap();
+        assert!(o.status.success() && o.stderr.is_empty(), "{f}: {}", String::from_utf8_lossy(&o.stderr));
+        String::from_utf8(o.stdout).unwrap()
+    };
+    let (a, b) = (cat("a.usda"), cat("b.usdc"));
+    assert!(b.contains("def PointInstancer \"Hair_copies\""), "{b}");
+    assert_eq!(a, b);
 }

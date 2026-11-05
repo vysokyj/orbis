@@ -370,51 +370,51 @@ pub(super) fn camera_shown_lights(lights: &[SceneLight]) -> Vec<String> {
 /// ([`light_watts`]),
 /// with `normalize` so the emitter's size doesn't
 /// change it.
-pub(super) fn write_lights(o: &mut String, lights: &[SceneLight]) {
+pub(super) fn write_lights(sink: &mut dyn LayerSink, lights: &[SceneLight]) -> Result<()> {
     use std::f64::consts::PI;
     if lights.iter().all(|l| l.cone_deg.is_some()) {
-        return;
+        return Ok(());
     }
-    o.push_str("    def Scope \"Lights\"\n    {\n");
+    sink.begin_prim("Scope", "Lights", &PrimMeta::default())?;
     for (l, name) in lights.iter().zip(light_prim_names(lights)) {
         if l.cone_deg.is_some() {
             continue; // an Octane analytic spot (see `octane_spots`)
         }
-        let (kind, area, attrs) = match l.shape {
+        let kind = match l.shape {
+            LightShape::Point | LightShape::Sphere { .. } => "SphereLight",
+            LightShape::Disk { .. } | LightShape::Rect { .. } => "RectLight",
+            // Distant: illuminance (lux) — the flux over 1 m².
+            LightShape::Distant => "DistantLight",
+        };
+        sink.begin_prim(kind, &name, &PrimMeta::default())?;
+        sink.attr(Attr::new("userProperties:dazLabel", "string", Val::Str(&l.label)).custom())?;
+        let float = |x: f64| Val::Float(Num::Plain(x));
+        match l.shape {
             LightShape::Point => {
-                let r = POINT_RADIUS_M;
-                ("SphereLight", 4.0 * PI * r * r, format!("float inputs:radius = {r}\n            bool treatAsPoint = 1\n"))
+                sink.attr(Attr::new("inputs:radius", "float", float(POINT_RADIUS_M)))?;
+                sink.attr(Attr::new("treatAsPoint", "bool", Val::Bool(true)))?;
             }
-            LightShape::Sphere { radius } => ("SphereLight", 4.0 * PI * radius * radius, format!("float inputs:radius = {radius}\n")),
+            LightShape::Sphere { radius } => sink.attr(Attr::new("inputs:radius", "float", float(radius)))?,
             // Octane's USD import renders a DiskLight as nothing (Calib-L-
             // Disc-50: black): a square of the same area instead — the
             // floor lit as by the disc in Iray within a few %.
             LightShape::Disk { radius } => {
                 let side = radius * PI.sqrt();
-                ("RectLight", PI * radius * radius, format!("float inputs:width = {side}\n            float inputs:height = {side}\n"))
+                sink.attr(Attr::new("inputs:width", "float", float(side)))?;
+                sink.attr(Attr::new("inputs:height", "float", float(side)))?;
             }
-            LightShape::Rect { width, height } => (
-                "RectLight",
-                width * height,
-                format!("float inputs:width = {width}\n            float inputs:height = {height}\n"),
-            ),
-            // Distant: illuminance (lux) — the flux over 1 m².
-            LightShape::Distant => ("DistantLight", PI, String::new()),
-        };
-        let _ = area;
-        let watts = light_watts(l);
-        let schemas = if l.cone_deg.is_some() { "(\n        prepend apiSchemas = [\"ShapingAPI\"]\n    )" } else { "" };
-        let _ = writeln!(o, "        def {kind} \"{name}\" {schemas}\n        {{");
-        let _ = writeln!(o, "            custom string userProperties:dazLabel = {}", usd_string(&l.label));
-        o.push_str("            ");
-        o.push_str(&attrs.replace("\n            ", "\n            "));
-        let _ = writeln!(o, "            float inputs:intensity = {watts:.6}\n            bool inputs:normalize = 1");
-        let _ = writeln!(o, "            color3f inputs:color = ({}, {}, {})", l.color[0], l.color[1], l.color[2]);
-        if let Some(k) = l.kelvin {
-            let _ = writeln!(o, "            bool inputs:enableColorTemperature = 1\n            float inputs:colorTemperature = {k}");
+            LightShape::Rect { width, height } => {
+                sink.attr(Attr::new("inputs:width", "float", float(width)))?;
+                sink.attr(Attr::new("inputs:height", "float", float(height)))?;
+            }
+            LightShape::Distant => {}
         }
-        if let Some(cone) = l.cone_deg {
-            let _ = writeln!(o, "            float inputs:shaping:cone:angle = {cone}");
+        sink.attr(Attr::new("inputs:intensity", "float", Val::Float(Num::Fixed(light_watts(l), 6))))?;
+        sink.attr(Attr::new("inputs:normalize", "bool", Val::Bool(true)))?;
+        sink.attr(Attr::new("inputs:color", "color3f", Val::Color(l.color.map(Num::Plain))))?;
+        if let Some(k) = l.kelvin {
+            sink.attr(Attr::new("inputs:enableColorTemperature", "bool", Val::Bool(true)))?;
+            sink.attr(Attr::new("inputs:colorTemperature", "float", float(k)))?;
         }
         let mut m = l.transform;
         // Octane's USD import emits a rect or disk light along +Z, not
@@ -426,9 +426,9 @@ pub(super) fn write_lights(o: &mut String, lights: &[SceneLight]) {
                 m[2][k] = -m[2][k];
             }
         }
-        let rows: Vec<String> = m.iter().map(|r| format!("({}, {}, {}, {})", r[0], r[1], r[2], r[3])).collect();
-        let _ = writeln!(o, "            matrix4d xformOp:transform = ({})", rows.join(", "));
-        o.push_str("            uniform token[] xformOpOrder = [\"xformOp:transform\"]\n        }\n");
+        sink.attr(Attr::new("xformOp:transform", "matrix4d", Val::Matrix(m)))?;
+        sink.attr(Attr::new("xformOpOrder", "token[]", Val::Tokens(&["xformOp:transform"])).uniform())?;
+        sink.end_prim()?;
     }
-    o.push_str("    }\n");
+    sink.end_prim()
 }

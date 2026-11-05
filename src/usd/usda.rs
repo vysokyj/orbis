@@ -59,55 +59,284 @@ pub(super) fn push_num(out: &mut String, x: f32, decimals: usize) {
     }
 }
 
-pub(super) fn write_vec3(out: &mut String, xs: &[[f32; 3]], decimals: usize) {
-    out.push('[');
-    for (i, p) in xs.iter().enumerate() {
-        if i > 0 {
-            out.push_str(", ");
+/// A number as the text layer spells it (the binary one stores the value).
+#[derive(Clone, Copy, Debug)]
+pub(super) enum Num {
+    /// At most this many decimals, trailing zeros dropped (`push_num`).
+    Trim(f64, usize),
+    /// Rust's shortest round-trip form.
+    Plain(f64),
+    /// Exactly this many decimals.
+    Fixed(f64, usize),
+}
+
+impl Num {
+    pub(super) fn value(&self) -> f64 {
+        match *self {
+            Num::Trim(x, _) | Num::Plain(x) | Num::Fixed(x, _) => x,
         }
-        out.push('(');
-        for (k, v) in p.iter().enumerate() {
-            if k > 0 {
-                out.push_str(", ");
+    }
+
+    fn write(&self, o: &mut String) {
+        match *self {
+            Num::Trim(x, d) => push_num(o, x as f32, d),
+            Num::Plain(x) => {
+                let _ = write!(o, "{x}");
             }
-            push_num(out, *v, decimals);
+            Num::Fixed(x, d) => {
+                let _ = write!(o, "{x:.d$}");
+            }
         }
-        out.push(')');
     }
-    out.push(']');
 }
 
-pub(super) fn write_vec2(out: &mut String, xs: &[[f32; 2]]) {
-    out.push('[');
-    for (i, p) in xs.iter().enumerate() {
-        if i > 0 {
-            out.push_str(", ");
-        }
-        out.push('(');
-        push_num(out, p[0], 6);
-        out.push_str(", ");
-        push_num(out, p[1], 6);
-        out.push(')');
-    }
-    out.push(']');
+/// An attribute value. Arrays carry the decimals the text layer keeps.
+#[derive(Debug)]
+pub(super) enum Val<'a> {
+    /// Declared without a value (`token outputs:surface`).
+    None,
+    Token(&'a str),
+    Str(&'a str),
+    Bool(bool),
+    Float(Num),
+    Color([Num; 3]),
+    Matrix([[f64; 4]; 4]),
+    Ints(&'a [u32]),
+    Floats(&'a [f32], usize),
+    Vec3s(&'a [[f32; 3]], usize),
+    Vec2s(&'a [[f32; 2]], usize),
+    /// Quaternions as (real, i, j, k).
+    Quats(&'a [[f32; 4]], usize),
+    Tokens(&'a [&'a str]),
 }
 
-/// The USD layer, and the bound materials by prim name (`/Scene/Materials/…`)
-/// — Octane names its material inputs after them.
+/// An attribute: name, USD type name (`point3f[]`), value and metadata.
+pub(super) struct Attr<'a> {
+    pub(super) name: &'a str,
+    pub(super) ty: &'a str,
+    pub(super) value: Val<'a>,
+    pub(super) uniform: bool,
+    pub(super) custom: bool,
+    pub(super) interpolation: Option<&'a str>,
+    /// Connected to this attribute path (`name.connect = <…>`).
+    pub(super) connect: Option<&'a str>,
+}
+
+impl<'a> Attr<'a> {
+    pub(super) fn new(name: &'a str, ty: &'a str, value: Val<'a>) -> Self {
+        Attr { name, ty, value, uniform: false, custom: false, interpolation: None, connect: None }
+    }
+    pub(super) fn uniform(self) -> Self {
+        Attr { uniform: true, ..self }
+    }
+    pub(super) fn custom(self) -> Self {
+        Attr { custom: true, ..self }
+    }
+    pub(super) fn interpolation(self, i: &'a str) -> Self {
+        Attr { interpolation: Some(i), ..self }
+    }
+    pub(super) fn connect(self, target: &'a str) -> Self {
+        Attr { connect: Some(target), ..self }
+    }
+}
+
+/// A prim's metadata.
+#[derive(Default)]
+pub(super) struct PrimMeta<'a> {
+    pub(super) display_name: Option<&'a str>,
+    pub(super) kind: Option<&'a str>,
+    /// Prepended `apiSchemas`.
+    pub(super) api_schemas: &'a [&'a str],
+}
+
+/// Where a USD layer goes: the text form (`UsdaWriter`, kept for tests and
+/// reading) or the binary one an export writes (`usdc::UsdcWriter`). Prims
+/// nest between `begin_prim` and `end_prim`; the stage metadata (Y up,
+/// meters, default prim `Scene`) comes with the writer.
+pub(super) trait LayerSink {
+    fn begin_prim(&mut self, ty: &str, name: &str, meta: &PrimMeta) -> Result<()>;
+    fn end_prim(&mut self) -> Result<()>;
+    fn attr(&mut self, a: Attr) -> Result<()>;
+    /// A relationship to `targets` (absolute paths); `list` spells a single
+    /// target as a list in text.
+    fn rel(&mut self, name: &str, targets: &[&str], list: bool) -> Result<()>;
+}
+
+/// The text (`.usda`) form of a layer.
+pub(super) struct UsdaWriter {
+    pub(super) text: String,
+    depth: usize,
+}
+
+impl UsdaWriter {
+    pub(super) fn new() -> Self {
+        let mut text = String::new();
+        text.push_str("#usda 1.0\n(\n    defaultPrim = \"Scene\"\n    metersPerUnit = 1\n    upAxis = \"Y\"\n    doc = \"Exported by ORBIS\"\n)\n");
+        UsdaWriter { text, depth: 0 }
+    }
+
+    fn indent(&mut self) {
+        for _ in 0..self.depth {
+            self.text.push_str("    ");
+        }
+    }
+}
+
+impl LayerSink for UsdaWriter {
+    fn begin_prim(&mut self, ty: &str, name: &str, meta: &PrimMeta) -> Result<()> {
+        self.text.push('\n');
+        self.indent();
+        let _ = write!(self.text, "def {ty} \"{name}\"");
+        let mut lines = Vec::new();
+        if let Some(d) = meta.display_name {
+            lines.push(format!("displayName = {}", usd_string(d)));
+        }
+        if let Some(k) = meta.kind {
+            lines.push(format!("kind = {}", usd_string(k)));
+        }
+        if !meta.api_schemas.is_empty() {
+            let list: Vec<String> = meta.api_schemas.iter().map(|s| usd_string(s)).collect();
+            lines.push(format!("prepend apiSchemas = [{}]", list.join(", ")));
+        }
+        if !lines.is_empty() {
+            self.text.push_str(" (\n");
+            for l in lines {
+                self.depth += 1;
+                self.indent();
+                self.depth -= 1;
+                self.text.push_str(&l);
+                self.text.push('\n');
+            }
+            self.indent();
+            self.text.push(')');
+        }
+        self.text.push('\n');
+        self.indent();
+        self.text.push_str("{\n");
+        self.depth += 1;
+        Ok(())
+    }
+
+    fn end_prim(&mut self) -> Result<()> {
+        self.depth -= 1;
+        self.indent();
+        self.text.push_str("}\n");
+        Ok(())
+    }
+
+    fn attr(&mut self, a: Attr) -> Result<()> {
+        self.indent();
+        let o = &mut self.text;
+        if a.custom {
+            o.push_str("custom ");
+        }
+        if a.uniform {
+            o.push_str("uniform ");
+        }
+        let _ = write!(o, "{} {}", a.ty, a.name);
+        if let Some(t) = a.connect {
+            let _ = write!(o, ".connect = <{t}>");
+        }
+        if !matches!(a.value, Val::None) {
+            o.push_str(" = ");
+            write_value(o, &a.value);
+        }
+        if let Some(i) = a.interpolation {
+            o.push_str(" (\n");
+            let pad = "    ".repeat(self.depth);
+            let _ = write!(o, "{pad}    interpolation = \"{i}\"\n{pad})");
+        }
+        o.push('\n');
+        Ok(())
+    }
+
+    fn rel(&mut self, name: &str, targets: &[&str], list: bool) -> Result<()> {
+        self.indent();
+        let t: Vec<String> = targets.iter().map(|t| format!("<{t}>")).collect();
+        if list || t.len() != 1 {
+            let _ = writeln!(self.text, "rel {name} = [{}]", t.join(", "));
+        } else {
+            let _ = writeln!(self.text, "rel {name} = {}", t[0]);
+        }
+        Ok(())
+    }
+}
+
+fn write_value(o: &mut String, v: &Val) {
+    let list = |o: &mut String, n: usize, each: &mut dyn FnMut(&mut String, usize)| {
+        o.push('[');
+        for i in 0..n {
+            if i > 0 {
+                o.push_str(", ");
+            }
+            each(o, i);
+        }
+        o.push(']');
+    };
+    let tuple = |o: &mut String, xs: &[f32], d: usize| {
+        o.push('(');
+        for (k, x) in xs.iter().enumerate() {
+            if k > 0 {
+                o.push_str(", ");
+            }
+            push_num(o, *x, d);
+        }
+        o.push(')');
+    };
+    match v {
+        Val::None => {}
+        Val::Token(s) | Val::Str(s) => o.push_str(&usd_string(s)),
+        Val::Bool(b) => o.push(if *b { '1' } else { '0' }),
+        Val::Float(n) => n.write(o),
+        Val::Color(c) => {
+            o.push('(');
+            for (k, n) in c.iter().enumerate() {
+                if k > 0 {
+                    o.push_str(", ");
+                }
+                n.write(o);
+            }
+            o.push(')');
+        }
+        Val::Matrix(m) => {
+            let rows: Vec<String> = m.iter().map(|r| format!("({}, {}, {}, {})", r[0], r[1], r[2], r[3])).collect();
+            let _ = write!(o, "({})", rows.join(", "));
+        }
+        Val::Ints(xs) => write_ints(o, xs.iter().copied()),
+        Val::Floats(xs, d) => list(o, xs.len(), &mut |o, i| push_num(o, xs[i], *d)),
+        Val::Vec3s(xs, d) => list(o, xs.len(), &mut |o, i| tuple(o, &xs[i], *d)),
+        Val::Vec2s(xs, d) => list(o, xs.len(), &mut |o, i| tuple(o, &xs[i], *d)),
+        Val::Quats(xs, d) => list(o, xs.len(), &mut |o, i| tuple(o, &xs[i], *d)),
+        Val::Tokens(ts) => list(o, ts.len(), &mut |o, i| o.push_str(&usd_string(ts[i]))),
+    }
+}
+
 /// A bound material: prim name, DAZ material, and the area (m²) of the faces
 /// it covers — emission in lumens or watts is spread over it.
 pub type BoundMaterial = (String, Rc<crate::daz_material::Material>, f64);
 
+/// The scene's text layer and the bound materials (`.usda` output and
+/// tests; an export writes the binary layer with `write_layer`).
 pub(super) fn write_usda(meshes: &[Mesh], lights: &[SceneLight]) -> (String, Vec<BoundMaterial>) {
-    let mut o = String::new();
-    o.push_str("#usda 1.0\n(\n    defaultPrim = \"Scene\"\n    metersPerUnit = 1\n    upAxis = \"Y\"\n    doc = \"Exported by ORBIS\"\n)\n\n");
-    o.push_str("def Xform \"Scene\" (\n    kind = \"assembly\"\n)\n{\n");
+    let mut w = UsdaWriter::new();
+    let materials = write_layer(&mut w, meshes, lights).expect("text layer");
+    (w.text, materials)
+}
+
+/// Write the scene into `sink`: `Scene` with each mesh (meshes are dropped
+/// as soon as they are written when passed by value), the lights and the
+/// materials. Returns the bound materials by prim name (`/Scene/Materials/…`)
+/// — Octane names its material inputs after them.
+pub(super) fn write_layer<M: std::borrow::Borrow<Mesh>>(sink: &mut dyn LayerSink, meshes: impl IntoIterator<Item = M>, lights: &[SceneLight]) -> Result<Vec<BoundMaterial>> {
+    sink.begin_prim("Xform", "Scene", &PrimMeta { kind: Some("assembly"), ..Default::default() })?;
     let mut taken = HashSet::new();
     let mut material_names = HashSet::new();
     let mut materials: Vec<BoundMaterial> = Vec::new();
+    const BINDING: &[&str] = &["MaterialBindingAPI"];
     for m in meshes {
+        let m: &Mesh = m.borrow();
         if let Some(copies) = &m.instances {
-            begin_instancer(&mut o, &m.name, copies);
+            begin_instancer(sink, &m.name, copies)?;
         }
         if let Some(widths) = &m.curve_widths {
             // Strand hair: linear curves, the material bound on the prim.
@@ -116,137 +345,137 @@ pub(super) fn write_usda(meshes: &[Mesh], lights: &[SceneLight]) -> (String, Vec
                 materials.push((name.clone(), mat, 0.0));
                 name
             });
-            let _ = writeln!(
-                o,
-                "    def BasisCurves \"{}\" (\n        displayName = {}{}\n    )\n    {{",
-                m.name,
-                usd_string(&m.label),
-                if material.is_some() { "\n        prepend apiSchemas = [\"MaterialBindingAPI\"]" } else { "" }
-            );
-            o.push_str("        uniform token type = \"linear\"\n        int[] curveVertexCounts = ");
-            write_ints(&mut o, m.face_counts.iter().copied());
-            o.push_str("\n        point3f[] points = ");
-            write_vec3(&mut o, &m.points, 5);
-            o.push_str("\n        float[] widths = [");
-            for (k, w) in widths.iter().enumerate() {
-                if k > 0 {
-                    o.push_str(", ");
-                }
-                push_num(&mut o, *w, 6);
-            }
-            o.push_str("] (\n            interpolation = \"vertex\"\n        )\n");
+            let meta = PrimMeta { display_name: Some(&m.label), api_schemas: if material.is_some() { BINDING } else { &[] }, ..Default::default() };
+            sink.begin_prim("BasisCurves", &m.name, &meta)?;
+            sink.attr(Attr::new("type", "token", Val::Token("linear")).uniform())?;
+            sink.attr(Attr::new("curveVertexCounts", "int[]", Val::Ints(&m.face_counts)))?;
+            sink.attr(Attr::new("points", "point3f[]", Val::Vec3s(&m.points, 5)))?;
+            sink.attr(Attr::new("widths", "float[]", Val::Floats(widths, 6)).interpolation("vertex"))?;
             if let Some(name) = material {
-                let _ = writeln!(o, "        rel material:binding = </Scene/Materials/{name}>");
+                sink.rel("material:binding", &[&format!("/Scene/Materials/{name}")], false)?;
             }
-            o.push_str("    }\n\n");
-            if m.instances.is_some() {
-                o.push_str("    }\n    }\n\n");
-            }
-            continue;
+            sink.end_prim()?;
+        } else {
+            write_mesh(sink, m, &mut taken, &mut material_names, &mut materials)?;
         }
-        let _ = writeln!(o, "    def Mesh \"{}\" (\n        displayName = {}\n    )\n    {{", m.name, usd_string(&m.label));
-        o.push_str("        uniform bool doubleSided = 0\n");
-        o.push_str("        int[] faceVertexCounts = ");
-        write_ints(&mut o, m.face_counts.iter().copied());
-        o.push_str("\n        int[] faceVertexIndices = ");
-        write_ints(&mut o, m.face_indices.iter().copied());
-        o.push_str("\n        point3f[] points = ");
-        write_vec3(&mut o, &m.points, 5);
-        o.push('\n');
-        if let Some(n) = &m.normals {
-            // `primvars:normals`: Octane's USD import reads that one (the
-            // mesh node's `normals` + `polyNormalIndices`) and computes its
-            // own at the import's maxSmoothAngle without it — plain
-            // `normals` it ignored (Calib-Smooth probe, #40).
-            o.push_str("        normal3f[] primvars:normals = ");
-            write_vec3(&mut o, n, 4);
-            match &m.normal_indices {
-                // Split along hard edges (`smoothed_normals`): indexed per corner.
-                Some(idx) => {
-                    o.push_str(" (\n            interpolation = \"faceVarying\"\n        )\n        int[] primvars:normals:indices = ");
-                    write_ints(&mut o, idx.iter().copied());
-                    o.push('\n');
-                }
-                None => o.push_str(" (\n            interpolation = \"vertex\"\n        )\n"),
-            }
-        }
-        if let Some((vals, idx)) = &m.uvs {
-            o.push_str("        texCoord2f[] primvars:st = ");
-            write_vec2(&mut o, vals);
-            o.push_str(" (\n            interpolation = \"faceVarying\"\n        )\n        int[] primvars:st:indices = ");
-            write_ints(&mut o, idx.iter().copied());
-            o.push('\n');
-        }
-        // Subdivision surfaces arrive refined (`subdivide_once`).
-        o.push_str("        uniform token subdivisionScheme = \"none\"\n");
-        if !m.subsets.is_empty() {
-            o.push_str("        uniform token subsetFamily:materialBind:familyType = \"partition\"\n");
-        }
-        taken.clear();
-        for (i, (group, faces)) in m.subsets.iter().enumerate() {
-            let subset = unique_name(&mut taken, group);
-            let material = m.materials.get(i).cloned().flatten().map(|mat| {
-                let name = unique_name(&mut material_names, &format!("{}_{}", m.name, subset));
-                materials.push((name.clone(), mat, faces_area(m, faces)));
-                name
-            });
-            let _ = writeln!(
-                o,
-                "\n        def GeomSubset \"{subset}\" (\n            displayName = {}{}\n        )\n        {{",
-                usd_string(group),
-                if material.is_some() { "\n            prepend apiSchemas = [\"MaterialBindingAPI\"]" } else { "" }
-            );
-            o.push_str("            uniform token elementType = \"face\"\n            uniform token familyName = \"materialBind\"\n            int[] indices = ");
-            write_ints(&mut o, faces.iter().copied());
-            if let Some(name) = material {
-                let _ = write!(o, "\n            rel material:binding = </Scene/Materials/{name}>");
-            }
-            o.push_str("\n        }\n");
-        }
-        o.push_str("    }\n\n");
         if m.instances.is_some() {
-            o.push_str("    }\n    }\n\n");
+            sink.end_prim()?; // Prototypes
+            sink.end_prim()?; // the instancer
         }
     }
-    write_lights(&mut o, lights);
+    write_lights(sink, lights)?;
     if !materials.is_empty() {
-        o.push_str("    def Scope \"Materials\"\n    {\n");
+        sink.begin_prim("Scope", "Materials", &PrimMeta::default())?;
         for (name, mat, _) in &materials {
-            write_preview_material(&mut o, name, mat);
+            write_preview_material(sink, name, mat)?;
         }
-        o.push_str("    }\n");
+        sink.end_prim()?;
     }
-    o.push_str("}\n");
-    (o, materials)
+    sink.end_prim()?;
+    Ok(materials)
+}
+
+/// A mesh's points numbered in the order its faces first use them (points
+/// no face uses after those), its face indices and per-vertex normals to
+/// match. The surface stays the same; the indices then mostly step by a
+/// few, which the binary layer's integer coding keeps in a byte or two: a
+/// refined mesh lists its face, edge and corner points in three runs, and a
+/// quad's corners jumped between them (4.0 bytes per index on intake).
+pub(super) fn points_in_use_order(m: &Mesh) -> Option<(Vec<[f32; 3]>, Vec<u32>, Option<Vec<[f32; 3]>>)> {
+    let n = m.points.len();
+    if m.face_indices.iter().any(|&i| i as usize >= n) {
+        return None;
+    }
+    let mut new_of = vec![u32::MAX; n];
+    let mut order: Vec<u32> = Vec::with_capacity(n);
+    let indices = m
+        .face_indices
+        .iter()
+        .map(|&i| {
+            let slot = &mut new_of[i as usize];
+            if *slot == u32::MAX {
+                *slot = order.len() as u32;
+                order.push(i);
+            }
+            *slot
+        })
+        .collect();
+    order.extend((0..n as u32).filter(|&i| new_of[i as usize] == u32::MAX));
+    let points = order.iter().map(|&o| m.points[o as usize]).collect();
+    let normals = match (&m.normals, &m.normal_indices) {
+        (Some(nv), None) if nv.len() == n => Some(order.iter().map(|&o| nv[o as usize]).collect()),
+        _ => None,
+    };
+    Some((points, indices, normals))
+}
+
+fn write_mesh(sink: &mut dyn LayerSink, m: &Mesh, taken: &mut HashSet<String>, material_names: &mut HashSet<String>, materials: &mut Vec<BoundMaterial>) -> Result<()> {
+    sink.begin_prim("Mesh", &m.name, &PrimMeta { display_name: Some(&m.label), ..Default::default() })?;
+    sink.attr(Attr::new("doubleSided", "bool", Val::Bool(false)).uniform())?;
+    sink.attr(Attr::new("faceVertexCounts", "int[]", Val::Ints(&m.face_counts)))?;
+    let ordered = points_in_use_order(m);
+    let (points, indices, normals) = match &ordered {
+        Some((p, i, n)) => (p, i, n.as_ref().or(m.normals.as_ref())),
+        None => (&m.points, &m.face_indices, m.normals.as_ref()),
+    };
+    sink.attr(Attr::new("faceVertexIndices", "int[]", Val::Ints(indices)))?;
+    sink.attr(Attr::new("points", "point3f[]", Val::Vec3s(points, 5)))?;
+    if let Some(n) = normals {
+        // `primvars:normals`: Octane's USD import reads that one (the
+        // mesh node's `normals` + `polyNormalIndices`) and computes its
+        // own at the import's maxSmoothAngle without it — plain
+        // `normals` it ignored (Calib-Smooth probe, #40).
+        match &m.normal_indices {
+            // Split along hard edges (`smoothed_normals`): indexed per corner.
+            Some(idx) => {
+                sink.attr(Attr::new("primvars:normals", "normal3f[]", Val::Vec3s(n, 4)).interpolation("faceVarying"))?;
+                sink.attr(Attr::new("primvars:normals:indices", "int[]", Val::Ints(idx)))?;
+            }
+            None => sink.attr(Attr::new("primvars:normals", "normal3f[]", Val::Vec3s(n, 4)).interpolation("vertex"))?,
+        }
+    }
+    if let Some((vals, idx)) = &m.uvs {
+        sink.attr(Attr::new("primvars:st", "texCoord2f[]", Val::Vec2s(vals, 6)).interpolation("faceVarying"))?;
+        sink.attr(Attr::new("primvars:st:indices", "int[]", Val::Ints(idx)))?;
+    }
+    // Subdivision surfaces arrive refined (`subdivide_once`).
+    sink.attr(Attr::new("subdivisionScheme", "token", Val::Token("none")).uniform())?;
+    if !m.subsets.is_empty() {
+        sink.attr(Attr::new("subsetFamily:materialBind:familyType", "token", Val::Token("partition")).uniform())?;
+    }
+    taken.clear();
+    for (i, (group, faces)) in m.subsets.iter().enumerate() {
+        let subset = unique_name(taken, group);
+        let material = m.materials.get(i).cloned().flatten().map(|mat| {
+            let name = unique_name(material_names, &format!("{}_{}", m.name, subset));
+            materials.push((name.clone(), mat, faces_area(m, faces)));
+            name
+        });
+        let meta = PrimMeta { display_name: Some(group), api_schemas: if material.is_some() { &["MaterialBindingAPI"] } else { &[] }, ..Default::default() };
+        sink.begin_prim("GeomSubset", &subset, &meta)?;
+        sink.attr(Attr::new("elementType", "token", Val::Token("face")).uniform())?;
+        sink.attr(Attr::new("familyName", "token", Val::Token("materialBind")).uniform())?;
+        sink.attr(Attr::new("indices", "int[]", Val::Ints(faces)))?;
+        if let Some(name) = material {
+            sink.rel("material:binding", &[&format!("/Scene/Materials/{name}")], false)?;
+        }
+        sink.end_prim()?;
+    }
+    sink.end_prim()
 }
 
 /// Open `<name>_copies`, a `PointInstancer` drawing the prim that follows
-/// (named `name`, closed by the caller with two braces) at `copies`.
-fn begin_instancer(o: &mut String, name: &str, copies: &[Placement]) {
+/// (named `name`, closed by the caller: two `end_prim`) at `copies`.
+fn begin_instancer(sink: &mut dyn LayerSink, name: &str, copies: &[Placement]) -> Result<()> {
     let parts: Vec<_> = copies.iter().map(decompose).collect();
-    let _ = writeln!(o, "    def PointInstancer \"{name}_copies\"\n    {{");
-    let _ = writeln!(o, "        rel prototypes = [</Scene/{name}_copies/Prototypes/{name}>]");
-    o.push_str("        int[] protoIndices = ");
-    write_ints(o, copies.iter().map(|_| 0));
-    o.push_str("\n        point3f[] positions = ");
-    write_vec3(o, &parts.iter().map(|p| p.0).collect::<Vec<_>>(), 5);
-    o.push_str("\n        quath[] orientations = [");
-    for (i, (_, q, _)) in parts.iter().enumerate() {
-        if i > 0 {
-            o.push_str(", ");
-        }
-        o.push('(');
-        for (k, v) in q.iter().enumerate() {
-            if k > 0 {
-                o.push_str(", ");
-            }
-            push_num(o, *v, 5);
-        }
-        o.push(')');
-    }
-    o.push_str("]\n        float3[] scales = ");
-    write_vec3(o, &parts.iter().map(|p| p.2).collect::<Vec<_>>(), 5);
-    o.push_str("\n\n        def Scope \"Prototypes\"\n        {\n");
+    let instancer = format!("{name}_copies");
+    sink.begin_prim("PointInstancer", &instancer, &PrimMeta::default())?;
+    sink.rel("prototypes", &[&format!("/Scene/{instancer}/Prototypes/{name}")], true)?;
+    sink.attr(Attr::new("protoIndices", "int[]", Val::Ints(&vec![0; copies.len()])))?;
+    sink.attr(Attr::new("positions", "point3f[]", Val::Vec3s(&parts.iter().map(|p| p.0).collect::<Vec<_>>(), 5)))?;
+    sink.attr(Attr::new("orientations", "quath[]", Val::Quats(&parts.iter().map(|p| p.1).collect::<Vec<_>>(), 5)))?;
+    sink.attr(Attr::new("scales", "float3[]", Val::Vec3s(&parts.iter().map(|p| p.2).collect::<Vec<_>>(), 5)))?;
+    sink.begin_prim("Scope", "Prototypes", &PrimMeta::default())
 }
 
 /// Each material's UV scale: meters of surface per UV unit, the square root
@@ -312,24 +541,19 @@ pub(super) fn faces_area(m: &Mesh, faces: &[u32]) -> f64 {
 
 /// A `UsdPreviewSurface` approximation of a DAZ material (constants only —
 /// Octane gets the full material with textures from `project.ocs`).
-pub(super) fn write_preview_material(o: &mut String, name: &str, mat: &crate::daz_material::Material) {
-    let c = mat.base_color();
-    let _ = writeln!(o, "        def Material \"{name}\"\n        {{");
-    let _ = writeln!(o, "            token outputs:surface.connect = </Scene/Materials/{name}/Surface.outputs:surface>");
-    o.push_str("            def Shader \"Surface\"\n            {\n");
-    o.push_str("                uniform token info:id = \"UsdPreviewSurface\"\n");
-    o.push_str("                color3f inputs:diffuseColor = (");
-    for (k, v) in c.iter().enumerate() {
-        if k > 0 {
-            o.push_str(", ");
-        }
-        push_num(o, *v, 4);
-    }
-    o.push_str(")\n                float inputs:roughness = ");
-    push_num(o, mat.roughness().clamp(0.0, 1.0), 4);
-    o.push_str("\n                float inputs:metallic = ");
-    push_num(o, crate::iray::Uber::of(mat).and_then(|u| u.float("metallic_weight")).unwrap_or_else(|| mat.metallic()).clamp(0.0, 1.0), 4);
-    o.push_str("\n                float inputs:opacity = ");
-    push_num(o, mat.opacity().clamp(0.0, 1.0), 4);
-    o.push_str("\n                token outputs:surface\n            }\n        }\n");
+pub(super) fn write_preview_material(sink: &mut dyn LayerSink, name: &str, mat: &crate::daz_material::Material) -> Result<()> {
+    let c = mat.base_color().map(|v| Num::Trim(v as f64, 4));
+    let surface = format!("/Scene/Materials/{name}/Surface.outputs:surface");
+    sink.begin_prim("Material", name, &PrimMeta::default())?;
+    sink.attr(Attr::new("outputs:surface", "token", Val::None).connect(&surface))?;
+    sink.begin_prim("Shader", "Surface", &PrimMeta::default())?;
+    sink.attr(Attr::new("info:id", "token", Val::Token("UsdPreviewSurface")).uniform())?;
+    sink.attr(Attr::new("inputs:diffuseColor", "color3f", Val::Color(c)))?;
+    let float = |x: f32| Val::Float(Num::Trim(x.clamp(0.0, 1.0) as f64, 4));
+    sink.attr(Attr::new("inputs:roughness", "float", float(mat.roughness())))?;
+    sink.attr(Attr::new("inputs:metallic", "float", float(crate::iray::Uber::of(mat).and_then(|u| u.float("metallic_weight")).unwrap_or_else(|| mat.metallic()))))?;
+    sink.attr(Attr::new("inputs:opacity", "float", float(mat.opacity())))?;
+    sink.attr(Attr::new("outputs:surface", "token", Val::None))?;
+    sink.end_prim()?;
+    sink.end_prim()
 }

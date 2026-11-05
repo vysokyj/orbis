@@ -78,7 +78,7 @@ Each rule is calibrated against Iray — see the
 ## Command line
 
 ```sh
-orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz | --out-dir DIR]
+orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz|out.usda | --out-dir DIR]
              [--preview] [--no-ground] [--look enhanced|faithful] [--no-denoise]
              [--content-dir DIR]… [--progress]
 orbis install [--library DIR]
@@ -86,7 +86,9 @@ orbis install [--library DIR]
 
 `export` needs the scene dump the DAZ Studio script writes; without `--dump`
 it uses the last one it kept for the scene, so a scene exported once from
-DAZ Studio re-exports from the command line.
+DAZ Studio re-exports from the command line. The scene's USD layer is
+binary (`.usdc`) in an `.orbx` or `.usdz`; `-o scene.usda` writes it as
+text, to read.
 
 ## Build
 
