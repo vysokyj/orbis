@@ -33,8 +33,8 @@ else
   done
   lipo -create -output "${stage}/orbis" "${bins[@]}"
 fi
-# Ad hoc signature until a Developer ID one replaces it (#3).
-codesign --force --sign - "${stage}/orbis"
+# Developer ID with a secure timestamp when the keychain has one, else ad hoc (#3).
+scripts/sign.sh --release "${stage}/orbis"
 
 cp README.md LICENSE "${stage}/"
 mkdir -p "${stage}/docs"

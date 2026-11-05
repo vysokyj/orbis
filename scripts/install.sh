@@ -6,4 +6,8 @@ case ${1:-} in -h|--help) sed -n '2,4p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; e
 set -euo pipefail
 cd "$(dirname "$0")/.."
 cargo build --release --bin orbis
-"$(scripts/dev/target-dir.sh)/release/orbis" install "$@"
+bin="$(scripts/dev/target-dir.sh)/release/orbis"
+# Developer ID when the keychain has one: a stable identity, so what macOS
+# allowed the installed binary survives reinstalls (#3).
+scripts/sign.sh "$bin"
+"$bin" install "$@"

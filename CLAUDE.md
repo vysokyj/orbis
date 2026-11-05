@@ -167,7 +167,11 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   `let`/`const`. It is untested in DAZ Studio until #1 is closed.
 - Octane X is sandboxed and refuses files opened from outside — don't try to
   launch it with a file; the user opens the `.orbx` from its File → Open.
-- The binary is ad-hoc signed until #3; a downloaded copy is quarantined.
+- Signing: `scripts/sign.sh` (used by `install.sh` and `package.sh`) signs
+  with the keychain's Developer ID Application identity (hardened runtime),
+  else ad hoc; never put the identity's name or team in the repo. The release
+  zip isn't notarized until CI does it (#3), so a downloaded copy is still
+  quarantined.
 - Automation: never run a DAZ render and an Octane probe at once (Iray takes
   the whole CPU). DAZ Studio and Octane X may both stay open; `daz-render.sh`,
   `daz-script.sh` and `octane-run.sh` take turns through one lock
