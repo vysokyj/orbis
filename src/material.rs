@@ -6138,8 +6138,9 @@ mod tests {
         let read = |p: &std::path::Path| -> Value { serde_json::from_str(&crate::dson::decompress_scene(&std::fs::read(p).unwrap()).unwrap()).unwrap() };
         let (mut checked, mut wrong) = (0, Vec::new());
         // Calib-NVIDIA2: architectural's glossiness, anisotropy and glass,
-        // asphalt, ceramic tiles, resin variants.
-        for scene in ["Calib-NVIDIA", "Calib-NVIDIA2"] {
+        // asphalt, ceramic tiles, resin variants; Calib-NVIDIA3: the
+        // glossiness and refr_gloss series.
+        for scene in ["Calib-NVIDIA", "Calib-NVIDIA2", "Calib-NVIDIA3"] {
         let doc = read(&root.join(format!("calib/scenes/{scene}.duf")));
         let mi: Value = serde_json::from_str(&std::fs::read_to_string(root.join(format!("calib/references/mi/{scene}.json"))).unwrap()).unwrap();
         let images = crate::daz_material::image_library(&doc);

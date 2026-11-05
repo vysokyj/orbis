@@ -232,10 +232,38 @@ spec already has; at these levels the BSDFs differ by < 0.1.
   0.15 / 0.3 / 0.5 / 0.7, glass at refr_gloss 1 / 0.6 / 0.2 with
   reflectivity 0) to see Iray's curve for each lobe.
 
+## Calib-NVIDIA3 (for the Iray batch)
+
+Built from Calib-NVIDIA2's .duf by a script (A3's architectural material
+copied with its glossiness changed, A6's glass with its refr_gloss and
+reflectivity changed, spheres relabelled, `current_camera` set), then
+opened and saved by DAZ through `daz-apply-presets.dsa`. That script
+now makes the scene's first camera the viewport's before saving. A
+headless instance has no `MainWindow` and dropped `current_camera`
+again; a normal instance (`HEADLESS=0`) kept it. Dumped, .mi exported
+(`calib/references/mi/Calib-NVIDIA3.json`, Camera-1 at 65 mm; the test
+`nvidia_examples_match_daz_mi_export` reads it too). Left to right
+(x −175 … 175 as before):
+
+| node | refl_gloss | refr_gloss | reflectivity | transparency |
+|---|---|---|---|---|
+| A1 | 0.15 | 1 | 0.6 | 0 |
+| A2 | 0.3 | 1 | 0.6 | 0 |
+| A3 | 0.5 | 1 | 0.6 | 0 |
+| A4 | 0.7 | 1 | 0.6 | 0 |
+| A5 | 1 | 1 | 0 | 1 |
+| A6 | 1 | 0.6 | 0 | 1 |
+| A7 | 1 | 0.2 | 0 | 1 |
+| A8 | 1 | 0.2 | 0.6 | 1 |
+
+A2 repeats Calib-NVIDIA2's A3 and A8 its A6 (anchors between the two
+references); A5 – A7 are the glass without the reflection on top.
+Iray batch: needs Calib-NVIDIA3, 5000 samples.
+
 ## Open (#21)
 
 - Architectural glossiness < 1 (A3, blurrier in Iray) and glass (A6,
-  1.46 ×): needs the Iray series above.
+  1.46 ×): needs Calib-NVIDIA3's Iray reference.
 - Resin's lobe albedo is measured at r 0.02 and 0.25 only.
 - OOT hair: per-map tiling (#77); a non-black Overlay Alpha Mask value
   (the colour → float reduction is a guess, no scene has one).

@@ -33,5 +33,17 @@
         for (var m = 0; m < oShape.getNumMaterials(); m++) oShape.getMaterial(m).select(true);
         sLog += aPairs[p][0] + " <- " + aPairs[p][1] + ": " + oContent.openFile(aPairs[p][1], true) + "\n";
     }
+    // Save with the scene's camera current: a scene saved through the
+    // Perspective View has no current_camera, and Iray then renders that
+    // unsaved view (Calib-NVIDIA2's reference, #21).
+    var oCam = Scene.getNumCameras() > 0 ? Scene.getCamera(0) : null;
+    if (oCam) {
+        try {
+            MainWindow.getViewportMgr().getActiveViewport().get3DViewport().setCamera(oCam);
+            sLog += "camera " + oCam.getLabel() + "\n";
+        } catch (e) {
+            sLog += "camera not set: " + e + "\n";
+        }
+    }
     done("saved " + Scene.saveScene(sOut));
 })();
