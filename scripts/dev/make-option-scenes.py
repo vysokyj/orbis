@@ -9,7 +9,8 @@ argument) and copied into calib/scenes; existing scenes are kept (--force).
 - Calib-Tone-*  tonemapper: vignetting, per-component burn, saturation, white point (#38, #70)
 - Calib-Env-*   environment: tint, dome rotation / orientation, lighting blur / resolution,
                 intensity, ground, matte fog, ground fog, dome modes (#37, #65); Calib-Env-Mi-*
-                for DAZ's .mi export only (every fog / dome channel off its default, #37)
+                for DAZ's .mi export only (every fog / dome channel off its default, #37);
+                Calib-L-Mi-SunSky-Look: Sun-Sky's horizon blur, tint, glow, night colour (#15)
 - Calib-RS-*    render settings: caustics, path length, firefly, bloom, pixel filter, spectral (#43);
                 Calib-RS-Mi-* for DAZ's .mi export only (triangle filter, SSS path length, bloom settings)
 - Calib-L-Opt-* light options on Calib-L-Point-5k: decay, shadow intensity / softness / colour,
@@ -180,6 +181,10 @@ ENV_MI = [('Fog', {'Ground Fog': True, 'Ground Fog Decay Start': 50.0, 'Ground F
           ('FogHG', {'Ground Fog': True, 'Ground Fog Anisotropy': 0.3}),
           ('GroundBelow', {'Draw Ground': True, 'Ground Visible from Below': False})]
 variants('Calib-Tone-Default', 'Calib-Env-Mi', 'Environment Options', ENV_MI)
+# Sun-Sky's look channels off their defaults, for DAZ's .mi export only (#15):
+# whether DAZ hands base::sun_and_sky horizon_blur, red_blue_shift, sun_glow_intensity, night_color.
+variants('Calib-L-Mi-SunSky-sydney', 'Calib-L-Mi-SunSky', 'Environment Options',
+         [('Look', {'SS Horizon Blur': 2.0, 'SS Blue-Red Tint': 0.5, 'SS Sun Glow Intensity': 2.0, 'SS Night Color': [0.1, 0.1, 0.2]})])
 
 # Camera lens options (#39), one group per scene. Lens Distortion Type is an enum: 0 none,
 # 1 spherical, 2 cylindrical, 3 poly3, 4 inv_poly3, 5 poly5, 6 inv_poly5, 7 ptlens, 8 inv_ptlens,

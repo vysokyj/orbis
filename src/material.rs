@@ -640,8 +640,33 @@ struct MdlDielectric {
     /// Architectural's anisotropic reflection: MDL roughness (u, v) and
     /// the tangent's rotation in turns (`base::anisotropy_conversion`).
     aniso: Option<(f32, f32, f32)>,
+    /// Architectural's Enable Absorption inside the glass: σa (1/m per
+    /// channel, `arch_absorption`).
+    absorption: Option<[f32; 3]>,
     metallic: bool,
     opacity: f32,
+}
+
+/// Architectural's absorption (`refr_falloff_on`) as the MDL computes it
+/// (`nvidia/architectural.mdl`): σa = −ln(c) / d, c the Absorption Color
+/// (linear) with Absorption Use Color on, else 0.3333, d the Absorption
+/// Distance (scene units, cm) in metres — 1 m and no light through at a
+/// distance ≤ 0; none on a thin-walled surface (no volume). DAZ passes all
+/// four (Calib-Mi-Arch).
+fn arch_absorption(mat: &Material) -> Option<[f32; 3]> {
+    if mat.float("refr_falloff_on").unwrap_or(0.0) <= 0.0 || mat.float("thin_walled").unwrap_or(0.0) > 0.0 {
+        return None;
+    }
+    let dist = mat.float("refr_falloff_dist").unwrap_or(10.0);
+    let colour = if dist <= 0.0 {
+        [0.0; 3]
+    } else if mat.float("refr_falloff_color_on").unwrap_or(0.0) > 0.0 {
+        mat.color("refr_falloff_color").unwrap_or([0.5; 3])
+    } else {
+        [0.3333; 3]
+    };
+    let d = if dist <= 0.0 { 1.0 } else { dist * CM_PER_M_INV };
+    Some(colour.map(|c| -c.clamp(1e-4, 1.0).ln() / d))
 }
 
 /// Resin's base tint × this = Octane's specular and transmission: what
@@ -699,6 +724,7 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
         transmission: None,
         refraction: None,
         aniso: None,
+        absorption: None,
         metallic: false,
         opacity: 1.0,
     };
@@ -767,6 +793,7 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
                 d.transmission = Some(mat.color("refr_color").unwrap_or([1.0; 3]).map(|c| c * transparency * k));
                 d.albedo = MdlAlbedo::Colour(diffuse.map(|c| c * (1.0 - transparency)));
                 d.refraction = Some((refr, mat.float("Index of Refraction").unwrap_or(1.4)));
+                d.absorption = arch_absorption(mat);
             }
             d.opacity = mat.float("Cutout Opacity").unwrap_or(1.0);
             d.bump = mat.image("Bump Strength").map(|m| (m.to_string(), mat.float("Bump Strength").unwrap_or(1.0))).filter(|(_, a)| *a > 0.0);
@@ -1468,6 +1495,9 @@ impl Ocs<'_> {
             self.rgb_pin(i, "transmission", t);
             self.float_pin(i, "coatingIor", m.ior);
             self.float_pin(i, "ior", refr_ior);
+            if let Some(sigma) = m.absorption {
+                self.absorption_pin(i, sigma);
+            }
         } else if let Some(t) = m.transmission {
             // The base reflects its tint and lets it through (rough glass).
             let rough = curve.apply(m.roughness.clamp(0.0, 1.0));
@@ -6244,8 +6274,8 @@ mod tests {
         let (mut checked, mut wrong) = (0, Vec::new());
         // Calib-NVIDIA2: architectural's glossiness, anisotropy and glass,
         // asphalt, ceramic tiles, resin variants; Calib-NVIDIA3: the
-        // glossiness and refr_gloss series.
-        for scene in ["Calib-NVIDIA", "Calib-NVIDIA2", "Calib-NVIDIA3"] {
+        // glossiness and refr_gloss series; Calib-Mi-Arch: Enable Absorption.
+        for scene in ["Calib-NVIDIA", "Calib-NVIDIA2", "Calib-NVIDIA3", "Calib-Mi-Arch"] {
         let doc = read(&root.join(format!("calib/scenes/{scene}.duf")));
         let mi: Value = serde_json::from_str(&std::fs::read_to_string(root.join(format!("calib/references/mi/{scene}.json"))).unwrap()).unwrap();
         let images = crate::daz_material::image_library(&doc);
@@ -6308,6 +6338,20 @@ mod tests {
                         if pass("transparency").as_f64().unwrap() > 0.0 {
                             let refr = architectural_gloss_to_rough(pass("refr_gloss").as_f64().unwrap() as f32);
                             check("refraction", d.refraction.is_some_and(|(rr, ior)| near(rr, f64::from(arch_glass_rough(refr))) && near(ior, args["refr_ior"].as_f64().unwrap())));
+                            // Enable Absorption: −ln(colour) / distance (m), the MDL's.
+                            match args["refr_falloff_on"].as_bool() {
+                                Some(true) => {
+                                    let dist = args["refr_falloff_dist"]["args"]["x"].as_f64().unwrap_or(10.0) * 0.01;
+                                    let c: Vec<f64> = if args["refr_falloff_color_on"].as_bool() == Some(true) {
+                                        args["refr_falloff_color"].as_array().unwrap().iter().filter_map(Value::as_f64).collect()
+                                    } else {
+                                        vec![0.3333; 3]
+                                    };
+                                    let sigma = |k: usize| -c[k].ln() / dist;
+                                    check("absorption", d.absorption.is_some_and(|s| (0..3).all(|k| (f64::from(s[k]) - sigma(k)).abs() < 1e-4 * sigma(k).max(1.0))));
+                                }
+                                _ => check("no absorption", d.absorption.is_none()),
+                            }
                         }
                     }
                 }

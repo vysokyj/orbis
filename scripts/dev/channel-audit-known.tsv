@@ -1,0 +1,24 @@
+# Channels the export doesn't read, with the reason (channel-audit.py shows it instead of **no**).
+# owner kind (regex, as the report's section names it)	channel id (regex)	reason: spec section (docs/spec/octane-export.md) or issue
+.*	Tags|OutlineColorID|OutlineDepth|Line UV Width|Line Preview Color|Selectable	metadata (content tags, viewport outline / line preview, selectability): no Iray parameter
+camera	Dimension Preset	metadata: DAZ's frame-size preset; the size comes from the render settings (Render targets and cameras)
+material: uber_iray	SSS Reflectance Tint	not passed by DAZ (Universal: scattering in a refractive volume; Calib-SSSColor)
+material: uber_iray	Top Coat Curve Grazing|Top Coat Curve Exponent|Top Coat Specular	not passed by DAZ (Universal: coatingIor; Calib-TopCoat, Calib-Map-Audit)
+material: uber_iray	PBR Masked Threshold	not passed by DAZ: a user property, no MDL parameter (Materials: not mapped; Calib-Map-Audit)
+material: .*	Multiply Specular Through Opacity	not passed by DAZ (Materials: not mapped; Calib-Mi-DzDefault3, Calib-Mi-AoA5, Calib-Map-Audit)
+Environment Options	Environment Lighting Resolution|Environment Lighting Blur	no effect on Iray's image (Environment: not mapped; Calib-Env-Res128, Calib-Env-Blur)
+material: \?	ambient|ambient_strength|reflection|reflection_strength|Lighting Model	DAZ Default: doesn't reach Iray (Legacy shaders: DAZ Default; Calib-Mi-DzDefault2)
+material: \?	bump_min|bump_max|displacement_min|displacement_max|u_offset|u_scale|v_offset|v_scale|Scatter Color|Sheen Color	DAZ Default channels not mapped yet: #41
+material: Blended%20Dual%20Lobe%20Hair	strength	reaches nothing in Iray (dForce hair; Calib-Mi-Hair2)
+material: PBRSkin	Detail .*|Makeup .*|Specular Occlusion .*	PBRSkin Detail / Makeup / Specular Occlusion: #54
+material: PBRSkin	Top Coat Bump Weight|Dual Lobe Specular Roughness Mult|Transmission Enable	PBRSkin mapped directly to OpenPBR: #57
+material: OOT%20Hairblending%20Hair	Top Coat Overlay Color	the top coat's overlay is not exported (Universal: OOT Hairblending 2)
+material: Cap	Cap .*	OOT hair cap shader: #54
+light	Intensity Scale	not passed by DAZ for non-photometric lights (Lights; Calib-L-Point-legacy)
+light	Shadow Type	not passed by DAZ (Lights: light options; Calib-L-Opt-*)
+render settings	Post Denoiser Available|Post Denoiser Enable|Max Samples|Rendering Converged Ratio|Max Time	Iray's sampling / denoiser, not the look (Render settings: not mapped)
+material: AoA_Subsurface	Ambient .*|Reflection .*|color3|strength3|Positive Bump|Negative Bump	doesn't reach Iray: ambient, reflection, velvet, bump limits (Legacy shaders: AoA Subsurface; Calib-Mi-AoA)
+material: AoA_Subsurface	Scale|cAbsorb_.|cScatter_.|color4	subsurface (SSS Material Type Custom) not mapped, its colours included (Legacy shaders: AoA Subsurface; Calib-Mi-AoA2)
+material: daz_brick	.*	a custom brick graph: its own inputs have no Uber equivalent beyond CHANNEL_ALIASES (Universal: Custom (DAZ brick) shaders)
+material: daz_shader	.*	scripted 3Delight shader: DAZ Studio 6 keeps only Diffuse Color and Opacity Strength (Legacy shaders; Calib-Mi-Legacy2)
+material: Simple%20OpenVDB%20MDL%20Volume	Clip To Geometry	not exported: the volume fills its extent (VDB volumes)

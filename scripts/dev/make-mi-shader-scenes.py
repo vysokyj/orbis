@@ -21,6 +21,9 @@ Read through DAZ's .mi export, not rendered.
 - Calib-Mi-Legacy2 (from Calib-Mi-Legacy-base): the UberSurface channels a
   DAZ Studio 4 save carries (USURFACE below), varied, on every sphere but
   S8 - what DAZ Studio 6 makes of an old scene (#64).
+- Calib-Mi-DzDefault3 / Calib-Mi-AoA5: Multiply Specular Through Opacity
+  off on transparent spheres (#15); Calib-Mi-Arch (from Calib-NVIDIA3):
+  Architectural's Enable Absorption.
 """
 import sys as _sys
 if any(a in ('-h', '--help') for a in _sys.argv[1:]):
@@ -89,6 +92,8 @@ USURFACE = {
     'Translucency Active': ('/Translucency', 'bool', False), 'Translucency Color': ('/Translucency', 'color', [0, 0, 0]),
     'Translucency Strength': ('/Translucency', 'float', 1.0),
 }
+# Channels written with their whole definition when the material lacks them.
+DEFS = {**USURFACE, 'Multiply Specular Through Opacity': ('/Specular', 'bool', True)}
 TILES = '/Runtime/Textures/ORBIS/calib-tiles.png'
 
 VARIANTS.update({
@@ -169,6 +174,31 @@ VARIANTS.update({
         'S7': {'USURFACE': 1, 'Velvet Active': True, 'Velvet Color': [0.4, 0.4, 1.0], 'Ambient Active': True, 'Ambient Color': [0.5, 0.4, 0.3],
                'Ambient Strength': 0.5, 'Diffuse Active': False},
     }),
+    # Multiply Specular Through Opacity off (#15; on by default, in DAZ
+    # Default's definition): transparent spheres against their twin S1.
+    'Calib-Mi-DzDefault3': ('Calib-Mi-DzDefault', {
+        'S1': {'transparency': 0.4, 'specular_strength': 1.0, 'glossiness': 0.6},
+        'S2': {'transparency': 0.4, 'specular_strength': 1.0, 'glossiness': 0.6, 'Multiply Specular Through Opacity': False},
+        'S3': {'transparency': 0.8, 'glossiness': 0.8, 'Multiply Specular Through Opacity': False},
+        'S4': {'Multiply Specular Through Opacity': False},
+        'S5': {'transparency': (TILES, 1.0), 'glossiness': 0.6, 'Multiply Specular Through Opacity': False},
+    }),
+    # Architectural's Enable Absorption (refr_falloff_on, #15): on glass
+    # (A5, A6 with a distance) and on an opaque sphere (A1), as a scene's
+    # metal doors carry it.
+    'Calib-Mi-Arch': ('Calib-NVIDIA3', {
+        'A1': {'refr_falloff_on': True},
+        'A5': {'refr_falloff_on': True},
+        'A6': {'refr_falloff_on': True, 'refr_falloff_dist': 2.0},
+        'A7': {'refr_falloff_on': True, 'refr_falloff_color_on': True, 'refr_falloff_color': [0.8, 0.6, 0.4], 'refr_falloff_dist': 3.0},
+    }),
+    # The same on AoA Subsurface (a brick graph whose definition lacks it:
+    # added as the brick materials that carry it save it).
+    'Calib-Mi-AoA5': ('Calib-Mi-AoA-base', {
+        'S1': {'transparency': 0.6, 'Glossiness': 0.6},
+        'S2': {'transparency': 0.6, 'Glossiness': 0.6, 'Multiply Specular Through Opacity': False},
+        'S3': {'Multiply Specular Through Opacity': False},
+    }),
 })
 
 # DAZ keeps a `color` channel (DAZ Default's, the scripted shaders') in 8
@@ -204,9 +234,9 @@ for name, (src, variants) in VARIANTS.items():
             if c is None:
                 c = {'id': k, 'type': TYPES[type(v)]}
                 entry = {'channel': c}
-                if k in USURFACE:
+                if k in DEFS:
                     # A whole definition, as DAZ Studio 4 wrote it.
-                    group, kind, default, *enum = USURFACE[k]
+                    group, kind, default, *enum = DEFS[k]
                     c.update({'type': kind, 'name': k, 'label': k, 'value': default})
                     if enum:
                         c['enum_values'] = enum[0]

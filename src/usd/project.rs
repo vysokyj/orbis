@@ -175,6 +175,7 @@ fn daylight_environment(s: &SunSky) -> String {
         out += "       <pin name='sunset_color'>\n        <node id='100219' type='33'>\n         <attr name='value' type='8'>1 1 1</attr>\n        </node>\n       </pin>\n";
     }
     out += &float(100218, "groundStartAngle", "0 0 0 0".into());
+    out += &float(100209, "groundBlendAngle", format!("{:.6} 0 0 0", s.ground_blend_deg));
     out += &float(100216, "sun_size", format!("{:.6} 0 0 0", s.sun_size));
     out += &float(100217, "groundColor", format!("{r:.6} {g:.6} {b:.6} 0"));
     out += "      </node>\n     </pin>\n";

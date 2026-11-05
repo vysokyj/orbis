@@ -1144,10 +1144,15 @@ fn iray_sun_sky_becomes_octane_daylight() {
     let noon = sun_direction(23.44, 0.0, 2_460_483.0, 43_200.0, 0.0);
     assert!(noon[1] > 0.99, "{noon:?}");
 
-    let sky = SunSky { sun_dir: d, turbidity: 2.0, power: 1.0, sun_intensity: 1.0, sun_size: 1.0, ground: [0.13; 3], model: 3 };
+    let sky = SunSky { sun_dir: d, turbidity: 2.0, power: 1.0, sun_intensity: 1.0, sun_size: 1.0, ground: [0.13; 3], model: 3, ground_blend_deg: 1.0 };
     let cam = [("Camera".to_string(), framing_camera(&[]))];
     let ocs = project_ocs("Sun", "scene.usdz", &cam, (640, 480), "", &Variant::new(Look::Enhanced, OctaneMode::Final).tuning(), &ToneMapping::default(), false, Some(&sky), true, &crate::iray::RenderOptions::default());
     assert!(ocs.contains("<node id='100210' type='14'>") && ocs.contains("<pin name='sundir'>"), "daylight environment");
+    assert!(ocs.contains("<pin name='groundBlendAngle'>"), "ground blend");
+    // Iray's horizon blur 2: all ground 11.5° below the horizon; DAZ's 0.1
+    // below Octane's 1° minimum.
+    assert!((crate::usd::environment::ground_blend_angle(2.0) - 0.76 * 11.537).abs() < 0.01);
+    assert_eq!(crate::usd::environment::ground_blend_angle(0.1), 1.0);
     assert!(!ocs.contains("<node id='100035' type='37'>"), "no texture environment on the render target");
 }
 

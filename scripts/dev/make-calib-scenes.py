@@ -404,6 +404,10 @@ def uber_spheres(name, colour, plain, variants):
                 lib_images = d.setdefault('image_library', [])
                 if not any(i['id'] == v for i in lib_images):
                     lib_images.append({'id': v, 'name': os.path.basename(v), 'map_gamma': 0, 'map': [{'url': v, 'label': os.path.basename(v)}]})
+            elif isinstance(v, dict):
+                # A whole channel entry (a user property or a channel the
+                # Uber definition lacks), as the scene that carries it saved it.
+                ch[:] = [c for c in ch if c['channel']['id'] != k] + [copy.deepcopy(v)]
             else:
                 set_channel(ch, k, v, TYPES.get(type(v), 'float'))
     made.append((save(d, name), labels))
@@ -650,6 +654,29 @@ uber_spheres('Calib-Map-TopCoat', RED, COATED, [
     ('C6 refl specular', {'Top Coat Layering Mode': 0, 'Reflectivity': 0.5, 'Top Coat Specular': [0.2, 0.5, 0.9]}),
     ('C7 effect 1', {'Top Coat Layering Mode': 2, 'Top Coat Color': [0.9, 0.2, 0.1], 'Top Coat Color Effect': 1}),
     ('C8 effect 2', {'Top Coat Layering Mode': 2, 'Top Coat Color': [0.9, 0.2, 0.1], 'Top Coat Color Effect': 2}),
+])
+# Channels the audit found unread (#15): Top Coat Specular in the other
+# layering modes (Calib-Map-TopCoat's C6 has mode 0), PBR Masked Threshold
+# (a user property some tear materials carry, saved as below) and Multiply
+# Specular Through Opacity (a DAZ Default / brick channel, here on Uber).
+PBR_MASKED = {'user_property': True, 'group': '/Physically-Based', 'channel': {
+    'id': 'PBR Masked Threshold', 'type': 'float', 'label': 'PBR Masked Threshold', 'value': 0, 'current_value': 0.999,
+    'min': 0, 'max': 1, 'clamped': True, 'step_size': 0.01, 'default_image_gamma': 1, 'mappable': True}}
+MSTO_OFF = {'group': '/Specular', 'channel': {'id': 'Multiply Specular Through Opacity', 'type': 'bool',
+            'label': 'Multiply Specular Through Opacity', 'value': True, 'current_value': False}}
+def pbr_masked(t):
+    e = copy.deepcopy(PBR_MASKED)
+    e['channel']['current_value'] = t
+    return e
+uber_spheres('Calib-Map-Audit', RED, COATED, [
+    ('A1 weighted specular', {'Top Coat Layering Mode': 1, 'Top Coat Specular': [0.2, 0.5, 0.9]}),
+    ('A2 fresnel specular', {'Top Coat Layering Mode': 2, 'Top Coat Specular': [0.2, 0.5, 0.9]}),
+    ('A3 curve specular', {'Top Coat Layering Mode': 3, 'Top Coat Specular': [0.2, 0.5, 0.9]}),
+    ('A4 refl 1 specular', {'Top Coat Layering Mode': 0, 'Reflectivity': 1.0, 'Top Coat Specular': [0.9, 0.5, 0.2]}),
+    ('A5 masked 0.999 cutout 0.9989', {'Top Coat Weight': 0.0, 'Cutout Opacity': 0.9989, 'PBR Masked Threshold': pbr_masked(0.999)}),
+    ('A6 masked 0.7 cutout 0.5', {'Top Coat Weight': 0.0, 'Cutout Opacity': 0.5, 'PBR Masked Threshold': pbr_masked(0.7)}),
+    ('A7 masked 0.3 cutout 0.5', {'Top Coat Weight': 0.0, 'Cutout Opacity': 0.5, 'PBR Masked Threshold': pbr_masked(0.3)}),
+    ('A8 msto off cutout 0.5', {'Top Coat Weight': 0.0, 'Cutout Opacity': 0.5, 'Multiply Specular Through Opacity': MSTO_OFF}),
 ])
 TRANSL = {'Translucency Weight': 0.5, 'Translucency Color': [0.2, 0.6, 0.9]}
 uber_spheres('Calib-Map-Effect', RED, GLOSS, [

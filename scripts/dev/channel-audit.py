@@ -6,10 +6,13 @@
 Walks every .duf: cameras, lights, the Tonemapper / Environment / render
 settings, and materials (scene materials over their library definitions).
 A channel counts as *set* in a scene when its current value differs from
-its default (DSON `value`). Handled = its id appears as a string literal in
-src/ (what the export can read). The report lists, per kind of owner, the
-channels set in any scene: in how many scenes, an example value, handled
-or not — unhandled ones first.
+its default (DSON `value`). Read = its id appears as a string literal in
+src/, or matches a `format!` template there ("Lens Distortion K{i}"). An
+unread channel listed in scripts/dev/channel-audit-known.tsv shows its
+reason (spec section / issue) instead of **no**. The report lists, per kind
+of owner, the channels set in any scene: in how many scenes, an example
+value, read or why not — unexplained ones first — and ends with the
+unexplained ones.
 """
 import sys as _sys
 if any(a in ('-h', '--help') for a in _sys.argv[1:]):
@@ -20,8 +23,34 @@ import collections, glob, gzip, json, os, re, sys
 root = os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..')
 dirs = sys.argv[1:] or ['/Volumes/Data/DAZ 3D/Studio/My Library/Scenes']
 handled = set()
+templates = []
 for f in glob.glob(os.path.join(root, 'src/**/*.rs'), recursive=True):
-    handled |= set(re.findall(r'"([A-Za-z][A-Za-z0-9 /_\-()]+)"', open(f).read()))
+    text = open(f).read()
+    handled |= set(re.findall(r'"([A-Za-z][A-Za-z0-9 /_\-()]+)"', text))
+    # Ids built with format! ("Lens Distortion K{i}", "Dome Orientation
+    # {a}"): a template that starts with a capitalised word, each
+    # placeholder standing for one word.
+    for t in re.findall(r'format!\(\s*"([A-Z][A-Za-z ]{3,}\{[^"]*)"', text):
+        if re.fullmatch(r'[A-Za-z0-9 ]*(\{[^{}]*\}[A-Za-z0-9 ]*)+', t):
+            templates.append(re.compile(''.join(re.escape(p) if not p.startswith('{') else '[A-Za-z0-9]+'
+                                                for p in re.split(r'(\{[^{}]*\})', t))))
+
+
+def is_read(cid):
+    return cid in handled or any(t.fullmatch(cid) for t in templates)
+
+
+# Known unread channels, each with its reason (the spec section or issue):
+# owner-kind regex, channel regex, reason (scripts/dev/channel-audit-known.tsv).
+known = []
+for line in open(os.path.join(root, 'scripts/dev/channel-audit-known.tsv')):
+    if line.strip() and not line.startswith('#'):
+        o, c, why = line.rstrip('\n').split('\t')
+        known.append((re.compile(o), re.compile(c), why))
+
+
+def why_unread(kind, cid):
+    return next((why for o, c, why in known if o.fullmatch(kind) and c.fullmatch(cid)), None)
 
 # owner kind → channel → [scenes, example value]
 seen = collections.defaultdict(lambda: collections.defaultdict(lambda: [set(), None]))
@@ -56,6 +85,38 @@ def channels(entry):
             yield v['channel']
 
 
+def merge(merged, entry):
+    """Overlay an entry's channels field by field: a scene keeps only what
+    it changed (`current_value`), the default (`value`) stays the
+    definition's."""
+    for c in channels(entry):
+        merged.setdefault(c['id'], {}).update(c)
+
+
+CONTENT = [os.environ.get('ORBIS_LIBRARY', '/Volumes/Data/DAZ 3D/Studio/My Library'), '/Volumes/Data/DAZ 3D/Studio/My DAZ 3D Library']
+_definitions = {}
+
+
+def definition(url):
+    """The material a library .dsf defines (`/data/…/X.dsf#X`), or None."""
+    path = url.split('#')[0].replace('%20', ' ').replace('%28', '(').replace('%29', ')')
+    if not path.endswith('.dsf'):
+        return None
+    if path not in _definitions:
+        _definitions[path] = None
+        for c in CONTENT:
+            p = os.path.join(c, path.lstrip('/'))
+            if os.path.exists(p):
+                try:
+                    raw = open(p, 'rb').read()
+                    lib = json.loads(gzip.decompress(raw) if raw[:2] == b'\x1f\x8b' else raw).get('material_library') or [None]
+                    _definitions[path] = lib[0]
+                except Exception:
+                    pass
+                break
+    return _definitions[path]
+
+
 def is_set(ch):
     cur = ch.get('current_value')
     if cur is None and not ch.get('image_file'):
@@ -83,8 +144,8 @@ for d in dirs:
             k = kind_of(entry)
             if not k:
                 continue
-            merged = {c['id']: c for c in channels(entry)}
-            merged.update({c['id']: c for c in channels(n)})
+            merged = {c['id']: dict(c) for c in channels(entry)}
+            merge(merged, n)
             for ch in merged.values():
                 if is_set(ch):
                     s = seen[k][ch['id']]
@@ -99,11 +160,15 @@ for d in dirs:
                         render_values[ch['id']][json.dumps(ch.get('current_value'))].add(name)
         mlib = {m.get('id'): m for m in doc.get('material_library', [])}
         for m in doc['scene'].get('materials', []):
-            base = mlib.get(m.get('url', '').split('#')[-1])
-            shader = 'material: ' + (m.get('url', '').split('#')[-1] if not m.get('url', '').startswith('#') else
+            url = m.get('url', '')
+            base = mlib.get(url.split('#')[-1])
+            shader = 'material: ' + (url.split('#')[-1] if not url.startswith('#') else
                                      next((e['type'].split('/')[-1] for e in (base or {}).get('extra', []) if e.get('type', '').startswith('studio/material')), '?'))
-            merged = {c['id']: c for c in channels(base or {})}
-            merged.update({c['id']: c for c in channels(m)})
+            # A shader from a library file: its definition holds the
+            # defaults the scene leaves out.
+            merged = {c['id']: dict(c) for c in channels(definition(url) or {})}
+            merge(merged, base or {})
+            merge(merged, m)
             for ch in merged.values():
                 if is_set(ch):
                     s = seen[shader][ch['id']]
@@ -119,12 +184,19 @@ for cid, vals in render_values.items():
                 s[0] |= sc
                 s[1] = s[1] if s[1] is not None else json.loads(v)
 print(f'# DAZ channels set in {scenes} scenes vs. read by the export\n')
+unexplained = []
 for k in sorted(seen, key=lambda k: -sum(len(v[0]) for v in seen[k].values())):
-    rows = sorted(seen[k].items(), key=lambda kv: (kv[0] in handled, -len(kv[1][0]), kv[0]))
+    state = {cid: 'yes' if is_read(cid) else why_unread(k, cid) or '**no**' for cid in seen[k]}
+    rows = sorted(seen[k].items(), key=lambda kv: (state[kv[0]] != '**no**', state[kv[0]] == 'yes', -len(kv[1][0]), kv[0]))
     print(f'## {k}\n\n| channel | scenes | example | read |\n|---|---|---|---|')
     for cid, (sc, ex) in rows:
         ex = str(ex)
         if len(ex) > 50:
             ex = '…' + ex[-47:]
-        print(f'| {cid} | {len(sc)} | {ex} | {"yes" if cid in handled else "**no**"} |')
+        print(f'| {cid} | {len(sc)} | {ex} | {state[cid]} |')
+        if state[cid] == '**no**':
+            unexplained.append((k, cid, len(sc), sorted(sc)[:3]))
     print()
+print(f'## Unexplained: {len(unexplained)}\n')
+for k, cid, n, sc in unexplained:
+    print(f'- {k}: {cid} ({n} scenes: {", ".join(sc)})')

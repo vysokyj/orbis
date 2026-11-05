@@ -175,7 +175,7 @@ mod tests {
     fn faithful_daylight_dims_a_low_sun() {
         let at = |elevation: f64, look| {
             let e = elevation.to_radians();
-            let mut s = crate::usd::SunSky { sun_dir: [e.cos(), e.sin(), 0.0], turbidity: 2.0, power: SUN_SKY_POWER, sun_intensity: 0.55, sun_size: 1.0, ground: [0.4; 3], model: 3 };
+            let mut s = crate::usd::SunSky { sun_dir: [e.cos(), e.sin(), 0.0], turbidity: 2.0, power: SUN_SKY_POWER, sun_intensity: 0.55, sun_size: 1.0, ground: [0.4; 3], model: 3, ground_blend_deg: 1.0 };
             s.tune(&Variant::new(look, OctaneMode::Final).tuning());
             (s.model, s.power)
         };

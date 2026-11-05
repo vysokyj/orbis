@@ -60,6 +60,9 @@ pub struct SunSky {
     pub sun_size: f64,
     /// `SS Ground Color`, linear.
     pub ground: [f64; 3],
+    /// Octane's `groundBlendAngle` (degrees, at least its minimum 1) for
+    /// `SS Horizon Blur` (`ground_blend_angle`).
+    pub ground_blend_deg: f64,
     /// Octane's daylight model: 3 Hosek-Wilkie (warms a low sun), 1 Octane
     /// with a white sunset colour (`Tuning::daylight_model`).
     pub model: u8,
@@ -75,6 +78,22 @@ impl SunSky {
         self.power *= t.daylight_power / SUN_SKY_POWER * (-t.daylight_extinction * air_mass).exp();
     }
 }
+
+/// Iray's Sun-Sky ground blend as Octane's `groundBlendAngle`: Iray weighs
+/// the ground in by smoothstep(−dir.y / (`horizon_blur` / 10)) below the
+/// horizon (NVIDIA's `hosek_wilkie_sky.mdl`, the same `horizon_blur` as
+/// `base::sun_and_sky`), all ground at θ = asin(blur / 10). Octane's
+/// Daylight model weighs it by (angle / B)² (probe 120, B 11.5°: 0.18 /
+/// 0.33 / 0.50 / 0.70 / 0.90 at 0.42 – 0.98 B); B = `GROUND_BLEND_SHAPE` × θ
+/// fits the smoothstep best (rms 0.05). Its pin starts at 1° (DAZ's 0.1:
+/// θ 0.57°). Hosek-Wilkie ignores it (a hard edge).
+pub fn ground_blend_angle(horizon_blur: f64) -> f64 {
+    (GROUND_BLEND_SHAPE * (horizon_blur / 10.0).clamp(0.0, 1.0).asin().to_degrees()).max(1.0)
+}
+
+/// Octane's (angle / B)² ground blend against Iray's smoothstep over θ:
+/// the least-squares B / θ.
+pub const GROUND_BLEND_SHAPE: f64 = 0.76;
 
 /// Octane Daylight (Hosek-Wilkie) `power` at DAZ's default `SS Multiplier`
 /// (0.10132), and its `sunIntensity` at `SS Sun Disk Intensity` 1:
@@ -251,7 +270,7 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
             draw_dome: ch.get("Draw Dome").and_then(Value::as_bool).unwrap_or(true),
             scene_lights: !matches!(num("Environment Mode").map(|m| m as i64), Some(1 | 2)),
             sun_sky: match &iray {
-                crate::iray::Environment::SunSky { args, ground_color } => Some(SunSky {
+                crate::iray::Environment::SunSky { args, ground_color, .. } => Some(SunSky {
                     sun_dir: steered.unwrap_or_else(|| {
                         sun_direction(
                             num("SS Latitude").unwrap_or(40.76426),
@@ -267,6 +286,7 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
                     sun_size: args["sun_disk_scale"] / 4.0,
                     model: 3,
                     ground: *ground_color,
+                    ground_blend_deg: ground_blend_angle(args["horizon_blur"]),
                 }),
                 _ => None,
             },

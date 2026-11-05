@@ -1280,8 +1280,13 @@ pub enum Environment {
     /// names (unnormalised, Calib-L-Mode-SunSky-dir), else the sun's place
     /// for SS Latitude / Longitude / Day / Time — `usd::sun_direction`
     /// (tested against it).
-    SunSky { args: BTreeMap<&'static str, f64>, ground_color: [f64; 3] },
+    /// `night_color` linear, as `ground_color`.
+    SunSky { args: BTreeMap<&'static str, f64>, ground_color: [f64; 3], night_color: [f64; 3] },
 }
+
+/// `base::sun_and_sky` arguments DAZ's .mi leaves out when they equal the
+/// MDL's own default (NVIDIA's base module reference).
+pub const SUN_SKY_MDL_DEFAULTS: [(&str, f64); 3] = [("horizon_blur", 0.1), ("redblueshift", 0.0), ("sun_glow_intensity", 1.0)];
 
 /// The dome's placement and colour DAZ hands Iray in every mode but Scene
 /// Only (Calib-L-Mi-Dome-turned): `environment_dome_rotation_angle` = Dome
@@ -1459,10 +1464,19 @@ pub fn environment(ch: &NodeChannels) -> Environment {
                 ("sun_disk_scale", "SS Sun Disk Scale", 4.0),
                 ("saturation", "SS Saturation", 1.0),
                 ("horizon_height", "SS Horizon Height", 0.0),
+                // Looks of the seen sky (Calib-L-Mi-SunSky-Look); DAZ leaves
+                // them out at the MDL's defaults (`SUN_SKY_MDL_DEFAULTS`).
+                ("horizon_blur", "SS Horizon Blur", 0.1),
+                ("redblueshift", "SS Blue-Red Tint", 0.0),
+                ("sun_glow_intensity", "SS Sun Glow Intensity", 1.0),
             ] {
                 args.insert(param, ch_num(ch, channel, default));
             }
-            Environment::SunSky { args, ground_color: ch_colour(ch, "SS Ground Color", [0.4f64.powf(2.2); 3]) }
+            Environment::SunSky {
+                args,
+                ground_color: ch_colour(ch, "SS Ground Color", [0.4f64.powf(2.2); 3]),
+                night_color: ch_colour(ch, "SS Night Color", [0.0; 3]),
+            }
         }
         _ => Environment::Dome { intensity: ch_num(ch, "Environment Intensity", 1.0) * ch_num(ch, "Environment Map", 1.0) * DOME_INTENSITY_SCALE },
     }
@@ -1753,7 +1767,21 @@ mod tests {
                 if mi["mdl"] != uber_entry(mat) {
                     wrong.push(format!("MDL entry: {scene} {key}: DAZ {}, ours {}", mi["mdl"], uber_entry(mat)));
                 }
-                for (param, ours) in uber(mat) {
+                let ours_all = uber(mat);
+                // The other way round: nothing DAZ passes that we leave out —
+                // a channel the .mi lacks is proved unpassed (#15: Top Coat
+                // Specular, PBR Masked Threshold, Multiply Specular Through
+                // Opacity in Calib-Map-Audit / -Mi-DzDefault3 / -Mi-AoA5).
+                // Read outside `uber`: rounded corners (`material::round_corners`),
+                // Cutout Opacity and displacement (`material`), Share Glossy
+                // Inputs (`uber_entry`).
+                const ELSEWHERE: [&str; 5] = ["geometry_bump", "cutout_opacity", "displacement_enable", "displace_amount", "refraction_glossy_unified_enable"];
+                for param in mi["args"].as_object().unwrap().keys() {
+                    if !ours_all.contains_key(param.as_str()) && !aoa_sss && !ELSEWHERE.contains(&param.as_str()) {
+                        wrong.push(format!("{param}: {scene} {key}: DAZ {}, ours none", mi["args"][param]));
+                    }
+                }
+                for (param, ours) in ours_all {
                     if aoa_sss && (["sub_surface_", "scattering_", "transmitted_", "absorption_"].iter().any(|p| param.starts_with(p)) || param == "glossy_ior") {
                         continue;
                     }
@@ -2056,12 +2084,14 @@ mod tests {
                         check(format!("{scene} dome"), 1.0, f64::from(u8::from(env["mdl"].as_str().is_some_and(|m| m.starts_with("base::environment_spherical")))));
                         check(format!("{scene} dome intensity"), num(&mi["options"]["environment_function_intensity"]), intensity);
                     }
-                    Environment::SunSky { args, ground_color } => {
+                    Environment::SunSky { args, ground_color, night_color } => {
                         for (param, v) in args {
-                            check(format!("{scene} sun-sky {param}"), env["args"].get(param).map_or(f64::NAN, num), v);
+                            let default = SUN_SKY_MDL_DEFAULTS.iter().find(|(p, _)| *p == param).map_or(f64::NAN, |d| d.1);
+                            check(format!("{scene} sun-sky {param}"), env["args"].get(param).map_or(default, num), v);
                         }
                         for i in 0..3 {
                             check(format!("{scene} sun-sky ground {i}"), num(&env["args"]["ground_color"][i]), ground_color[i]);
+                            check(format!("{scene} sun-sky night {i}"), env["args"].get("night_color").map_or(0.0, |c| num(&c[i])), night_color[i]);
                         }
                         // The export's own solar position; a steering node's
                         // position comes through unnormalised.

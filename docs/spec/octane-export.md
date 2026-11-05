@@ -775,6 +775,20 @@ DAZ keeps a `color`-typed channel (DAZ Default's, the scripted shaders') in
 8 bits: a generated 0.3 reaches Iray as 77/255 (saved scenes are already
 quantised).
 
+**Not mapped: DAZ doesn't pass them** (their .mi equals the twin's without
+them; the Uber test also fails on any argument DAZ passes that `src/iray.rs`
+leaves out, #15):
+- **Multiply Specular Through Opacity** off (a DAZ Default channel, also
+  saved on brick materials such as eye moisture or LIE helpers): Iray gets
+  the same `cutout_opacity` and gloss either way (Calib-Mi-DzDefault3
+  S1 / S2, Calib-Mi-AoA5 S1 / S2, on Uber Calib-Map-Audit A8).
+- **PBR Masked Threshold** (a user property some tear materials carry, no
+  MDL parameter): Cutout Opacity passes as it is (Calib-Map-Audit A5 – A7:
+  0.9989 under 0.999, 0.5 under 0.7 and over 0.3).
+- **Top Coat Specular** (MDL `top_coat_directional_*`): in none of the four
+  layering modes (Calib-Map-Audit A1 – A4, Calib-Map-TopCoat C6) — see
+  Universal's coating below.
+
 ### Universal (130) — default
 
 - **albedo** = diffuse map (sRGB) × the diffuse colour, or the colour; ×
@@ -953,8 +967,8 @@ quantised).
   0.08 × Reflectivity head-on (0.5 → 0.04, IOR 1.5) — Calib-TopCoat's
   Reflectivity 1 sphere 0.75 → 1.09 × Iray (0.5: 1.11); Fresnel and Custom
   Fresnel (2) always IOR 1.5, Custom Curve (3) IOR 1.07, whatever Top Coat
-  IOR and the Curve Normal / Grazing / Exponent say: DAZ Studio doesn't
-  pass those channels to the MDL at all (its .mi export,
+  IOR, the Curve Normal / Grazing / Exponent and Top Coat Specular say: DAZ
+  Studio doesn't pass those channels to the MDL at all (its .mi export,
   `docs/daz/iray-uber-mdl.md`), so Iray's Fresnel coat is at the MDL's
   1.5 and its curve at the defaults, 0 head-on to 1 at grazing. Why:
   Calib-TopCoat's Iray spheres at IOR 1.5 and 2 render alike; the IOR 2
@@ -1461,6 +1475,15 @@ quantised).
     no multiple-scattering compensation): at r_t 0.5 the full refr_color
     was 1.53 × Iray, 1 − 0.36 r_t brings it to 1.02. Both glass factors
     are measured at two refr_gloss values.
+    **Enable Absorption** (`refr_falloff_on`, with transparency) → an
+    absorption medium on the glass, σa = −ln(c) / d per metre
+    (`arch_absorption`), as `nvidia/architectural.mdl` computes its
+    `absorption_coefficient`: c the Absorption Color (linear) with
+    Absorption Use Color on, else 0.3333; d the Absorption Distance (cm,
+    in metres); d ≤ 0 lets nothing through; none when thin-walled. DAZ
+    passes all four (Calib-Mi-Arch, the test checks σa); Octane darkened
+    the 10 cm sphere and blacked out the 2 – 3 cm ones (sanity render, no
+    Iray reference needed: the MDL states the medium).
     Calib-NVIDIA3 (Iray 5000, Octane 1024; floor 1.04), disk before →
     after: glossiness 0.15 0.97 → 1.05, 0.3 0.89 → 1.01, 0.5 1.01 → 1.05,
     0.7 1.04 → 1.05; glass refr_gloss 1 1.04, 0.6 1.06 → 1.01, 0.2 1.67 →
@@ -2004,10 +2027,19 @@ scene with a light.
   sun stands in the direction of the node's *position* from the origin —
   its rotation doesn't count (Calib-L-Mode-SunSky-dir: a light at (300,
   400, 300) cm turned to point back left lit from the front right, Octane
-  0.97 with the same shadows; at the origin Iray rendered night). Left to
-  Octane's sky, as looks rather than lighting: `SS Blue-Red Tint`,
-  `Saturation`, `Sun Glow Intensity`, `Horizon Height` / `Blur`; `SS
-  Night Color` (black by default, as Octane's night).
+  0.97 with the same shadows; at the origin Iray rendered night).
+  **`SS Horizon Blur`** b (Iray's `horizon_blur`) → `groundBlendAngle` =
+  max(1°, 0.76 × asin(b / 10)) (`ground_blend_angle`): Iray blends the
+  ground in by a smoothstep over asin(b / 10) below the horizon (NVIDIA's
+  `hosek_wilkie_sky.mdl`, the same parameter as `base::sun_and_sky`),
+  Octane's Daylight model by (angle / B)² — 0.76 fits it best
+  (Calib-L-Mi-SunSky-Look, b 2: 11.5°, B 8.8°, the seen ground weight
+  within rms 0.04 of Iray's curve, probe 120). Only Faithful's Octane
+  model blends: Hosek-Wilkie (Enhanced) keeps a hard horizon whatever
+  `groundBlendAngle` / `groundStartAngle` say. Left to Octane's sky, as
+  looks rather than lighting (DAZ passes them, Calib-L-Mi-SunSky-Look):
+  `SS Blue-Red Tint` (`redblueshift`), `Saturation`, `Sun Glow Intensity`,
+  `Horizon Height`; `SS Night Color` (black by default, as Octane's night).
 - **Draw Dome** off (the dome lights but isn't seen): Iray shows black
   behind the scene, the HDRI still lighting it (Calib-Dome-Off; the
   Calib-L scenes are "Scene Only", black anyway). The render target gets a
