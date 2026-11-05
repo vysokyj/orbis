@@ -85,7 +85,7 @@ Kept plain GGX on the curve: single scattering as DAZ's lobe (no
 the rough sphere tells the BSDFs apart; Octane's energy-preserving GGX
 there keeps the light Iray's lobe loses.
 
-Open: B4 and B6 have equal Iray arguments (0.134 / 0.137 G) but Octane
+Open (resolved in the second round below): B4 and B6 have equal Iray arguments (0.134 / 0.137 G) but Octane
 gives 0.190 / 0.158: B2 – B4 (left of the frame centre) are brighter and
 less flat in Octane (left / right edge of B4 0.18 / 0.21, Iray 0.13 /
 0.14), B6 – B8 match. Not the lobe's tail (Beckmann and GGX alike) nor
@@ -121,3 +121,95 @@ face, Octane's normal-map frame looks smoother, so the tangential part of
   checks that the pin reads procedurals at all.
 - The env vars used for the variants were scratch code, gone before the
   commit; exports went to the scratchpad, not the shared cache.
+
+## Second round: weight, roughness, the B4 / B6 asymmetry
+
+The first commit (2fd486e) left w0.25 / w0.5 at 1.23 / 1.34, the rough
+sphere at 1.41 and B4 (1.41) ≠ B6 (1.15) with equal Iray arguments.
+Reopened #73.
+
+### The asymmetry is the environment, seen through a too-narrow lobe
+
+At roughness 0 the OSL retro-reflector renders flat discs, no
+environment features: the frame is right. Yet B4 / B5 / B6 / B8 differ
+(G 0.200 / 0.218 / 0.159 / 0.137). Scratch script: read the HDRI
+(RGBE), fit its mapping on Iray's visible background (correlation
+0.999 at azimuth offset 0.25 — the export's own `translation`, no
+mirror), then look up the HDRI along each sphere's direction to the
+camera. Prediction for a perfect retro-reflector, k3 / k5 / k7 over
+k6: 1.60 / 1.26 / 1.09; Octane at roughness 0: 1.60 / 1.27 / 1.10.
+Octane renders the environment behind the camera exactly; it does vary
+there. Iray: 1.05 / 1.08 / 1.09 — its lobe is wide and averages it out.
+
+### Iray's lobe width from the HDRI, position cancelled
+
+The same script integrates the HDRI over a lobe ∝ cosⁿ(angle to the
+retro direction) per sphere pixel (40 px disc, sphere normal from the
+pixel, directions under the surface dropped, steep downward ones take
+the floor's radiance), optionally with MDL's `1 / max(cos θi, cos θo)`
+term (× min(1, cos θi / cos θo)), at unit albedo, scaled by the
+background's HDRI → Iray factor (0.478). Best n per sphere (log-RGB
+error) and the scale left:
+
+| | k3 B4 | k4 B5 (r 0.49) | k5 B6 | k6 B7 | k7 B8 |
+|---|---|---|---|---|---|
+| Iray, with max-cos | n 125, × 1.02 | n 10, × 0.92 | n 125, × 1.00 | n 236, × 1.00 | n 172, × 1.01 |
+| Iray, without | n 125, × 0.98 | n 18, × 0.83 | n 125, × 0.95 | n 324, × 0.99 | n 236, × 0.99 |
+
+n = 2 / r² is 247 at r 0.09 and 8.3 at r 0.49: MDL's exponent, around
+the retro direction itself, plus the max-cos term, explains Iray at unit
+albedo. Weight: MDL's `weighted_layer` is linear (base × (1 − w)); Iray's
+B2 / B3 decompose to a lobe of G 0.074 / 0.103 at k1 / k2, the
+integrated n = 247 lobe gives 0.081 / 0.115. Octane's Mix at amount w
+was right; the excess was the lobe width at those positions.
+
+### Octane's lobe width, fitted the same way (no max-cos)
+
+| Octane render | k3 | k5 | k6 | k7 | scale |
+|---|---|---|---|---|---|
+| Beckmann 0.2 | 445 | 1156 | 236 | 172 | 0.98 – 1.01 |
+| Beckmann 0.3 (√r) | 66 | 66 | 48 | 48 | 1.03 – 1.05 |
+| Beckmann 0.4 | 18.5 | 18.5 | 18.5 | 18.5 | 1.04 – 1.07 |
+| Beckmann 0.5 | 5.2 | 3.8 | 2.7 | 2.0 | 1.00 – 1.08 |
+| GGX 0.2 / 0.3 / 0.4 / 0.5 | 324 / 18 / 5 / 3 | | 91 / 26 / 10 / 3 | | 0.98 – 1.11 |
+
+Beckmann's half vector at α = roughness², the reflected direction
+turning twice as far: n = (2 / α² − 2) / 4 → 312 / 60 / 18.5 / 7.5 —
+matches up to 0.4 (0.5: wider than that). Octane = the unit-albedo
+lobe without max-cos. Equal lobes: α = r / √(4 + r²), roughness 0.212 at
+r 0.09, 0.488 at r 0.49; the max-cos term averaged over the lobe = its
+mean cosine (n + 1) / (n + 2) = (2 + r²) / (2 + 2 r²) on the tint
+(0.996 / 0.903). GGX's long tail picks up the bright sky (B2 1.28 at
+the same width), so Beckmann.
+
+| Calib-Backscatter | B1 | B2 w.25 | B3 w.5 | B4 | B5 r.49 | B6 | B7 | B8 |
+|---|---|---|---|---|---|---|---|---|
+| first round (GGX 6, curve) | 1.08 | 1.23 | 1.34 | 1.41 | 1.41 | 1.15 | 1.01 | 1.01 |
+| GGX 2 at √(r/√2) | 1.08 | 1.28 | 1.16 | 1.06 | 1.59 | 1.08 | 1.13 | 1.12 |
+| Beckmann at √(r/√2) | 1.08 | 1.10 | 1.07 | 1.05 | 1.77 | 1.09 | 1.12 | 1.12 |
+| Beckmann at √(r/2) | 1.08 | 1.11 | 1.16 | 1.19 | 1.48 | 1.13 | 1.08 | 1.07 |
+| **Beckmann at √(r/√(4+r²)), × (2+r²)/(2+2r²)** | 1.08 | 1.11 | 1.15 | 1.18 | 1.31 | 1.13 | 1.07 | 1.07 |
+
+(√(r/√2) fitted Calib-Backscatter's narrow spheres a bit better but
+isn't what the lobe widths say, and its rough sphere turned blue —
+1.69 / 1.78 / 1.87 per channel — a wider lobe than Iray's; kept the
+derived one.) B1 is the base alone, the scene's level (1.08).
+
+| as kept | before (2fd486e) | after |
+|---|---|---|
+| Calib-Aniso2 K6 | 1.15 | 1.12 |
+| Calib-Map-Misc X1 / X2 | 0.94 / 1.11 | 1.04 / 1.12 |
+| Calib-Glossy, Calib-Aniso | — | unchanged |
+
+Limits: the rough sphere's 1.31 — Beckmann at α 0.24 spreads wider than
+the relation (n ≈ 5 against 8.3), and the per-pixel max-cos loss on
+the sphere's oblique parts (0.79 averaged over the disc for n 4 – 8)
+is more than the head-on mean cosine. Neither is worth per-pixel OSL
+albedo for one rough sphere.
+
+### Process
+
+- Integrating the reference's own HDRI is a measurement that cancels
+  position: it predicts each sphere absolutely, so Iray and Octane can be
+  fitted separately and their lobes matched, instead of tuning on ratios.
+- zsh expands `VAR==0` (`=cmd`); quote it.

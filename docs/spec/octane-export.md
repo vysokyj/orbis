@@ -1064,31 +1064,46 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   from 0.04 to 0.20; missing, Octane rendered them 0.12 – 0.36 × Iray, now
   0.88 – 1.12 (coverage 0.5: 1.05 – 1.35, 0.3: 0.72 – 0.88); Calib-Map-
   Misc's gold flakes 0.50 → ~1 (#30).
-- **Backscattering** (Base Mixing 0, not refractive) → a Mix material:
-  the surface and, at Backscattering Weight, a retro-reflector — a metal
-  in Glossy Color (or Backscattering Color with Share Glossy Inputs off)
-  at full strength, plain GGX (brdf 2) at Iray's roughness r (squared) on
-  the GGX curve, whose `normal` is an OSL texture giving the direction to
-  the viewer in tangent space (T = dP/du made perpendicular to N, B =
-  N × T: the frame Octane reads normal maps in). A mirror about that
-  normal sends every ray back where it came from; the top coat lies over
-  both.
+- **Backscattering** (Base Mixing 0, not refractive) → a Mix material
+  at amount = Backscattering Weight: the surface and a retro-reflector —
+  a metal in Glossy Color (or Backscattering Color with Share Glossy
+  Inputs off) × (2 + r²) / (2 + 2 r²), Beckmann (brdf 1) at roughness
+  √(r / √(4 + r²)) for Iray's (squared) roughness r, whose `normal` is an
+  OSL texture giving the direction to the viewer in tangent space (T =
+  dP/du made perpendicular to N, B = N × T: the frame Octane reads normal
+  maps in). A mirror about that normal sends every ray back where it came
+  from; the top coat lies over both.
 
   Why: MDL's `backscattering_glossy_reflection_bsdf` is the
-  retro-reflective part of a halfway-vector disk model (exponent 2 / r²),
-  no Fresnel, and DAZ leaves its `multiscatter_tint` at 0 — hence plain,
-  single-scattering GGX. Octane X has no retro-reflective lobe (the
-  manual's Retro-Reflective option isn't in this version; Ray Direction's
-  own "tangent" space is another frame and rendered a distorted mirror).
-  Iray's lobe shows the light from behind the camera: a flat disc. The
-  #29 stand-in, a dimmed metal mirror (× 5.7 r e^(−r/0.168)), showed the
-  environment around instead: Calib-Aniso2's K6 (weight 1) 0.56 × Iray,
-  Calib-Backscatter's weight-1 spheres 0.50 – 0.62; now K6 1.15,
-  Calib-Backscatter 1.01 – 1.41 (weight 0.25 / 0.5: 1.23 / 1.34; the
-  1.41 is B4, whose Iray arguments equal B6's at 1.15), the rough r 0.49
-  sphere 1.41 (energy-preserving GGX: 2.17), Calib-Map-Misc's X1 / X2
-  (weight 0.5; X2 unshared, r 0) 1.23 / 0.87 → 0.94 / 1.11 and X2 now
-  blue as in Iray (#73). Mean linear luminance in a 40 px disc per sphere.
+  retro-reflective part of a halfway-vector disk model, exponent 2 / r²,
+  no Fresnel, `1 / max(cos θi, cos θo)` for `1 / cos θi`, and DAZ leaves
+  its `multiscatter_tint` at 0; DAZ layers it with `weighted_layer`
+  (base × (1 − w), linear — Octane's Mix). Octane X has no
+  retro-reflective lobe (the manual's Retro-Reflective option isn't in
+  this version; Ray Direction's own "tangent" space is another frame).
+  Integrating Calib-Backscatter's HDRI over a lobe of exponent n around
+  the retro direction (with the max-cos term) reproduces Iray's spheres
+  at n ≈ 125 – 235 for r 0.09 and ≈ 10 for r 0.49, × 1.00 – 1.02 —
+  n = 2 / r² (247 / 8.3) — and Iray's weight-0.25 / 0.5 spheres as that
+  lobe × the weight. Octane's mirror reflects about a Beckmann half
+  vector (α = roughness²) and turns the ray twice as far: n = (2 / α² −
+  2) / 4, fitted the same way on Octane renders (roughness 0.2 / 0.3 /
+  0.4 → n ≈ 300 / 60 / 19), so α = r / √(4 + r²). The tint factor is
+  the max-cos term averaged over the lobe (its mean cosine, (n + 1) /
+  (n + 2)); Octane's lobe has none (its renders match the integrated
+  lobe at unit albedo, × 1.00 – 1.05). The #29 stand-in, a dimmed metal
+  mirror, showed the environment around: Calib-Aniso2's K6 0.56 × Iray,
+  Calib-Backscatter 0.50 – 1.18. Now (Calib-Backscatter none / w0.25 /
+  w0.5 / w1 / w1 r 0.49 / w1 ×3) 1.08 / 1.11 / 1.15 / 1.19 / 1.31 /
+  1.07 – 1.13, K6 1.12, Calib-Map-Misc X1 / X2 (w0.5; X2 unshared, r 0)
+  1.04 / 1.11 and X2 blue as in Iray (#73). A perfect retro-reflector
+  (roughness 0) renders exactly what the HDRI holds behind the camera
+  (sphere-to-sphere 1.60 / 1.26 / 1.10, predicted 1.60 / 1.26 / 1.09);
+  Iray's spheres are flat because its lobe is wide, not because the
+  environment is. Mean linear luminance in a 40 px disc per sphere.
+  Limits: Beckmann at α 0.24 spreads wider than the small-angle relation
+  (n ≈ 5 against 8.3), the rough sphere's 1.31; faint per-face stripes on
+  3× crops (OSL's dP/du is per face).
 - **Scattering in a refractive volume** (SSS Amount / SSS Color with
   refraction, not thin-walled) → a scattering medium (59) with Iray's σa
   and σs (as DAZ passes them: −ln(SSS Color) / d chromatic, SSS Amount /
