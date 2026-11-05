@@ -1429,22 +1429,44 @@ quantised).
     reflectivity × the reflection colour's maximum tinted by it, without
     "Use Fresnel Term" Schlick's curve from the 0° reflectivity as the IOR
     with that F0 (0.2 → 2.62), metal, transparency and cutout opacity;
-    glossiness → roughness = Iray's `base::architectural_gloss_to_rough`
-    (MDL SDK `base.mdl`): √(2 · 2^(−4 − 14 g)), a mirror at g = 1, 0.35 at
-    0, 0.03 at 0.5 (before: (1 − g)², a guess). Anisotropy in mia's
-    semantic (`anisotropy_conversion` with `mia_anisotropy_semantic`):
-    above 1 u = r · √a, v = r / √a, below v = r / a^¼, u = r · a^¼; each
-    axis on the GGX curve, Octane's roughness the longer, `anisotropyTexture`
-    (v − u) / (v + u) (negative: stretched along u), `rotation` 1 − Iray's.
+    glossiness g → MDL roughness r by `base::architectural_gloss_to_rough`
+    (MDL SDK `base.mdl`: √(2 · 2^(−4 − 14 g)), a mirror at g = 1, 0.35 at
+    0) — what DAZ's .mi hands Iray; Iray's `base::` is compiled into
+    libneuray, no source to read. **Iray renders the reflection at √(r ·
+    r₀)** (`arch_reflection_rough`; r₀ = 0.35, the value at g = 0): the
+    formula with half its slope, √(2 · 2^(−4 − 7 g)). Why: Calib-NVIDIA3's
+    glossiness 0.15 / 0.3 / 0.5 / 0.7 matched Octane (sweep of the GGX
+    pin, error of the disk's luminance pattern) at r 0.27 / 0.19 / 0.12 /
+    ~0.07 — the formula gives 0.17 / 0.083 / 0.031 / 0.012, √(r · r₀)
+    0.25 / 0.17 / 0.105 / 0.065. Anisotropy in mia's semantic
+    (`anisotropy_conversion` with `mia_anisotropy_semantic`) on the MDL
+    roughness — above 1 u = r · √a, v = r / √a, below v = r / a^¼, u = r ·
+    a^¼ — then √(· r₀) and the GGX curve **per axis**, Octane's roughness
+    the longer, `anisotropyTexture` (v − u) / (v + u) (negative: stretched
+    along u), `rotation` 1 − Iray's. Applying √(· r₀) before the
+    anisotropy stretched Calib-NVIDIA2's anisotropy-4 sphere far beyond
+    Iray's (centre 1.69 ×); per axis 1.06 with Iray's look.
     Transparency t (`weighted_layer(t, transmit lobe, diffuse)`): diffuse
-    × (1 − t), `transmission` = refr_color × t through a transmit-only
-    lobe — `specular` 0 (Octane still refracts) — at roughness
-    `architectural_gloss_to_rough(refr_gloss)` and `ior` = Index of
+    × (1 − t), `transmission` = refr_color × t × **(1 − 0.36 r_t)**
+    (`arch_glass_albedo`) through a transmit-only lobe — `specular` 0
+    (Octane still refracts) — at **r_t = 3.7 × architectural_gloss_to_rough
+    (refr_gloss)**, at most 1 (`arch_glass_rough`), and `ior` = Index of
     Refraction (refr_ior), under the rough-glass rule (Beckmann at √r);
     the reflection on the coating at √r of its own roughness and the
-    reflection curve's IOR. Glossiness < 1, anisotropy and glass are on
-    Calib-NVIDIA2 (the mapping verified against DAZ's .mi; Iray reference
-    pending).
+    reflection curve's IOR. Why: refr_gloss 0.6 and 0.2 (MDL 0.020 /
+    0.134) matched Octane's Beckmann at r 0.06 – 0.09 and ~0.5; the
+    reflection's curve would give 0.08 and 0.22, and at 0.2 Iray's
+    interior is an even frosted grey that only r ~0.5 draws. The glass
+    lobe also loses light with roughness, like resin's (Iray's lobe has
+    no multiple-scattering compensation): at r_t 0.5 the full refr_color
+    was 1.53 × Iray, 1 − 0.36 r_t brings it to 1.02. Both glass factors
+    are measured at two refr_gloss values.
+    Calib-NVIDIA3 (Iray 5000, Octane 1024; floor 1.04), disk before →
+    after: glossiness 0.15 0.97 → 1.05, 0.3 0.89 → 1.01, 0.5 1.01 → 1.05,
+    0.7 1.04 → 1.05; glass refr_gloss 1 1.04, 0.6 1.06 → 1.01, 0.2 1.67 →
+    1.02, 0.2 under reflectivity 0.6 1.42 → 1.05; hue within 0.04 (b/r).
+    Calib-NVIDIA2 (floor 1.05): glossiness 0.3 0.90 → 1.02, 0 1.01,
+    anisotropy 4 0.95 → 1.06, glass 1.46 → 0.98.
     Calib-NVIDIA (Iray 5000 samples, Octane 1024; sphere disk luminance,
     Octane / Iray; floor 1.04): Metal Brushed 1.02, Cast Iron 1.11,
     concrete 1.00, polished 0.95, porcelain 1.09, granite 1.09, resin 1.05,

@@ -681,7 +681,8 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
             d.albedo = MdlAlbedo::Colour(diffuse);
             d.gloss = MdlGloss::Weight(mat.float("reflectivity").unwrap_or(0.6) * peak);
             d.tint = refl.map(|c| if peak > 0.0 { c / peak } else { 1.0 });
-            d.roughness = architectural_gloss_to_rough(mat.float("refl_gloss").unwrap_or(1.0));
+            let r_mdl = architectural_gloss_to_rough(mat.float("refl_gloss").unwrap_or(1.0));
+            d.roughness = arch_reflection_rough(r_mdl);
             d.ior = if mat.float("brdf_fresnel").unwrap_or(0.0) > 0.0 {
                 mat.float("Index of Refraction").unwrap_or(1.4)
             } else {
@@ -695,7 +696,7 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
             let a = mat.float("anisotropy").unwrap_or(1.0);
             let rotation = mat.float("anisotropy_rotation").unwrap_or(0.0);
             if (a - 1.0).abs() > 1e-4 || rotation != 0.0 {
-                let r = d.roughness;
+                let r = r_mdl;
                 let (u, v) = if a > 1.0 {
                     let iso = (1.0 / a).sqrt().max(1e-4);
                     (r / iso, r * iso)
@@ -703,14 +704,16 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
                     let iso = a.max(0.0).sqrt().sqrt().max(1e-4);
                     (r * iso, r / iso)
                 };
-                d.aniso = Some((u, v, rotation));
+                d.aniso = Some((arch_reflection_rough(u), arch_reflection_rough(v), rotation));
             }
             // weighted_layer(transparency, transmit lobe, diffuse).
             let transparency = mat.float("transparency").unwrap_or(0.0).clamp(0.0, 1.0);
             if transparency > 0.0 {
-                d.transmission = Some(mat.color("refr_color").unwrap_or([1.0; 3]).map(|c| c * transparency));
+                let refr = arch_glass_rough(architectural_gloss_to_rough(mat.float("refr_gloss").unwrap_or(1.0)));
+                let k = arch_glass_albedo(refr);
+                d.transmission = Some(mat.color("refr_color").unwrap_or([1.0; 3]).map(|c| c * transparency * k));
                 d.albedo = MdlAlbedo::Colour(diffuse.map(|c| c * (1.0 - transparency)));
-                d.refraction = Some((architectural_gloss_to_rough(mat.float("refr_gloss").unwrap_or(1.0)), mat.float("Index of Refraction").unwrap_or(1.4)));
+                d.refraction = Some((refr, mat.float("Index of Refraction").unwrap_or(1.4)));
             }
             d.opacity = mat.float("Cutout Opacity").unwrap_or(1.0);
             d.bump = mat.image("Bump Strength").map(|m| (m.to_string(), mat.float("Bump Strength").unwrap_or(1.0))).filter(|(_, a)| *a > 0.0);
@@ -720,9 +723,46 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
     Some(d)
 }
 
-/// mental ray's glossiness → MDL roughness, as Iray's Arch+Design does
-/// (`base::architectural_gloss_to_rough`, MDL SDK `base.mdl`): √(2 ·
-/// 2^(−4 − 14 g)), a mirror at 1 — 0.35 at glossiness 0, 0.03 at 0.5.
+/// The roughness Iray's Arch+Design reflection renders with, from the
+/// MDL roughness r of `architectural_gloss_to_rough`: √(r · r₀), r₀ its
+/// value at glossiness 0 (√0.125) — the formula with half its slope,
+/// √(2 · 2^(−4 − 7 g)). Applied to each axis after mia's anisotropy.
+/// Why: Iray's `base::` is compiled into libneuray (no source to read),
+/// and Calib-NVIDIA3's glossiness 0.15 / 0.3 / 0.5 / 0.7 matched Octane
+/// (GGX curve) at MDL roughness 0.27 / 0.19 / 0.12 / ~0.07, against the
+/// formula's 0.17 / 0.083 / 0.031 / 0.012 (√(r · r₀): 0.25 / 0.17 / 0.105
+/// / 0.065); glossiness 0 (0.35) matched as it is (Calib-NVIDIA2).
+fn arch_reflection_rough(r: f32) -> f32 {
+    (r * architectural_gloss_to_rough(0.0)).sqrt()
+}
+
+/// The roughness Iray's Arch+Design glass (its `scatter_transmit` lobe)
+/// renders with: `ARCH_GLASS_ROUGH` × the MDL's, at most 1, under the
+/// rough-glass rule. Calib-NVIDIA3's refr_gloss 0.6 and 0.2 (MDL 0.020 /
+/// 0.134) matched Octane's Beckmann at r 0.06 – 0.09 and ~0.5 (pins
+/// 0.25 – 0.3 and 0.7 – 0.85): 3.7 × the formula, not the reflection's
+/// curve (which gives 0.08 and 0.22; at 0.2 Iray's interior is an even
+/// frosted grey).
+fn arch_glass_rough(r: f32) -> f32 {
+    (r * ARCH_GLASS_ROUGH).min(1.0)
+}
+
+const ARCH_GLASS_ROUGH: f32 = 3.7;
+
+/// What Iray's rough transmit-only lobe keeps per crossing at roughness r
+/// (as `resin_lobe_albedo`, its own slope): Calib-NVIDIA3's glass at r 0.5
+/// was 1.53 × Iray at the full refr_color, 1.03 at 1 − 0.36 r; at r 0.07
+/// 1.06 → 1.01.
+fn arch_glass_albedo(r: f32) -> f32 {
+    (1.0 - ARCH_GLASS_LOSS * r.clamp(0.0, 1.0)).max(0.0)
+}
+
+const ARCH_GLASS_LOSS: f32 = 0.36;
+
+/// mental ray's glossiness → MDL roughness by the MDL SDK's
+/// `base::architectural_gloss_to_rough` (`base.mdl`): √(2 · 2^(−4 − 14 g)),
+/// a mirror at 1 — 0.35 at glossiness 0, 0.03 at 0.5. Iray doesn't render
+/// that roughness: `arch_reflection_rough`, `arch_glass_rough`.
 fn architectural_gloss_to_rough(glossiness: f32) -> f32 {
     let g = glossiness.clamp(0.0, 1.0);
     if g >= 1.0 { 0.0 } else { (2.0 * (-4.0 - 14.0 * g).exp2()).sqrt() }
@@ -4899,7 +4939,12 @@ mod tests {
         };
         assert_eq!(pin(&x, "brdf"), GLASS_BRDF, "{x}");
         assert_eq!(pin(&x, "specular"), "0 0 0", "{x}");
-        assert_eq!(pin(&x, "roughness"), num(architectural_gloss_to_rough(0.2).sqrt()), "{x}");
+        // Iray's glass roughness (3.7 × the MDL's), Beckmann at √r; the
+        // transmission × the lobe's albedo.
+        let rr = architectural_gloss_to_rough(0.2) * ARCH_GLASS_ROUGH;
+        assert_eq!(pin(&x, "roughness"), num(rr.sqrt()), "{x}");
+        let t = 1.0 - ARCH_GLASS_LOSS * rr;
+        assert_eq!(pin(&x, "transmission"), format!("{} {} {}", num(t), num(t), num(t)), "{x}");
         assert_eq!(pin(&x, "ior"), num(1.5), "{x}");
         assert!(x.contains("<pin name='coating'>") && x.contains("<pin name='transmission'>"), "{x}");
         let aniso = arch(json!([
@@ -4907,8 +4952,9 @@ mod tests {
             {"channel": {"id": "anisotropy", "current_value": 4}},
         ]));
         let (y, _) = material_inputs(&[("Aniso".into(), aniso, 1.0)], &[], HashMap::new(), 9700, SkinShader::None);
+        // mia's anisotropy on the MDL roughness, then Iray's curve per axis.
         let r = architectural_gloss_to_rough(0.3);
-        let (u, v) = (ggx_roughness(r * 2.0), ggx_roughness(r / 2.0));
+        let (u, v) = (ggx_roughness(arch_reflection_rough(r * 2.0)), ggx_roughness(arch_reflection_rough(r / 2.0)));
         assert_eq!(pin(&y, "roughness"), num(u), "{y}");
         let a: f32 = pin(&y, "anisotropyTexture").parse().unwrap();
         assert!((a - (v - u) / (v + u)).abs() < 1e-5 && a < 0.0, "{a}");
@@ -4921,6 +4967,12 @@ mod tests {
         assert_eq!(architectural_gloss_to_rough(1.0), 0.0);
         assert!((architectural_gloss_to_rough(0.0) - 0.125f32.sqrt()).abs() < 1e-6);
         assert!((architectural_gloss_to_rough(0.5) - (2.0f32 * 2f32.powi(-11)).sqrt()).abs() < 1e-6);
+        // What Iray renders: the formula with half its slope.
+        for g in [0.0f32, 0.15, 0.3, 0.5, 0.7] {
+            let want = (2.0 * (-4.0 - 7.0 * g).exp2()).sqrt();
+            assert!((arch_reflection_rough(architectural_gloss_to_rough(g)) - want).abs() < 1e-6, "{g}");
+        }
+        assert_eq!(arch_reflection_rough(0.0), 0.0);
     }
 
     #[test]
@@ -6192,16 +6244,17 @@ mod tests {
                         check("reflectivity", matches!(d.gloss, MdlGloss::Weight(w) if near(w, pass("reflectivity").as_f64().unwrap())));
                         let gloss = pass("refl_gloss").as_f64().unwrap() as f32;
                         let r = architectural_gloss_to_rough(gloss);
-                        check("glossiness", near(d.roughness, f64::from(r)));
+                        check("glossiness", near(d.roughness, f64::from(arch_reflection_rough(r))));
                         let a = pass("anisotropy").as_f64().unwrap() as f32;
                         if a > 1.0 {
-                            check("anisotropy", d.aniso.is_some_and(|(u, v, _)| near(u, f64::from(r * a.sqrt())) && near(v, f64::from(r / a.sqrt()))));
+                            let iray = |x: f32| f64::from(arch_reflection_rough(x));
+                            check("anisotropy", d.aniso.is_some_and(|(u, v, _)| near(u, iray(r * a.sqrt())) && near(v, iray(r / a.sqrt()))));
                         } else {
                             check("isotropic", d.aniso.is_none());
                         }
                         if pass("transparency").as_f64().unwrap() > 0.0 {
                             let refr = architectural_gloss_to_rough(pass("refr_gloss").as_f64().unwrap() as f32);
-                            check("refraction", d.refraction.is_some_and(|(rr, ior)| near(rr, f64::from(refr)) && near(ior, args["refr_ior"].as_f64().unwrap())));
+                            check("refraction", d.refraction.is_some_and(|(rr, ior)| near(rr, f64::from(arch_glass_rough(refr))) && near(ior, args["refr_ior"].as_f64().unwrap())));
                         }
                     }
                 }

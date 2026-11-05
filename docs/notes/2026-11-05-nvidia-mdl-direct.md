@@ -260,10 +260,75 @@ A2 repeats Calib-NVIDIA2's A3 and A8 its A6 (anchors between the two
 references); A5 – A7 are the glass without the reflection on top.
 Iray batch: needs Calib-NVIDIA3, 5000 samples.
 
+## Calib-NVIDIA3 against Iray: Iray's Arch+Design curves (night)
+
+Reference 54e1bb0 (5000 samples); camera current, so Octane's view
+matches (sphere centres x 424 + 153 k, y 561, r ~45; checked by a circle
+fit on both images, ≤ 1 px).
+
+Iray's `base::` module is compiled into libneuray (DAZ's
+`Frameworks/libs/iray/libneuray.so` has the signature
+`base::architectural_gloss_to_rough(float)` but no MDL source), so the
+curve had to come from the render.
+
+Method: one Octane render per roughness pin (0.05 … 1.0, 12 renders,
+384 samples) with the pin forced on A1 – A4 and A6 – A8 (temporary
+per-material override, removed); per sphere, the RMS difference of the
+disk's luminance (Gaussian σ 1.5 px, divided by its mean so level and
+blur separate) against Iray.
+
+| sphere | MDL r (formula) | best pin | as MDL r | √(r · r₀) |
+|---|---|---|---|---|
+| A1 glossiness 0.15 | 0.171 | 0.4 (GGX) | 0.268 | 0.246 |
+| A2 0.3 | 0.083 | 0.25 | 0.186 | 0.171 |
+| A3 0.5 | 0.031 | 0.15 | 0.12 | 0.105 |
+| A4 0.7 | 0.012 | 0.05 – 0.1 | 0.05 – 0.09 | 0.065 |
+| A6 refr_gloss 0.6 | 0.020 | 0.25 – 0.3 (Beckmann) | 0.06 – 0.09 | — |
+| A7 refr_gloss 0.2 | 0.134 | 0.7 – 0.85 | 0.5 – 0.7 | — |
+
+Reflection: log2(r²/2) against g is a line of slope −6.65 through −3.9
+(least squares over g 0 … 0.7, g 0 from Calib-NVIDIA2) — the formula's
+−4 − 14 g with half the slope. √(2 · 2^(−4 − 7 g)) = √(r · r₀) with
+r₀ = r(0): the geometric mean of the formula and its glossiness-0
+value. Taken as Iray's rule; the formula's text stays for the .mi check.
+
+Glass: on the reflection's curve refr_gloss 0.6 / 0.2 would be 0.083 /
+0.22; Iray wants 0.06 – 0.09 and ~0.5. With the formula's slope a
+single factor fits both, 3.7 (0.073 / 0.50). Level: at r 0.5 with the
+full refr_color 1.53 × Iray, with resin's albedo (1 − 0.64 r) 0.71; the
+glass's own slope 0.36 gives 1.02 (refr_gloss 0.6: 1.06 → 1.01).
+
+Anisotropy (Calib-NVIDIA2 A5, scratch copy with the fitted view):
+√(· r₀) on the roughness before mia's conversion gave u 0.37 / v 0.09
+— a long streak, centre 1.69 ×; per axis after it (u 0.24 / v 0.12)
+1.06 / 1.25 with Iray's soft horizontal blur.
+
+Final (Octane 1024), disk / centre, Octane / Iray:
+
+| Calib-NVIDIA3 | before | after | g/r O v I | b/r O v I |
+|---|---|---|---|---|
+| A1 glossiness 0.15 | 0.97 / 0.95 | 1.05 / 1.09 | 1.12 v 1.12 | 1.36 v 1.36 |
+| A2 0.3 | 0.89 / 1.04 | 1.01 / 1.08 | 1.13 v 1.12 | 1.40 v 1.38 |
+| A3 0.5 | 1.01 / 1.05 | 1.05 / 1.06 | 1.14 v 1.14 | 1.46 v 1.46 |
+| A4 0.7 | 1.04 / 1.06 | 1.05 / 1.06 | 1.15 v 1.15 | 1.50 v 1.49 |
+| A5 refr_gloss 1 | 1.04 | 1.04 | 1.20 v 1.20 | 1.63 v 1.63 |
+| A6 refr_gloss 0.6 | 1.06 | 1.01 | 1.22 v 1.22 | 1.69 v 1.69 |
+| A7 refr_gloss 0.2 | 1.67 / 1.38 | 1.02 / 1.00 | 1.22 v 1.22 | 1.69 v 1.70 |
+| A8 0.2 + reflectivity 0.6 | 1.42 / 0.80 | 1.05 / 1.05 | 1.21 v 1.22 | 1.71 v 1.75 |
+
+(floor 1.04.) Calib-NVIDIA2 (floor 1.05): glossiness 0.3 0.90 → 1.02,
+glossiness 0 1.01, anisotropy 4 0.95 → 1.06, glass 1.46 → 0.98, the rest
+unchanged. Calib-NVIDIA: unchanged (its architectural sphere is a
+mirror; resin 1.05, architectural 1.07). ~25 s per 1024-sample render.
+
+Lessons: a sweep of one pin over all spheres at once (one render per
+value) measures every sphere's curve in 12 renders; a level-normalised
+pattern error separates blur from brightness, which the disk mean mixes
+(A3's mean rose with roughness while it got blurrier).
+
 ## Open (#21)
 
-- Architectural glossiness < 1 (A3, blurrier in Iray) and glass (A6,
-  1.46 ×): needs Calib-NVIDIA3's Iray reference.
+- Arch glass roughness and albedo measured at two refr_gloss values.
 - Resin's lobe albedo is measured at r 0.02 and 0.25 only.
 - OOT hair: per-map tiling (#77); a non-black Overlay Alpha Mask value
   (the colour → float reduction is a guess, no scene has one).
