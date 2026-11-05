@@ -123,6 +123,7 @@ figures were over-bumped by that.
 
 Iray reference of Calib-BumpRes (5000 samples) — the rule is from MDL's
 reference code, not Iray's binary; listed on #75 for the next Iray batch.
+Done: [2026-11-05](2026-11-05-bump-iray-reference.md), confirmed, no change.
 Not covered: the DAZ MDL preset materials' own bump amounts (`MdlMetal`,
 `MdlDielectric`) keep their constants.
 

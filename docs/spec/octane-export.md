@@ -909,7 +909,12 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
     power 1 whatever its Bump Strength, the coat's at Top Coat Bump: both
     rendered about half as bumpy as Iray.
   So a DAZ figure's 4096 px skin bump goes in at 1/8 of the 512 px fit.
-  Unconfirmed against Iray's own renders of Calib-BumpRes (#75). Normal
+  - Confirmed against Iray (Calib-BumpRes, 5000 samples): Octane renders
+    at every power × 0 / 0.5 / 0.71 / 1 / 1.41 / 2, each sphere's
+    band-passed pixels against Iray's (`bump-ladder-fit.py`), fit at × 1
+    for all eight (256 / 1024 / 4096 px, factors 1 / 4 / 16, tiles 2 / 4,
+    half size; R2 / R4 between 0.71 and 1, T2 between 1 and 1.41). Iray's
+    native bump follows MDL's reference, and the constant holds. Normal
   maps stay at power 1 (B5, B6, B8 match Iray at Normal Map 1).
 - **Thin-walled refraction with its own inputs** (Share Glossy Inputs off:
   the cornea, the tear film) takes the glossy layer's roughness, not the
