@@ -413,8 +413,16 @@ fn mdl_metal(mat: &Material) -> Option<MdlMetal> {
     None
 }
 
-/// The MDL metal's bump map: DAZ hangs it on "Bump Strength" (the
-/// amount), else `bump_texture`, else the MDL default.
+/// Octane's `anisotropyTexture` for an MDL lobe of roughness `u` along
+/// the tangent and `v` across, both on the GGX curve (`anisotropic_roughness`).
+fn mdl_anisotropy(u: f32, v: f32) -> f32 {
+    let (u, v) = (ggx_roughness(u.clamp(0.0, 1.0)), ggx_roughness(v.clamp(0.0, 1.0)));
+    if (u - v).abs() < 1e-3 || u + v <= 0.0 {
+        return 0.0;
+    }
+    ((v - u) / (v + u)).clamp(-1.0, 1.0)
+}
+
 /// Iray Uber / PBRSkin displacement: the map, Octane's height (m) and mid
 /// level, and the subdivision level. Iray moves each vertex along its
 /// normal by Strength × lerp(Minimum, Maximum, map) cm (Calib-Disp: the
@@ -494,6 +502,8 @@ fn data_gamma(mat: &Material, channel: &str) -> f32 {
     mat.image_gamma(channel).unwrap_or(DATA_MAP_GAMMA)
 }
 
+/// The MDL metal's bump map: DAZ hangs it on "Bump Strength" (the
+/// amount), else `bump_texture`, else the MDL default.
 fn bump_map(mat: &Material, default: &str) -> String {
     mat.image("Bump Strength").or(mat.image("bump_texture")).map(str::to_string).unwrap_or_else(|| format!("resources/{default}"))
 }
@@ -517,8 +527,8 @@ enum MdlGloss {
 /// NVIDIA's dielectric MDL examples (DAZ's "NVIDIA MDL Examples" concrete,
 /// porcelain, granite, …): `df::fresnel_layer(ior, weight, glossy, diffuse)`
 /// — a gloss of that weight × Fresnel at `ior` over a diffuse base, as
-/// Universal's specular and IOR. MDL roughness is used as is (Uber's is
-/// squared first).
+/// Universal's specular and IOR. The MDL roughness is what the Uber's is
+/// after its squaring, so it takes the Uber gloss's GGX curve.
 struct MdlDielectric {
     albedo: MdlAlbedo,
     gloss: MdlGloss,
@@ -611,9 +621,7 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
             d.albedo = MdlAlbedo::Colour(diffuse);
             d.gloss = MdlGloss::Weight(mat.float("reflectivity").unwrap_or(0.6) * peak);
             d.tint = refl.map(|c| if peak > 0.0 { c / peak } else { 1.0 });
-            // base::architectural_gloss_to_rough is compiled into Iray;
-            // glossiness 1 is a mirror, (1 − g)² is a guess for the rest.
-            d.roughness = (1.0 - mat.float("refl_gloss").unwrap_or(1.0)).clamp(0.0, 1.0).powi(2);
+            d.roughness = architectural_gloss_to_rough(mat.float("refl_gloss").unwrap_or(1.0));
             d.ior = if mat.float("brdf_fresnel").unwrap_or(0.0) > 0.0 {
                 mat.float("Index of Refraction").unwrap_or(1.4)
             } else {
@@ -631,6 +639,14 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
         }
     }
     Some(d)
+}
+
+/// mental ray's glossiness → MDL roughness, as Iray's Arch+Design does
+/// (`base::architectural_gloss_to_rough`, MDL SDK `base.mdl`): √(2 ·
+/// 2^(−4 − 14 g)), a mirror at 1 — 0.35 at glossiness 0, 0.03 at 0.5.
+fn architectural_gloss_to_rough(glossiness: f32) -> f32 {
+    let g = glossiness.clamp(0.0, 1.0);
+    if g >= 1.0 { 0.0 } else { (2.0 * (-4.0 - 14.0 * g).exp2()).sqrt() }
 }
 
 /// Octane's texture transform translation for Iray's UV tiles and offsets
@@ -1102,9 +1118,12 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
-    /// An NVIDIA MDL metal (`mdl_metal`) as a Universal metal: albedo =
-    /// colour × weight map, roughness = the longer of u and v per texel, anisotropy from
-    /// the two at a mid-grey texel, the bump map — all at the shader's tiles.
+    /// An NVIDIA MDL metal (`mdl_metal`) as a Universal metal: albedo and
+    /// edge tint = colour × weight map (MDL's tinted `simple_glossy_bsdf`
+    /// has no Fresnel), each axis's roughness on the Uber gloss's GGX curve
+    /// (the same Phong lobe), Octane's roughness the longer one per texel,
+    /// anisotropy from the two at a mid-grey texel, the bump map at the
+    /// Uber's bump power — all at the shader's tiles.
     fn mdl_metal(&mut self, indent: usize, name: &str, m: &MdlMetal, mat: &Material) {
         self.tiling = (m.tiles != [1.0, 1.0]).then_some([m.tiles[0], m.tiles[1], 0.0, 0.0]);
         let id = self.id();
@@ -1114,32 +1133,58 @@ impl Ocs<'_> {
         let (wmap, woff, wscale) = &m.weight;
         let colour = m.colour;
         let key = format!("mdl-metal-albedo|{wmap}|{woff}|{wscale}|{colour:?}");
+        // `weighted_layer` clamps its weight to 0..1 (Cast Iron's 0.5 + 3 ·
+        // map is mostly 1).
         let derived = if wmap.is_empty() { None } else { self.textures.derived(self.dirs, wmap, &key, 2.2, |l| colour.map(|c| c * (woff + wscale * l).clamp(0.0, 1.0))) };
         match derived {
-            Some(asset) => self.image_pin(i, "albedo", &asset, false, 2.2, 1.0),
+            Some(asset) => {
+                self.image_pin(i, "albedo", &asset, false, 2.2, 1.0);
+                self.image_pin(i, "edgeTint", &asset, false, 2.2, 1.0);
+            }
             // No texture: Iray's lookup reads 0 and the metal comes out black.
-            None => self.rgb_pin(i, "albedo", [0.0; 3]),
+            None => {
+                self.rgb_pin(i, "albedo", [0.0; 3]);
+                self.rgb_pin(i, "edgeTint", [0.0; 3]);
+            }
         }
         self.float_pin(i, "metallic", 1.0);
-        self.value_pin(i, "brdf", 57, 2, "6");
-        let ((umap, uoff, uscale), (_, voff, vscale)) = (&m.rough_u, &m.rough_v);
+        let ((umap, uoff, uscale), (vmap, voff, vscale)) = (&m.rough_u, &m.rough_v);
+        let (ru, rv) = (uoff + uscale * 0.5, voff + vscale * 0.5);
+        // Plain GGX: `metal_generic`'s lobe has no multiple-scattering
+        // compensation (MDL spec 21.1.3), and Metal Brushed's broad long
+        // axis (0.6 – 0.7 on the curve) came out 1.16 × Iray under the
+        // energy-preserving GGX, 1.03 × under plain GGX (the scene's matte
+        // level 1.04); Cast Iron 1.11 either way.
+        self.value_pin(i, "brdf", 57, 2, "2");
         // Octane's roughness is the long axis, its anisotropy narrows the
         // other (`anisotropic_roughness`, #23).
-        let rough = |l: f32| (uoff + uscale * l).max(voff + vscale * l).clamp(0.0, 1.0);
-        let key = format!("mdl-metal-rough|{umap}|{uoff}|{uscale}|{voff}|{vscale}");
+        let rough = |l: f32| ggx_roughness((uoff + uscale * l).max(voff + vscale * l).clamp(0.0, 1.0));
+        let key = format!("mdl-metal-rough-ggx|{umap}|{uoff}|{uscale}|{voff}|{vscale}");
         let derived = if umap.is_empty() { None } else { self.textures.derived(self.dirs, umap, &key, 1.0, |l| [rough(l); 3]) };
         match derived {
             Some(asset) => self.image_pin(i, "roughness", &asset, true, 1.0, 1.0),
             None => self.float_pin(i, "roughness", rough(0.5)),
         }
-        let (ru, rv) = (uoff + uscale * 0.5, voff + vscale * 0.5);
-        if (ru - rv).abs() > 1e-3 {
-            self.float_pin(i, "anisotropyTexture", ((rv - ru) / (rv + ru)).clamp(-1.0, 1.0));
+        // The anisotropy per texel too: Metal Brushed's map runs u 0.04 –
+        // 0.18 against v 0.36 – 0.48, and its darkest texels draw Iray's
+        // thin streak (at the mid-grey texel's ratio it came out broad).
+        let aniso = |l: f32| mdl_anisotropy(uoff + uscale * l, voff + vscale * l);
+        if (0..=4).any(|k| aniso(k as f32 / 4.0) != 0.0) {
+            let key = format!("mdl-metal-aniso|{umap}|{uoff}|{uscale}|{voff}|{vscale}");
+            // Octane's anisotropy runs −1 – 1; the map holds it as is (≥ 0
+            // where v is the long axis, as in both NVIDIA metals).
+            // One map drives both axes (the presets); with two, the mid-grey ratio.
+            let derived = if umap.is_empty() || umap != vmap { None } else { self.textures.derived(self.dirs, umap, &key, 1.0, |l| [aniso(l).max(0.0); 3]) };
+            match derived {
+                Some(asset) => self.image_pin(i, "anisotropyTexture", &asset, true, 1.0, 1.0),
+                None => self.float_pin(i, "anisotropyTexture", mdl_anisotropy(ru, rv)),
+            }
         }
         let (bmap, amount) = &m.bump;
         if *amount > 0.0 {
             if let Some(asset) = self.textures.asset(self.dirs, bmap) {
-                self.image_pin(i, "bump", &asset, true, 1.0, *amount);
+                let p = self.bump_power(&asset, *amount);
+                self.image_pin(i, "bump", &asset, true, 1.0, p);
             }
         }
         self.round_edges_pin(i, mat);
@@ -1181,11 +1226,22 @@ impl Ocs<'_> {
                 }
             }
         }
-        self.float_pin(i, roughness_pin, m.roughness.clamp(0.0, 1.0));
+        // The MDL's `simple_glossy_bsdf` is the Uber's Phong lobe: GGX
+        // energy preserving on the gloss's curve (the Uber's rule). Not on
+        // resin's coated rough glass: there the rough-glass rule (Beckmann
+        // at √r) came out redder and darker in the middle (g/r 0.28 v
+        // Iray's 0.22, centre 0.83 ×) than Octane's default BSDF at r as is
+        // (0.24, 0.92 ×; Calib-NVIDIA).
+        let curve = if m.transmission.is_some() { RoughCurve::Linear } else { RoughCurve::Ggx };
+        if m.transmission.is_none() {
+            self.value_pin(i, "brdf", 57, 2, "6");
+        }
+        let rough = curve.apply(m.roughness.clamp(0.0, 1.0));
+        self.float_pin(i, roughness_pin, rough);
         if let Some(t) = m.transmission {
             // The base reflects its tint and lets it through (rough glass).
             self.rgb_pin(i, "specular", t);
-            self.float_pin(i, "roughness", m.roughness.clamp(0.0, 1.0));
+            self.float_pin(i, "roughness", rough);
             self.rgb_pin(i, "transmission", t);
             self.float_pin(i, "coatingIor", m.ior);
         }
@@ -1193,7 +1249,8 @@ impl Ocs<'_> {
         if let Some((map, amount)) = &m.bump {
             if *amount > 0.0 {
                 if let Some(asset) = self.textures.asset(self.dirs, map) {
-                    self.image_pin(i, "bump", &asset, true, 1.0, *amount);
+                    let p = self.bump_power(&asset, *amount);
+                    self.image_pin(i, "bump", &asset, true, 1.0, p);
                 }
             }
         }
@@ -4515,7 +4572,9 @@ mod tests {
         let (x, _) = material_inputs(&[("Concrete".into(), concrete, 1.0)], &dirs, HashMap::new(), 9300, SkinShader::None);
         let specular = &x[x.find("<pin name='specular'>").unwrap()..];
         assert!(specular[..specular.find("<pin name='roughness'>").unwrap()].contains("concrete_plain_bump"), "{x}");
-        assert!(x.contains("0.141") && x.contains("1.46") && x.contains("0.4356") && x.contains("<pin name='bump'>"), "{x}");
+        // The roughness on the Uber gloss's GGX curve, energy-preserving GGX.
+        assert!(x.contains("0.141") && x.contains("1.46") && x.contains(&format!(">{}<", num(ggx_roughness(0.4356)))) && x.contains("<pin name='bump'>"), "{x}");
+        assert!(x.contains("<pin name='brdf'>") && x.contains("type='2'>6<"), "{x}");
         // Porcelain: its colour, a full gloss; resin: its colour let through.
         let porcelain = nvidia("porcelain", json!([{"channel": {"id": "diffuse", "current_value": [1, 1, 1]}}]));
         let (y, _) = material_inputs(&[("Porcelain".into(), porcelain, 1.0)], &dirs, HashMap::new(), 9400, SkinShader::None);
@@ -4523,6 +4582,17 @@ mod tests {
         let resin = nvidia("resin_polyurethane_matte", json!([{"channel": {"id": "diffuse", "current_value": [1, 1, 1]}}]));
         let (z, _) = material_inputs(&[("Resin".into(), resin, 1.0)], &dirs, HashMap::new(), 9500, SkinShader::None);
         assert!(z.contains("<pin name='transmission'>") && z.contains("<pin name='coating'>"), "{z}");
+        // Resin keeps Octane's default BSDF at the MDL roughness.
+        assert!(!z.contains("<pin name='brdf'>") && z.contains(">0.25<"), "{z}");
+    }
+
+    /// Arch+Design glossiness → roughness as Iray's
+    /// `base::architectural_gloss_to_rough` (MDL SDK `base.mdl`).
+    #[test]
+    fn architectural_glossiness_is_iray_s_curve() {
+        assert_eq!(architectural_gloss_to_rough(1.0), 0.0);
+        assert!((architectural_gloss_to_rough(0.0) - 0.125f32.sqrt()).abs() < 1e-6);
+        assert!((architectural_gloss_to_rough(0.5) - (2.0f32 * 2f32.powi(-11)).sqrt()).abs() < 1e-6);
     }
 
     #[test]
@@ -5660,7 +5730,8 @@ mod tests {
     }
 
     /// NVIDIA Metal Brushed: Octane's roughness is the long axis (not the
-    /// axes' geometric mean), energy-preserving GGX.
+    /// axes' geometric mean) on the GGX curve, plain GGX, no Fresnel (edge
+    /// tint = albedo).
     #[test]
     fn mdl_metal_roughness_is_the_long_axis() {
         let mut textures = Textures::default();
@@ -5668,13 +5739,16 @@ mod tests {
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.02, 0.4), rough_v: (String::new(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;
-        // u 0.22, v 0.5125 at mid-grey: roughness v, anisotropy (v − u) / (v + u).
+        // u 0.22, v 0.5125 at mid-grey, each on the GGX curve: roughness v,
+        // anisotropy (v − u) / (v + u).
+        let (u, v) = (ggx_roughness(0.22), ggx_roughness(0.5125));
         let rough = &x[x.find("<pin name='roughness'>").unwrap()..];
-        assert!(rough.contains("type='6'>0.5125<"), "{x}");
+        assert!(rough.contains(&format!("type='6'>{}<", num(v))), "{x}");
         let a = &x[x.find("<pin name='anisotropyTexture'>").unwrap()..];
         let a: f32 = a.split("type='6'>").nth(1).unwrap().split('<').next().unwrap().parse().unwrap();
-        assert!((a - (0.5125 - 0.22) / (0.5125 + 0.22)).abs() < 1e-5, "{a}");
-        assert!(x.contains("<pin name='brdf'>") && x.contains("type='2'>6<"), "{x}");
+        assert!((a - (v - u) / (v + u)).abs() < 1e-5, "{a}");
+        assert!(x.contains("<pin name='brdf'>") && x.contains("type='2'>2<"), "{x}");
+        assert!(x.contains("<pin name='edgeTint'>"), "{x}");
     }
 
     /// NVIDIA's MDL examples get the channels straight as their MDL

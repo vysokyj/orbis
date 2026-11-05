@@ -1235,16 +1235,25 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
   `shaders/iray/resources/`). Parameters come from the shader's channels,
   else the MDL defaults; a map channel set empty is no texture.
   - Metals (`metal_examples`: Metal Brushed, Cast Iron): a Universal metal,
-    albedo = Metal Color (`diffuse`) × (offset + scale · reflection map),
-    roughness = the longer of u and v per texel (as is: the MDL's
-    roughness goes straight into `simple_glossy_bsdf`), anisotropy (v − u)
-    / (v + u) at a mid-grey texel, energy-preserving GGX (`brdf` 6), bump,
-    the shader's tiles (`mdl_metal`). Calib-NVIDIA: Cast Iron 1.19 × Iray,
-    hue within 0.01 (g/r) – 0.04 (b/r). Why the long axis (as on the
-    Uber's gloss, #23) and GGX: in Octane's default BSDF Metal Brushed
-    showed a round highlight, 1.26 × Iray (its reference of 2026-11-04);
-    now Iray's vertical streak at 1.17 (GGX curve on both axes: too broad;
-    plain GGX 1.14, alike).
+    albedo and edge tint = Metal Color (`diffuse`) × (offset + scale ·
+    reflection map) clamped to 0 – 1 (`weighted_layer` clamps its weight;
+    Cast Iron's 0.5 + 3 · map is mostly 1; the tinted `simple_glossy_bsdf`
+    has no Fresnel). The MDL roughness is what the Uber's is after its
+    squaring (the same Phong lobe), so each axis takes the Uber gloss's
+    GGX curve: Octane's roughness = the longer axis per texel, anisotropy
+    = (v − u) / (v + u) **per texel** (a derived map when one map drives
+    both axes, as in both presets; else at a mid-grey texel), **plain GGX**
+    (`brdf` 2), the bump at the Uber's bump power (`bump_power`: × 2 per
+    unit of amount for a 512 px map, untiled), the shader's tiles
+    (`mdl_metal`). Why: Metal Brushed's map runs u 0.04 – 0.18 against v
+    0.36 – 0.48; its darkest texels draw Iray's thin vertical streak and
+    brush bands, which a mid-grey ratio blurred into one broad highlight.
+    Plain GGX because `metal_generic`'s lobe has no multiple-scattering
+    compensation: at its broad long axis (0.6 – 0.7 on the curve) the
+    energy-preserving GGX rendered it 1.16 × Iray, plain GGX 1.02 (the
+    scene's floor 1.04) — measured, the MDL doesn't settle it. Cast Iron
+    1.11 (centre 0.97) either way; its sparkle at 256 samples is noise of
+    the 2048 px bump, gone at 1024.
   - Dielectrics (concrete, concrete polished, asphalt, ceramic tiles small,
     granite black, porcelain, resin polyurethane matte, architectural):
     `df::fresnel_layer(ior, weight, glossy, diffuse)` → Universal albedo,
@@ -1252,22 +1261,31 @@ Where this spec states a channel conversion that `src/iray.rs` contradicts,
     with one: concrete's bump map tints it, asphalt's and the tiles' bump
     map weights it, polished concrete's colour map does — its diffuse is
     that map × the weight too), `ior` = the layer's IOR, the MDL roughness
-    as is (not squared), bump × its amount (`mdl_dielectric`). Granite's
-    varnish is a mirror (roughness 0). Resin's base is a tinted glossy
-    reflect + transmit: specular and transmission its colour, the clear
-    gloss as the coating; transmission × 0.8 (`RESIN_TRANSMISSION`) — at
-    the full colour 1.36 × Iray and redder (g/r 0.30 v 0.37), × 0.85
-    matched the hue (1.23), × 0.6 showed too much background (g/r 0.50).
+    on the Uber gloss's GGX curve under energy-preserving GGX (`brdf` 6),
+    bump × the Uber's bump power (`mdl_dielectric`). Granite's varnish is a
+    mirror (roughness 0). Resin's base is a tinted glossy reflect +
+    transmit: specular and transmission its colour, the clear gloss as the
+    coating, Octane's default BSDF at the MDL roughness as is;
+    transmission × 0.8 (`RESIN_TRANSMISSION`, fitted) — at the full colour
+    1.24 – 1.36 × Iray with Iray's hue, × 0.8 1.04 and slightly redder
+    (g/r 0.24 v 0.22). The rough-glass rule (Beckmann at √r) made it
+    redder and dark in the middle (g/r 0.28, centre 0.83 ×), energy-
+    preserving GGX on the curve alike (0.26, 0.82 ×).
     Architectural (mental ray's mia_material): diffuse × weight,
     reflectivity × the reflection colour's maximum tinted by it, without
     "Use Fresnel Term" Schlick's curve from the 0° reflectivity as the IOR
     with that F0 (0.2 → 2.62), metal, transparency and cutout opacity;
-    glossiness → roughness (1 − g)² is a guess (Iray's
-    `architectural_gloss_to_rough` is compiled in), only g = 1 calibrated.
-    Calib-NVIDIA (Octane / Iray, sphere luminance): concrete 1.03,
-    polished 0.98, porcelain 1.11, granite 1.12, architectural 1.07 — the
-    level of the matte spheres elsewhere; before, all were plain diffuse
-    without gloss, bump or tiling.
+    glossiness → roughness = Iray's `base::architectural_gloss_to_rough`
+    (MDL SDK `base.mdl`): √(2 · 2^(−4 − 14 g)), a mirror at g = 1, 0.35 at
+    0, 0.03 at 0.5 (before: (1 − g)², a guess). Its anisotropy (default 1,
+    isotropic) and `refr_gloss` are not exported.
+    Calib-NVIDIA (Iray 5000 samples, Octane 1024; sphere disk luminance,
+    Octane / Iray; floor 1.04): Metal Brushed 1.02, Cast Iron 1.11,
+    concrete 1.00, polished 0.95, porcelain 1.09, granite 1.09, resin 1.04,
+    architectural 1.07; hue within 0.02 (g/r) – 0.04 (b/r) but resin.
+    Porcelain's and granite's excess (centre 1.14) is the diffuse under a
+    full Fresnel gloss, as on the Uber's glossy spheres (Calib-Glossy
+    1.02 – 1.16), not theirs alone.
 - **Layered images** are flattened into one PNG per stack.
 
 ### Skin — Standard Surface (277), Final only
