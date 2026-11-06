@@ -3988,9 +3988,8 @@ fn strand_tangent_turn(mat: &Material) -> f32 {
 impl Anisotropy {
     /// The glossy layer's (the metal's and the refraction's too): Glossy
     /// Anisotropy and Glossy Anisotropy Rotations as DAZ hands them Iray.
-    /// Backscattering Anisotropy never reaches Iray: DAZ's .mi export leaves
-    /// it out (Calib-Backscatter B8, 0.8), so Iray's backscattering lobe stays
-    /// isotropic.
+    /// Backscattering Anisotropy reaches Iray only from a shown channel
+    /// (`iray.rs`); the backscattering lobe stays isotropic here.
     fn glossy(mat: &Material) -> Self {
         let (a, rot) = match iray(mat) {
             Some(u) => (u.float("glossy_anisotropy").unwrap_or(0.0), u.float("glossy_anisotropy_rotation").unwrap_or(0.0)),
@@ -6135,7 +6134,7 @@ mod tests {
         assert_eq!(pin(&full, "rotation"), None);
         assert_eq!(brdf(&full).as_deref(), Some("2"));
         assert_eq!(brdf(&iso).as_deref(), Some("6"));
-        // Backscattering Anisotropy alone never reaches Iray.
+        // Backscattering Anisotropy alone doesn't turn the gloss.
         let back = ball(json!([{"channel": {"id": "Backscattering Anisotropy", "current_value": 0.8}}]));
         assert_eq!(pin(&back, "anisotropyTexture"), None);
         // On strands Iray's tangent runs around the strand, Octane's along

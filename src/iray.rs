@@ -150,10 +150,17 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     };
     out.insert("glossy_reflectivity", Arg::Float(reflectivity));
 
+    // The anisotropy and its rotation reach Iray from a shown channel, or
+    // from a hidden one while the Glossy Roughness channel is above 0 —
+    // in glossiness mode too, where the roughness comes from Glossiness;
+    // otherwise the MDL's 0. The switch follows the value either way
+    // (Calib-Mi-Visible, -Visible2, -Visible3).
     let aniso = ch.float("Glossy Anisotropy", 0.0);
-    out.insert("glossy_anisotropy", Arg::Float(aniso));
+    let rough_open = ch.float("Glossy Roughness", 0.0) > 0.0;
+    let passed = |id: &str| if rough_open || !ch.hidden(id) { ch.float(id, 0.0) } else { 0.0 };
+    out.insert("glossy_anisotropy", Arg::Float(passed("Glossy Anisotropy")));
     out.insert("glossy_anisotropy_enable", Arg::Bool(aniso > 0.0));
-    out.insert("glossy_anisotropy_rotation", Arg::Float(if aniso > 0.0 { ch.float("Glossy Anisotropy Rotations", 0.0) } else { 0.0 }));
+    out.insert("glossy_anisotropy_rotation", Arg::Float(passed("Glossy Anisotropy Rotations")));
     out.insert("glossy_color_transmit_enable", Arg::Int(ch.int("Glossy Color Effect", 0)));
 
     // Base thin film.
@@ -195,6 +202,7 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     out.insert("metallic_flakes_color_transmit_enable", Arg::Int(if on { ch.int("Metallic Flakes Color Effect", 0) } else { 0 }));
     out.insert("metallic_flakes_thin_film_thickness", Arg::Float(if on { ch.float("Metallic Flakes Thin Film", 0.0) } else { 300.0 }));
     out.insert("metallic_flakes_thin_film_ior", Arg::Float(if on { ch.float("Metallic Flakes Thin Film IOR", 1.5) } else { 3.0 }));
+    out.insert("metallic_flakes_thin_film_enable", Arg::Bool(on && ch.float("Metallic Flakes Thin Film", 0.0) > 0.0));
 
     // Specular / glossiness: Glossy Specular's hue as a directional tint.
     let specular = ch.color("Glossy Specular", [0.04; 3]);
@@ -276,6 +284,11 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
         _ => square_if(ch.float("Backscattering Roughness", 0.0), ch.bool("Roughness Squared", true)),
     };
     out.insert("backscattering_roughness", Arg::Float(if backscattering > 0.0 { back_rough } else { 0.5 }));
+    // Only from a shown channel (DAZ's default material hides it: the
+    // Calib-Backscatter lobe stayed isotropic; Calib-Mi-Visible-Shown V3).
+    if backscattering > 0.0 && !ch.hidden("Backscattering Anisotropy") {
+        out.insert("backscattering_anisotropy", Arg::Float(ch.float("Backscattering Anisotropy", 0.0)));
+    }
 
     // Refraction.
     out.insert("refraction_weight", Arg::Float(refraction));
@@ -350,6 +363,15 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     const MODES: [&str; 4] = ["tcw_principled_specular", "tcw_weighted", "tcw_fresnel", "tcw_custom_curve"];
     let mode = ch.int("Top Coat Layering Mode", 0).clamp(0, 3) as usize;
     out.insert("top_coat_layer_mode", Arg::Enum(if coat > 0.0 { MODES[mode] } else { MODES[0] }));
+    // The custom curve only from shown channels (Calib-Mi-Visible V5 against
+    // -Shown): hidden, Iray takes the MDL's 0 / 1 / 5.
+    if coat > 0.0 && mode == 3 {
+        for (param, id) in [("top_coat_custom_curve_normal", "Top Coat Curve Normal"), ("top_coat_custom_curve_grazing", "Top Coat Curve Grazing"), ("top_coat_custom_curve_exponent", "Top Coat Curve Exponent")] {
+            if !ch.hidden(id) {
+                out.insert(param, Arg::Float(ch.float(id, 0.0)));
+            }
+        }
+    }
     out.insert("top_coat_curve_strength", Arg::Float(if coat > 0.0 && mode == 0 { REFLECTIVITY_SCALE * ch.float("Reflectivity", 0.5) } else { 0.04 }));
 
     // Bumps (#61): the base's height map (Bump Strength) or normal map, and
@@ -422,6 +444,7 @@ impl Channels<'_> {
     fn hidden(&self, id: &str) -> bool {
         self.0.channels.get(id).is_some_and(|c| c.hidden)
     }
+
 
     fn image(&self, id: &str) -> Option<&str> {
         self.0.channels.get(id).and_then(|c| c.image.as_deref())
@@ -635,7 +658,7 @@ pub fn uber_default(param: &str) -> Option<Arg> {
         "sub_surface_scattering_amount" => Arg::Color([0.0; 3]),
         "top_coat_thin_film_thickness" | "base_thin_film_thickness" | "metallic_flakes_thin_film_thickness" => Arg::Float(300.0),
         "top_coat_thin_film_ior" | "base_thin_film_ior" | "metallic_flakes_thin_film_ior" => Arg::Float(3.0),
-        "top_coat_thin_film_enable" | "top_coat_bump_enable" | "base_bump_enable" | "base_bump2_enable" | "top_coat_anisotropy_enable" | "glossy_anisotropy_enable" | "base_thin_film_enable" | "diffuse_overlay_enable" | "metallic_flakes_enable" => Arg::Bool(false),
+        "top_coat_thin_film_enable" | "metallic_flakes_thin_film_enable" | "top_coat_bump_enable" | "base_bump_enable" | "base_bump2_enable" | "top_coat_anisotropy_enable" | "glossy_anisotropy_enable" | "base_thin_film_enable" | "diffuse_overlay_enable" | "metallic_flakes_enable" => Arg::Bool(false),
         "top_coat_anisotropy" | "top_coat_anisotropy_rotation" | "glossy_anisotropy" | "glossy_anisotropy_rotation" | "diffuse_overlay_weight" | "diffuse_overlay_roughness" | "diffuse_roughness" | "metallic_flakes_weight" | "metallic_flakes_roughness" => Arg::Float(0.0),
         "top_coat_color_transmit_enable" | "glossy_color_transmit_enable" | "diffuse_overlay_color_transmit_enable" | "diffuse_color_transmit_enable" | "metallic_flakes_color_transmit_enable" => Arg::Int(0),
         "diffuse_overlay_color" => Arg::Color([0.5; 3]),

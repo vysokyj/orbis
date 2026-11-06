@@ -21,6 +21,11 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-Mi-SSSTint: SSS Reflectance Tint with Base Color Effect 0 / 1 / 2,
   translucency and the effect's channel shown or hidden (#52), for the .mi
   and an Iray render.
+- Calib-Mi-Visible, -Visible-Shown: every Uber channel group off its
+  defaults, with the base material's hidden channels kept hidden or all
+  shown - which ones DAZ reads otherwise (#52 follow-up); -Visible2(-Shown)
+  the gloss, backscatter and coat groups in every mixing mode; -Visible3
+  what lets hidden gloss anisotropy through (Glossy Roughness > 0).
 - Calib-DOF-*: depth of field, focus at 1.5 m with the spheres at ~4.6 m,
   f/4, f/8, f/16 — to check Iray's 10x aperture.
 
@@ -1052,6 +1057,88 @@ uber_spheres('Calib-Mi-SSSTint', [0.85, 0.81, 0.73], SSST, [
     ('S6 effect 2 glossiness mode', {**STW, 'Base Color Effect': shown_effect(2), 'Base Mixing': 1}),
     ('S7 effect 2 closed translucency 0.5', {'Translucency Weight': 0.5, 'Base Color Effect': shown_effect(2), 'Thin Walled': False}),
     ('S8 effect 2 diffuse map', {**STW, 'Base Color Effect': shown_effect(2), ('diffuse', 'image'): RAMP, 'diffuse': [0.85, 0.81, 0.73]}),
+])
+
+# Channel visibility (#52 follow-up): the same eight spheres twice, every
+# Uber channel group off its defaults — Calib-Mi-Visible keeps the base
+# material's hidden channels (77 of 118 saved "visible": false),
+# Calib-Mi-Visible-Shown saves them all shown. Their .mi tell which hidden
+# channels DAZ treats otherwise (the SSS Reflectance Tint did).
+VIS_SSS = {'Translucency Weight': 0.6, 'Translucency Color': [0.9, 0.6, 0.4], 'Base Color Effect': 2, 'SSS Reflectance Tint': [0.9, 0.7, 0.5],
+           'Transmitted Color': [0.8, 0.5, 0.3], 'Transmitted Measurement Distance': 0.3, 'SSS Amount': 0.4, 'SSS Color': [0.7, 0.4, 0.3],
+           'Scattering Measurement Distance': 0.2, 'SSS Direction': -0.4, 'Invert Transmission Normal': True, 'Diffuse Strength': 0.8, 'Diffuse Roughness': 0.3}
+VIS_VARIANTS = [
+    ('V1 mono sss', {**VIS_SSS, 'SSS Mode': 0}),
+    ('V2 chromatic sss', {**VIS_SSS, 'SSS Mode': 1, 'Base Color Effect': 1}),
+    ('V3 glossiness mode', {'Base Mixing': 1, 'Glossy Layered Weight': 0.8, 'Glossiness': 0.6, 'Glossy Specular': [0.5, 0.4, 0.3], 'Glossy Color': [0.9, 0.8, 0.6],
+                            'Glossy Color Effect': 2, 'Glossy Anisotropy': 0.5, 'Glossy Anisotropy Rotations': 0.2, 'Glossiness Squared': True,
+                            'Backscattering Weight': 0.4, 'Backscattering Color': [0.3, 0.6, 0.9], 'Backscattering Glossiness': 0.5, 'Backscattering Anisotropy': 0.3}),
+    ('V4 dual lobe', {'Dual Lobe Specular Weight': 0.7, 'Dual Lobe Specular Reflectivity': 0.6, 'Specular Lobe 1 Roughness': 0.4, 'Specular Lobe 2 Roughness': 0.15,
+                      'Dual Lobe Specular Ratio': 0.6, 'Roughness Squared': False}),
+    ('V5 top coat', {'Top Coat Weight': 0.7, 'Top Coat Color': [0.8, 0.5, 0.3], 'Top Coat Color Effect': 2, 'Top Coat Roughness': 0.3, 'Top Coat Layering Mode': 3,
+                     'Top Coat Curve Normal': 0.1, 'Top Coat Curve Grazing': 0.8, 'Top Coat Curve Exponent': 3.0, 'Top Coat Anisotropy': 0.4, 'Top Coat Rotations': 0.3,
+                     'Top Coat Thin Film': 300.0, 'Top Coat Thin Film IOR': 1.7, 'Top Coat Bump Mode': 1, 'Top Coat Bump': 0.4}),
+    ('V6 refraction', {'Refraction Weight': 0.7, 'Refraction Color': [0.7, 0.9, 0.6], 'Refraction Roughness': 0.2, 'Refraction Index': 1.6, 'Abbe': 30.0,
+                       'Share Glossy Inputs': False, 'Base Thin Film': 250.0, 'Base Thin Film IOR': 1.8, 'Glossy Layered Weight': 0.5}),
+    ('V7 flakes overlay', {'Metallic Flakes Weight': 0.6, 'Metallic Flakes Color': [0.9, 0.7, 0.3], 'Metallic Flakes Color Effect': 1, 'Metallic Flakes Roughness': 0.2,
+                           'Metallic Flakes Size': 0.002, 'Metallic Flakes Strength': 0.7, 'Metallic Flakes Density': 0.6, 'Metallic Flakes Thin Film': 200.0,
+                           'Metallic Flakes Thin Film IOR': 1.6, 'Diffuse Overlay Weight': 0.4, 'Diffuse Overlay Weight Squared': True,
+                           'Diffuse Overlay Color': [0.3, 0.5, 0.8], 'Diffuse Overlay Color Effect': 2, 'Diffuse Overlay Roughness': 0.4}),
+    ('V8 emission', {'Emission Color': [1.0, 0.8, 0.6], 'Emission Temperature': 4000.0, 'Luminance': 200.0, 'Luminance Units': 1, 'Luminous Efficacy': 20.0,
+                     'Two Sided Light': True}),
+]
+uber_spheres('Calib-Mi-Visible', [0.7, 0.5, 0.4], {}, VIS_VARIANTS)
+if made[-1][0]:
+    d = load(made[-1][0])
+    for m in d['material_library']:
+        for e in m.get('extra', []):
+            for c in e.get('channels', []) or []:
+                c['channel'].pop('visible', None)
+    p = os.path.join(out_dir, 'Calib-Mi-Visible-Shown.duf')
+    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    print(p)
+
+# The same groups in the other mixing modes (gloss and backscatter
+# anisotropy reached Iray hidden in mode 0 — Calib-Aniso — but not in
+# mode 1; the coat curve not when hidden in mode 0).
+VIS_GLOSS = {'Glossy Layered Weight': 0.8, 'Glossy Weight': 0.6, 'Glossy Roughness': 0.3, 'Glossiness': 0.6, 'Glossy Anisotropy': 0.5,
+             'Glossy Anisotropy Rotations': 0.2, 'Backscattering Weight': 0.4, 'Backscattering Roughness': 0.4, 'Backscattering Glossiness': 0.5,
+             'Backscattering Anisotropy': 0.3}
+VIS_COAT = {'Top Coat Weight': 0.7, 'Top Coat Roughness': 0.3, 'Top Coat Glossiness': 0.6, 'Top Coat Layering Mode': 3, 'Top Coat Curve Normal': 0.1,
+            'Top Coat Curve Grazing': 0.8, 'Top Coat Curve Exponent': 3.0, 'Top Coat Anisotropy': 0.4, 'Top Coat Rotations': 0.3}
+uber_spheres('Calib-Mi-Visible2', [0.7, 0.5, 0.4], {}, [
+    ('W1 gloss mode 0', {**VIS_GLOSS, 'Base Mixing': 0}),
+    ('W2 gloss mode 1', {**VIS_GLOSS, 'Base Mixing': 1}),
+    ('W3 gloss mode 2', {**VIS_GLOSS, 'Base Mixing': 2}),
+    ('W4 coat mode 0', {**VIS_COAT, 'Base Mixing': 0}),
+    ('W5 coat mode 1', {**VIS_COAT, 'Base Mixing': 1}),
+    ('W6 coat mode 2', {**VIS_COAT, 'Base Mixing': 2, 'Glossy Weight': 0.5}),
+    ('W7 tint mode 2', {**VIS_SSS, 'Base Mixing': 2, 'Base Color Effect': 1}),
+    ('W8 rotation alone mode 1', {'Base Mixing': 1, 'Glossy Layered Weight': 0.8, 'Glossiness': 0.6, 'Glossy Anisotropy Rotations': 0.2}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for m in d['material_library']:
+        for e in m.get('extra', []):
+            for c in e.get('channels', []) or []:
+                c['channel'].pop('visible', None)
+    p = os.path.join(out_dir, 'Calib-Mi-Visible2-Shown.duf')
+    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    print(p)
+
+# What opens hidden gloss anisotropy: the Glossy Roughness channel above 0
+# (in glossiness mode too, where the roughness comes from Glossiness). V3's
+# setting with one change per sphere.
+VIS_V3 = dict(VIS_VARIANTS[2][1])
+uber_spheres('Calib-Mi-Visible3', [0.7, 0.5, 0.4], {}, [
+    ('Y1 mode 1 roughness 0', VIS_V3),
+    ('Y2 mode 1 roughness 0.3', {**VIS_V3, 'Glossy Roughness': 0.3}),
+    ('Y3 mode 1 glossy weight', {**VIS_V3, 'Glossy Weight': 0.6}),
+    ('Y4 mode 1 backscatter roughness', {**VIS_V3, 'Backscattering Roughness': 0.4}),
+    ('Y5 mode 1 roughness 0.01', {**VIS_V3, 'Glossy Roughness': 0.01}),
+    ('Y6 mode 0 roughness 0.3', {**VIS_V3, 'Glossy Roughness': 0.3, 'Base Mixing': 0}),
+    ('Y7 mode 0 roughness 0', {**VIS_V3, 'Base Mixing': 0}),
+    ('Y8 mode 2 roughness 0', {**VIS_V3, 'Base Mixing': 2, 'Glossy Weight': 0.6}),
 ])
 
 # --- Top Coat Bump (#61): DAZ's MDL gives the coat its own normal

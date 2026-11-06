@@ -395,3 +395,24 @@ That is #19's "Octane's skin bluer than Iray's" — part of it was this
 tint. `SKIN_HUE` (1 / 0.80 / 0.62, fitted on five figures incl. G8F) was
 fitted without it; on tinted skins it may now count part of it twice —
 for #19 to revisit with the tint known, not by tuning it here.
+
+## Channel visibility sweep (sixth step)
+
+If DAZ gates the tint on a channel's saved visibility, it may gate more.
+Calib-Mi-Visible: eight spheres with every Uber group off its defaults
+(SSS mono / chromatic, glossiness mode with backscatter, dual lobe, top
+coat with the custom curve, refraction with base film, flakes with
+overlay, emission), and its twin with every `visible` key dropped. The
+`.mi` diff, beyond the tint: gloss anisotropy and rotation, backscatter
+anisotropy and the coat's custom curve came only from the shown twin;
+everything else alike. Our flakes thin film also lacked its `_enable`.
+
+Calib-Mi-Visible2 (the same groups in mixing modes 0 / 1 / 2) then passed
+hidden gloss anisotropy in all three modes — against V3. Bisecting V3's
+channels (scratch, then Calib-Mi-Visible3): the Glossy Roughness channel
+above 0 opens it, in glossiness mode too (0.01 does). Backscatter
+anisotropy and the curve stayed shown-only in every mode. That is why
+Calib-Aniso (roughness > 0) always passed it and Calib-Backscatter's B8
+never did. Rules in `iray.rs`, the table in `docs/daz/iray-uber-mdl.md`
+(Channel visibility); the hidden/shown twin is now part of the `.mi`
+procedure (mi-fixture skill, docs/calibration.md).

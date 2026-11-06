@@ -289,3 +289,26 @@ In the same folder: `pbr_skin.mdl` (PBRSkin, [pbrskin.md](pbrskin.md)),
 `pbrmaterial.mdl`, `../OmniSurface/` (OmniSurface, OmniHair) and
 `../nvidia/` (NVIDIA's MDL examples, `core_definitions`,
 `legacy_thin_film`).
+
+## Channel visibility
+
+DAZ saves each channel's UI visibility (`"visible": false` in the DSON;
+absent = shown), and its Iray export reads it: some arguments reach Iray
+only from a shown channel, else the MDL default. DAZ's default Iray Uber
+material saves 77 of its 118 channels hidden, so our generated scenes
+(built on it) see the hidden behaviour, while product content, saved
+from DAZ's UI, often has them shown. Verified by twin scenes, the same
+values hidden and shown (`Calib-Mi-Visible`, `-Visible2` with their
+`-Shown` twins, `-Visible3`, `Calib-Mi-SSSTint`; #52):
+
+| argument | reaches Iray when |
+|---|---|
+| SSS Reflectance Tint × `diffuse_color` (a map's `color_scale`) | translucency, Base Color Effect 1 / 2, **Base Color Effect shown** |
+| `glossy_anisotropy`, `glossy_anisotropy_rotation` | the channel shown, **or** the Glossy Roughness channel > 0 (also in glossiness mode); `glossy_anisotropy_enable` follows the value regardless |
+| `backscattering_anisotropy` | backscattering on, the channel shown |
+| `top_coat_custom_curve_normal / grazing / exponent` | coat on, custom-curve layering, each channel shown |
+
+Every other hidden channel in the sweep (SSS, volume, overlay, flakes,
+dual lobe, coat colour / film / anisotropy, refraction, emission) reached
+Iray alike hidden or shown. Visibility is a channel field
+(`Channel::hidden`): an override without `visible` keeps the definition's.

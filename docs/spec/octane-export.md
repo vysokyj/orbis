@@ -990,9 +990,11 @@ leaves out, #15):
   (Rotations 0.25, anisotropy 0.74 / 0.92) streaked across its strands as
   exported; Iray streaks along them. Turned, its highlights 0.69 – 0.77 →
   1.07 – 1.13 × Iray, the crown 2.98 → 2.24 (#52).
-  Backscattering Anisotropy never reaches Iray: DAZ's .mi export leaves
-  it out, also with the glossy anisotropy on (Calib-Backscatter B8,
-  Calib-Aniso2 K6).
+  Backscattering Anisotropy reaches Iray only from a channel saved
+  shown; DAZ's default material (our generated scenes) hides it, so
+  Calib-Backscatter B8 and Calib-Aniso2 K6 stayed isotropic
+  (Calib-Mi-Visible2-Shown, see iray-uber-mdl.md, Channel visibility). The
+  Octane side keeps the backscatter isotropic either way.
 - **Top Coat** → Universal `coating` = Top Coat Color × weight,
   `coatingRoughness` (Top Coat Roughness, or 1 − Top Coat Glossiness in
   mode 1 — verified; mode 2 not yet, it keeps Glossiness — squared

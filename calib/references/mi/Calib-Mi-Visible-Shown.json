@@ -1,0 +1,885 @@
+{
+ "camera": {
+  "aperture": 8.88888888888889,
+  "aspect": 1.7777777777777777,
+  "backplate_background_color": [
+   -1,
+   -1,
+   -1,
+   -1
+  ],
+  "clip": [
+   5,
+   4000
+  ],
+  "focal": 6.5,
+  "frame": [
+   0,
+   0
+  ],
+  "mip_aperture_blade_rotation_angle": 0,
+  "mip_aperture_num_blades": 0,
+  "mip_burn_highlights": 1,
+  "mip_burn_highlights_per_component": true,
+  "mip_camera_shutter": 512,
+  "mip_cm2_factor": 1,
+  "mip_crush_blacks": 0,
+  "mip_f_number": 8,
+  "mip_film_iso": 100,
+  "mip_gamma": 2.20000005,
+  "mip_lens_distortion_params": [
+   0,
+   0,
+   0
+  ],
+  "mip_lens_distortion_params2": [
+   0,
+   0,
+   0
+  ],
+  "mip_lens_distortion_scale": 1,
+  "mip_lens_distortion_type": "none",
+  "mip_lens_focus": 0,
+  "mip_lens_max_fov": 6.28318501,
+  "mip_lens_radial_bias": 0.5,
+  "mip_lens_radius": 0,
+  "mip_lens_shift_x": 0,
+  "mip_lens_shift_y": 0,
+  "mip_lens_stereo_offset": 0,
+  "mip_lens_thickness": 0,
+  "mip_saturation": 1,
+  "mip_vignetting": 0,
+  "mip_whitepoint": [
+   1,
+   1,
+   1,
+   1
+  ],
+  "offset": [
+   0,
+   0
+  ],
+  "output": "\"jpg\"   \"default.jpg\"",
+  "resolution": [
+   1920,
+   1080
+  ],
+  "tm_tonemapper": "mia_exposure_photographic",
+  "window": [
+   0,
+   0,
+   1919,
+   1079
+  ]
+ },
+ "environment": {
+  "args": {
+   "texture": {
+    "texture": {
+     "gamma": 1,
+     "path": "<daz>/shaders/iray/resources/DTHDR-RuinsB-500.hdr",
+     "type": "color"
+    }
+   }
+  },
+  "mdl": "base::environment_spherical(texture_2d)"
+ },
+ "lights": {},
+ "materials": {
+  "Plane/Default": {
+   "args": {
+    "backscattering_weight": 0,
+    "base_mixing": "blm_layered",
+    "base_thin_film_thickness": 0,
+    "diffuse_color": [
+     0.5,
+     0.5,
+     0.5
+    ],
+    "dual_lobe_specular_weight": 0,
+    "emission_tint": [
+     0,
+     0,
+     0
+    ],
+    "full_refraction_reflection_enable": true,
+    "geometry_bump": {
+     "args": {
+      "across_materials": true
+     },
+     "mdl": "state::rounded_corner_normal(float,bool,float)"
+    },
+    "glossy_color": [
+     1,
+     1,
+     1
+    ],
+    "glossy_layered_weight": 0,
+    "thin_walled": true,
+    "top_coat_weight": 0,
+    "translucency_weight": 0
+   },
+   "attrs": {
+    "exclude_from_white_mode": false
+   },
+   "mdl": "daz_3d::irayubermaterial::iray_uber_unified"
+  },
+  "V1 mono sss/Default": {
+   "args": {
+    "absorption_enable": true,
+    "backscattering_weight": 0,
+    "base_mixing": "blm_layered",
+    "base_thin_film_thickness": 0,
+    "diffuse_color": [
+     0.289494,
+     0.0794401,
+     0.0231929
+    ],
+    "diffuse_color_transmit_enable": 2,
+    "diffuse_roughness": 0.3,
+    "dual_lobe_specular_weight": 0,
+    "emission_tint": [
+     0,
+     0,
+     0
+    ],
+    "full_refraction_reflection_enable": true,
+    "geometry_bump": {
+     "args": {
+      "across_materials": true
+     },
+     "mdl": "state::rounded_corner_normal(float,bool,float)"
+    },
+    "glossy_color": [
+     1,
+     1,
+     1
+    ],
+    "glossy_layered_weight": 0,
+    "invert_transmission_normal": true,
+    "sub_surface_enable": true,
+    "sub_surface_scattering_amount": [
+     0.4,
+     0.4,
+     0.4
+    ],
+    "thin_walled": true,
+    "top_coat_weight": 0,
+    "translucency_color": [
+     0.79311,
+     0.325037,
+     0.133209
+    ],
+    "translucency_enable": true,
+    "translucency_weight": 0.6
+   },
+   "attrs": {
+    "exclude_from_white_mode": false
+   },
+   "mdl": "daz_3d::irayubermaterial::iray_uber_unified"
+  },
+  "V2 chromatic sss/Default": {
+   "args": {
+    "absorption_enable": true,
+    "backscattering_weight": 0,
+    "base_mixing": "blm_layered",
+    "base_thin_film_thickness": 0,
+    "diffuse_color": [
+     0.289494,
+     0.0794401,
+     0.0231929
+    ],
+    "diffuse_color_transmit_enable": 1,
+    "diffuse_roughness": 0.3,
+    "dual_lobe_specular_weight": 0,
+    "emission_tint": [
+     0,
+     0,
+     0
+    ],
+    "full_refraction_reflection_enable": true,
+    "geometry_bump": {
+     "args": {
+      "across_materials": true
+     },
+     "mdl": "state::rounded_corner_normal(float,bool,float)"
+    },
+    "glossy_color": [
+     1,
+     1,
+     1
+    ],
+    "glossy_layered_weight": 0,
+    "invert_transmission_normal": true,
+    "logarithmic_scatter_enable": true,
+    "sub_surface_enable": true,
+    "sub_surface_scattering_amount": [
+     0.456263,
+     0.133209,
+     0.0707403
+    ],
+    "thin_walled": true,
+    "top_coat_weight": 0,
+    "translucency_color": [
+     0.79311,
+     0.325037,
+     0.133209
+    ],
+    "translucency_enable": true,
+    "translucency_weight": 0.6
+   },
+   "attrs": {
+    "exclude_from_white_mode": false
+   },
+   "mdl": "daz_3d::irayubermaterial::iray_uber_unified"
+  },
+  "V3 glossiness mode/Default": {
+   "args": {
+    "backscattering_anisotropy": 0.3,
+    "backscattering_enable": true,
+    "backscattering_roughness": 0.25,
+    "backscattering_weight": 0.4,
+    "base_mixing": "blm_layered",
+    "base_thin_film_thickness": 0,
+    "diffuse_color": [
+     0.456263,
+     0.217638,
+     0.133209
+    ],
+    "dual_lobe_specular_weight": 0,
+    "emission_tint": [
+     0,
+     0,
+     0
+    ],
+    "full_refraction_reflection_enable": true,
+    "geometry_bump": {
+     "args": {
+      "across_materials": true
+     },
+     "mdl": "state::rounded_corner_normal(float,bool,float)"
+    },
+    "glossy_anisotropy": 0.5,
+    "glossy_anisotropy_enable": true,
+    "glossy_anisotropy_rotation": 0.2,
+    "glossy_color": [
+     0.79311,
+     0.612066,
+     0.325037
+    ],
+    "glossy_color_transmit_enable": 2,
+    "glossy_directional_color_enable": true,
+    "glossy_directional_normal_color": [
+     1,
+     0.612066,
+     0.325037
+    ],
+    "glossy_enable": true,
+    "glossy_layered_weight": 0.8,
+    "glossy_reflectivity": 0.217638,
+    "glossy_roughness": 0.16,
+    "glossy_roughness_enable": true,
+    "thin_walled": true,
+    "top_coat_weight": 0,
+    "translucency_weight": 0
+   },
+   "attrs": {
+    "exclude_from_white_mode": false
+   },
+   "mdl": "daz_3d::irayubermaterial::iray_uber_unified"
+  },
+  "V4 dual lobe/Default": {
+   "args": {
+    "backscattering_weight": 0,
+    "base_mixing": "blm_layered",
+    "base_thin_film_thickness": 0,
+    "diffuse_color": [
+     0.456263,
+     0.217638,
+     0.133209
+    ],
+    "dual_lobe_specular_reflectivity": 0.048,
+    "dual_lobe_specular_roughness_1": 0.4,
+    "dual_lobe_specular_roughness_2": 0.15,
+    "dual_lobe_specular_roughness_ratio": 0.6,
+    "dual_lobe_specular_weight": 0.7,
+    "dual_lobe_uniform_specular_weight": 0.7,
+    "emission_tint": [
+     0,
+     0,
+     0
+    ],
+    "full_refraction_reflection_enable": true,
+    "geometry_bump": {
+     "args": {
+      "across_materials": true
+     },
+     "mdl": "state::rounded_corner_normal(float,bool,float)"
+    },
+    "glossy_color": [
+     1,
+     1,
+     1
+    ],
+    "glossy_layered_weight": 0,
+    "thin_walled": true,
+    "top_coat_weight": 0,
+    "translucency_weight": 0
+   },
+   "attrs": {
+    "exclude_from_white_mode": false
+   },
+   "mdl": "daz_3d::irayubermaterial::iray_uber_unified"
+  },
+  "V5 top coat/Default": {
+   "args": {
+    "backscattering_weight": 0,
+    "base_mixing": "blm_layered",
+    "base_thin_film_thickness": 0,
+    "diffuse_color": [
+     0.456263,
+     0.217638,
+     0.133209
+    ],
+    "dual_lobe_specular_weight": 0,
+    "emission_tint": [
+     0,
+     0,
+     0
+    ],
+    "full_refraction_reflection_enable": true,
+    "geometry_bump": {
+     "args": {
+      "across_materials": true
+     },
+     "mdl": "state::rounded_corner_normal(float,bool,float)"
+    },
+    "glossy_color": [
+     1,
+     1,
+     1
+    ],
+    "glossy_layered_weight": 0,
+    "thin_walled": true,
+    "top_coat_anisotropy": 0.4,
+    "top_coat_anisotropy_enable": true,
+    "top_coat_anisotropy_rotation": 0.3,
+    "top_coat_color": [
+     0.612066,
+     0.217638,
+     0.0707403
+    ],
+    "top_coat_color_transmit_enable": 2,
+    "top_coat_custom_curve_exponent": 3,
+    "top_coat_custom_curve_grazing": 0.8,
+    "top_coat_custom_curve_normal": 0.1,
+    "top_coat_enable": true,
+    "top_coat_layer_mode": "tcw_custom_curve",
+    "top_coat_roughness": 0.09,
+    "top_coat_thin_film_enable": true,
+    "top_coat_thin_film_ior": 1.7,
+    "top_coat_weight": 0.7,
+    "translucency_weight": 0
+   },
+   "attrs": {
+    "exclude_from_white_mode": false
+   },
+   "mdl": "daz_3d::irayubermaterial::iray_uber_unified"
+  },
+  "V6 refraction/Default": {
+   "args": {
+    "abbe_number": 30,
+    "backscattering_weight": 0,
+    "base_mixing": "blm_layered",
+    "base_thin_film_enable": true,
+    "base_thin_film_ior": 1.8,
+    "base_thin_film_thickness": 250,
+    "diffuse_color": [
+     0.456263,
+     0.217638,
+     0.133209
+    ],
+    "dispersion_enable": true,
+    "dual_lobe_specular_weight": 0,
+    "emission_tint": [
+     0,
+     0,
+     0
+    ],
+    "full_refraction_reflection_enable": false,
+    "geometry_bump": {
+     "args": {
+      "across_materials": true
+     },
+     "mdl": "state::rounded_corner_normal(float,bool,float)"
+    },
+    "glossy_color": [
+     1,
+     1,
+     1
+    ],
+    "glossy_enable": true,
+    "glossy_ior": 1.6,
+    "glossy_layered_weight": 0.5,
+    "refraction_color": [
+     0.456263,
+     0.79311,
+     0.325037
+    ],
+    "refraction_enable": true,
+    "refraction_glossy_unified_enable": false,
+    "refraction_roughness": 0.04,
+    "refraction_weight": 0.7,
+    "thin_walled": true,
+    "top_coat_weight": 0,
+    "translucency_weight": 0
+   },
+   "attrs": {
+    "exclude_from_white_mode": false
+   },
+   "mdl": "daz_3d::irayubermaterial::iray_uber"
+  },
+  "V7 flakes overlay/Default": {
+   "args": {
+    "backscattering_weight": 0,
+    "base_mixing": "blm_layered",
+    "base_thin_film_thickness": 0,
+    "diffuse_color": [
+     0.456263,
+     0.217638,
+     0.133209
+    ],
+    "diffuse_overlay_color": [
+     0.0707403,
+     0.217638,
+     0.612066
+    ],
+    "diffuse_overlay_color_transmit_enable": 2,
+    "diffuse_overlay_enable": true,
+    "diffuse_overlay_roughness": 0.4,
+    "diffuse_overlay_weight": 0.16,
+    "dual_lobe_specular_weight": 0,
+    "emission_tint": [
+     0,
+     0,
+     0
+    ],
+    "full_refraction_reflection_enable": true,
+    "geometry_bump": {
+     "args": {
+      "across_materials": true
+     },
+     "mdl": "state::rounded_corner_normal(float,bool,float)"
+    },
+    "glossy_color": [
+     1,
+     1,
+     1
+    ],
+    "glossy_layered_weight": 0,
+    "metallic_flakes_color": [
+     0.79311,
+     0.456263,
+     0.0707403
+    ],
+    "metallic_flakes_color_transmit_enable": 1,
+    "metallic_flakes_density": 0.6,
+    "metallic_flakes_enable": true,
+    "metallic_flakes_roughness": 0.04,
+    "metallic_flakes_size": 2e-05,
+    "metallic_flakes_strength": 0.7,
+    "metallic_flakes_thin_film_enable": true,
+    "metallic_flakes_thin_film_ior": 1.6,
+    "metallic_flakes_thin_film_thickness": 200,
+    "metallic_flakes_weight": 0.6,
+    "thin_walled": true,
+    "top_coat_weight": 0,
+    "translucency_weight": 0
+   },
+   "attrs": {
+    "exclude_from_white_mode": false
+   },
+   "mdl": "daz_3d::irayubermaterial::iray_uber_unified"
+  },
+  "V8 emission/Default": {
+   "args": {
+    "backscattering_weight": 0,
+    "base_mixing": "blm_layered",
+    "base_thin_film_thickness": 0,
+    "diffuse_color": [
+     0.456263,
+     0.217638,
+     0.133209
+    ],
+    "dual_lobe_specular_weight": 0,
+    "emission_enable": true,
+    "emission_flux": [
+     200000,
+     200000,
+     200000
+    ],
+    "emission_scene_unit_size": 1,
+    "emission_temperature": 4000,
+    "emission_tint": [
+     1,
+     0.612066,
+     0.325037
+    ],
+    "full_refraction_reflection_enable": true,
+    "geometry_bump": {
+     "args": {
+      "across_materials": true
+     },
+     "mdl": "state::rounded_corner_normal(float,bool,float)"
+    },
+    "glossy_color": [
+     1,
+     1,
+     1
+    ],
+    "glossy_layered_weight": 0,
+    "thin_walled": true,
+    "top_coat_weight": 0,
+    "translucency_weight": 0,
+    "two_sided_area": true
+   },
+   "attrs": {
+    "exclude_from_white_mode": false
+   },
+   "mdl": "daz_3d::irayubermaterial::iray_uber_unified"
+  }
+ },
+ "objects": {
+  "Plane": {
+   "attrs": {
+    "ghostlight_factor": 1,
+    "label": 0,
+    "matte": false,
+    "matte_shadow_intensity": 1,
+    "picking_disabled": false,
+    "volume_priority": 0
+   },
+   "flags": {
+    "caustic": true,
+    "caustic_mode": 3,
+    "finalgather": true,
+    "finalgather_mode": 3,
+    "globillum": true,
+    "globillum_mode": 3,
+    "hide": false,
+    "shadow_mode": 3,
+    "transparency_mode": 3,
+    "visible": true
+   }
+  },
+  "V1 mono sss": {
+   "attrs": {
+    "ghostlight_factor": 1,
+    "label": 0,
+    "matte": false,
+    "matte_shadow_intensity": 1,
+    "picking_disabled": false,
+    "volume_priority": 0
+   },
+   "flags": {
+    "caustic": true,
+    "caustic_mode": 3,
+    "finalgather": true,
+    "finalgather_mode": 3,
+    "globillum": true,
+    "globillum_mode": 3,
+    "hide": false,
+    "shadow_mode": 3,
+    "transparency_mode": 3,
+    "visible": true
+   }
+  },
+  "V2 chromatic sss": {
+   "attrs": {
+    "ghostlight_factor": 1,
+    "label": 0,
+    "matte": false,
+    "matte_shadow_intensity": 1,
+    "picking_disabled": false,
+    "volume_priority": 0
+   },
+   "flags": {
+    "caustic": true,
+    "caustic_mode": 3,
+    "finalgather": true,
+    "finalgather_mode": 3,
+    "globillum": true,
+    "globillum_mode": 3,
+    "hide": false,
+    "shadow_mode": 3,
+    "transparency_mode": 3,
+    "visible": true
+   }
+  },
+  "V3 glossiness mode": {
+   "attrs": {
+    "ghostlight_factor": 1,
+    "label": 0,
+    "matte": false,
+    "matte_shadow_intensity": 1,
+    "picking_disabled": false,
+    "volume_priority": 0
+   },
+   "flags": {
+    "caustic": true,
+    "caustic_mode": 3,
+    "finalgather": true,
+    "finalgather_mode": 3,
+    "globillum": true,
+    "globillum_mode": 3,
+    "hide": false,
+    "shadow_mode": 3,
+    "transparency_mode": 3,
+    "visible": true
+   }
+  },
+  "V4 dual lobe": {
+   "attrs": {
+    "ghostlight_factor": 1,
+    "label": 0,
+    "matte": false,
+    "matte_shadow_intensity": 1,
+    "picking_disabled": false,
+    "volume_priority": 0
+   },
+   "flags": {
+    "caustic": true,
+    "caustic_mode": 3,
+    "finalgather": true,
+    "finalgather_mode": 3,
+    "globillum": true,
+    "globillum_mode": 3,
+    "hide": false,
+    "shadow_mode": 3,
+    "transparency_mode": 3,
+    "visible": true
+   }
+  },
+  "V5 top coat": {
+   "attrs": {
+    "ghostlight_factor": 1,
+    "label": 0,
+    "matte": false,
+    "matte_shadow_intensity": 1,
+    "picking_disabled": false,
+    "volume_priority": 0
+   },
+   "flags": {
+    "caustic": true,
+    "caustic_mode": 3,
+    "finalgather": true,
+    "finalgather_mode": 3,
+    "globillum": true,
+    "globillum_mode": 3,
+    "hide": false,
+    "shadow_mode": 3,
+    "transparency_mode": 3,
+    "visible": true
+   }
+  },
+  "V6 refraction": {
+   "attrs": {
+    "ghostlight_factor": 1,
+    "label": 0,
+    "matte": false,
+    "matte_shadow_intensity": 1,
+    "picking_disabled": false,
+    "volume_priority": 0
+   },
+   "flags": {
+    "caustic": true,
+    "caustic_mode": 3,
+    "finalgather": true,
+    "finalgather_mode": 3,
+    "globillum": true,
+    "globillum_mode": 3,
+    "hide": false,
+    "shadow_mode": 3,
+    "transparency_mode": 3,
+    "visible": true
+   }
+  },
+  "V7 flakes overlay": {
+   "attrs": {
+    "ghostlight_factor": 1,
+    "label": 0,
+    "matte": false,
+    "matte_shadow_intensity": 1,
+    "picking_disabled": false,
+    "volume_priority": 0
+   },
+   "flags": {
+    "caustic": true,
+    "caustic_mode": 3,
+    "finalgather": true,
+    "finalgather_mode": 3,
+    "globillum": true,
+    "globillum_mode": 3,
+    "hide": false,
+    "shadow_mode": 3,
+    "transparency_mode": 3,
+    "visible": true
+   }
+  },
+  "V8 emission": {
+   "attrs": {
+    "ghostlight_factor": 1,
+    "label": 0,
+    "matte": false,
+    "matte_shadow_intensity": 1,
+    "picking_disabled": false,
+    "volume_priority": 0
+   },
+   "flags": {
+    "caustic": true,
+    "caustic_mode": 3,
+    "finalgather": true,
+    "finalgather_mode": 3,
+    "globillum": true,
+    "globillum_mode": 3,
+    "hide": false,
+    "shadow_mode": 3,
+    "transparency_mode": 3,
+    "visible": true
+   }
+  }
+ },
+ "options": {
+  "depth": 16,
+  "depth_reflect": 8,
+  "depth_refract": 8,
+  "environment_dome_ground": false,
+  "environment_dome_ground_connect_to_environment": true,
+  "environment_dome_ground_glossiness": 0.100000001,
+  "environment_dome_ground_position": [
+   0,
+   -0.00100000005,
+   0
+  ],
+  "environment_dome_ground_reflectivity": [
+   0,
+   0,
+   0,
+   1
+  ],
+  "environment_dome_ground_shadow_intensity": 1,
+  "environment_dome_ground_texturescale": 100,
+  "environment_dome_ground_visible_from_below": true,
+  "environment_dome_mode": "infinite",
+  "environment_dome_rotation_angle": 0,
+  "environment_dome_rotation_axis": [
+   0,
+   1,
+   0
+  ],
+  "environment_dome_visualize": false,
+  "environment_function_intensity": 20000,
+  "environment_function_orientation": [
+   1,
+   0,
+   0,
+   0,
+   1,
+   0,
+   0,
+   0,
+   1
+  ],
+  "environment_function_tint": [
+   1,
+   1,
+   1,
+   1
+  ],
+  "environment_lighting_blur": false,
+  "environment_lighting_resolution": 512,
+  "filter": "gauss 3",
+  "guided_sampling": false,
+  "instancing_shift_camera": true,
+  "iray_bloom_filtering": false,
+  "iray_caustic_sampler": false,
+  "iray_default_alpha_lpe": "E <TS>* [LmLe]",
+  "iray_degrain_filtering": 0,
+  "iray_firefly_filter": true,
+  "iray_ground_fog": false,
+  "iray_ground_fog_albedo": [
+   0.415148199,
+   0.431340307,
+   0.442322969,
+   1
+  ],
+  "iray_ground_fog_anisotropy": 0,
+  "iray_ground_fog_particle_size": 0,
+  "iray_instancing": "auto",
+  "iray_nominal_luminance": 0,
+  "iray_rt_low_memory": "auto",
+  "iray_spectral_conversion_color_space": "rec709",
+  "iray_spectral_conversion_intent": "faithful",
+  "iray_spectral_observer": "cie1931",
+  "iray_spectral_rendering": false,
+  "iray_texture_compression": "",
+  "irt_ambient_falloff": 1,
+  "irt_ambient_falloff_distance_space": 0,
+  "irt_ambient_falloff_max_distance": 100000,
+  "irt_ambient_falloff_min_distance": 100000,
+  "irt_ambient_intensity": -16777216,
+  "irt_ambient_occlusion_mode": 0,
+  "irt_ambient_shadow_mode": 1,
+  "irt_area_as_point_lights": false,
+  "irt_environment_max_resolution": 2048,
+  "irt_first_frame_antialiasing": false,
+  "irt_ibl_falloff": false,
+  "irt_indirect_light_mode": 2,
+  "irt_indirect_outlier_rejection": true,
+  "irt_psf_enable": false,
+  "irt_ray_importance_threshold": 0.0199999996,
+  "irt_render_mode": 1,
+  "irt_shadows": true,
+  "matte_fog": false,
+  "matte_fog_brightness": 1,
+  "matte_fog_brightness_relative_to_environment": true,
+  "matte_fog_brightness_tint": [
+   1,
+   1,
+   1,
+   1
+  ],
+  "matte_fog_visibility": 10000,
+  "matte_fog_visibility_tint": [
+   1,
+   1,
+   1,
+   1
+  ],
+  "mdl_meters_per_scene_unit": 0.00999999978,
+  "object": "space",
+  "post_denoiser_available": true,
+  "post_denoiser_denoise_alpha": false,
+  "post_denoiser_enabled": true,
+  "post_denoiser_max_memory": 1024,
+  "post_denoiser_start_iteration": 8,
+  "post_ssim_available": false,
+  "progressive_aux_canvas": true,
+  "progressive_rendering_converged_pixel_ratio": 0.949999988,
+  "progressive_rendering_max_samples": 5000,
+  "progressive_rendering_max_time": 7200,
+  "progressive_rendering_min_samples": 5,
+  "progressive_rendering_quality": 1,
+  "progressive_rendering_quality_enabled": true,
+  "samples": [
+   0,
+   0
+  ],
+  "section_caps_enabled": false,
+  "shutter": [
+   0,
+   0
+  ],
+  "white_mode_enabled": false
+ }
+}

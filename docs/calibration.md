@@ -40,6 +40,13 @@ and a sphere with the same values disagree, copy the product's whole
 channel list onto a sphere and bisect it (#52 took three Iray batches
 before the `.mi` showed the tint in one look).
 
+**Every channel rule is tested hidden and shown.** A `.mi` sweep of
+generated spheres proves only DAZ's hidden-channel behaviour; each sweep
+gets a `-Shown` twin (the same scene with every `visible` key dropped), and
+a difference between the twins is a gate to pin down and record (the
+`mi-fixture` skill has the procedure; the gates found so far:
+`docs/daz/iray-uber-mdl.md`, Channel visibility).
+
 **Four variants, one at a time.** An export is one of Look (Enhanced /
 Faithful) × render mode (Final / Preview). Calibrate **Enhanced + Final**
 (path tracing, the photoreal one) first, then run the same scenes for each
@@ -71,6 +78,7 @@ thing at a time.
 | `Calib-Thin-*` | thin-walled translucency: w, Translucency Color, front- / backlit, Base Color Effect (`-bce`) | [Universal](spec/octane-export.md#universal-130--default) | [#45](https://github.com/vysokyj/orbis/issues/45) |
 | `Calib-Glass` | refraction: IOR, colour, roughness, thin walls, absorption | [Universal](spec/octane-export.md#universal-130--default) | — |
 | `Calib-Mixing` | Base Mixing 1 / 2 and Top Coat as room surfaces use them | [Universal](spec/octane-export.md#universal-130--default) | — |
+| `Calib-Mi-Visible*`, `Calib-Mi-SSSTint` | channel visibility: every Uber group off its defaults, hidden vs shown twins, and the gates (Base Color Effect → SSS tint, Glossy Roughness → gloss anisotropy); .mi only | [Channel visibility](daz/iray-uber-mdl.md#channel-visibility) | [#52](https://github.com/vysokyj/orbis/issues/52) |
 | `Calib-Mi-Legacy*`, `Calib-Mi-AoA*` | legacy 3Delight shaders (UberSurface, DS Defaults presets, AoA Subsurface) as DAZ hands them to Iray; .mi only | [Legacy shaders](spec/octane-export.md#legacy-shaders--iray-uber-41-64) | [#64](https://github.com/vysokyj/orbis/issues/64) |
 | `Calib-Headlamp-*` | the camera headlamp: mode × Auto Headlamp, with and without a dome | — | [#22](https://github.com/vysokyj/orbis/issues/22) |
 | `Calib-Aniso` | glossy / top coat anisotropy | [Universal](spec/octane-export.md#universal-130--default) | [#23](https://github.com/vysokyj/orbis/issues/23) |

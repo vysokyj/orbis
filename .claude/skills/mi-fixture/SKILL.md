@@ -14,3 +14,10 @@ description: Add or refresh DAZ .mi (Iray MDL) fixtures that verify src/iray.rs.
 5. Geometry check: `python3 scripts/dev/mi-geometry.py <scene.mi> <export.usda>` (export with `-o <export.usda>`).
 6. Shader preset sweeps: `scripts/dev/daz-build-shader-scene.dsa`, `make-mi-shader-scenes.py`.
 7. Update `src/iray.rs`, `cargo test` (the module tests every fixture). Read `docs/daz/iray-uber-mdl.md` and DAZ's `irayubermaterial.mdl` first (see `docs-first`).
+
+## Visibility: always test a channel hidden AND shown
+DAZ's export reads each channel's saved UI visibility (`"visible": false`), and our generated scenes inherit DAZ's default material with 77 of 118 Uber channels hidden - product content mostly has them shown. A fixture from generated spheres alone proves only the hidden case (#52: the SSS tint, gloss / backscatter anisotropy, the coat curve). So:
+1. **Every new channel sweep gets a `-Shown` twin**: `uber_spheres(...)`, then load the written scene, drop every `visible` key, save as `<name>-Shown.duf` (pattern: `Calib-Mi-Visible` in `make-calib-scenes.py`). Export both `.mi`, diff with `mi-args.py`; both become fixtures.
+2. **A difference = a gate**: find what opens it (another channel's value can, e.g. Glossy Roughness > 0 opens hidden gloss anisotropy) with one-change-per-sphere variants, put the proving spheres in the generator (not a scratch scene), and record the gate in `docs/daz/iray-uber-mdl.md` (Channel visibility).
+3. **A product material disagrees with a sphere of the same values?** Export the product scene's `.mi` (local only), copy its whole channel list - definitions included - onto a sphere, and bisect groups back to the sphere's until the difference goes; check the `visible` fields first.
+4. Never `make-calib-scenes.py --force` (it rewrites every generated scene); delete the one `.duf` and rerun.
