@@ -348,3 +348,23 @@ highlight patch matches (1.00 / 1.01 / 0.93): Octane's strand gloss
 Iray's r 0.16 along / 0.61 across) spreads more of the environment than
 Iray's tube lobe. The nofilm render failed in Octane ("render engine
 failure"), left open.
+
+Octane-side gloss variants on nocoat (pins edited in project.ocs; Octane /
+Iray, R / G / B):
+
+| variant | crown | hilite | middle | lengths |
+|---|---|---|---|---|
+| as exported (rough 0.78, aniso 0.58) | 0.92 / 1.09 / 1.40 | 1.00 / 1.01 / 0.93 | 1.31 / 1.57 / 1.87 | 0.85 / 0.95 / 1.09 |
+| rough 0.4 | 0.90 / 1.06 / 1.36 | 0.78 / 0.79 / 0.84 | 1.01 / 1.19 / 1.58 | 0.63 / 0.69 / 0.82 |
+| anisotropy 0 | 1.63 / 1.93 / 2.35 | 0.63 / 0.59 / 0.53 | 1.03 / 1.15 / 1.30 | 1.10 / 1.24 / 1.41 |
+| rough 0.4, anisotropy 0 | 0.90 / 1.06 / 1.36 | 0.78 / 0.78 / 0.83 | 1.01 / 1.19 / 1.59 | 0.63 / 0.70 / 0.82 |
+| specular × 0.5 | 1.04 / 1.17 / 1.36 | 0.75 / 0.69 / 0.59 | 1.06 / 1.16 / 1.25 | 0.79 / 0.84 / 0.91 |
+
+No pin fixes it: each trades one patch for another (the highlight's shape
+and place, not its energy), and the blue excess (B / R 1.3 – 1.5 on the
+crown and middle) survives every variant. In linear values Iray's gloss is
+the more saturated one (middle 0.47 / 0.36 / 0.19 vs Octane 0.62 / 0.56 /
+0.36): Iray's strand highlights are warmer, as if the light met the glossy
+tint more than once. Not fitted; the next step needs a controlled strand
+scene (straight strands, one light) to see Iray's tube lobe — free strand
+content first.
