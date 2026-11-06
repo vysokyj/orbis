@@ -333,3 +333,18 @@ on the lit crown. Nogloss now runs 0.8 – 0.9 on the lengths.
 Process lesson: `make-calib-scenes.py --force` rewrites *every* generated
 scene in My Library; they were restored from `calib/scenes`. Delete the
 one scene and rerun without `--force` instead.
+
+Gloss check after the fix (Octane / Iray, crown / middle / lengths):
+
+| variant | crown | middle | lengths |
+|---|---|---|---|
+| base (gloss + coat) | 1.22 / 1.53 / 1.48 | 1.55 / 1.98 / 1.92 | 0.97 / 1.14 / 1.11 |
+| nocoat (gloss only) | 0.93 / 1.09 / 1.40 | 1.31 / 1.57 / 1.86 | 0.85 / 0.95 / 1.09 |
+| nogloss (coat only) | 1.09 / 1.24 / 1.20 | 1.00 / 1.17 / 1.13 | 0.78 / 0.88 / 0.87 |
+
+The excess is the glossy layer's and blue (the sky in it?), while the
+highlight patch matches (1.00 / 1.01 / 0.93): Octane's strand gloss
+(specular 0.86 / 0.76 / 0.45, roughness pin 0.78, anisotropy 0.58 for
+Iray's r 0.16 along / 0.61 across) spreads more of the environment than
+Iray's tube lobe. The nofilm render failed in Octane ("render engine
+failure"), left open.
