@@ -218,3 +218,75 @@ Next (#52): find what makes Iray's strands darker than any one channel
 explains — e.g. an Iray render of Morgan's material on a tessellated
 strand patch vs a flat card, or the .mi of the Calib-Hair-Teens hair
 material compared channel by channel with `src/iray.rs`.
+
+## Channel isolation on the strands (third step)
+
+Four Iray Server renders (400 samples) of Calib-Hair-Teens without gloss,
+each with one more channel off on the three Morgan materials, against
+Octane enhanced-final at 256 samples. Ratios R / G / B.
+
+Octane / Iray per patch:
+
+| variant | crown | hilite | middle | lengths | tips |
+|---|---|---|---|---|---|
+| nogloss | 2.21 / 2.63 / 2.97 | 1.47 / 1.75 / 2.05 | 2.05 / 2.51 / 2.88 | 1.61 / 1.90 / 2.22 | 1.54 / 1.87 / 2.05 |
+| − translucency | 1.36 / 1.42 / 1.34 | 0.84 / 0.86 / 0.83 | 1.25 / 1.33 / 1.26 | 0.93 / 0.95 / 0.92 | 0.89 / 0.98 / 0.84 |
+| − refraction | 2.33 / 2.74 / 3.05 | 1.55 / 1.79 / 2.11 | 2.15 / 2.60 / 2.96 | 1.70 / 1.96 / 2.28 | 1.55 / 1.89 / 2.08 |
+| − top coat | 2.07 / 2.38 / 3.10 | 1.42 / 1.60 / 2.09 | 1.92 / 2.27 / 2.88 | 1.58 / 1.77 / 2.29 | 1.56 / 1.83 / 2.23 |
+| bare (diffuse only) | 1.44 / 1.47 / 1.50 | 0.95 / 0.88 / 0.87 | 1.28 / 1.34 / 1.30 | 0.99 / 0.98 / 0.98 | 0.96 / 1.05 / 0.95 |
+
+Each renderer against its own nogloss render (crown):
+
+| variant | Iray | Octane |
+|---|---|---|
+| − translucency | 1.71 / 1.94 / 2.32 | 1.05 / 1.05 / 1.05 |
+| − refraction | 1.08 / 1.09 / 1.10 | 1.14 / 1.13 / 1.12 |
+| − top coat | 1.33 / 1.72 / 1.45 | 1.25 / 1.55 / 1.51 |
+| bare | 2.23 / 3.21 / 3.41 | 1.45 / 1.79 / 1.72 |
+
+So:
+- The strand geometry is fine: the bare diffuse strands match within a few
+  per cent on the lengths, tips and highlight patch (the crown stays
+  1.4 ×, also without any other channel).
+- Refraction and top coat act alike in both renderers.
+- **The translucency is the gap.** A Translucency Weight of 0.059 darkens
+  Iray's strands 1.7 / 1.9 / 2.3 × — very nearly 1 / linear Translucency
+  Color (1.66 / 1.85 / 2.30) — while in Octane it moves 5 %. By the MDL
+  (`diffuse_base`) the diffuse keeps 0.94 of its weight, so this is not
+  in the layer weights; flat cards (Calib-Thin) and spheres
+  (Calib-ColorEffect C3) with translucency match, so it is specific to
+  the strands.
+
+Second batch, to tell a tint from a switch (all without gloss):
+
+| variant | Octane / Iray, lengths | Iray / its nogloss, crown | Octane / its nogloss, crown |
+|---|---|---|---|
+| Translucency Color white | 1.14 / 1.53 / 1.71 | 1.70 / 1.43 / 1.62 | 1.05 / 1.05 / 1.07 |
+| Translucency Weight 0.001 | 1.62 / 1.90 / 2.24 | 1.05 / 1.04 / 1.04 | 1.06 / 1.06 / 1.06 |
+| Translucency Weight 0.5 | 1.56 / 1.85 / 2.14 | 0.64 / 0.64 / 0.66 | 0.58 / 0.58 / 0.58 |
+| Base Color Effect 0 | 0.87 / 0.91 / 0.89 | 1.64 / 1.85 / 2.21 | 0.95 / 0.96 / 0.97 |
+
+- It is a **switch, not an amount**: a Translucency Weight of 0.001 keeps
+  Iray as dark as 0.059, and 0.5 scales both renderers alike (0.64 vs
+  0.58) with the gap untouched.
+- The switch is **Base Color Effect 2 with translucency on**: Effect 0
+  brightens Iray by the same 1.6 – 2.2 × as turning the translucency off,
+  and then Octane matches (0.87 – 0.91 on the lengths, the crown's 1.3 ×
+  as in the bare variant).
+- In Iray, effect 2 thus leaves the strands' diffuse albedo about
+  0.61 / 0.54 / 0.45 × what effect 0 gives — close to the diffuse colour
+  itself again (linear 0.70 / 0.63 / 0.49 × 0.87), as if the colour were
+  applied twice. `transmit_color_calc` as read (tint = colour at full
+  intensity, weight × its strongest channel) gives about 1.0. A white
+  Translucency Color brightens Iray too, but not by 1 / Tc (1.70 / 1.43
+  / 1.62), so the translucency colour is not the factor either.
+- The same switch on surfaces matches: Calib-ColorEffect C3 and
+  Calib-Map-Effect E2 (thin-walled spheres, effect 2, translucency 0.5)
+  are within the noise with the strongest-channel rule. So the doubling
+  is specific to strands — or to something in Morgan's material the
+  spheres lack (Diffuse Overlay 0.05², effect 2).
+
+Next (#52): a generated scene from free content only — dForce Starter
+Essentials strands and a thin-walled plane with Morgan's Uber values,
+effect 0 / 2 × translucency 0 / 0.06, overlay on / off — with its `.mi`,
+to see what DAZ hands Iray for strand hair, and an Iray batch of it.
