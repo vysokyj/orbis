@@ -343,7 +343,7 @@ pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DumpNode, names:
             mesh.face_counts.push(s.len() as u32);
         }
         mesh.subsets = vec![(group, (0..strands.len() as u32).collect())];
-        mesh.materials = vec![mat];
+        mesh.materials = vec![mat.map(|m| Rc::new(crate::daz_material::Material { strands: true, ..(*m).clone() }))];
         mesh.curve_widths = Some(widths);
         out.push(mesh);
     }

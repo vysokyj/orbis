@@ -3938,6 +3938,18 @@ struct Anisotropy {
     rotation: f32,
 }
 
+/// The quarter turn between Iray's and Octane's tangent on strand hair.
+/// DAZ hands Iray its strands as thin tubes whose UV `u` runs around the
+/// strand (DAZ's .mi export of Calib-Hair: a strand point's vertices step
+/// u by 1/6, v grows along it), so Iray's unrotated tangent lies across the
+/// strand; Octane's curves take theirs along the strand. Morgan Hair (Glossy
+/// / Top Coat Rotations 0.25, anisotropy 0.74 / 0.92) streaked across its
+/// strands as exported, where Iray streaks along them; turned, its
+/// highlights 0.69 – 0.77 → 1.07 – 1.13 × Iray, the crown 2.98 → 2.24 (#52).
+fn strand_tangent_turn(mat: &Material) -> f32 {
+    if mat.strands { 0.25 } else { 0.0 }
+}
+
 impl Anisotropy {
     /// The glossy layer's (the metal's and the refraction's too): Glossy
     /// Anisotropy and Glossy Anisotropy Rotations as DAZ hands them Iray.
@@ -3949,14 +3961,14 @@ impl Anisotropy {
             Some(u) => (u.float("glossy_anisotropy").unwrap_or(0.0), u.float("glossy_anisotropy_rotation").unwrap_or(0.0)),
             None => (mat.float("Glossy Anisotropy").unwrap_or(0.0), mat.float("Glossy Anisotropy Rotations").unwrap_or(0.0)),
         };
-        Self::of(a, rot)
+        Self::of(a, rot + strand_tangent_turn(mat))
     }
 
     /// The Top Coat's: Top Coat Anisotropy and Top Coat Rotations.
     fn top_coat(mat: &Material) -> Self {
         let a = iray(mat).and_then(|u| u.float("top_coat_anisotropy")).unwrap_or_else(|| mat.float("Top Coat Anisotropy").unwrap_or(0.0));
         let rot = iray(mat).and_then(|u| u.float("top_coat_anisotropy_rotation")).unwrap_or_else(|| mat.float("Top Coat Rotations").unwrap_or(0.0));
-        Self::of(a, rot)
+        Self::of(a, rot + strand_tangent_turn(mat))
     }
 
     fn of(amount: f32, rotation: f32) -> Self {
@@ -6047,6 +6059,17 @@ mod tests {
         // Backscattering Anisotropy alone never reaches Iray.
         let back = ball(json!([{"channel": {"id": "Backscattering Anisotropy", "current_value": 0.8}}]));
         assert_eq!(pin(&back, "anisotropyTexture"), None);
+        // On strands Iray's tangent runs around the strand, Octane's along
+        // it: a quarter turn more, 1 − (0.125 + 0.25).
+        let chs = json!([
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 1.0}},
+            {"channel": {"id": "Glossy Roughness", "current_value": 0.4}},
+            {"channel": {"id": "Glossy Anisotropy", "current_value": 0.5}},
+            {"channel": {"id": "Glossy Anisotropy Rotations", "current_value": 0.125}},
+        ]);
+        let strand = Rc::new(Material { strands: true, ..(*mat(chs)).clone() });
+        let (s, _) = material_inputs(&[("Hair".into(), strand, 1.0)], &[], HashMap::new(), 5000, SkinShader::None);
+        assert_eq!(pin(&s, "rotation"), Some(0.625));
     }
 
     #[test]

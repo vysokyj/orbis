@@ -125,6 +125,8 @@ pub struct Material {
     /// Its surface has an open edge (a card, a leaf, a cloak's hem), not a
     /// closed volume.
     pub open: bool,
+    /// On strand hair (curves), not a mesh.
+    pub strands: bool,
     /// A DAZ brick shader's MDL materials, as `module::name` (e.g.
     /// `nvidia::metal_examples::cast_iron`): what its graph renders with.
     pub mdl: Vec<String>,

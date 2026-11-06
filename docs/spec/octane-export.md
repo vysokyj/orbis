@@ -963,6 +963,15 @@ leaves out, #15):
   Calib-Aniso2's rotated K5 1.21; as a layer 1.16 / 1.08 with Iray's
   streaks. Modes 2 / 3 differ from 0 only in the IOR (no reference of
   them anisotropic). The weighted coat (mode 1) keeps its own metal node.
+  **On strand hair** (an Uber material on `BasisCurves`) the rotation
+  turns a quarter more, 1 − (rotation + 0.25), gloss and coat alike:
+  DAZ hands Iray its strands as thin tubes whose UV u runs around the
+  strand (its .mi export of Calib-Hair: a strand point's vertices step u
+  by 1/6, v grows along the strand), so Iray's unrotated tangent lies
+  across it, and Octane's curves take theirs along it. Why: Morgan Hair
+  (Rotations 0.25, anisotropy 0.74 / 0.92) streaked across its strands as
+  exported; Iray streaks along them. Turned, its highlights 0.69 – 0.77 →
+  1.07 – 1.13 × Iray, the crown 2.98 → 2.24 (#52).
   Backscattering Anisotropy never reaches Iray: DAZ's .mi export leaves
   it out, also with the glossy anisotropy on (Calib-Backscatter B8,
   Calib-Aniso2 K6).
