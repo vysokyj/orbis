@@ -304,8 +304,12 @@ impl Material {
     /// (its .mi export): ignored, Calib-Map-Effect's strength 0.5 sphere
     /// rendered 1.52 × Iray (#32).
     pub fn base_color(&self) -> [f32; 3] {
-        if let Some(c) = crate::iray::Uber::of(self).and_then(|u| u.color("diffuse_color")) {
-            return c;
+        // A map's factor too: DAZ folds the SSS Reflectance Tint into it
+        // (Calib-Mi-SSSTint S8, the Genesis 8 skins).
+        if let Some(u) = crate::iray::Uber::of(self) {
+            if let Some(c) = u.color("diffuse_color").or_else(|| u.map("diffuse_color").map(|m| m.value)) {
+                return c;
+            }
         }
         let strength = self.float("Diffuse Strength").unwrap_or(1.0).max(0.0);
         self.color("diffuse").unwrap_or([0.8; 3]).map(|c| c * strength)

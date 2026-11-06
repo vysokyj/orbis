@@ -1563,7 +1563,13 @@ reddened) turned blue irises dark green (Calib-Hair, #20).
   0.9–1.0. × **`SKIN_HUE` (1, 0.80, 0.62)**: Octane's random walk came out
   bluer at the same tint on five figures (G 1.25 ×, B 1.6 × Iray relative
   to red); with it G8F 1.02 / 1.05 / 1.30, Fetroom's figures within ~0.2
-  in hue (#8);
+  in hue (#8). D is the diffuse map's factor as DAZ hands it to Iray —
+  with the SSS Reflectance Tint folded in under a shown Base Color Effect
+  (the Genesis 8 Female base skin's 1 / 0.93 / 0.81 → × 1 / 0.85 / 0.63;
+  `Material::base_color`, #52): G8F's skin, Octane / Iray median R / G / B,
+  Calib-Eye 1.02 / 1.05 / 1.26 → 1.00 / 0.95 / 1.03, Calib-HDRI 1.00 /
+  1.08 / 1.34 → 1.00 / 0.98 / 1.15 (#19). `SKIN_HUE` was fitted before
+  the tint was known and may now count part of it twice on such skins;
 - `radius` = per-channel diffusion length (see [iray.md](../daz/iray.md#translucency-and-subsurface-skin))
   normalised to its maximum and **square-rooted**; `scale` = that maximum in
   meters, clamped 0.5 mm – 2 cm. Why the root: Noemi's 1 / 0.18 / 0.15

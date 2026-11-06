@@ -368,3 +368,30 @@ the more saturated one (middle 0.47 / 0.36 / 0.19 vs Octane 0.62 / 0.56 /
 tint more than once. Not fitted; the next step needs a controlled strand
 scene (straight strands, one light) to see Iray's tube lobe — free strand
 content first.
+
+## The tint beyond the hair: skins (fifth step)
+
+An audit of the scenes in My Library (materials with translucency, a shown
+Base Color Effect 1 / 2 and a tint off white) found 2 453 of them, nearly
+all Genesis 8 skins (Torso, Face, Legs …, tints like 1 / 0.93 / 0.81 or
+0.92 / 1 / 1). The `.mi` of a Genesis 8 Female base skin (Calib-VDB-d10000)
+confirms it: the diffuse map's `color_scale` 1 / 0.851 / 0.632 = the tint
+1 / 0.929 / 0.812 to the 2.2.
+
+But the skins took a map, and `Material::base_color` read only a plain
+colour from `iray.rs` — a map fell back to the channel, without the tint.
+Now it takes the map's factor too. Calib-Skin's eight figures barely move
+(their faces have effect 0; Nishi within noise; an earlier reading that
+Angel's face is tinted was wrong — only some of her materials are). The
+G8F base skin moves a lot (Octane / Iray medians over the pixels the
+change touches, R / G / B):
+
+| scene | before | after |
+|---|---|---|
+| Calib-Eye | 1.02 / 1.05 / 1.26 | 1.00 / 0.95 / 1.03 |
+| Calib-HDRI | 1.00 / 1.08 / 1.34 | 1.00 / 0.98 / 1.15 |
+
+That is #19's "Octane's skin bluer than Iray's" — part of it was this
+tint. `SKIN_HUE` (1 / 0.80 / 0.62, fitted on five figures incl. G8F) was
+fitted without it; on tinted skins it may now count part of it twice —
+for #19 to revisit with the tint known, not by tuning it here.
