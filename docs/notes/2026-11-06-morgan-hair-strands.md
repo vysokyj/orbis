@@ -290,3 +290,46 @@ Next (#52): a generated scene from free content only — dForce Starter
 Essentials strands and a thin-walled plane with Morgan's Uber values,
 effect 0 / 2 × translucency 0 / 0.06, overlay on / off — with its `.mi`,
 to see what DAZ hands Iray for strand hair, and an Iray batch of it.
+
+## The cause: SSS Reflectance Tint in the diffuse (fourth step)
+
+The `.mi` of the variants (headless DAZ, kept local: store content) shows
+it at once: with Base Color Effect 2 DAZ hands Iray Morgan's
+`diffuse_color` as 0.306 / 0.259 / 0.172 instead of 0.708 / 0.632 / 0.500
+— × 0.431 / 0.410 / 0.344, which is the SSS Reflectance Tint (0.682 /
+0.667 / 0.616) to the power 2.2, to the last digit (Under and Mid alike).
+Effect 0: the plain colour. So the effect only gates a tint the MDL never
+sees, and `transmit_color_calc` was read right after all.
+
+Spheres with the same values didn't get it — not with Morgan's whole
+setting either (refraction, coat, overlay, glossy effect, thin film,
+abbe, cutout map: Calib-Mi-SSSTint2, discarded). Morgan's whole channel
+list copied onto a sphere did, and dropping groups of it (tags, bump,
+glossy / coat inputs, line widths) changed nothing. The difference left
+was the channel definitions: DAZ's default material (our base scene)
+saves Base Color Effect and SSS Reflectance Tint with `"visible": false`,
+Morgan's shows them. Making them visible on the spheres: **the tint comes
+in exactly when the Base Color Effect channel is shown** (its own
+visibility doesn't matter), with translucency, for effect 1 and 2, in
+either mixing mode, thin-walled or closed, and into a diffuse map's
+`color_scale`. Calib-Mi-SSSTint keeps that as a fixture (S5 the hidden
+control). Also from it: glossiness mode without gloss leaves
+`glossy_reflectivity` at the default 0.04.
+
+Octane / Iray after the fix (crown / hilite / middle / lengths / tips):
+
+| variant | crown | hilite | middle | lengths | tips |
+|---|---|---|---|---|---|
+| base | 1.22 / 1.53 / 1.48 | 1.02 / 0.96 / 0.92 | 1.55 / 1.98 / 1.92 | 0.97 / 1.14 / 1.11 | 0.64 / 0.94 / 0.64 |
+| nogloss | 1.09 / 1.24 / 1.20 | 0.71 / 0.81 / 0.80 | 1.00 / 1.17 / 1.13 | 0.78 / 0.88 / 0.87 | 0.79 / 0.98 / 0.81 |
+| (before, base) | 2.08 / 2.72 / 2.96 | 1.17 / 1.19 / 1.22 | 1.87 / 2.52 / 2.67 | 1.44 / 1.78 / 1.93 | 1.05 / 1.51 / 1.37 |
+
+What is left: with gloss the crown and middle stay 1.2 – 2 × (green and
+blue most) while the lengths match; the all-effects-0 variant (fx0, gloss
+on) is unchanged at 1.9 / 2.0 / 1.8 on the crown against 1.3 without
+gloss — so the glossy / top coat layers on strands give Octane too much
+on the lit crown. Nogloss now runs 0.8 – 0.9 on the lengths.
+
+Process lesson: `make-calib-scenes.py --force` rewrites *every* generated
+scene in My Library; they were restored from `calib/scenes`. Delete the
+one scene and rerun without `--force` instead.

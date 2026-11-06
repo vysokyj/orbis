@@ -53,7 +53,14 @@ Found beyond it:
   thin wall.
 - **SSS:** mono mode passes SSS Amount (clamped to 1) as grey; chromatic
   mode passes the linear SSS Color and `logarithmic_scatter_enable`.
-  **SSS Reflectance Tint is not passed at all.**
+  **SSS Reflectance Tint is not passed as such** — but with translucency
+  and a Base Color Effect (1 or 2) DAZ multiplies it (linear) into
+  `diffuse_color`, a map's `color_scale` too, **unless the Base Color
+  Effect channel is saved hidden** (`"visible": false`, as DAZ's own
+  default material has it; Calib-Mi-SSSTint, #52). A product's material
+  saved with the channel shown (Morgan Hair) gets the tint.
+- **Glossy reflectivity** in glossiness mode (Base Mixing 1) without gloss
+  (Glossy Layered Weight 0) stays at the MDL default 0.04.
 - **Base Color Effect** only where translucency mixes with the diffuse.
 - **Lights** (`iray::light`): `dzpm_diffuse_area_light`, spots
   `dzpm_spot_light`; Flux as is when photometric, else 1000 π × Intensity

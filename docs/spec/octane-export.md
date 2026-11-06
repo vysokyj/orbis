@@ -847,7 +847,11 @@ leaves out, #15):
   tint the colour at full intensity (÷ its strongest channel), and the
   translucency takes the rest. So the albedo is (1 − w)·D × m / max(D),
   the transmission Tc × (1 − (1 − w)·m) in place of w; D is the diffuse
-  colour × its map's mean. This replaces the shares once fitted (effect 1
+  colour × its map's mean, as DAZ hands it to Iray — with the SSS
+  Reflectance Tint multiplied in when the effect's channel is saved shown
+  (`iray.rs`, Calib-Mi-SSSTint; Morgan Hair's tint 0.68 / 0.67 / 0.62
+  takes its diffuse to 0.43 / 0.41 / 0.34 ×, the 1.6 – 2.3 × its strands
+  rendered too bright, #52). This replaces the shares once fitted (effect 1
   0.4 / 2 ×, effect 2 0.95 / 1.55 ×), which the rule reproduces:
   Calib-Thin's green cards (effect 1, m / max 0.41) measured a scalar 0.40
   – 0.41 and about twice the translucency; Calib-ColorEffect's blue C3

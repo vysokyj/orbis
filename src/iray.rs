@@ -99,10 +99,16 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     // Base colour: linear (a pure 2.2 power) × Diffuse Strength; a
     // Diffuse Strength map attenuates the colour (`attenuate_color`,
     // Calib-Mi-AoA3).
+    // With translucency and a Base Color Effect DAZ multiplies in the SSS
+    // Reflectance Tint (linear, into a map's colour scale too) — unless
+    // the effect's channel is saved hidden (Calib-Mi-SSSTint, #52).
     let strength = ch.float("Diffuse Strength", 1.0);
-    let diffuse = match ch.map("Diffuse Strength", MapKind::Grey, ch.color("diffuse", [0.5; 3]).map(|c| c * strength)) {
+    let tinted = ch.float("Translucency Weight", 0.0) > 0.0 && ch.int("Base Color Effect", 0) != 0 && !ch.hidden("Base Color Effect");
+    let tint = if tinted { ch.color("SSS Reflectance Tint", [1.0; 3]) } else { [1.0; 3] };
+    let colour: [f32; 3] = std::array::from_fn(|i| ch.color("diffuse", [0.5; 3])[i] * strength * tint[i]);
+    let diffuse = match ch.map("Diffuse Strength", MapKind::Grey, colour) {
         Some(m) if ch.image("diffuse").is_none() => Arg::Map(m),
-        _ => ch.color_or_map("diffuse", [0.5; 3], strength),
+        _ => ch.map("diffuse", MapKind::Colour, colour).map_or(Arg::Color(colour), Arg::Map),
     };
     out.insert("diffuse_color", diffuse);
     let metallic = if mixing == 0 { ch.float("Metallic Weight", 0.0) } else { 0.0 };
@@ -137,6 +143,8 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     out.insert("glossy_roughness_enable", Arg::Bool(rough > 0.0));
     let reflectivity = match mixing {
         0 => REFLECTIVITY_SCALE * ch.float("Glossy Reflectivity", 0.5),
+        // Without gloss DAZ leaves it at the MDL default (Calib-Mi-SSSTint S6).
+        1 if weight <= 0.0 => 0.04,
         1 => ch.color("Glossy Specular", [0.04; 3]).into_iter().fold(0.0, f32::max),
         _ => 0.04,
     };
@@ -409,6 +417,10 @@ struct Channels<'a>(&'a Material);
 impl Channels<'_> {
     fn value(&self, id: &str) -> Option<&Value> {
         self.0.channels.get(id).map(|c| &c.value)
+    }
+
+    fn hidden(&self, id: &str) -> bool {
+        self.0.channels.get(id).is_some_and(|c| c.hidden)
     }
 
     fn image(&self, id: &str) -> Option<&str> {
@@ -729,7 +741,7 @@ pub fn daz_default_as_uber(mat: &Material) -> Option<Material> {
     let mut out = mat.clone();
     let mut set = |id: &str, v: Value| {
         let (image, image_mod) = out.channels.get(id).map_or((None, None), |c| (c.image.clone(), c.image_mod));
-        out.channels.insert(id.to_string(), crate::daz_material::Channel { value: v, image, gamma: None, image_mod });
+        out.channels.insert(id.to_string(), crate::daz_material::Channel { value: v, image, gamma: None, image_mod, hidden: false });
     };
     let spec = ch.color("specular", [0.6f32.powf(COLOUR_GAMMA); 3]);
     let peak = spec.into_iter().fold(0.0, f32::max);
@@ -796,7 +808,7 @@ pub fn legacy_shader_as_uber(mat: &Material, keep_maps: bool) -> Option<Material
         ("Roughness Squared", Value::from(false)),
         ("Thin Walled", Value::from(true)),
     ] {
-        out.channels.insert(id.to_string(), crate::daz_material::Channel { value: v, image: None, gamma: None, image_mod: None });
+        out.channels.insert(id.to_string(), crate::daz_material::Channel { value: v, image: None, gamma: None, image_mod: None, hidden: false });
     }
     Some(out)
 }
@@ -843,7 +855,7 @@ pub fn aoa_subsurface_as_uber(mat: &Material) -> Option<Material> {
     let encode = |c: [f32; 3]| Value::from(c.map(|x| f64::from(x.max(0.0).powf(1.0 / COLOUR_GAMMA))).to_vec());
     let image = |id: &str| mat.channels.get(id).and_then(|c| c.image.clone());
     let mut set = |id: &str, v: Value, image: Option<String>| {
-        out.channels.insert(id.to_string(), Channel { value: v, image, gamma: None, image_mod: None });
+        out.channels.insert(id.to_string(), Channel { value: v, image, gamma: None, image_mod: None, hidden: false });
     };
     // A lobe from a colour × strength: (weight, hue).
     let lobe = |colour: &str, strength: &str, default: f32| {

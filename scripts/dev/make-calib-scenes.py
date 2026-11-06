@@ -18,6 +18,9 @@ a plane under an HDRI) that each change one thing, written beside it.
   UV tiles and a half-size sphere (#75): Iray's bump vs the map's size.
 - Calib-Mi-ImageMod, -ImageMod2: per-map image modifications (#77) - tiles, tiling
   offsets, scale / offset / invert, grey channel - for DAZ's .mi export.
+- Calib-Mi-SSSTint: SSS Reflectance Tint with Base Color Effect 0 / 1 / 2,
+  translucency and the effect's channel shown or hidden (#52), for the .mi
+  and an Iray render.
 - Calib-DOF-*: depth of field, focus at 1.5 m with the spheres at ~4.6 m,
   f/4, f/8, f/16 — to check Iray's 10x aperture.
 
@@ -1024,6 +1027,31 @@ uber_spheres('Calib-Mi-ImageMod2', [0.6, 0.6, 0.6], {'Glossy Layered Weight': 1.
 uber_spheres('Calib-Mi-Emit', [0.6, 0.6, 0.6], {'Emission Color': [1.0, 0.9, 0.8], 'Luminance': 300.0}, [
     (f'E{u} units {u}', {'Luminance Units': u}) for u in range(6)
 ] + [('E6 two sided', {'Luminance Units': 0, 'Two Sided Light': True}), ('E7 temperature', {'Emission Temperature': 3000.0})])
+
+# SSS Reflectance Tint with Base Color Effect (#52): with translucency and
+# an effect DAZ multiplies the diffuse by the linear tint — only while the
+# Base Color Effect channel isn't saved hidden (the base scene's is; a
+# strand hair's Uber had it shown). Each sphere one switch away from S4.
+SSST = {'SSS Reflectance Tint': [0.9, 0.5, 0.3], 'Translucency Color': [0.8, 0.76, 0.69], 'Thin Walled': True}
+STW = {'Translucency Weight': 0.06}
+
+
+def shown_effect(v):
+    """Base Color Effect saved shown (no "visible": false)."""
+    return {'channel': {'id': 'Base Color Effect', 'type': 'enum', 'label': 'Base Color Effect', 'value': 0, 'current_value': v,
+                        'enum_values': ['Scatter Only', 'Scatter & Transmit', 'Scatter & Transmit Intensity']}}
+
+
+uber_spheres('Calib-Mi-SSSTint', [0.85, 0.81, 0.73], SSST, [
+    ('S1 no translucency effect 2', {'Base Color Effect': shown_effect(2)}),
+    ('S2 translucency effect 0', {**STW, 'Base Color Effect': shown_effect(0)}),
+    ('S3 translucency effect 1', {**STW, 'Base Color Effect': shown_effect(1)}),
+    ('S4 translucency effect 2', {**STW, 'Base Color Effect': shown_effect(2)}),
+    ('S5 effect 2 hidden', {**STW, 'Base Color Effect': 2}),
+    ('S6 effect 2 glossiness mode', {**STW, 'Base Color Effect': shown_effect(2), 'Base Mixing': 1}),
+    ('S7 effect 2 closed translucency 0.5', {'Translucency Weight': 0.5, 'Base Color Effect': shown_effect(2), 'Thin Walled': False}),
+    ('S8 effect 2 diffuse map', {**STW, 'Base Color Effect': shown_effect(2), ('diffuse', 'image'): RAMP, 'diffuse': [0.85, 0.81, 0.73]}),
+])
 
 # --- Top Coat Bump (#61): DAZ's MDL gives the coat its own normal
 # (`calc_mix_layer_normal`): the Top Coat Bump (height or normal map, by Top

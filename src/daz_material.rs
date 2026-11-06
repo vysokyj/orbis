@@ -24,6 +24,10 @@ pub struct Channel {
     /// DAZ's per-map texture-instance settings (`image_modification`), when
     /// the channel saves them.
     pub image_mod: Option<ImageMod>,
+    /// Saved hidden (`"visible": false`). DAZ reads it: a hidden Base
+    /// Color Effect leaves the SSS Reflectance Tint out of the diffuse
+    /// (Calib-Mi-SSSTint, #52).
+    pub hidden: bool,
 }
 
 /// DAZ's per-map settings of one channel's image (`image_modification`,
@@ -175,7 +179,12 @@ impl Material {
                 })
                 .filter(|s| !s.is_empty());
             let image_mod = c.get("image_modification").filter(|v| v.is_object()).map(ImageMod::from_dson);
-            self.channels.insert(id.to_string(), Channel { value, image, gamma: None, image_mod });
+            // An override that doesn't say keeps the definition's visibility.
+            let hidden = match c.get("visible").and_then(Value::as_bool) {
+                Some(v) => !v,
+                None => self.channels.get(id).is_some_and(|c| c.hidden),
+            };
+            self.channels.insert(id.to_string(), Channel { value, image, gamma: None, image_mod, hidden });
         };
         if let Some(obj) = m.as_object() {
             for v in obj.values() {
@@ -216,7 +225,7 @@ impl Material {
             }
         }
         if weighted_brick && !self.channels.contains_key("Base Mixing") {
-            self.channels.insert("Base Mixing".into(), Channel { value: Value::from(2), image: None, gamma: None, image_mod: None });
+            self.channels.insert("Base Mixing".into(), Channel { value: Value::from(2), image: None, gamma: None, image_mod: None, hidden: false });
         }
     }
 

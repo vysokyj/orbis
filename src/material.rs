@@ -5394,7 +5394,7 @@ mod tests {
         // subsurface weight; a gloss. A readable diffuse map to bake from.
         image::RgbImage::from_pixel(8, 8, image::Rgb([200, 150, 120])).save(dir.path().join("Runtime/Textures/skin.jpg")).unwrap();
         let mut chromatic = (*sss).clone();
-        chromatic.channels.insert("SSS Mode".into(), crate::daz_material::Channel { value: json!(1), image: None, gamma: None, image_mod: None });
+        chromatic.channels.insert("SSS Mode".into(), crate::daz_material::Channel { value: json!(1), image: None, gamma: None, image_mod: None, hidden: false });
         let chromatic = std::rc::Rc::new(chromatic);
         let (ox, _) = material_inputs(&[("Torso".into(), chromatic, 1.0)], &dirs, HashMap::new(), 8100, SkinShader::OpenPbr);
         assert!(ox.contains("type='505' name='Torso'"), "{ox}");
