@@ -28,6 +28,7 @@ All paths below are relative to the repo root; scripts find each other via their
 7. Findings -> `lab-note` skill; winning rule -> spec in the same commit.
 
 ## Rules that outrank the loop
+- **A real material off? `.mi` first** (`mi-fixture` skill): see what DAZ hands Iray before any Iray batch or MDL theory. DAZ also reads channel visibility (`"visible"`), so generated spheres (hidden channels) can miss what product content triggers (#52).
 - `src/iray.rs` (DAZ -> Iray conversion) is verified by `.mi` fixtures. A render that contradicts it points at the **Octane side**; never change `iray.rs` to fit a render (#62).
 - Octane over Iray: match light amounts and scene meaning, keep Octane where it is more plausible.
 - Read `docs/octane/manual/` (local mirror) and `docs/nvidia/` before guessing; see the `docs-first` skill.

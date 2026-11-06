@@ -26,7 +26,8 @@ a plane under an HDRI) that each change one thing, written beside it.
 
 Renders are capped by samples, not time (scripts/dev/daz-render.sh): Iray is
 then deterministic, so the tone variants share their noise pixel for pixel.
-Existing scenes are kept (--force rewrites); dump and export the new ones
+Existing scenes are kept (--force rewrites EVERY generated scene in the
+scenes dir - to rebuild one, delete its .duf instead); dump and export the new ones
 with scripts/dev/daz-dump.sh.
 """
 import sys as _sys

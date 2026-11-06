@@ -27,6 +27,19 @@ Calibration tunes only the Octane side — how Octane renders those
 parameters. A render that seems to contradict `src/iray.rs` points at the
 Octane side, never at the verified conversion (#62).
 
+**A real material renders off? Its `.mi` first.** Before an Iray batch or
+a theory from the MDL, export the scene's `.mi` and compare what DAZ hands
+Iray with `src/iray.rs` (`mi-args.py`) — for a store product too (kept
+local, never in git; prove the rule on a generated scene). DAZ computes
+things the MDL never sees, and from more than the channel values: the
+SSS Reflectance Tint enters the diffuse only while Base Color Effect is
+saved *shown* (`"visible"` in the DSON), which DAZ's default material —
+the base of our generated scenes — saves hidden. So a rule that holds on
+the calibration spheres can still miss product content: when a product
+and a sphere with the same values disagree, copy the product's whole
+channel list onto a sphere and bisect it (#52 took three Iray batches
+before the `.mi` showed the tint in one look).
+
 **Four variants, one at a time.** An export is one of Look (Enhanced /
 Faithful) × render mode (Final / Preview). Calibrate **Enhanced + Final**
 (path tracing, the photoreal one) first, then run the same scenes for each
@@ -156,6 +169,11 @@ Examples that ship with DAZ Studio and are in `calib/scenes`.
    [notes/](notes/README.md).
 
 ## Rules for the machines
+
+- **`make-calib-scenes.py --force` rewrites every generated scene** in My
+  Library (exposure tuned by hand included). To rebuild one, delete that
+  `.duf` and run the script without `--force`; restore from `calib/scenes`
+  if it happened.
 
 - **Never a DAZ render and an Octane render at once** — Iray takes the
   whole CPU; the scripts refuse.
