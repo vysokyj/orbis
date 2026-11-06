@@ -838,16 +838,30 @@ leaves out, #15):
   0 / 0.3 / 0.5 / 0.65, Translucency Color white / the diffuse / dark, lit
   from the front with the dark behind them or from behind) 0.89 – 1.06 ×
   Iray; scaling the albedo (× 0.44 – 0.7) or the transmission (× 1.5 – 2)
-  only did worse. **Base Color Effect 1** (Scatter & Transmit) changes
-  it: Iray reflects 0.4 of that diffuse and passes twice the translucency
-  (`SCATTER_TRANSMIT_DIFFUSE` / `_TRANSMISSION`) — the same cards 0.98 –
-  1.02 ×, at the default shares 1.8 – 2.5 ×. The share is a scalar (each
-  channel 0.40 – 0.41), not the base colour again (× D on the
-  transmission: 0.28 – 0.95). **Base Color Effect 2** (Scatter & Transmit
-  Intensity, 278 translucent materials installed; 3685 use 1) by its own
-  shares, 0.95 and 1.55 (`SCATTER_TRANSMIT_INTENSITY_*`): Calib-ColorEffect's
-  C3 1.00 / 1.00 / 0.95 × Iray, before (as effect 0) 0.48 / 0.85 / 0.99
-  (#27). The Genesis EyeSocket is such a material: its
+  only did worse. **Base Color Effect** 1 / 2 (Scatter & Transmit, …
+  Intensity; 3685 / 278 translucent materials installed) change it as
+  DAZ's MDL does (`diffuse_base`, `transmit_color_calc`,
+  `base_color_effect_shares`): the diffuse layer's weight becomes (1 − w) ×
+  the diffuse colour's mono m — its average in effect 1, its strongest
+  channel in effect 2 (the colour greyed at its own intensity first) — its
+  tint the colour at full intensity (÷ its strongest channel), and the
+  translucency takes the rest. So the albedo is (1 − w)·D × m / max(D),
+  the transmission Tc × (1 − (1 − w)·m) in place of w; D is the diffuse
+  colour × its map's mean. This replaces the shares once fitted (effect 1
+  0.4 / 2 ×, effect 2 0.95 / 1.55 ×), which the rule reproduces:
+  Calib-Thin's green cards (effect 1, m / max 0.41) measured a scalar 0.40
+  – 0.41 and about twice the translucency; Calib-ColorEffect's blue C3
+  (effect 2) 1.0 and 1.39 ×. Renders against the fitted shares (Octane /
+  Iray, R G B): Calib-ColorEffect C2 (effect 1) 1.23 1.11 0.82 → 0.90 0.99
+  0.98, C3 1.01 1.00 0.95 → 0.83 0.97 1.00 (C1, effect 0, is 0.87 1.00
+  1.01); Calib-Map-Effect E1 0.81 1.12 1.19 → 0.74 1.04 1.07, E2 0.95 0.96
+  0.93 → 0.97 1.04 1.06; Calib-Thin's -bce cards unchanged (#27, #45, #52).
+  A **partial refraction** (Refraction Weight < 0.5) keeps the
+  translucency: Iray's refraction is a weighted layer over diffuse and
+  translucency, so both keep 1 − Refraction Weight; the translucency then
+  holds Universal's one transmission (the refraction's own goes; its IOR
+  and gloss stay). Morgan Hair (w 0.059, effect 2, refraction 0.106):
+  transmission 0 → 0.30 × Tc. The Genesis EyeSocket is such a material: its
   caruncle rendered 4.6 × Iray, now 1.00 (Calib-Eye, #20). Found by
   switching the EyeSocket's other channels off one at a time in Iray on the
   cards (SSS Amount / Direction / Tint, Transmitted Color, its gloss, Top
@@ -1120,8 +1134,12 @@ leaves out, #15):
   Specular above 0.06 or a map.
 - **Color Effect (Glossy, Top Coat, Diffuse Overlay) 1 / 2** → the
   layer's colour as its hue (over the strongest channel) and its weight ×
-  the colour's average, as DAZ's MDL (`transmit_color_calc`) does; 0
-  leaves both. Weighted coats and weighted-mix gloss (Mix materials with a
+  the colour's average (1) or its strongest channel (2: greyed at its own
+  intensity first), as DAZ's MDL (`transmit_color_calc`) does; 0 leaves
+  both. So effect 2 reflects tint × weight as effect 0 would; it differs
+  only on a translucent diffuse (above). Calib-CoatEffect's effect 2
+  spheres 1.08 – 1.14 × Iray, like effect 0's 1.05 – 1.16; Calib-Map-Effect
+  E4 (red gloss, effect 2) 1.09 0.73 2.69 → 1.12 0.76 2.65 (#52). Weighted coats and weighted-mix gloss (Mix materials with a
   metal) get `edgeTint` = their colour: Iray's weighted layer has no
   Fresnel to white. **Diffuse Overlay** → flat colours over a flat base:
   albedo (1 − w) × base + w × overlay, w squared with "Weight Squared".

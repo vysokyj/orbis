@@ -254,7 +254,8 @@ not 0 ("Scatter Only"), turn a layer's colour into two parts: the BSDF
 tint becomes the colour's hue and saturation at full intensity
 (`color_layer_color` over white), and the layer's weight becomes weight ×
 the colour (its mono, the average); in mode 2 (Scatter & Transmit
-Intensity) the weight's colour is greyed first. So a dark colour thins
+Intensity) the weight's colour is greyed first, at its own intensity —
+its strongest channel, which the Calib-ColorEffect renders confirm. So a dark colour thins
 the layer instead of darkening its tint. On the diffuse it applies only
 when translucency mixes with it.
 

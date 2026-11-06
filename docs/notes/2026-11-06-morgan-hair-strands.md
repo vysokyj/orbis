@@ -142,3 +142,79 @@ Weight 0.106) and on the coat.
   with "render engine failure" (#50) and hung; killed and restarted, the
   batch rendered. Each 4-scene batch ≈ 8 min at 256 samples.
 - `-nofilm` and `-nogloss` had no dump: `daz-dump.sh` (≈ 50 s each).
+
+## Color Effect and the dropped translucency (second step)
+
+Morgan's Strands material (scene `material_library`): Base Mixing 1,
+diffuse 0.855 / 0.812 / 0.729, Translucency Weight 0.059 (Tc 0.80 / 0.76
+/ 0.69, Invert Transmission Normal), Base, Glossy, Top Coat and Diffuse
+Overlay Color Effect all 2, Refraction Weight 0.106 (IOR 1.79), Thin
+Walled. The export dropped the translucency (any refraction > 0 did) and
+used fitted Base Color Effect shares.
+
+**DAZ's MDL** (`diffuse_base`, `transmit_color_calc`): with translucency
+mixed in, the diffuse is a `weighted_layer` at mono over a
+`diffuse_transmission_bsdf` in Tc. Mono = (1 − w) × the colour's average
+(effect 1) or, effect 2, the colour greyed by `color_layer_color` first;
+the tint is the colour's hue at full intensity. Reading "intensity" as
+the strongest channel, the rule reproduces both fitted pairs:
+
+| case | fitted diffuse / transmission | MDL rule |
+|---|---|---|
+| Calib-Thin green cards, effect 1 (D 0.05 / 0.26 / 0.01, w 0.5) | 0.40 – 0.41 / 2 × | 0.41 / 1.89 × |
+| Calib-ColorEffect C3, effect 2 (D 0.07 / 0.22 / 0.61, w 0.5) | 0.95 / 1.55 × | 1.00 / 1.39 × |
+| the same, intensity read as the average | — | 0.49 / 1.70 × |
+
+So the shares went, the rule came in (`base_color_effect_shares`), and
+effect 2 on Glossy / Top Coat weighs by the strongest channel too. And a
+refraction below 0.5 keeps the translucency at 1 − r (the refraction is
+a weighted layer over everything); the translucency then holds
+Universal's one transmission. Morgan: albedo × 0.941, transmission 0 →
+0.30 × Tc.
+
+Check scenes (Octane enhanced-final 256 samples vs the stored Iray refs;
+"before" rendered from HEAD's binary in the same session, R G B):
+
+| sphere | before | after |
+|---|---|---|
+| ColorEffect C1 (effect 0) | 0.87 1.00 1.01 | 0.87 1.00 1.01 |
+| ColorEffect C2 (effect 1) | 1.23 1.11 0.82 | 0.90 0.99 0.98 |
+| ColorEffect C3 (effect 2) | 1.01 1.00 0.95 | 0.83 0.97 1.00 |
+| Map-Effect E1 (effect 1, red, blue Tc) | 0.81 1.12 1.19 | 0.74 1.04 1.07 |
+| Map-Effect E2 (effect 2) | 0.95 0.96 0.93 | 0.97 1.04 1.06 |
+| Map-Effect E4 (red gloss, effect 2) | 1.09 0.73 2.69 | 1.12 0.76 2.65 |
+| CoatEffect E3 / E5 (coat effect 2) | — | 1.08 1.12 1.12 / 1.14 1.14 1.14 (effect 0: 1.05 – 1.16) |
+| Calib-Thin front/back A -bce (thirds of the frame) | 0.99 – 1.00 | 0.99 – 1.00 |
+
+Map-Effect E5 (Diffuse Strength, material identical in both exports)
+moved 1.08 0.82 1.46 → 1.13 1.09 1.90 in its dim green and blue: noise
+or E4's changed reflection next to it, not this rule. C3's red follows
+C1's (Octane's red on this blue sphere is low with any effect).
+
+Morgan (patches as above, Octane / Iray):
+
+| variant | crown | hilite | middle | lengths | tips |
+|---|---|---|---|---|---|
+| base | 2.08 / 2.72 / 2.96 | 1.17 / 1.19 / 1.22 | 1.87 / 2.52 / 2.67 | 1.44 / 1.78 / 1.93 | 1.05 / 1.51 / 1.37 |
+| fx0 | 1.88 / 2.04 / 1.80 | 1.13 / 1.07 / 0.96 | 1.78 / 2.11 / 1.92 | 1.17 / 1.27 / 1.13 | 1.03 / 1.20 / 0.94 |
+| nogloss | 2.21 / 2.63 / 2.97 | 1.47 / 1.75 / 2.05 | 2.05 / 2.51 / 2.88 | 1.61 / 1.90 / 2.22 | 1.54 / 1.87 / 2.05 |
+
+The crown dropped 3 – 7 %; the gap stays. Why it can't close it: under
+the strongest-channel reading, effect 2 leaves every reflection as effect
+0 has it (tint × weight = colour × weight for gloss, coat and the
+diffuse); it only moves 0.059 → 0.34 of the base into a warm
+translucency, which adds light. Yet Iray's fx0 is *brighter* in green and
+blue (1.25 / 1.56 on the crown) than its base. Octane's fx0 / base is now
+0.93 / 0.94 / 0.95: no hue shift. So whatever Iray does with Color
+Effect on this material is not in `transmit_color_calc` as read here —
+and the 1.5 – 3 × of the nogloss variant isn't a Color Effect matter at
+all.
+
+Also ruled out: the Cutout Opacity map (Morgan Hair TR2) — a gradient
+along v only (0.12 at one end, 1 from mid-length; mean 0.85), the same
+across u, so Iray's u-around-the-tube sampling sees what the export does.
+
+Next (#52): find what makes Iray's strands darker than any one channel
+explains — e.g. an Iray render of Morgan's material on a tessellated
+strand patch vs a flat card, or the .mi of the Calib-Hair-Teens hair
+material compared channel by channel with `src/iray.rs`.

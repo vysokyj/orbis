@@ -2483,22 +2483,26 @@ impl Ocs<'_> {
         // distance 0.15 mm), so it shows as colour, not light through the
         // ball; as Universal's transmission the whole eye glowed milky.
         let eye_volume = is_eye(name) && crate::iray::is_pbrskin(mat) && translucency > 0.0 && !thin;
-        let transmit = if metal || refractive || eye_volume || mat.float("Base Mixing").unwrap_or(0.0) as i32 == 2 { 0.0 } else { translucency.min(self.max_transmission) };
-        // Base Color Effect 1 (Scatter & Transmit): Iray reflects 0.4 of
-        // that diffuse and passes twice the translucency — Calib-Thin's
-        // cards (thin-walled, w 0.3 – 0.65, Translucency Color white /
-        // the diffuse / dark, lit from the front or behind) 0.98 – 1.02 ×
-        // Iray; at the default shares 1.8 – 2.5 ×. The Genesis EyeSocket's
-        // caruncle is such a surface (#20, #45). Base Color Effect 2
-        // (Scatter & Transmit Intensity: the same split, the diffuse weight
-        // greyed) 0.95 and 1.55: Calib-ColorEffect's C3 1.00 / 1.00 / 0.95 ×
-        // Iray, taken as effect 0 0.48 / 0.85 / 0.99 (#27).
+        // Iray's refraction is a weighted layer over the diffuse and
+        // translucency (DAZ's MDL): a partial one (Morgan Hair's 0.106)
+        // leaves the translucency its share, 1 − Refraction Weight
+        // (`diffuse_weight` below). Universal has one transmission: the
+        // translucency takes it while the surface is mostly diffuse.
+        let transmit = if metal || refraction >= 0.5 || eye_volume || mat.float("Base Mixing").unwrap_or(0.0) as i32 == 2 { 0.0 } else { translucency.min(self.max_transmission) };
+        // Base Color Effect 1 / 2 on that diffuse: the diffuse thinned to
+        // its colour's mono, the translucency the rest
+        // (`base_color_effect_shares`). Calib-Thin's cards (thin-walled,
+        // w 0.3 – 0.65, Translucency Color white / the diffuse / dark, lit
+        // from the front or behind) at the default shares 1.8 – 2.5 × Iray;
+        // the Genesis EyeSocket's caruncle is such a surface (#20, #45);
+        // Calib-ColorEffect's C3 as effect 0 0.48 / 0.85 / 0.99 (#27).
         let (diffuse_share, transmit_share) = if transmit > 0.0 {
-            match mat.float("Base Color Effect").unwrap_or(0.0) as i32 {
-                1 => (SCATTER_TRANSMIT_DIFFUSE, SCATTER_TRANSMIT_TRANSMISSION),
-                2 => (SCATTER_TRANSMIT_INTENSITY_DIFFUSE, SCATTER_TRANSMIT_INTENSITY_TRANSMISSION),
-                _ => (1.0, 1.0),
+            let mut colour = mat.base_color();
+            if let Some(mean) = mat.image("diffuse").map(str::to_string).and_then(|t| self.textures.mean_covered_colour(self.dirs, &t)) {
+                colour = [0, 1, 2].map(|k| colour[k] * mean[k]);
             }
+            let (d, t) = base_color_effect_shares(mat.float("Base Color Effect").unwrap_or(0.0) as i32, colour, transmit);
+            (d, t / transmit)
         } else {
             (1.0, 1.0)
         };
@@ -2634,7 +2638,7 @@ impl Ocs<'_> {
             // passes twice as much in Iray: Calib-Leaf's card 0.48 × Iray at
             // w, 0.81 at min(2w, 1); a closed sphere stays at w (1.25 – 1.38
             // at 2w).
-            let share = if mat.open && !thin { (2.0 * transmit).min(1.0) } else { transmit } * transmit_share;
+            let share = if mat.open && !thin { (2.0 * transmit).min(1.0) } else { transmit } * transmit_share * (1.0 - refraction);
             // A closed solid with Iray's volume under it: the light it passes
             // back out scales with the volume's diffusion reflectance, as on
             // skin (`volume_factor`), × `PROP_VOLUME_LEVEL`. Calib-SSSColor's
@@ -2846,8 +2850,11 @@ impl Ocs<'_> {
         // Glass-like surfaces (cornea, windows): Iray refraction → transmission,
         // tinted by the refraction's colour (see `own_refraction`).
         if refraction > 0.0 {
-            let colour = mat.color(if own_refraction { "Refraction Color" } else { "Glossy Color" }).unwrap_or([1.0; 3]);
-            self.rgb_pin(i, "transmission", colour.map(|c| c * refraction));
+            // A translucency (`transmit`) holds Universal's one transmission.
+            if transmit == 0.0 {
+                let colour = mat.color(if own_refraction { "Refraction Color" } else { "Glossy Color" }).unwrap_or([1.0; 3]);
+                self.rgb_pin(i, "transmission", colour.map(|c| c * refraction));
+            }
             let ior = spec_ior.filter(|_| refraction < 0.5).unwrap_or_else(|| mat.float("Refraction Index").unwrap_or(1.5));
             // Iray's thin-walled refraction reflects nothing of
             // its own — Calib-Glass's thin sphere was invisible; only a
@@ -2861,7 +2868,9 @@ impl Ocs<'_> {
             if let Some(abbe) = dispersion_abbe(mat).filter(|_| !thin) {
                 self.value_pin(i, "dispersion_coefficient_B", 6, 8, &format!("{} 0 0", num(abbe)));
             }
-            if thin {
+            if transmit > 0.0 {
+                // The translucency's type stands.
+            } else if thin {
                 // Thin Wall (2): no bending — Iray's thin-walled glass sphere
                 // showed the background straight through (Calib-Glass).
                 self.value_pin(i, "transmissionType", 57, 2, "2");
@@ -3101,14 +3110,48 @@ const FLAKE_ROUGHNESS: f32 = 0.5;
 /// A layer's colour and weight under Iray's Color Effect (DAZ's MDL,
 /// `transmit_color_calc`): 0 (Scatter Only) as they are; 1 and 2 (Scatter
 /// & Transmit, … Intensity) the colour's hue at full intensity (over its
-/// strongest channel) and the weight × the colour's average — a dark
-/// colour thins the layer instead of darkening it (#27).
+/// strongest channel) and the weight × the colour's `color_effect_mono` —
+/// a dark colour thins the layer instead of darkening it (#27).
 fn color_effect(mat: &Material, channel: &str, colour: [f32; 3], weight: f32) -> ([f32; 3], f32) {
     let top = max_channel(colour);
-    if mat.float(channel).unwrap_or(0.0) as i32 == 0 || top <= 1e-4 {
+    let mode = mat.float(channel).unwrap_or(0.0) as i32;
+    if mode == 0 || top <= 1e-4 {
         return (colour, weight);
     }
-    (colour.map(|c| c / top), weight * (colour.iter().sum::<f32>() / 3.0))
+    (colour.map(|c| c / top), weight * color_effect_mono(mode, colour))
+}
+
+/// The weight `transmit_color_calc` takes from a colour: its average in
+/// mode 1 (`color_layer_blend`, mono_average); in mode 2 the colour is
+/// first greyed at its own intensity (`color_layer_color` of white over
+/// it), its strongest channel. Calib-ColorEffect's blue diffuse (0.07 /
+/// 0.22 / 0.61) shows the two apart: Iray's effect 2 kept its diffuse
+/// (0.95 ×), effect 1 thinned it to its average over its peak (#27, #52).
+fn color_effect_mono(mode: i32, colour: [f32; 3]) -> f32 {
+    if mode >= 2 {
+        max_channel(colour)
+    } else {
+        colour.iter().sum::<f32>() / 3.0
+    }
+}
+
+/// Iray's Base Color Effect on a diffuse mixed with translucency
+/// `w` (DAZ's MDL, `diffuse_base`): the diffuse layer's weight becomes
+/// (1 − w) × the diffuse colour's `color_effect_mono` m, its tint the
+/// colour at full intensity, and the translucency under it takes the rest,
+/// 1 − (1 − w)·m. As Universal's shares: the albedo (1 − w)·colour × m /
+/// max(colour), the transmission 1 − (1 − w)·m in place of w. Effect 0
+/// leaves them at 1 − w and w. `colour` is the diffuse colour (× its map's
+/// mean). Calib-Thin's green cards (effect 1: m / max 0.41) measured 0.40 –
+/// 0.41 and about twice the translucency; Calib-ColorEffect's C3 (effect 2:
+/// 1.0, 1.39 ×) 0.95 and 1.55 — the shares once fitted (#27, #45, #52).
+fn base_color_effect_shares(mode: i32, colour: [f32; 3], w: f32) -> (f32, f32) {
+    let top = max_channel(colour);
+    if mode == 0 || top <= 1e-4 {
+        return (1.0, w);
+    }
+    let m = color_effect_mono(mode, colour).min(1.0);
+    (m / top, 1.0 - (1.0 - w) * m)
 }
 
 /// Iray Uber's own Diffuse Overlay: a second diffuse at its weight over
@@ -3394,18 +3437,10 @@ fn is_eye(name: &str) -> bool {
         || n.ends_with("eye_right")
 }
 
-/// Iray's Base Color Effect 1 (Scatter & Transmit) on a translucent
-/// surface: its diffuse and its translucency as Universal's albedo and
-/// transmission shares. See `universal`.
-const SCATTER_TRANSMIT_DIFFUSE: f32 = 0.4;
-const SCATTER_TRANSMIT_TRANSMISSION: f32 = 2.0;
 /// A translucent prop's volume (`universal`): its transmission × the volume
 /// factor × this. Octane's response to it is steep: 0.6 / 0.8 put
 /// Calib-SSSColor's chromatic spheres at 0.71 – 0.84 / 1.00 – 1.30 × Iray.
 const PROP_VOLUME_LEVEL: f32 = 0.7;
-/// Base Color Effect 2 (Scatter & Transmit Intensity): see `universal`.
-const SCATTER_TRANSMIT_INTENSITY_DIFFUSE: f32 = 0.95;
-const SCATTER_TRANSMIT_INTENSITY_TRANSMISSION: f32 = 1.55;
 
 /// `Ocs::layered_coat_material`: a Top Coat with anisotropy outside
 /// Layering Mode 1 (the weighted coat takes it on its own metal node).
@@ -5392,8 +5427,10 @@ mod tests {
         ]));
         let (tx, _) = material_inputs(&[("Shirt".into(), shirt, 1.0)], &dirs, HashMap::new(), 8700, SkinShader::StandardSurface);
         assert!(tx.contains("type='130'"), "thin-walled fabric stays Universal");
-        // With Base Color Effect 1 (Scatter & Transmit) it reflects 0.4 of
-        // its 1 − 0.3 diffuse and passes 2 × 0.3.
+        // With Base Color Effect 1 (Scatter & Transmit) its diffuse thins to
+        // the map's average over its peak and the translucency takes the rest
+        // (`base_color_effect_shares`; the map's linear mean ≈ 0.58 / 0.31 /
+        // 0.19).
         let scatter = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}},
             {"channel": {"id": "Translucency Weight", "current_value": 0.3}},
@@ -5403,8 +5440,9 @@ mod tests {
         let (ex, _) = material_inputs(&[("Socket".into(), scatter, 1.0)], &dirs, HashMap::new(), 8720, SkinShader::StandardSurface);
         let power = |x: &str| x[x.find("<pin name='albedo'>").unwrap()..].split("<pin name='power'>").nth(1).unwrap().split("</attr>").next().unwrap().rsplit('>').next().unwrap().to_string();
         let transmission = |x: &str| x[x.find("<pin name='transmission'>").unwrap()..].split("</attr>").next().unwrap().rsplit('>').next().unwrap().to_string();
-        assert_eq!((power(&tx), power(&ex)), ("0.7".to_string(), "0.28".to_string()), "{ex}");
-        assert_eq!((transmission(&tx), transmission(&ex)), ("0.3 0.3 0.3".to_string(), "0.6 0.6 0.6".to_string()), "{ex}");
+        assert_eq!((power(&tx), transmission(&tx)), ("0.7".to_string(), "0.3 0.3 0.3".to_string()), "{tx}");
+        let (p, t) = (power(&ex).parse::<f32>().unwrap(), transmission(&ex).split(' ').next().unwrap().parse::<f32>().unwrap());
+        assert!((p - 0.7 * 0.62).abs() < 0.02 && (t - (1.0 - 0.7 * 0.36)).abs() < 0.02, "{p} {t}");
         let cloak = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}},
             {"channel": {"id": "Translucency Weight", "current_value": 0.5}},
@@ -5697,11 +5735,11 @@ mod tests {
         let share = specular_diffuse_share(&red, 1.0, [1.0; 3]);
         assert!((share[0] - 1.0).abs() < 1e-6 && share[1] < 0.3 && share[2] < 0.3, "{share:?}");
         assert!(specular_diffuse_share(&grey, 1.0, [1.0; 3]).iter().all(|s| (s - 1.0).abs() < 1e-6));
-        // Base Color Effect 2 shares out diffuse and translucency like 1,
-        // by its own weights.
+        // Base Color Effect thins a translucent diffuse to its colour's mono
+        // (1: the average, 2: the strongest channel) over its peak.
         let effect = |e: i32| {
             let m = mat(json!([
-                {"channel": {"id": "diffuse", "current_value": [0.5, 0.5, 0.5]}},
+                {"channel": {"id": "diffuse", "current_value": [0.1, 0.3, 0.6]}},
                 {"channel": {"id": "Translucency Weight", "current_value": 0.5}},
                 {"channel": {"id": "Base Color Effect", "current_value": e}},
             ]));
@@ -5710,8 +5748,49 @@ mod tests {
             albedo[albedo.find("type='8'>").unwrap() + 9..].split(' ').next().unwrap().parse::<f32>().unwrap()
         };
         let (e0, e1, e2) = (effect(0), effect(1), effect(2));
-        assert!((e1 / e0 - SCATTER_TRANSMIT_DIFFUSE).abs() < 1e-3, "{e0} {e1}");
-        assert!((e2 / e0 - SCATTER_TRANSMIT_INTENSITY_DIFFUSE).abs() < 1e-3, "{e0} {e2}");
+        let lin = mat(json!([{"channel": {"id": "diffuse", "current_value": [0.1, 0.3, 0.6]}}])).base_color();
+        let (avg, top) = (lin.iter().sum::<f32>() / 3.0, max_channel(lin));
+        assert!((e1 / e0 - avg / top).abs() < 1e-3, "{e0} {e1}");
+        assert!((e2 / e0 - 1.0).abs() < 1e-3, "{e0} {e2}");
+    }
+
+    #[test]
+    fn base_color_effect_shares_follow_diffuse_base() {
+        // Effect 0 leaves 1 − w / w.
+        assert_eq!(base_color_effect_shares(0, [0.1, 0.3, 0.6], 0.5), (1.0, 0.5));
+        // Effect 1: the average 1/3 of a 0.6 peak; the translucency the rest.
+        let (d, t) = base_color_effect_shares(1, [0.1, 0.3, 0.6], 0.5);
+        assert!((d - (1.0 / 3.0) / 0.6).abs() < 1e-5 && (t - (1.0 - 0.5 / 3.0)).abs() < 1e-5, "{d} {t}");
+        // Effect 2: the diffuse as it is, the translucency 1 − (1 − w)·peak.
+        let (d, t) = base_color_effect_shares(2, [0.1, 0.3, 0.6], 0.5);
+        assert!((d - 1.0).abs() < 1e-5 && (t - 0.7).abs() < 1e-5, "{d} {t}");
+    }
+
+    #[test]
+    fn a_partial_refraction_keeps_the_translucency() {
+        // Morgan Hair: translucent, thin-walled, Refraction Weight 0.106 —
+        // the translucency holds the transmission at (1 − r) of its share.
+        let card = |r: f32| {
+            let m = mat(json!([
+                {"channel": {"id": "diffuse", "current_value": [0.8, 0.8, 0.8]}},
+                {"channel": {"id": "Translucency Weight", "current_value": 0.4}},
+                {"channel": {"id": "Translucency Color", "current_value": [1.0, 1.0, 1.0]}},
+                {"channel": {"id": "Thin Walled", "current_value": true}},
+                {"channel": {"id": "Refraction Weight", "current_value": r}},
+            ]));
+            material_inputs(&[("Card".into(), m, 1.0)], &[], HashMap::new(), 7000, SkinShader::None).0
+        };
+        let t = |x: &str| {
+            let p = &x[x.find("<pin name='transmission'>").unwrap()..];
+            p[p.find("type='8'>").unwrap() + 9..].split(' ').next().unwrap().parse::<f32>().unwrap()
+        };
+        let x = card(0.1);
+        assert_eq!(x.matches("<pin name='transmission'>").count(), 1, "{x}");
+        assert!((t(&x) - 0.4 * 0.9).abs() < 1e-3, "{}", t(&x));
+        assert!(x.contains("<pin name='transmissionType'>") && x.matches("<pin name='transmissionType'>").count() == 1);
+        // A mostly refractive surface keeps its refraction instead.
+        let g = card(0.8);
+        assert!((t(&g) - 0.8).abs() < 1e-3, "{}", t(&g));
     }
 
     #[test]
