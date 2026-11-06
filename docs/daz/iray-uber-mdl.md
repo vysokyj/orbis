@@ -312,3 +312,12 @@ Every other hidden channel in the sweep (SSS, volume, overlay, flakes,
 dual lobe, coat colour / film / anisotropy, refraction, emission) reached
 Iray alike hidden or shown. Visibility is a channel field
 (`Channel::hidden`): an override without `visible` keeps the definition's.
+
+Only Iray Uber has the gap: a scene saves an Uber material's whole
+channel list, visibility included, so product content (saved from DAZ's
+UI) and our generated spheres (DAZ's default material) can differ. The
+brick shaders — PBRSkin, Blended Dual Lobe Hair, OmniHair — save only the
+channels changed, without `visible` (336 such materials in the local
+scenes: only the three Round Corners channels carry it), so both take
+their visibility from the shader's definition and the existing fixtures
+already show what product content gets.

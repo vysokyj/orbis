@@ -416,3 +416,9 @@ Calib-Aniso (roughness > 0) always passed it and Calib-Backscatter's B8
 never did. Rules in `iray.rs`, the table in `docs/daz/iray-uber-mdl.md`
 (Channel visibility); the hidden/shown twin is now part of the `.mi`
 procedure (mi-fixture skill, docs/calibration.md).
+
+The brick shaders (PBRSkin, Blended Dual Lobe Hair, OmniHair) need no
+twin: an audit of the local scenes' 336 such materials found `visible`
+saved only on the three Round Corners channels — their visibility comes
+from the shader's definition, the same for product content and our
+spheres.
