@@ -1632,11 +1632,15 @@ rule is Enhanced's, with no fitted hue in either.
   1.07, Victoria 0.90 / 0.98 / 0.95, Kayo 0.90 / 1.00 / 0.93, Gabriela
   0.91 / 0.97 / 0.94, Nishi 0.92 / 0.97 / 0.97, Zurie 0.96 / 1.00 / 0.98,
   Twosret 0.91 / 1.00 / 0.89, Monique 0.89 / 0.96 / 0.94; HDRI Monique
-  1.00 / 1.00 / 1.08, Victoria 1.00 / 1.04 / 1.05. Open (#19): Zurie's
-  unmapped gloss still over on the forehead (1.10 / 1.21 / 1.28), Twosret's
-  under (0.85 / 0.84 / 0.75); Iray's sharp lobe 2 carries more than lobe 1
-  (Victoria's ratio 0 − ratio 1: Iray +41, Octane +6 over the face); the
-  G8F skin under sky light; under environment light every skin 10 – 30 %
+  1.00 / 1.00 / 1.08, Victoria 1.00 / 1.04 / 1.05. With the dual lobe at W
+  and the IOR of its F0 per texel (`skin_gloss`): Angel 0.98 / 1.06 /
+  1.07, Victoria 0.91 / 0.98 / 0.95, Kayo 0.90 / 0.97 / 0.94, Gabriela
+  0.92 / 0.98 / 0.94, Nishi 0.93 / 1.00 / 0.97, Zurie 0.96 / 0.98 / 0.97,
+  Twosret 0.91 / 0.97 / 0.90, Monique 0.89 / 0.96 / 0.89; HDRI Monique
+  1.00 / 1.00 / 1.00, Twosret 1.00 / 1.00 / 1.07, Zurie 1.00 / 1.03 /
+  1.03, Victoria 1.00 / 1.04 / 1.07. Open (#19): the Top-Coated faces'
+  highlights (Gabriela, Nishi over, Kayo under); the G8F skin under sky
+  light (Calib-Eye 1.15 / 1.30 / 1.52); under environment light every skin 10 – 30 %
   bluer and brighter (HDRI Monique 1.11 / 1.32 / 1.55, Victoria 1.00 /
   1.07 / 1.18, Calib-Eye 1.14 / 1.31 / 1.57, Calib-HDRI 1.15 / 1.26 /
   1.46; the fit's half diffuse had hidden it on the G8F skin: 0.99 / 1.13
@@ -1712,6 +1716,10 @@ its Translucency Color map carries the subsurface part), open in #28.
   at its share: Monique 1.13 / 1.39 / 1.55, Twosret 1.00 / 1.16 / 1.37,
   Kayo 0.95 / 1.12 / 1.15, Victoria 0.91 / 1.00 / 1.00, HDRI 1.00 / 1.06
   / 1.10, the rest within 0.92 – 1.10.
+  With the dual lobe at W and its IOR per texel: Monique 1.09 / 1.29 /
+  1.44, Twosret 0.97 / 1.14 / 1.23, Kayo 0.97 / 1.12 / 1.13, the rest
+  0.90 – 1.10; HDRI Monique 1.18 / 1.25 / 1.49, Twosret 1.08 / 1.13 /
+  1.40, Zurie 1.06 / 1.06 / 1.09.
 - **No fitted hue or dark gain** (#19, docs/notes/2026-11-07-skin-hue.md).
   Until then the subsurface part took the grey `volume_factor` and the bake
   × `SKIN_HUE_OPENPBR` (1.16 / 0.83 / 0.68) to the power of the smooth
@@ -1757,22 +1765,31 @@ its Translucency Color map carries the subsurface part), open in #28.
   Universal at w 0 kept them dark. Elsewhere all of the colour goes through
   the random walk: at `subsurface` 0.5 Octane rendered 0.67 – 0.73 of the
   colour whatever it was (Calib-SSS's spheres).
-- **Gloss** as Universal's (`skin_gloss`): Iray's squared roughness, the
-  dual lobe's weight × min(2r, 1) of its reflectivity (lobe 2 the coating,
-  see Universal) — with the
-  reflectivity's **map** on both lobes (dark under brows and make-up; a
-  uniform gloss shone blue-grey there on dark skins; Iray scales both
-  lobes by it: lobe 2 unmapped shone white on Monique's dark gloss map,
-  G 1.24 → 1.19, HDRI B 1.66 → 1.55 × Iray) **× the channel's share**,
-  as without a map (DAZ hands Iray map × value: `color_scale` the value).
-  The map alone at 2 × weight had the gloss at twice Iray's at
-  Reflectivity 0.5: the face's highlight (p99.5) Victoria 0.363 / Monique
-  0.101 against Iray's 0.270 / 0.070, with the share 0.277 / 0.072; HDRI
-  Monique 1.05 / 1.15 / 1.28 → 1.00 / 1.00 / 1.08, Victoria 1.03 / 1.09 /
-  1.18 → 1.00 / 1.04 / 1.05 (much of the environment light's excess was
-  the sky in that gloss). The Top Coat as the coating with
-  its weight map and **`coatingDarkening` 0** (OpenPBR's coat took the base
-  to 0.58 – 0.80 of Universal's; Gabriela's skin 0.66 → 1.01).
+- **Gloss** (`skin_gloss`): Iray's squared roughness; Iray's **dual lobe**
+  as DAZ's MDL has it (`add_dual_lobe_specular`: both white lobes under 1
+  − a Schlick curve, W · (F0 + (1 − F0)(1 − cos θ)^5), F0 = 0.08 ×
+  Reflectivity × its map) — OpenPBR's `specular` at **W** (× a Weight
+  map: Zurie 8's face) and **`ior` the IOR of that F0 per texel** (baked
+  from the reflectivity map as n / 2 at power 2, `ior_pin`); lobe 2 the
+  coating at W × (1 − ratio) with the same IOR; a glossy layer as before
+  (weight × min(2r, 1), × its map). A **Top Coat** takes the coating, the
+  lobes then one at their blended roughness; its colour map tints it
+  (Twosret 8, Kayo 8: their gloss map), its roughness map goes per texel
+  (`roughness_pin_named`), a weight map is read at 2.2 like any float
+  channel's; **`coatingDarkening` 0** (OpenPBR's coat took the base to
+  0.58 – 0.80 of Universal's; Gabriela's skin 0.66 → 1.01).
+  Why: three errors on top of each other, each a map. The map at 2 × W
+  dropped the channel's value (twice Iray's at Reflectivity 0.5); as a
+  share of the specular (map × min(2r, 1) · W) it dimmed the grazing
+  reflection with the head-on one (Twosret's gloss map, 0.05 linear, left
+  it a twentieth of Iray's); lobe 2 was unmapped. The face's highlight
+  (p99.5), Octane / Iray before → after: Victoria 0.363 → 0.269 / 0.270,
+  Monique 0.101 → 0.071 / 0.070, Zurie 0.301 → 0.207 / 0.206, Twosret
+  0.078 → 0.098 / 0.099, Angel 0.252 / 0.256; HDRI Monique 1.05 / 1.15 /
+  1.28 → 1.00 / 1.00 / 1.00, Twosret 1.00 / 1.00 / 1.07, Victoria 1.00 /
+  1.04 / 1.07 — the skins' "environment light 10 – 30 % over" was mostly
+  this gloss reflecting the sky. Open: the Top-Coated faces (Gabriela
+  0.204 / 0.161, Nishi 0.293 / 0.226, Kayo 0.139 / 0.158).
 - Dark skins show more pore texture than Iray's.
 - Not a cause: Iray doesn't dim the gloss of translucent skin (highlight
   contrast on the dark foreheads is higher in Iray); the gloss alone ~0

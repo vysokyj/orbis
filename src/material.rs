@@ -1519,12 +1519,26 @@ impl Ocs<'_> {
         let (colour, coat) = color_effect(mat, "Top Coat Color Effect", mat.color("Top Coat Color").unwrap_or([1.0; 3]), coat);
         // A weight map (data) × the weight, as for the glossy layer:
         // Gabriela 8's face coats only where hers is light (Calib-Skin).
-        match self.channel_map(mat, "Top Coat Weight") {
-            Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "coating", &asset, true, 1.0, coat)),
-            None => self.rgb_pin(i, "coating", colour.map(|c| c * coat)),
+        // A colour map tints it as Iray's coat colour (Twosret 8's face
+        // coats with its gloss map; uniform, the coat shone over the dark
+        // parts, #19). A weight map is a float channel's map: at 2.2
+        // (`data_gamma`).
+        match (self.channel_map(mat, "Top Coat Weight"), self.channel_map(mat, "Top Coat Color")) {
+            (Some((asset, m)), _) => self.with_map(m, |w| w.image_pin(i, "coating", &asset, true, data_gamma(mat, "Top Coat Weight"), coat)),
+            (None, Some((asset, m))) => self.with_map(m, |w| w.tinted_image_pin(i, "coating", &asset, coat, colour)),
+            (None, None) => self.rgb_pin(i, "coating", colour.map(|c| c * coat)),
         }
         let rough = self.gloss_roughness(top_coat_roughness(mat));
-        self.float_pin(i, "coatingRoughness", rough.max(min_roughness).clamp(0.0, 1.0));
+        // A roughness map (Twosret 8's face: its gloss map at Roughness 1,
+        // sharp where it is dark) per texel, as the gloss's (#19).
+        let glossiness = matches!(mat.float("Base Mixing").unwrap_or(0.0) as i32, 1 | 2) && mat.float("Top Coat Glossiness").is_some();
+        match Some("Top Coat Roughness").filter(|c| !glossiness && min_roughness <= 0.0 && mat.image(c).is_some()) {
+            Some(ch) => {
+                let curve = if self.gloss_ggx { RoughCurve::Ggx } else { RoughCurve::Linear };
+                self.roughness_pin_named(i, "coatingRoughness", mat, Some(ch), rough.clamp(0.0, 1.0), curve, 1.0);
+            }
+            None => self.float_pin(i, "coatingRoughness", rough.max(min_roughness).clamp(0.0, 1.0)),
+        }
         self.float_pin(i, "coatingIor", top_coat_ior(mat));
         self.coat_bump_pins(i, mat, "coatingBump", "coatingNormal");
     }
@@ -1991,8 +2005,13 @@ impl Ocs<'_> {
     /// (`Anisotropy::stretch`, 1 isotropic): the map then bakes Octane's
     /// roughness of both axes (`anisotropic_roughness`).
     fn roughness_pin(&mut self, indent: usize, mat: &Material, channel: Option<&str>, value: f32, curve: RoughCurve, stretch: f32) {
+        self.roughness_pin_named(indent, "roughness", mat, channel, value, curve, stretch)
+    }
+
+    /// [`roughness_pin`] on any roughness pin (the coating's too).
+    fn roughness_pin_named(&mut self, indent: usize, pin: &str, mat: &Material, channel: Option<&str>, value: f32, curve: RoughCurve, stretch: f32) {
         let Some((ch, map)) = channel.and_then(|c| Some((c, mat.image(c)?.to_string()))) else {
-            return self.float_pin(indent, "roughness", value);
+            return self.float_pin(indent, pin, value);
         };
         let inverted = ch.ends_with("Glossiness");
         let v = mat.float(ch).unwrap_or(1.0);
@@ -2013,9 +2032,9 @@ impl Ocs<'_> {
             [anisotropic_roughness(r, stretch, curve).0; 3]
         });
         match asset {
-            Some(asset) => self.with_map(im.placement(), |w| w.image_pin(indent, "roughness", &asset, true, 1.0, 1.0)),
+            Some(asset) => self.with_map(im.placement(), |w| w.image_pin(indent, pin, &asset, true, 1.0, 1.0)),
             // An image it can't read: the map as is (a glossiness, its value).
-            None => self.float_or_map(indent, "roughness", mat, Some(ch).filter(|_| !inverted), value),
+            None => self.float_or_map(indent, pin, mat, Some(ch).filter(|_| !inverted), value),
         }
     }
 
@@ -2122,35 +2141,63 @@ impl Ocs<'_> {
         }
         self.roughness_pin(i, mat, rough_ch, rough.clamp(0.0, 1.0), RoughCurve::Linear, 1.0);
         let lobe1 = dual_lobe.filter(|_| !coat).map_or(1.0, |dl| dl.lobe1);
-        let (weight, ch) = match dual_lobe {
-            Some(dl) => (dl.share, "Dual Lobe Specular Reflectivity"),
-            None => (glossy.min(1.0) * reflectivity_share(glossy_reflectivity(mat)), "Glossy Reflectivity"),
-        };
-        // A map scales the channel's value (DAZ hands Iray map × value): the
-        // same share, under the map. Without the value (2 × weight) the
-        // gloss came out twice Iray's at Reflectivity 0.5 (#19).
-        match self.channel_map(mat, ch) {
-            Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "specular", &asset, true, data_gamma(mat, ch), weight * lobe1)),
-            None => self.float_pin(i, "specular", weight * lobe1),
-        }
-        match dual_lobe.filter(|dl| !coat && dl.lobe1 < 1.0) {
+        match dual_lobe {
+            // Iray's dual lobe (`add_dual_lobe_specular`): both white lobes
+            // under 1 − a Schlick curve, W · (F0 + (1 − F0)(1 − cos)^5) with
+            // F0 = 0.08 × Reflectivity (× its map) — OpenPBR's dielectric
+            // at weight W and the IOR of that F0, per texel; a Weight map
+            // scales W (Zurie 8's face). As a share of the full specular
+            // (map × min(2r, 1) · W) the map dimmed the grazing reflection
+            // too: Twosret's dark gloss map (0.05) left it a twentieth of
+            // Iray's (#19).
             Some(dl) => {
-                // Iray scales both lobes by the reflectivity (its map too):
-                // lobe 2 under the map as lobe 1 is.
-                match self.channel_map(mat, ch) {
-                    Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "coating", &asset, true, data_gamma(mat, ch), dl.share * (1.0 - dl.lobe1))),
-                    None => self.rgb_pin(i, "coating", [dl.share * (1.0 - dl.lobe1); 3]),
+                let w_map = self.channel_map(mat, "Dual Lobe Specular Weight");
+                let weight_pin = |w: &mut Self, pin: &str, share: f32| match &w_map {
+                    Some((asset, m)) => w.with_map(*m, |w| w.image_pin(i, pin, asset, true, data_gamma(mat, "Dual Lobe Specular Weight"), share)),
+                    None => w.float_pin(i, pin, share),
+                };
+                weight_pin(self, "specular", dl.weight * lobe1);
+                self.ior_pin(i, "ior", mat, "Dual Lobe Specular Reflectivity", dl.f0);
+                if !coat && dl.lobe1 < 1.0 {
+                    weight_pin(self, "coating", dl.weight * (1.0 - dl.lobe1));
+                    self.float_pin(i, "coatingRoughness", dl.lobe2_roughness);
+                    self.ior_pin(i, "coatingIor", mat, "Dual Lobe Specular Reflectivity", dl.f0);
+                    self.float_pin(i, "coatingDarkening", 0.0);
+                    return;
                 }
-                self.float_pin(i, "coatingRoughness", dl.lobe2_roughness);
-                self.float_pin(i, "coatingIor", dl.ior.unwrap_or(1.5));
-                self.float_pin(i, "coatingDarkening", 0.0);
             }
             None => {
-                self.top_coat(i, mat, 0.0);
-                if coat {
-                    self.float_pin(i, "coatingDarkening", 0.0);
+                let (weight, ch) = (glossy.min(1.0) * reflectivity_share(glossy_reflectivity(mat)), "Glossy Reflectivity");
+                // A map scales the channel's value (DAZ hands Iray map ×
+                // value): the same share, under the map.
+                match self.channel_map(mat, ch) {
+                    Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "specular", &asset, true, data_gamma(mat, ch), weight)),
+                    None => self.float_pin(i, "specular", weight),
                 }
             }
+        }
+        self.top_coat(i, mat, 0.0);
+        if coat {
+            self.float_pin(i, "coatingDarkening", 0.0);
+        }
+    }
+
+    /// A dielectric's IOR pin for head-on reflectance `f0` × the channel's
+    /// map, if it has one: n = (1 + √F0) / (1 − √F0) per texel, baked as n
+    /// / 2 (an image holds 0 – 1) at power 2.
+    fn ior_pin(&mut self, indent: usize, pin: &str, mat: &Material, ch: &str, f0: f32) {
+        let Some(map) = mat.image(ch).map(str::to_string) else {
+            return self.float_pin(indent, pin, ior_from_f0(f0));
+        };
+        // `derived` decodes at 2.2; the map's own gamma rescales that.
+        let g = data_gamma(mat, ch) / crate::iray::COLOUR_GAMMA;
+        let im = mat.image_mod(ch);
+        let picked_gamma = if im.mono == Mono::Alpha { 1.0 } else { g };
+        let key = format!("ior|{map}|{f0}|{g}|{im:?}");
+        let asset = self.textures.derived_mono(self.dirs, &map, &key, 1.0, im.mono, |l| [ior_from_f0(f0 * im.apply(l.max(0.0).powf(picked_gamma))) / 2.0; 3]);
+        match asset {
+            Some(asset) => self.with_map(im.placement(), |w| w.image_pin(indent, pin, &asset, true, 1.0, 2.0)),
+            None => self.float_pin(indent, pin, ior_from_f0(f0)),
         }
     }
 
@@ -2955,6 +3002,10 @@ struct DualLobe {
     /// Above reflectivity 0.5: the IOR that reflects Iray's F0 = 0.08 r,
     /// for both lobes.
     ior: Option<f32>,
+    /// Dual Lobe Specular Weight W: the lobes' share at grazing.
+    weight: f32,
+    /// Iray's head-on reflectance r · W over W: 0.08 × the reflectivity.
+    f0: f32,
 }
 
 impl DualLobe {
@@ -2988,6 +3039,8 @@ impl DualLobe {
             lobe1: lobe1.clamp(0.0, 1.0),
             lobe2_roughness: (DUAL_LOBE_2_ROUGHNESS * r2_squared).clamp(0.0, 1.0),
             ior: r.filter(|r| *r > 0.5).map(|r| ior_from_f0(crate::iray::REFLECTIVITY_SCALE * r)),
+            weight,
+            f0: crate::iray::REFLECTIVITY_SCALE * r.unwrap_or(0.5),
         })
     }
 
