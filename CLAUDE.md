@@ -122,6 +122,15 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   parameters directly, no fitted constants, verify on 2–3 G9 figures (±15 %).
   #19 (skin hue) stalled for missing knowledge — don't resume by tuning
   constants.
+- **Decompose before fitting** (the user's rule, 2026-11-07): never fit a
+  coefficient to a whole render. First split the result into its
+  components - Iray variants that switch one part off (w0, tcwhite,
+  dwhite, gloss off), Octane probes with a known input (a grey, albedo 0,
+  a plain diffuse) - and check each against the MDL / Octane docs. Fit only
+  what is still unexplained after that, and say in the code why. #19's
+  fitted hue, dark gain, (1 - w)^1.3 and 0.55 share each hid a missing
+  component (the volume's albedo, a bounce limit, the diffuse layer, an
+  unmapped gloss lobe).
 - **Language**: the user writes Czech (informal); everything in the repo is
   English.
 
