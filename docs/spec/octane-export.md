@@ -510,7 +510,7 @@ focus on the plane at the focus distance (perspective models) or the sphere
 
 | | Preview | Final (default) |
 |---|---|---|
-| kernel | direct lighting (24), GI diffuse, depth 2 | path tracing (25): diffuse 8, glossy 24, **scatter 128**, **GI clamp 20** |
+| kernel | direct lighting (24), GI diffuse, depth 2 | path tracing (25): **diffuse 64**, glossy 24, **scatter 128**, **GI clamp 20** |
 | ray epsilon | **1 µm** (`rayepsilon` 1e-6) | same |
 | skin | Universal | OpenPBR: Enhanced random-walk SSS, Faithful Iray's colour as a diffuse |
 | imager exposure | **1.4** × 2^(13 − EV) × cm² (Variants) | **1.4** × 2^(13 − EV) × cm² |
@@ -519,6 +519,26 @@ focus on the plane at the focus distance (perspective models) or the sphere
 | vignetting | Iray's cos(θ)^v fitted as Octane's frame-space cone per camera (below) | same |
 | white balance / saturation | white (the White Point is in the tone LUT, below) / Saturation | same |
 | denoiser | off | **on**, during the render (`denoiserOnce` off, `maxDenoiserInterval` 20) |
+
+**Diffuse depth 64**, not Octane's 8: OpenPBR's random-walk subsurface spends
+the diffuse depth on its scattering events (maxScatterDepth does not bound
+it), so at 8 a long walk is cut and a bright subsurface colour loses most of
+its light. Probe 64 (Monique's skin painted grey c, radius ×0.1, the albedo
+as rendered against a plain diffuse of the same c):
+
+| c | 0.1 | 0.3 | 0.6 | 0.8 | 0.95 |
+|---|---|---|---|---|---|
+| depth 8 | 0.97 | 0.93 | 0.76 | 0.63 | 0.54 |
+| depth 32 | 0.97 | 0.99 | 0.98 | 0.90 | 0.80 |
+| depth 64 | 0.97 | 0.98 | 0.98 | 0.97 | 0.87 |
+| depth 128 | 0.99 | 0.98 | 0.99 | 0.99 | 0.93 |
+
+Skin's red is its brightest channel, so depth 8 cut red most: the skin came
+out bluer (Victoria Enhanced 0.89 / 0.98 / 0.98 × Iray, at 64 0.96 / 1.00 /
+0.97). Iray bounds subsurface walks apart from its path length (Max SSS Path
+Length), so this is Octane catching up with Iray, not a fit. Plain diffuse
+scenes render the same at 8 and 64 (Russian roulette ends those paths); the
+skin scenes take 10 – 25 % longer.
 
 Why path tracing for final: direct lighting renders random-walk SSS grey and
 isn't photorealistic; Cycles (the Blender reference) path-traces too.
@@ -1671,6 +1691,15 @@ its Translucency Color map carries the subsurface part), open in #28.
   as a plain diffuse (Monique 1.04 / 1.24 / 1.34 there) — Octane's albedo
   inversion on dark colours, measurable with a probe on known spheres;
   backlit ears red 0.17 – 0.24 × Iray.
+  With the diffuse depth 64 (Render modes; it had cut the bright red
+  channel): Angel 0.97 / 1.04 / 1.04, Victoria 0.96 / 1.00 / 0.97, Kayo 1.00
+  / 1.12 / 1.11, Gabriela 0.90 / 0.97 / 0.92, Nishi 0.94 / 1.00 / 1.02,
+  Zurie 0.87 / 0.87 / 0.82, Twosret and Monique unchanged; HDRI Victoria
+  1.08 / 1.09 / 1.17, Zurie 1.00 / 0.97 / 1.00; the G8F skin (Calib-Eye,
+  -HDRI, -Skin-Base) unchanged. The dark skins' excess is not the depth: a
+  grey subsurface colour under 0.07 renders brighter than its value (0.01 →
+  0.020, 0.02 → 0.028, 0.04 → 0.044 at any depth and radius), and they are
+  1.04 / 1.24 / 1.34 already as a plain diffuse (Faithful).
 - The **volume factor** (`volume_factor`, props' translucency only since
   #19): (Rd(α) / Rd(α₀))^0.5 per channel, Rd Jensen's diffusion reflectance
   (dipole, η 1.4) at the volume's reduced single-scattering albedo α =

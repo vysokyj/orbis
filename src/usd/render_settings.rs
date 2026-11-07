@@ -4,8 +4,10 @@
 use crate::iray::{Bloom, PixelFilter, RenderOptions};
 use crate::tuning::Kernel;
 
-/// Path tracing's bounce limits and GI clamp (Render modes).
-const PT_DIFFUSE_DEPTH: u32 = 8;
+/// Path tracing's bounce limits and GI clamp (Render modes). The diffuse
+/// depth also bounds OpenPBR's random-walk subsurface: at 8 it cut bright
+/// skin channels to half their albedo (probe 64, #19).
+const PT_DIFFUSE_DEPTH: u32 = 64;
 const PT_GLOSSY_DEPTH: u32 = 24;
 const PT_SCATTER_DEPTH: u32 = 128;
 const PT_GI_CLAMP: f64 = 20.0;
@@ -136,7 +138,7 @@ mod tests {
     fn defaults_keep_the_calibrated_kernels() {
         let d = RenderOptions::default();
         let pt = kernel_xml(Kernel::PathTracing, &d);
-        assert_eq!([pin(&pt, "maxDiffuseDepth"), pin(&pt, "maxGlossyDepth"), pin(&pt, "maxScatterDepth"), pin(&pt, "giClamp")], ["8", "24", "128", "20"]);
+        assert_eq!([pin(&pt, "maxDiffuseDepth"), pin(&pt, "maxGlossyDepth"), pin(&pt, "maxScatterDepth"), pin(&pt, "giClamp")], ["64", "24", "128", "20"]);
         assert_eq!(pin(&pt, "filtersize"), "1.200000");
         let dl = kernel_xml(Kernel::DirectLighting, &d);
         assert_eq!([pin(&dl, "diffusedepth"), pin(&dl, "glossydepth"), pin(&dl, "speculardepth"), pin(&dl, "filtersize")], ["2", "2", "5", "1.200000"]);

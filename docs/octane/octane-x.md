@@ -191,7 +191,9 @@ decoded as sRGB.
   renders grey** in it whatever the radius or scale.
 - **Path tracing** (25): random walk needs many scattering events in thin
   skin — the default scatter depth 8 loses colour (128 works, costing only on
-  SSS paths). The default `giClamp` 1 000 000 lets single bright indirect
+  SSS paths). OpenPBR's random walk is bounded by `maxDiffuseDepth` as well:
+  at 8 a grey subsurface colour 0.6 rendered as albedo 0.46, 0.95 as 0.52;
+  at 64 0.59 and 0.83 (ORBIS probe 64, 2026-11-07). The default `giClamp` 1 000 000 lets single bright indirect
   paths through as fireflies; a low clamp (20) trades a little indirect
   energy for clean images. `giClamp` clamps indirect paths only.
 - Pins: `giClamp`, `caustic_blur` (not `causticBlur`), `maxsamples`,
