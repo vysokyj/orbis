@@ -12,7 +12,7 @@ wrong and changes in the same commit. Background on the other tools:
 [Plugin](#plugin) · [Geometry](#geometry) · [Package](#package) ·
 [Render targets and cameras](#render-targets-and-cameras) ·
 [Render modes](#render-modes) (tone mapping) · [Materials](#materials)
-([Universal](#universal-130--default), [Skin](#skin--standard-surface-277-final-only),
+([Universal](#universal-130--default), [Skin](#skin--openpbr-surface-505-final-only),
 [Hair](#dforce-hair--hair-material-147), [Emission](#emission)) ·
 [Lights](#lights) · [Environment](#environment) (Sun-Sky,
 [ground shadow](#ground-shadow)) · [Textures](#textures) ·
@@ -42,7 +42,7 @@ Iray and Octane differ in a way the export can choose. *Enhanced* (the
 default) keeps Octane's take: skin on **OpenPBR Surface** (OTOY's material
 for skin), the Hosek-Wilkie daylight that warms a low sun, thin-walled
 glass with its Fresnel reflection. *Faithful* stays with Iray's: skin on
-Standard Surface tinted to Iray's, Octane's daylight model with a white
+OpenPBR without subsurface, in the colour Iray's skin shows, Octane's daylight model with a white
 sunset colour, dimmed by the sun's air mass as Iray dims it (Variants),
 thin-walled glass at IOR 1 (Iray's showed none of its own reflection).
 **Denoise** (`--no-denoise` off; the dialog's Denoise) is separate: Octane's
@@ -63,7 +63,7 @@ field of `Tuning`, set per variant in one table (`Variant::tuning`,
 | `kernel` | path tracing | path tracing | direct lighting | direct lighting |
 | `base_exposure` | 1.4 | 1.4 | 1.4 | 1.4 |
 | `denoiser` | on | on | off | off |
-| `skin` | OpenPBR Surface | Standard Surface | Universal (no SSS) | Universal (no SSS) |
+| `skin` | OpenPBR Surface, random walk | OpenPBR Surface, Iray's colour as a diffuse | Universal (no SSS) | Universal (no SSS) |
 | `thin_glass_ior_one` | no (Fresnel) | yes | no | yes |
 | `daylight_model` | 3 Hosek-Wilkie | 1 Octane, white sunset | 3 Hosek-Wilkie | 1 Octane, white sunset |
 | `daylight_power` | 2.7 | 2.864 | 2.7 | 2.864 |
@@ -93,8 +93,8 @@ Leaf, Hair; `scripts/dev/calib-variants.sh all`), Octane / Iray:
   (0.57 – 0.74; Final 0.93 – 1.04). Without transmission (albedo × (1 −
   0.67 w)) the weight-0.5 spheres fell to 0.38 – 0.49.
 - **Skin** in Preview (Universal): Calib-PBRSkin 0.86 – 1.16, Final's
-  OpenPBR 1.06 – 1.29 (before #19's rule). Faithful's Standard Surface skin
-  keeps the older `skin_tint` rule, not refitted on Calib-Skin. **Hair** 1.04 (Final) / 1.06 (Preview).
+  OpenPBR 1.06 – 1.29 (before #19's rule). Faithful's skin: Calib-Skin
+  under the front lamp 0.80 – 1.04 in red (see Skin). **Hair** 1.04 (Final) / 1.06 (Preview).
 - Shared misses, not variant-bound: Calib-Glass sphere 4 2.8 × in all
   four; Preview's Glass sphere 7 0.81 and Mixing sphere 8 0.76 (Final
   0.95 / 1.04).
@@ -512,7 +512,7 @@ focus on the plane at the focus distance (perspective models) or the sphere
 |---|---|---|
 | kernel | direct lighting (24), GI diffuse, depth 2 | path tracing (25): diffuse 8, glossy 24, **scatter 128**, **GI clamp 20** |
 | ray epsilon | **1 µm** (`rayepsilon` 1e-6) | same |
-| skin | Universal | Standard Surface + random-walk SSS |
+| skin | Universal | OpenPBR: Enhanced random-walk SSS, Faithful Iray's colour as a diffuse |
 | imager exposure | **1.4** × 2^(13 − EV) × cm² (Variants) | **1.4** × 2^(13 − EV) × cm² |
 | imager response | **Gamma 2.2** (403) | same |
 | highlight compression | 0; Burn < 1, Crush > 0, Gamma ≠ 2.2 or a coloured White Point → a tone LUT (below) | same |
@@ -934,7 +934,7 @@ leaves out, #15):
   diffuse Iray leaves 0.77 – 0.81; 1.09 – 1.20 × Iray with the earlier
   fitted albedo dimming, 0.96 – 1.14 now (#31).
 - **BSDF model and roughness.** Uber Universal materials (not rough glass
-  — Beckmann, see Refraction — nor the skins' Standard Surface / OpenPBR) use GGX energy
+  — Beckmann, see Refraction — nor the skins' OpenPBR) use GGX energy
   preserving (`brdf` 6; plain GGX lost light on rough lobes: Calib-Glossy
   roughness 0.6 1.17 → 1.01 × Iray, DualLobe2's r 0.36 1.25 → 1.08) at
   roughness min(r + 1.85 r², √r), r = Iray's roughness after its squaring; the
@@ -1541,7 +1541,7 @@ leaves out, #15):
     1.02 – 1.16), not theirs alone.
 - **Layered images** are flattened into one PNG per stack.
 
-### Skin — Standard Surface (277), Final only
+### Skin — OpenPBR Surface (505), Final only
 
 A material with Iray `Translucency Weight` > 0 that is opaque (no cutout),
 not `Thin Walled`, non-refractive, non-emissive, not metallic (`Metallic
@@ -1554,32 +1554,74 @@ rendered grey. And not the eye (material named …Irises / Pupils / Sclera,
 `is_eye`): Genesis eyes are translucent too, and the skin's tint (half,
 reddened) turned blue irises dark green (Calib-Hair, #20).
 
+**Faithful** (`SkinShader::IrayAlbedo`, #19): OpenPBR Surface with
+`subsurface` 0 — the colour Iray's skin shows, as a plain diffuse, the
+gloss as Enhanced's (`skin_gloss`, below). No random walk and no fitted
+hue: everything Enhanced corrects for is in the colour rule.
+
+- **Colour**, baked per texel into `baseColor` (`skin_albedo_iray`,
+  `Textures::derived_skin` without the hue and dark gain):
+  `a · D + b · Tc · Tc_low` per channel as Enhanced's (below), with
+  - Base Color Effect's **shares** from DAZ's `diffuse_base`
+    (`base_color_effect_shares` with the diffuse map's mean colour):
+    `a` = (1 − w)^1.3 × m / max, the subsurface part at 1 − (1 − w)·m in
+    place of w (effect 0: 1 and w);
+  - the subsurface part × the volume's **random-walk albedo A(α)** per
+    channel over Victoria 8's red (`random_walk_albedo`: Chiang et al.
+    2016's fit α = 1 − (4.09712 + 4.20863 A − √(9.59217 + 41.6808 A +
+    17.7126 A²))², inverted; α the volume's reduced single-scattering
+    albedo, `volume_albedo`) in place of `volume_factor`.
+  Why: the probes' rule as a plain diffuse got red right on Calib-Skin's
+  eight figures (0.88 – 1.04) but G 1.10 – 1.46, B 0.97 – 1.96 × Iray:
+  its subsurface part was grey on the Genesis 8 volume (`volume_factor`
+  is relative to that volume). Iray's volume (`add_uber_volume`) gives
+  back A(α), on that volume 1 / 0.75 / 0.53 (needed ~1 / 0.78 / 0.62;
+  dipole Rd 1 / 0.71 / 0.48) — the same as Enhanced's fitted
+  `SKIN_HUE_OPENPBR` (relative to red 0.72 / 0.59). The G8F base skin's
+  Translucency Color is deep red (subsurface part ~0): its shares (effect
+  1) took it from 1.17 / 1.29 / 1.33 to 0.80 / 0.82 / 0.86.
+- Result, Octane / Iray, face and body medians R / G / B, front lamp:
+  Angel 1.01 / 1.09 / 1.08, Victoria 0.97 / 1.02 / 0.97, Kayo 0.93 / 0.95
+  / 0.91, Gabriela 0.90 / 0.96 / 0.92, Nishi 0.94 / 0.95 / 0.94, Twosret
+  0.93 / 1.11 / 1.23, Monique 1.04 / 1.24 / 1.34, Zurie 0.89 / 0.87 /
+  0.83, G8F base 0.80 / 0.82 / 0.86 (before, Standard Surface ×
+  `SKIN_HUE`: 0.74 – 2.09 red, up to 3.84 blue). Open (#19): the dark
+  skins' blue; under environment light every skin 10 – 30 % bluer (HDRI
+  Monique 1.22 / 1.40 / 1.66, Calib-Eye 0.99 / 1.13 / 1.41) — Iray's
+  skin, not a renderer's subsurface (the plain diffuse shows it); backlit
+  ears red 0.12 – 0.21 × Iray (no light passes through).
+
+**Enhanced, mono SSS with Base Color Effect 1 / 2** (the Genesis 8 base
+skin; not baked, see below):
+
 - `baseColor` and `subsurfaceColor` = the diffuse map (Iray's translucency
   map is pale and bleached skin and make-up) × **½ · ((1 − w) + w · Tc)**
   (`skin_tint`; w = translucency weight, Tc = `Translucency Color` × its
-  map's mean over painted texels), `subsurface` = w,
-  `subsurfaceAnisotropy` = `SSS Direction`. Why: Standard Surface shows the
-  map as is — Calib-HDRI's Genesis 8 Female skin 3.2× Iray (effective
-  albedo 0.48 vs 0.154); Iray's per channel matched ½ · ((1 − w) · D +
-  w · D · Tc) within 4 %. Tinted: G8F 1.14–1.18 × Iray, Fleur (Octane4)
-  0.9–1.0. × **`SKIN_HUE` (1, 0.80, 0.62)**: Octane's random walk came out
-  bluer at the same tint on five figures (G 1.25 ×, B 1.6 × Iray relative
-  to red); with it G8F 1.02 / 1.05 / 1.30, Fetroom's figures within ~0.2
-  in hue (#8). D is the diffuse map's factor as DAZ hands it to Iray —
-  with the SSS Reflectance Tint folded in under a shown Base Color Effect
-  (the Genesis 8 Female base skin's 1 / 0.93 / 0.81 → × 1 / 0.85 / 0.63;
-  `Material::base_color`, #52): G8F's skin, Octane / Iray median R / G / B,
-  Calib-Eye 1.02 / 1.05 / 1.26 → 1.00 / 0.95 / 1.03, Calib-HDRI 1.00 /
-  1.08 / 1.34 → 1.00 / 0.98 / 1.15 (#19). `SKIN_HUE` was fitted before
-  the tint was known and may now count part of it twice on such skins;
+  map's mean over painted texels) × the lift (`openpbr_skin_lift`, below),
+  `subsurface` = w, `subsurfaceAnisotropy` = `SSS Direction`. Why:
+  Calib-HDRI's Genesis 8 Female skin's effective albedo measured ½ · ((1 −
+  w) · D + w · D · Tc) per channel within 4 % (3.2× under the map as is).
+  D is the diffuse map's factor as DAZ hands it to Iray — with the SSS
+  Reflectance Tint folded in under a shown Base Color Effect (1 / 0.93 /
+  0.81 → × 1 / 0.85 / 0.63; `Material::base_color`, #52).
+- × **`SKIN_HUE` (1, 0.80, 0.62)**, fitted on environment-lit figures
+  (HDRI, Fetroom; #8). Not the tint counted twice: Octane / Iray R / G /
+  B with and without it — Calib-Eye 1.01 / 0.94 / 1.07 vs 1.01 / 1.10 /
+  1.34, Calib-HDRI 1.03 / 0.95 / 1.05 vs 1.03 / 1.08 / 1.26,
+  Calib-Skin-Base-hdri 1.00 / 0.90 / 1.00 vs 1.00 / 1.05 / 1.26. Under a
+  lamp it is right *without* it (Calib-Skin-Base-front 0.86 / 0.75 / 0.69
+  vs 0.86 / 0.90 / 1.00): the light dependence above, which no material
+  constant fits. Kept for environment light, which most scenes have
+  (Octane over Iray).
 - `radius` = per-channel diffusion length (see [iray.md](../daz/iray.md#translucency-and-subsurface-skin))
   normalised to its maximum and **square-rooted**; `scale` = that maximum in
-  meters, clamped 0.5 mm – 2 cm. Why the root: Noemi's 1 / 0.18 / 0.15
-  threw coloured fireflies, and Iray's look is softer.
+  meters, clamped 0.5 mm – 2 cm (all Enhanced skins). Why the root: Noemi's
+  1 / 0.18 / 0.15 threw coloured fireflies, and Iray's look is softer.
+  Unrooted, the G8F skin rendered the same (#19).
 
-**OpenPBR** (the Enhanced look, see Look; #19): OpenPBR Surface (505; its
-`radius` is the distance and `scale` the per-channel colour — the other way
-round from Standard Surface). On Iray's **chromatic SSS** (`SSS Mode` 1,
+**Enhanced** (`SkinShader::OpenPbr`, see Look; #19): OpenPBR Surface (505;
+its `radius` is the distance and `scale` the per-channel colour — the other
+way round from Standard Surface), random walk. On Iray's **chromatic SSS** (`SSS Mode` 1,
 the modern skins) and on **mono SSS with Base Color Effect 0** its own
 colour rule, fitted on Calib-Skin (eight Genesis 8 skins from pale to dark
 on one body, Iray probes; see docs/notes/2026-10-28-skin-tones.md) and its
@@ -1620,7 +1662,9 @@ its Translucency Color map carries the subsurface part), open in #28.
   render (before 0.61 – 1.90). SSS Reflectance Tint did nothing on the
   figures and isn't read. The distances alone don't change α (Zurie's are
   half Victoria's, her factor 1).
-- × **`SKIN_HUE_OPENPBR` (1.16, 0.83, 0.68)** to the power of the smooth
+- × **`SKIN_HUE_OPENPBR` (1.16, 0.83, 0.68)** — relative to red what
+  Faithful derives as the volume's A(α) (1 / 0.75 / 0.53 on this volume,
+  #19) — to the power of the smooth
   colour's saturation ÷ 0.75, below 0.75 falling linearly to 0 at 0.45
   (`SKIN_HUE_SAT_FLOOR`): the eight figures came out 0.86 / 1.20 / 1.48 ×
   Iray per channel without it; at full strength the pale grey Zurie turned

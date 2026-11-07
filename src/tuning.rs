@@ -125,7 +125,7 @@ impl Variant {
                 kernel: Kernel::PathTracing,
                 base_exposure: 1.4,
                 denoiser: true,
-                skin: SkinShader::StandardSurface,
+                skin: SkinShader::IrayAlbedo,
                 thin_glass_ior_one: true,
                 daylight_model: 1,
                 daylight_power: FAITHFUL_DAYLIGHT_POWER,
