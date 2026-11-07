@@ -2126,9 +2126,11 @@ impl Ocs<'_> {
             Some(dl) => (dl.share, "Dual Lobe Specular Reflectivity"),
             None => (glossy.min(1.0) * reflectivity_share(glossy_reflectivity(mat)), "Glossy Reflectivity"),
         };
-        let lobe = if glossy > 0.0 { glossy } else { mat.float("Dual Lobe Specular Weight").unwrap_or(0.0) }.min(1.0);
+        // A map scales the channel's value (DAZ hands Iray map × value): the
+        // same share, under the map. Without the value (2 × weight) the
+        // gloss came out twice Iray's at Reflectivity 0.5 (#19).
         match self.channel_map(mat, ch) {
-            Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "specular", &asset, true, data_gamma(mat, ch), lobe * 2.0 * lobe1)),
+            Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "specular", &asset, true, data_gamma(mat, ch), weight * lobe1)),
             None => self.float_pin(i, "specular", weight * lobe1),
         }
         match dual_lobe.filter(|dl| !coat && dl.lobe1 < 1.0) {
@@ -2136,7 +2138,7 @@ impl Ocs<'_> {
                 // Iray scales both lobes by the reflectivity (its map too):
                 // lobe 2 under the map as lobe 1 is.
                 match self.channel_map(mat, ch) {
-                    Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "coating", &asset, true, data_gamma(mat, ch), lobe * 2.0 * (1.0 - dl.lobe1))),
+                    Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "coating", &asset, true, data_gamma(mat, ch), dl.share * (1.0 - dl.lobe1))),
                     None => self.rgb_pin(i, "coating", [dl.share * (1.0 - dl.lobe1); 3]),
                 }
                 self.float_pin(i, "coatingRoughness", dl.lobe2_roughness);
