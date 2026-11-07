@@ -4216,24 +4216,33 @@ fn openpbr_skin_lift(w: f32) -> f32 {
 /// w 0.9 came out 1.8 – 2.2 × Iray, w 0 and 0.5 0.83 – 1.08 (#28).
 const OPENPBR_SKIN_LIFT: [(f32, f32); 4] = [(0.0, 1.0), (0.5, 1.3), (0.9, 0.45), (1.0, 0.35)];
 
-/// Subsurface radius colour (max channel 1, softened) and scale (meters)
-/// from Iray's volume channels; see [`Ocs::standard_surface`]. The scale is kept to
-/// 0.5 mm – 2 cm.
+/// OpenPBR's subsurface radius: the mean free path 1 / (σa + σs) of Iray's
+/// volume per channel (DAZ's MDL, `add_uber_volume`: σa = −ln Transmitted
+/// Color / its distance, σs = −ln SSS Color — or SSS Amount — / its
+/// distance; cm), as the scale per channel (over the largest) and the
+/// radius (m, the largest); SSS Direction goes to the anisotropy apart.
+/// Before (#19) a softened diffusion length without the SSS Color: red
+/// too short, green and blue too long (Victoria 1.09 / 0.46 / 0.42 mm for
+/// Iray's 2.56 / 0.15 / 0.17) — backlit ears 0.21 – 0.51 × Iray's red,
+/// with it 0.58 – 1.07, glowing red like Iray's.
 fn sss_radius(mat: &Material) -> ([f32; 3], f32) {
-    let d_t = mat.float("Transmitted Measurement Distance").filter(|d| *d > 0.0).unwrap_or(1.0);
-    let d_s = mat.float("Scattering Measurement Distance").filter(|d| *d > 0.0).unwrap_or(0.1);
-    let g = mat.float("SSS Direction").unwrap_or(0.0).clamp(-0.95, 0.95);
-    let t = mat.color("Transmitted Color").unwrap_or([0.8, 0.5, 0.35]);
-    let sigma_s = (1.0 - g) / d_s;
-    let length_cm = t.map(|c| {
-        let sigma_a = (-c.clamp(1e-3, 0.999).ln() / d_t).max(1e-4);
-        1.0 / (3.0 * sigma_a * sigma_s).sqrt()
+    let linear = |c: [f32; 3]| c.map(colour_to_linear);
+    let extinction = |c: f32| -c.clamp(1e-4, 0.9999).ln();
+    let t = mat.color("Transmitted Color").unwrap_or(linear(SKIN_TRANSMITTED));
+    let d_t = mat.float("Transmitted Measurement Distance").filter(|d| *d > 0.0).unwrap_or(SKIN_TRANSMITTED_DISTANCE);
+    let d_s = mat.float("Scattering Measurement Distance").filter(|d| *d > 0.0).unwrap_or(SKIN_SCATTERING_DISTANCE);
+    let sss = mat.color("SSS Color").unwrap_or(linear(SKIN_SSS_COLOR));
+    let mono = match mat.float("SSS Amount") {
+        Some(a) if mat.float("SSS Mode").unwrap_or(0.0) as i32 != 1 => Some(a.max(0.0)),
+        _ => None,
+    };
+    let mfp = [0, 1, 2].map(|k| {
+        let sigma_a = extinction(t[k]) / d_t;
+        let sigma_s = mono.unwrap_or_else(|| extinction(sss[k])) / d_s;
+        0.01 / (sigma_a + sigma_s).max(1e-3)
     });
-    let max = length_cm.iter().copied().fold(0.0f32, f32::max);
-    // Square root of the normalised lengths: strongly diverging channel
-    // radii make random walk throw coloured fireflies (OTOY forum; Noemi's
-    // 1 / 0.18 / 0.15 speckled), and Iray's thin-slab look is softer anyway.
-    (length_cm.map(|l| (l / max).sqrt()), (max * 0.01).clamp(0.0005, 0.02))
+    let max = mfp.iter().copied().fold(1e-6f32, f32::max);
+    (mfp.map(|l| l / max), max.clamp(0.0001, 0.05))
 }
 
 /// A DAZ light as Octane sees it: Octane turns each UsdLux light into an
@@ -5530,8 +5539,11 @@ mod tests {
         assert!(ox.contains("<pin name='specular'>"), "{ox}");
         let (radius, scale) = sss_radius(&sss);
         // Transmitted Color (0.706, 0.557, 0.467) is sRGB: linear 0.456, 0.271, 0.184.
-        assert!((scale - 0.0115).abs() < 0.0005, "1.15 cm red diffusion length: {scale}");
-        assert!(radius[0] == 1.0 && radius[1] < radius[0] && radius[2] < radius[1], "{radius:?}");
+        // The mean free path 1 / (σa + σs), red the longest.
+        let lin = colour_to_linear(0.7058824);
+        let want = (0.01 / (-lin.ln() / 10.0 - colour_to_linear(SKIN_SSS_COLOR[0]).ln() / 0.5)).min(0.05);
+        assert!((scale - want).abs() < 1e-4 * want.max(1.0), "red mean free path {want}: {scale}");
+        assert!(radius[0] == 1.0 && radius[1] < 0.2 && radius[2] < 0.2, "red the longest: {radius:?}");
         let lashes = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}},
             {"channel": {"id": "Translucency Weight", "current_value": 0.5}},

@@ -1675,11 +1675,19 @@ skin; not baked, see below):
   vs 0.86 / 0.90 / 1.00): the light dependence above, which no material
   constant fits. Kept for environment light, which most scenes have
   (Octane over Iray).
-- `radius` = per-channel diffusion length (see [iray.md](../daz/iray.md#translucency-and-subsurface-skin))
-  normalised to its maximum and **square-rooted**; `scale` = that maximum in
-  meters, clamped 0.5 mm – 2 cm (all Enhanced skins). Why the root: Noemi's
-  1 / 0.18 / 0.15 threw coloured fireflies, and Iray's look is softer.
-  Unrooted, the G8F skin rendered the same (#19).
+- The subsurface's distance per channel = Iray's volume's **mean free
+  path** 1 / (σa + σs) (`sss_radius`; σa = −ln Transmitted Color /
+  Transmitted Measurement Distance, σs = −ln SSS Color — or SSS Amount —
+  / Scattering Measurement Distance, DAZ's MDL `add_uber_volume`), OpenPBR's
+  definition: the largest as the distance (m, clamped 0.1 mm – 5 cm), the
+  channels over it as the colour; SSS Direction is the anisotropy apart.
+  Why: it was a diffusion length without the SSS Color, normalised and
+  square-rooted against fireflies — Victoria's 1.09 / 0.46 / 0.42 mm for
+  Iray's 2.56 / 0.15 / 0.17: red too short to pass an ear, green and blue
+  too long. Backlit ears (Calib-Skin-*-back, Enhanced) red 0.21 – 0.51 ×
+  Iray → 0.58 – 1.07, glowing red like Iray's (G / B 0.26 – 0.78: Iray's
+  ears pass more of them); no fireflies at 256 samples. Front skin within
+  ±0.06 but the dark ones' red (Monique 1.09 → 1.19, HDRI 1.12 → 1.27).
 
 **Enhanced** (`SkinShader::OpenPbr`, see Look; #19): OpenPBR Surface (505;
 its `radius` is the distance and `scale` the per-channel colour — the other
