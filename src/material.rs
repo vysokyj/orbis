@@ -1469,7 +1469,7 @@ impl Ocs<'_> {
             match curve {
                 RoughCurve::Ggx => self.value_pin(i, "brdf", 57, 2, "6"),
                 RoughCurve::Beckmann => self.value_pin(i, "brdf", 57, 2, GLASS_BRDF),
-                RoughCurve::Linear => {}
+                RoughCurve::Linear | RoughCurve::OpenPbr => {}
             }
             self.float_pin(i, roughness_pin, curve.apply(m.roughness.clamp(0.0, 1.0)));
         }
@@ -1512,6 +1512,12 @@ impl Ocs<'_> {
     /// Iray's Top Coat: a clear dielectric layer over everything, as
     /// Universal's coating.
     fn top_coat(&mut self, i: usize, mat: &Material, min_roughness: f32) {
+        self.top_coat_curve(i, mat, min_roughness, None)
+    }
+
+    /// [`top_coat`] at a roughness curve of its own (OpenPBR's skin:
+    /// `RoughCurve::OpenPbr`), else Universal's.
+    fn top_coat_curve(&mut self, i: usize, mat: &Material, min_roughness: f32, curve: Option<RoughCurve>) {
         let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
         if coat <= 0.0 || self.in_coat_mix || self.in_layered_coat {
             return;
@@ -1528,15 +1534,13 @@ impl Ocs<'_> {
             (None, Some((asset, m))) => self.with_map(m, |w| w.tinted_image_pin(i, "coating", &asset, coat, colour)),
             (None, None) => self.rgb_pin(i, "coating", colour.map(|c| c * coat)),
         }
-        let rough = self.gloss_roughness(top_coat_roughness(mat));
+        let curve = curve.unwrap_or(if self.gloss_ggx { RoughCurve::Ggx } else { RoughCurve::Linear });
+        let rough = curve.apply(top_coat_roughness(mat));
         // A roughness map (Twosret 8's face: its gloss map at Roughness 1,
         // sharp where it is dark) per texel, as the gloss's (#19).
         let glossiness = matches!(mat.float("Base Mixing").unwrap_or(0.0) as i32, 1 | 2) && mat.float("Top Coat Glossiness").is_some();
         match Some("Top Coat Roughness").filter(|c| !glossiness && min_roughness <= 0.0 && mat.image(c).is_some()) {
-            Some(ch) => {
-                let curve = if self.gloss_ggx { RoughCurve::Ggx } else { RoughCurve::Linear };
-                self.roughness_pin_named(i, "coatingRoughness", mat, Some(ch), rough.clamp(0.0, 1.0), curve, 1.0);
-            }
+            Some(ch) => self.roughness_pin_named(i, "coatingRoughness", mat, Some(ch), rough.clamp(0.0, 1.0), curve, 1.0),
             None => self.float_pin(i, "coatingRoughness", rough.max(min_roughness).clamp(0.0, 1.0)),
         }
         self.float_pin(i, "coatingIor", top_coat_ior(mat));
@@ -2136,15 +2140,14 @@ impl Ocs<'_> {
         // or under a Top Coat both lobes' roughness blended.
         let dual_lobe = DualLobe::of(mat).filter(|_| glossy <= 0.0);
         let mut rough = iray_gloss_roughness(mat).unwrap_or_else(|| iray_roughness(mat, rough, inverted));
+        // Under a Top Coat both lobes in one, at their blend of Iray's
+        // roughnesses (lobe 2's as Iray has it, not Universal's coating).
         if let Some(dl) = dual_lobe.filter(|_| coat && rough_ch.and_then(|c| mat.image(c)).is_none()) {
-            rough = dl.blended_roughness(rough);
+            rough = dl.lobe1 * rough + (1.0 - dl.lobe1) * dl.lobe2_roughness / DUAL_LOBE_2_ROUGHNESS;
         }
-        // Iray's lobes are Phong (`simple_glossy_bsdf`), OpenPBR's GGX:
-        // lobe 1 at Universal's curve for that (`ggx_roughness`). As is,
-        // the dual lobe's highlight came out 1.3 – 2.6 × Iray's peak at the
-        // same energy (Calib-Skin's dlflat variants: Reflectivity 0.5, no
-        // map or coat); at the curve 0.93 – 1.75 (#19).
-        self.roughness_pin(i, mat, rough_ch, RoughCurve::Ggx.apply(rough.clamp(0.0, 1.0)), RoughCurve::Ggx, 1.0);
+        // Iray's lobes are Phong (`simple_glossy_bsdf`), OpenPBR's GGX with
+        // α = roughness²: `openpbr_roughness` (lobe 2 and the Top Coat too).
+        self.roughness_pin(i, mat, rough_ch, RoughCurve::OpenPbr.apply(rough.clamp(0.0, 1.0)), RoughCurve::OpenPbr, 1.0);
         let lobe1 = dual_lobe.filter(|_| !coat).map_or(1.0, |dl| dl.lobe1);
         match dual_lobe {
             // Iray's dual lobe (`add_dual_lobe_specular`): both white lobes
@@ -2165,7 +2168,7 @@ impl Ocs<'_> {
                 self.ior_pin(i, "ior", mat, "Dual Lobe Specular Reflectivity", dl.f0);
                 if !coat && dl.lobe1 < 1.0 {
                     weight_pin(self, "coating", dl.weight * (1.0 - dl.lobe1));
-                    self.float_pin(i, "coatingRoughness", dl.lobe2_roughness);
+                    self.float_pin(i, "coatingRoughness", openpbr_roughness(dl.lobe2_roughness / DUAL_LOBE_2_ROUGHNESS));
                     self.ior_pin(i, "coatingIor", mat, "Dual Lobe Specular Reflectivity", dl.f0);
                     self.float_pin(i, "coatingDarkening", 0.0);
                     return;
@@ -2182,7 +2185,7 @@ impl Ocs<'_> {
             }
         }
         if coat {
-            self.top_coat(i, mat, 0.0);
+            self.top_coat_curve(i, mat, 0.0, Some(RoughCurve::OpenPbr));
             self.float_pin(i, "coatingDarkening", 0.0);
         }
     }
@@ -4012,6 +4015,21 @@ enum RoughCurve {
     Ggx,
     /// √r under Beckmann (`brdf` 1): rough glass (`GLASS_BRDF`).
     Beckmann,
+    /// `openpbr_roughness`: an Uber lobe on OpenPBR (the skin).
+    OpenPbr,
+}
+
+/// OpenPBR's roughness for Iray's (MDL) roughness `r` of a
+/// `simple_glossy_bsdf`: a Phong microfacet lobe of exponent n = 2 / r²,
+/// as Beckmann α = √(2 / (n + 2)) = r / √(1 + r²); GGX at that α has the
+/// same peak (D(0) = 1 / (π α²)), and OpenPBR squares its roughness into
+/// α. Calib-Skin's dlflat variants without bump (Iray: neither bump nor
+/// normal map moved its highlight), the face's highlight against Iray's:
+/// as is 1.3 – 2.6 ×, at Universal's GGX curve (`ggx_roughness`) 1.09 –
+/// 2.16, at its root 0.58 – 0.81, at this 0.82 – 0.91 (#19).
+fn openpbr_roughness(r: f32) -> f32 {
+    let r = r.clamp(0.0, 1.0);
+    (r / (1.0 + r * r).sqrt()).sqrt()
 }
 
 impl RoughCurve {
@@ -4020,6 +4038,7 @@ impl RoughCurve {
             RoughCurve::Linear => r.clamp(0.0, 1.0),
             RoughCurve::Ggx => ggx_roughness(r),
             RoughCurve::Beckmann => r.clamp(0.0, 1.0).sqrt(),
+            RoughCurve::OpenPbr => openpbr_roughness(r),
         }
     }
 
@@ -4029,6 +4048,7 @@ impl RoughCurve {
             RoughCurve::Linear => "false",
             RoughCurve::Ggx => "true",
             RoughCurve::Beckmann => "beckmann",
+            RoughCurve::OpenPbr => "openpbr",
         }
     }
 }

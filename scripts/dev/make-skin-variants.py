@@ -44,6 +44,13 @@ VARIANTS = {
     # The dual lobe without its reflectivity map, at 0.5 (F0 0.04), no Top
     # Coat: the lobes' strength and shape apart from the map.
     'dlflat': {'Dual Lobe Specular Reflectivity': 0.5, 'Top Coat Weight': 0.0},
+    # The highlight's spread apart (#19): the bump map off, the normal map
+    # off, each with the dual lobe flat and without any gloss (a pair to
+    # subtract: both maps move the diffuse too).
+    'dlflatnb': {'Dual Lobe Specular Reflectivity': 0.5, 'Top Coat Weight': 0.0, 'Bump Strength': 0.0},
+    'gloss0nb': {'Dual Lobe Specular Weight': 0.0, 'Top Coat Weight': 0.0, 'Bump Strength': 0.0},
+    'dlflatnn': {'Dual Lobe Specular Reflectivity': 0.5, 'Top Coat Weight': 0.0, 'Normal Map': 0.0},
+    'gloss0nn': {'Dual Lobe Specular Weight': 0.0, 'Top Coat Weight': 0.0, 'Normal Map': 0.0},
 }
 
 

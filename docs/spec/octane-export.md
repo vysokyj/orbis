@@ -1638,12 +1638,13 @@ rule is Enhanced's, with no fitted hue in either.
   0.92 / 0.98 / 0.94, Nishi 0.93 / 1.00 / 0.97, Zurie 0.96 / 0.98 / 0.97,
   Twosret 0.91 / 0.97 / 0.90, Monique 0.89 / 0.96 / 0.89; HDRI Monique
   1.00 / 1.00 / 1.00, Twosret 1.00 / 1.00 / 1.07, Zurie 1.00 / 1.03 /
-  1.03, Victoria 1.00 / 1.04 / 1.07. With lobe 1 at the GGX curve:
+  1.03, Victoria 1.00 / 1.04 / 1.07. With lobe 1 at the GGX curve (now
+  derived, `openpbr_roughness`: within 0.04 of this):
   Angel 0.98 / 1.06 / 1.07, Victoria 0.90 / 1.00 / 0.98, Kayo 0.90 / 1.00
   / 0.95, Gabriela 0.92 / 1.00 / 0.97, Nishi 0.93 / 1.00 / 0.97, Zurie
   0.95 / 0.98 / 0.97, Twosret 0.91 / 1.00 / 0.95, Monique 0.89 / 0.96 /
   0.94; HDRI Monique 1.00 / 1.00 / 1.06, Twosret 1.00 / 1.00 / 1.07.
-  Open (#19): the highlight's spread under weak bump (Gloss, below); the
+  Open (#19): the highlights ~10 % under Iray's (Gloss, below); the
   G8F skin under sky light (Calib-Eye 1.16 / 1.31 / 1.55); under
   environment light every skin 10 – 30 %
   bluer and brighter (HDRI Monique 1.11 / 1.32 / 1.55, Victoria 1.00 /
@@ -1770,11 +1771,20 @@ its Translucency Color map carries the subsurface part), open in #28.
   Universal at w 0 kept them dark. Elsewhere all of the colour goes through
   the random walk: at `subsurface` 0.5 Octane rendered 0.67 – 0.73 of the
   colour whatever it was (Calib-SSS's spheres).
-- **Gloss** (`skin_gloss`): Iray's squared roughness through Universal's
-  Phong → GGX curve (`ggx_roughness`; Iray's lobes are `simple_glossy`,
-  OpenPBR's GGX: as is the dual lobe's highlight peaked 1.3 – 2.6 × Iray's
-  at the same energy on Calib-Skin's dlflat variants, at the curve 0.93 –
-  1.75); Iray's **dual lobe**
+- **Gloss** (`skin_gloss`): **roughness derived, `openpbr_roughness`** —
+  Iray's lobes (and Top Coat) are `simple_glossy_bsdf`, a Phong microfacet
+  lobe of exponent 2 / r² (r the MDL roughness, the slider squared), as
+  Beckmann α = r / √(1 + r²); GGX has the same peak at that α, and OpenPBR's
+  roughness is √α (α = roughness²). Lobe 1, lobe 2 (the coating, from
+  Iray's r2², not Universal's 2 · r2²) and the Top Coat; under a Top Coat
+  the lobes blend in Iray's roughness. Why: Calib-Skin's Iray variants
+  without bump or normal map (dlflatnb / gloss0nb, dlflatnn / gloss0nn)
+  showed neither map widens Iray's highlight (no bump 0.120 → 0.136
+  Victoria, no normal map unchanged) — the width is the lobe's. The dual
+  lobe's peak without bump, Octane / Iray (Victoria, Gabriela, Nishi,
+  Kayo): roughness as is 1.3 – 2.6, Universal's GGX curve 1.09 / 1.47 /
+  2.16 / 1.49, its root 0.62 / 0.77 / 0.58 / 0.81, derived **0.84 / 0.90 /
+  0.82 / 0.91**; energy 1.00 – 1.17. Iray's **dual lobe**
   as DAZ's MDL has it (`add_dual_lobe_specular`: both white lobes under 1
   − a Schlick curve, W · (F0 + (1 − F0)(1 − cos θ)^5), F0 = 0.08 ×
   Reflectivity × its map) — OpenPBR's `specular` at **W** (× a Weight
@@ -1801,14 +1811,14 @@ its Translucency Color map carries the subsurface part), open in #28.
   faces' highlights were off by: Iray's own split (Calib-Skin's gloss0 /
   coat0 / dlflat variants; Victoria, Gabriela, Nishi, Kayo) gives the coat
   1 – 2 % of the gloss (Octane alike); the dual lobe's energy matches Iray
-  within 0.99 – 1.15, its peak didn't (the curve above). With the curve
-  the face's highlight (p99.5) is −15 … +9 % of Iray's on the eight
-  figures (−12 … +30 % before): Angel 0.249 / 0.256, Victoria 0.240 /
-  0.270, Kayo 0.134 / 0.158, Gabriela 0.153 / 0.161, Nishi 0.247 / 0.226,
-  Twosret 0.084 / 0.099, Monique 0.065 / 0.070, Zurie 0.195 / 0.206. Left:
-  the dlflat peaks follow Bump Strength (Nishi 1.5: 1.75 ×, Gabriela 3:
-  1.35 ×, Kayo 4: 1.20 ×, Victoria 5: 0.93 ×) — Octane's bump spreads a
-  highlight less than Iray's at low strength.
+  within 0.99 – 1.15, its peak didn't (the roughness above). The face's
+  highlight (p99.5) with the derived roughness, Octane / Iray: Angel 0.99,
+  Victoria 0.87, Kayo 0.84, Gabriela 0.91, Nishi 0.91, Twosret 0.81,
+  Monique 0.87, Zurie 0.94 (−12 … +30 % with the roughness as is, −15 …
+  +9 % at Universal's curve, which looked closer only where bump happened
+  to make up for it). Left: the peaks ~10 % under, ~6 % of it Octane's
+  bump (dlflat with it 0.77 – 0.86 against 0.82 – 0.91 without; Iray's
+  bump hardly widens a highlight).
 - Dark skins show more pore texture than Iray's.
 - Not a cause: Iray doesn't dim the gloss of translucent skin (highlight
   contrast on the dark foreheads is higher in Iray); the gloss alone ~0
