@@ -1644,8 +1644,7 @@ rule is Enhanced's, with no fitted hue in either.
   / 0.95, Gabriela 0.92 / 1.00 / 0.97, Nishi 0.93 / 1.00 / 0.97, Zurie
   0.95 / 0.98 / 0.97, Twosret 0.91 / 1.00 / 0.95, Monique 0.89 / 0.96 /
   0.94; HDRI Monique 1.00 / 1.00 / 1.06, Twosret 1.00 / 1.00 / 1.07.
-  Open (#19): the highlights ~10 % under Iray's (Gloss, below); the
-  G8F skin under sky light (Calib-Eye 1.16 / 1.31 / 1.55); under
+  Open (#19): the highlights ~10 % under Iray's (Gloss, below); under
   environment light every skin 10 – 30 %
   bluer and brighter (HDRI Monique 1.11 / 1.32 / 1.55, Victoria 1.00 /
   1.07 / 1.18, Calib-Eye 1.14 / 1.31 / 1.57, Calib-HDRI 1.15 / 1.26 /
@@ -1790,8 +1789,17 @@ its Translucency Color map carries the subsurface part), open in #28.
   Reflectivity × its map) — OpenPBR's `specular` at **W** (× a Weight
   map: Zurie 8's face) and **`ior` the IOR of that F0 per texel** (baked
   from the reflectivity map as n / 2 at power 2, `ior_pin`); lobe 2 the
-  coating at W × (1 − ratio) with the same IOR; a glossy layer as before
-  (weight × min(2r, 1), × its map). A **Top Coat** takes the coating, the
+  coating at W × (1 − ratio) with the same IOR; a **glossy layer** alike
+  (its MDL custom curve: F0 = 0.08 × Glossy Reflectivity × its map, 1 at
+  grazing, weight Glossy Layered Weight × its map): `specular` the weight
+  (× a weight map), `ior` the F0's. The Genesis 8 base skin maps its
+  weight; the skin path looked for a reflectivity map only, so its face
+  shone at full weight: under sky light the gloss alone was the whole
+  excess (Calib-Skin-Base-hdri, (O − gloss) / I 0.94 – 1.04), Calib-Eye
+  1.16 / 1.31 / 1.55 → 1.06 / 1.07 / 1.10, Calib-HDRI 1.17 / 1.25 / 1.43
+  → 1.07 / 1.06 / 1.08, Calib-Skin-Base front 1.02 / 1.11 / 1.21 → 0.96 /
+  1.00 / 1.00, HDRI 1.15 / 1.27 / 1.46 → 1.06 / 1.05 / 1.12 (its grey card
+  1.04 / 1.07 / 1.06). A **Top Coat** takes the coating, the
   lobes then one at their blended roughness; its colour map tints it
   (Twosret 8, Kayo 8: their gloss map), its roughness map goes per texel
   (`roughness_pin_named`), a weight map is read at 2.2 like any float

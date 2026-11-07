@@ -2175,13 +2175,20 @@ impl Ocs<'_> {
                 }
             }
             None => {
-                let (weight, ch) = (glossy.min(1.0) * reflectivity_share(glossy_reflectivity(mat)), "Glossy Reflectivity");
-                // A map scales the channel's value (DAZ hands Iray map ×
-                // value): the same share, under the map.
-                match self.channel_map(mat, ch) {
-                    Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "specular", &asset, true, data_gamma(mat, ch), weight)),
-                    None => self.float_pin(i, "specular", weight),
+                // Iray's glossy layer as its dual lobe: a custom curve at
+                // F0 = 0.08 × Glossy Reflectivity (× its map) head-on, 1 at
+                // grazing, weighted by Glossy Layered Weight (× its map) —
+                // the weight at `specular`, the F0 as the IOR per texel.
+                // The Genesis 8 base skin maps its weight: unmapped, its
+                // face shone everywhere, the sky's reflection 1 – 2 % over
+                // Iray's skin (Calib-Skin-Base-hdri, Calib-Eye; #19).
+                let wch = if mat.image("Glossy Layered Weight").is_some() || mat.float("Glossy Weight").unwrap_or(0.0) <= 0.0 { "Glossy Layered Weight" } else { "Glossy Weight" };
+                match self.channel_map(mat, wch) {
+                    Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "specular", &asset, true, data_gamma(mat, wch), glossy.min(1.0))),
+                    None => self.float_pin(i, "specular", glossy.min(1.0)),
                 }
+                let f0 = crate::iray::REFLECTIVITY_SCALE * glossy_reflectivity(mat).unwrap_or(0.5);
+                self.ior_pin(i, "ior", mat, "Glossy Reflectivity", f0);
             }
         }
         if coat {
