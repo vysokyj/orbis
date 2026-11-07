@@ -37,6 +37,13 @@ VARIANTS = {
     'dlratio1': {'Dual Lobe Specular Ratio': 1.0},
     'dlratio0': {'Dual Lobe Specular Ratio': 0.0},
     'dlsharp2': {'Dual Lobe Specular Ratio': 0.5, 'Specular Lobe 2 Roughness': 0.1},
+    # The gloss apart (#19): no dual lobe and no Top Coat (the diffuse and
+    # subsurface alone), and no Top Coat (the dual lobe alone over them).
+    'gloss0': {'Dual Lobe Specular Weight': 0.0, 'Top Coat Weight': 0.0},
+    'coat0': {'Top Coat Weight': 0.0},
+    # The dual lobe without its reflectivity map, at 0.5 (F0 0.04), no Top
+    # Coat: the lobes' strength and shape apart from the map.
+    'dlflat': {'Dual Lobe Specular Reflectivity': 0.5, 'Top Coat Weight': 0.0},
 }
 
 

@@ -2139,7 +2139,12 @@ impl Ocs<'_> {
         if let Some(dl) = dual_lobe.filter(|_| coat && rough_ch.and_then(|c| mat.image(c)).is_none()) {
             rough = dl.blended_roughness(rough);
         }
-        self.roughness_pin(i, mat, rough_ch, rough.clamp(0.0, 1.0), RoughCurve::Linear, 1.0);
+        // Iray's lobes are Phong (`simple_glossy_bsdf`), OpenPBR's GGX:
+        // lobe 1 at Universal's curve for that (`ggx_roughness`). As is,
+        // the dual lobe's highlight came out 1.3 – 2.6 × Iray's peak at the
+        // same energy (Calib-Skin's dlflat variants: Reflectivity 0.5, no
+        // map or coat); at the curve 0.93 – 1.75 (#19).
+        self.roughness_pin(i, mat, rough_ch, RoughCurve::Ggx.apply(rough.clamp(0.0, 1.0)), RoughCurve::Ggx, 1.0);
         let lobe1 = dual_lobe.filter(|_| !coat).map_or(1.0, |dl| dl.lobe1);
         match dual_lobe {
             // Iray's dual lobe (`add_dual_lobe_specular`): both white lobes
@@ -2176,8 +2181,8 @@ impl Ocs<'_> {
                 }
             }
         }
-        self.top_coat(i, mat, 0.0);
         if coat {
+            self.top_coat(i, mat, 0.0);
             self.float_pin(i, "coatingDarkening", 0.0);
         }
     }
