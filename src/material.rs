@@ -20,7 +20,6 @@ const COMPAT: &str = "15050000";
 const DIFFUSE_BRDF_OREN_NAYAR: &str = "2";
 
 /// Octane's `namedColorSpace` values (Lua `octane.namedColorSpace`).
-const COLOUR_SPACE_SRGB: u32 = 1;
 const COLOUR_SPACE_LINEAR_SRGB: u32 = 2;
 /// "Linear sRGB + legacy gamma": the only colour space that reads an
 /// image's `gamma` pin (sRGB ignores it).
@@ -561,13 +560,16 @@ const BUMP_REF_UV_SCALE: f64 = 0.542;
 
 /// The gamma Iray reads a float channel's map at ([`DATA_MAP_GAMMA`]).
 /// The colour space an image node reads its map in at `gamma`: linear at
-/// 1, sRGB at 2.2 (the colour maps' and data maps' default), else linear
-/// sRGB + legacy gamma, the only one where Octane applies the `gamma` pin.
+/// 1, else linear sRGB + legacy gamma, the only one where Octane applies
+/// the `gamma` pin — a pure power, as Iray reads an 8-bit map (and a
+/// colour, `colour_to_linear`). Octane's sRGB space decodes with the sRGB
+/// curve instead, brighter in the dark: Calib-Skin's dark skins, whose
+/// baked texels sit at 0.01 – 0.03, came out G / B 1.12 / 1.33 (Monique)
+/// and 1.16 / 1.30 (Twosret) × Iray in it, 1.03 / 1.08 and 1.05 / 1.12
+/// at gamma 2.2; light maps move by 1 – 2 % (#19).
 fn image_colour_space(gamma: f32) -> u32 {
     if gamma <= 1.0 {
         COLOUR_SPACE_LINEAR_SRGB
-    } else if (gamma - 2.2).abs() < 0.01 {
-        COLOUR_SPACE_SRGB
     } else {
         COLOUR_SPACE_LEGACY_GAMMA
     }
@@ -5396,11 +5398,12 @@ mod tests {
         let subsurface = &sx[sx.find("<pin name='subsurface'>").unwrap()..];
         assert!(subsurface[..120].contains("<attr name='value' type='6'>0</attr>"), "no random walk: {subsurface}");
         assert!(sx.contains("<pin name='baseColor'>") && sx.contains("<pin name='subsurfaceColor'>"));
-        // Colour maps decode as sRGB, data maps (the rough.png translucency
-        // stand-in is a colour map here) stay linear only with gamma 1.
+        // Colour maps decode at gamma 2.2 (legacy-gamma space), data maps
+        // (the rough.png translucency stand-in is a colour map here) stay
+        // linear only with gamma 1.
         let base = &sx[sx.find("<pin name='baseColor'>").unwrap()..];
         let base = &base[..base.find("</pin>\n      <pin").unwrap_or(base.len())];
-        assert!(base.contains("<attr name='colorSpace' type='2'>1</attr>"), "{base}");
+        assert!(base.contains("<attr name='colorSpace' type='2'>6</attr>"), "{base}");
         // The maps unreadable here: Iray's shares as the map's tint, a + b /
         // (1 − k) (`skin_albedo`; effect 1 on a white colour leaves 1 − w).
         let (a, b, k) = skin_albedo(&sss, 0.5, None);

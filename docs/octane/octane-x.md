@@ -126,6 +126,10 @@ The pin alone is not enough: the image node must also say
 Octane picks the colour space itself on load — sRGB for 8-bit files — and
 overrides the pin, so data maps (roughness, opacity, bump, normal) get
 decoded as sRGB.
+The sRGB space (1) decodes with the sRGB curve (linear toe), not a power:
+an 8-bit texel at 0.018 linear (2.2) comes out 1.25 × brighter than a
+gamma-2.2 read; "linear sRGB + legacy gamma" (6) with `gamma` 2.2 is the
+pure power (Calib-Skin, 2026-11-07).
 
 ### Materials
 

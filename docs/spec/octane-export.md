@@ -1394,11 +1394,18 @@ leaves out, #15):
   glossiness maps on a roughness channel), per-map tiles in 38, scale 29,
   grey mode 18 (overlay and make-up weights by alpha), tiling offsets 13
   (Calib-Skin's normal maps at 1: a whole period), offset 2.
-- **Colour space.** Colour maps are sRGB; bump and normal maps are
-  linear. A map read at any other gamma (an image's own `map_gamma`, a
-  squared overlay weight map at 4.4) goes in "linear sRGB + legacy gamma"
-  (6) with that gamma: Octane applies the `gamma` pin only there and
-  ignores it in sRGB (Calib-Overlay's squared belts, #71). Every image
+- **Colour space.** Colour and data maps are read at a pure gamma 2.2;
+  bump and normal maps are linear. Every gamma above 1 (2.2, an image's
+  own `map_gamma`, a squared overlay weight map at 4.4) goes in "linear
+  sRGB + legacy gamma" (6) with that gamma: Octane applies the `gamma` pin
+  only there and ignores it in sRGB (Calib-Overlay's squared belts, #71).
+  Why not Octane's sRGB space for 2.2: it decodes with the sRGB curve,
+  not Iray's power — brighter below ≈ 0.1 linear (0.018 → 1.25 ×), 1 – 2 %
+  darker above. Calib-Skin's dark skins (baked texels at 0.01 – 0.03):
+  Monique 0.97 / 1.12 / 1.33 → 0.91 / 1.03 / 1.08, Twosret 0.94 / 1.16 /
+  1.30 → 0.94 / 1.05 / 1.12 × Iray; Calib-Overlay's dark texels 1.06 →
+  1.02; light maps (Calib-Map-*, -Mi-Maps, -Hair, -ColorEffect) move by
+  1 – 2 % (#19). Every image
   node gets `initialColorSpaceSelected` = 1, and the HDRI stays linear. Why: without the attribute, data maps were decoded as
   sRGB and sunglasses came out nearly clear (probes 55–57). With it the
   lenses tint like Iray's, brightness unchanged (Octane2 moved 0.28 / 255).
@@ -1615,9 +1622,14 @@ rule is Enhanced's, with no fitted hue in either.
   0.92), Nishi 0.92 / 1.00 / 1.00 (0.94 / 0.95 / 0.94), Zurie 0.94 / 0.98
   / 1.00 (0.89 / 0.87 / 0.83), Twosret 0.94 / 1.16 / 1.30 (0.93 / 1.11 /
   1.23), Monique 0.97 / 1.12 / 1.33 (1.04 / 1.24 / 1.34), G8F base 0.94 /
-  0.99 / 1.03 (0.80 / 0.82 / 0.86). Open (#19): the dark skins' blue
-  (Monique, Twosret: not in the rule's parts, which each match — in how
-  their dark maps combine); under environment light every skin 10 – 30 %
+  0.99 / 1.03 (0.80 / 0.82 / 0.86). With the maps at a pure gamma 2.2
+  (Colour space, above; the dark skins' baked texels sat in the sRGB
+  curve's bright toe): Angel 1.00 / 1.09 / 1.10, Victoria 0.91 / 1.00 /
+  1.00, Kayo 0.89 / 1.00 / 1.00, Gabriela 0.92 / 0.98 / 0.97, Nishi 0.93
+  / 0.99 / 0.97, Zurie 0.96 / 1.00 / 0.99, Twosret 0.94 / 1.05 / 1.12,
+  Monique 0.91 / 1.03 / 1.08, G8F base 0.95 / 0.99 / 1.00. Open (#19):
+  the gloss's highlights ~1.8 × (Victoria) to 3 × (Monique) Iray's on the
+  forehead; under environment light every skin 10 – 30 %
   bluer and brighter (HDRI Monique 1.11 / 1.32 / 1.55, Victoria 1.00 /
   1.07 / 1.18, Calib-Eye 1.14 / 1.31 / 1.57, Calib-HDRI 1.15 / 1.26 /
   1.46; the fit's half diffuse had hidden it on the G8F skin: 0.99 / 1.13
@@ -1684,7 +1696,12 @@ its Translucency Color map carries the subsurface part), open in #28.
   1.04 / 1.07, Zurie 0.93 / 0.97 / 0.98 (0.87 / 0.87 / 0.82 with the
   fit), Twosret 1.00 / 1.33 / 1.75, Monique 1.26 / 1.80 / 2.14; HDRI
   Victoria 1.00 / 1.07 / 1.21, Zurie 1.04 / 1.08 / 1.15; the G8F skin
-  (mono, not baked) unchanged.
+  (mono, not baked) unchanged. With the maps at a pure gamma 2.2 (Colour
+  space): Angel 1.00 / 1.07 / 1.11, Victoria 0.90 / 0.98 / 0.97, Kayo 0.97
+  / 1.15 / 1.18, Gabriela 0.92 / 1.00 / 1.00, Nishi 0.93 / 1.04 / 1.03,
+  Zurie 0.94 / 1.00 / 0.98, Twosret 1.00 / 1.22 / 1.49, Monique 1.22 /
+  1.62 / 1.91 — the dark skins still over through the random walk (a grey
+  under 0.07 renders brighter than its value, above).
 - **No fitted hue or dark gain** (#19, docs/notes/2026-11-07-skin-hue.md).
   Until then the subsurface part took the grey `volume_factor` and the bake
   × `SKIN_HUE_OPENPBR` (1.16 / 0.83 / 0.68) to the power of the smooth
