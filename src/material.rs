@@ -340,27 +340,19 @@ impl Textures {
         Some(asset)
     }
 
-    /// The skin's colour for OpenPBR's random walk, texel by texel, and its
+    /// The skin's colour for OpenPBR (random walk or plain diffuse), texel by texel, and its
     /// detail mask (see [`skin_albedo`]): from the diffuse map `D` and the
     /// translucency map `Tc` (resampled to `D`'s size; a missing one reads
     /// 1), each also low-passed (down to 32 px and back).
     /// - colour = `a · D + b · Tc · Tc_low` — Tc · Tc_low, not Tc²: squared,
     ///   the map's texture came out at twice its contrast (Calib-Skin);
-    /// - × `SKIN_HUE_OPENPBR` to the power of the smooth colour's saturation
-    ///   ÷ 0.75 — below 0.75 falling to 0 at `SKIN_HUE_SAT_FLOOR`: fitted on
-    ///   saturated skins, a pale grey one takes less of it (Zurie came out
-    ///   orange at full strength, 0.89 / 0.75 / 0.64 × Iray at sat ÷ 0.75);
-    /// - × (smooth colour / 0.3)^`SKIN_DARK_GAIN`: the random walk brightens
-    ///   dark colours against mid ones (Monique ×1.15 over her colour as a
-    ///   plain diffuse, Victoria ×0.91); per texel it turned pores and
-    ///   wrinkles grainy, from the smooth colour it shifts only the level;
-    /// - neither of the two without `fitted` (Faithful: Iray's colour as a
-    ///   plain diffuse, `skin_albedo_iray`);
+    /// - no fitted hue or dark gain on top since #19 (`skin_albedo` derives
+    ///   the hue they made up for);
     /// - the mask: D / D_low through a smoothstep 0.35 → 0.70, so marked
     ///   detail (brows, liner) leaves the random walk and pores stay in it.
     ///
     /// Linear, written as sRGB-gamma PNGs.
-    fn derived_skin(&mut self, dirs: &[PathBuf], d: Option<&str>, tc: Option<&str>, key: &str, a: [f32; 3], b: [f32; 3], fitted: bool) -> Option<(String, Option<String>)> {
+    fn derived_skin(&mut self, dirs: &[PathBuf], d: Option<&str>, tc: Option<&str>, key: &str, a: [f32; 3], b: [f32; 3]) -> Option<(String, Option<String>)> {
         if let Some(asset) = self.by_source.get(key) {
             return Some((asset.clone(), self.by_source.get(&format!("{key}#detail")).cloned()));
         }
@@ -391,32 +383,14 @@ impl Textures {
         let px = |r: Option<&[u8]>, x: usize, or: [u8; 3]| r.map_or(or, |r| [r[3 * x], r[3 * x + 1], r[3 * x + 2]]);
         let colour = |d: [u8; 3], t: [u8; 3], t2: [u8; 3]| [0, 1, 2].map(|k| a[k] * decode[d[k] as usize] + b[k] * decode[t[k] as usize] * decode[t2[k] as usize]);
         let out = crate::bake::par_rgb(w, h, |y, out| {
-            let (dr, tr, dlr, tlr) = (row_of(&d_img, y, stride), row_of(&tc_img, y, stride), row_of(&d_low, y, stride), row_of(&tc_low, y, stride));
-            // The hue and dark gain depend on the low-passed texels alone,
-            // which run in long equal stretches: worked out once per stretch.
-            let mut memo: Option<([u8; 3], [u8; 3], [f32; 3], [f32; 3])> = None;
+            let (dr, tr, tlr) = (row_of(&d_img, y, stride), row_of(&tc_img, y, stride), row_of(&tc_low, y, stride));
             for x in 0..w as usize {
                 let dp = px(dr, x, [255; 3]);
                 let tp = px(tr, x, [255; 3]);
-                let dl = px(dlr, x, dp);
                 let tl = px(tlr, x, tp);
-                let (hue, gain) = match memo {
-                    Some((md, mt, hue, gain)) if md == dl && mt == tl => (hue, gain),
-                    _ if !fitted => ([1.0; 3], [1.0; 3]),
-                    _ => {
-                        let vl = colour(dl, tl, tl);
-                        let (lo, hi) = (vl.iter().copied().fold(f32::MAX, f32::min), vl.iter().copied().fold(0.0f32, f32::max));
-                        let sat = if hi > 0.0 { 1.0 - lo / hi } else { 0.0 };
-                        let e = if sat >= 0.75 { (sat / 0.75).min(1.3) } else { ((sat - SKIN_HUE_SAT_FLOOR) / (0.75 - SKIN_HUE_SAT_FLOOR)).max(0.0) };
-                        let hue = SKIN_HUE_OPENPBR.map(|c| c.powf(e));
-                        let gain = [0, 1, 2].map(|k| ((vl[k] * hue[k]).max(1e-4) / 0.3).powf(SKIN_DARK_GAIN));
-                        memo = Some((dl, tl, hue, gain));
-                        (hue, gain)
-                    }
-                };
                 let v = colour(dp, tp, tl);
                 for k in 0..3 {
-                    out[3 * x + k] = enc.encode(v[k] * hue[k] * gain[k]);
+                    out[3 * x + k] = enc.encode(v[k]);
                 }
             }
         });
@@ -2170,7 +2144,7 @@ impl Ocs<'_> {
     /// colour going through it, per material — no hand-wired medium (that
     /// rendered grey, with a seam at the graft). Faithful
     /// (`SkinShader::IrayAlbedo`): the colour Iray's skin shows
-    /// (`skin_albedo_iray`) as a plain diffuse, no random walk (#19).
+    /// (`skin_albedo`) as a plain diffuse, no random walk (#19).
     ///
     /// Iray describes the volume by measurement distances (DAZ cm): light
     /// keeps `Transmitted Color` after `Transmitted Measurement Distance`
@@ -2198,26 +2172,22 @@ impl Ocs<'_> {
         // layer): 1.4 – 2.0 × Iray under it on Calib-Eye, 1.0 – 1.4 under
         // the older rule it keeps.
         let mono = mat.float("SSS Mode").unwrap_or(0.0) as i32 != 1;
-        // Faithful bakes every skin: Iray's colour without the random walk's
-        // corrections.
+        // Faithful bakes every skin (as a plain diffuse).
         let bake = iray || !mono || mat.float("Base Color Effect").unwrap_or(0.0) as i32 == 0;
         let (d, tc) = (mat.image("diffuse").map(str::to_string), mat.image("Translucency Color").map(str::to_string));
-        let iray_albedo = iray.then(|| {
+        let albedo = bake.then(|| {
             let d_mean = d.as_deref().and_then(|t| self.textures.mean_covered_colour(self.dirs, t));
-            skin_albedo_iray(mat, translucency, d_mean)
+            skin_albedo(mat, translucency, d_mean)
         });
-        let baked = if bake {
-            let (a, b) = iray_albedo.unwrap_or_else(|| skin_albedo(mat, translucency));
-            let key = format!("skin:{iray}:{d:?}:{tc:?}:{a:?}:{b:?}");
-            self.textures.derived_skin(self.dirs, d.as_deref(), tc.as_deref(), &key, a, b, !iray)
-        } else {
-            None
-        };
+        let baked = albedo.and_then(|(a, b)| {
+            let key = format!("skin:{d:?}:{tc:?}:{a:?}:{b:?}");
+            self.textures.derived_skin(self.dirs, d.as_deref(), tc.as_deref(), &key, a, b)
+        });
         // Otherwise (Standard Surface — Faithful —, or mono SSS): the
         // diffuse map darkened as Iray's translucent layer does
         // (`skin_tint`) — not recalibrated by #19.
         let tc_map = mat.image("Translucency Color").map(str::to_string).and_then(|t| self.textures.mean_covered_colour(self.dirs, &t));
-        let colour = match iray_albedo {
+        let colour = match albedo {
             // A diffuse map that doesn't read: Iray's shares over it.
             Some((a, b)) => [0, 1, 2].map(|k| a[k] + b[k]),
             None => {
@@ -2247,7 +2217,7 @@ impl Ocs<'_> {
             self.float_or_map(i, "roughness", mat, rough_ch.filter(|_| !inverted), rough.clamp(0.0, 1.0));
         }
         match &baked {
-            // Faithful: no random walk (see `skin_albedo_iray`).
+            // Faithful: no random walk (see `skin_albedo`).
             _ if iray => self.float_pin(i, "subsurface", 0.0),
             // The diffuse map's marked detail (brows, liner) out of the random
             // walk: under it they bled into blue-grey smudges, as a diffuse
@@ -3708,28 +3678,15 @@ fn skin_tint(mat: &Material, w: f32, tc_map: Option<[f32; 3]>) -> [f32; 3] {
 /// See [`skin_tint`].
 const SKIN_ALBEDO_FACTOR: f32 = 0.5;
 
-/// What Iray's skin reflects, as `a · D + b · Tc²` per channel (D the
-/// diffuse map × its colour, Tc the translucency map × its colour; see
+/// What Iray's skin shows, as `a · D + b · Tc²` per channel (D the diffuse
+/// map × its colour, Tc the translucency map × its colour; see
 /// `Textures::derived_skin`): the diffuse layer's (1 − w)^1.3 of the map and
 /// the subsurface layer's w · 0.55 · Tc², from the translucency colour alone.
 /// Calib-Skin's Iray probes (eight Genesis 8 skins; translucency at w and
 /// 0.5, diffuse or translucency map white): the (1 − w)^1.3 fit w 0.9 and
 /// 0.5 within 0.94 – 1.03; Tc²'s factor came out 0.45 – 0.65 (red), 0.44 –
 /// 0.66 (green), 0.27 – 0.63 (blue) over the figures, and a white diffuse
-/// map left it as it was. D · Tc with a factor falling with brightness fit
-/// worse (its estimate from map means misled: their padding).
-fn skin_albedo(mat: &Material, w: f32) -> ([f32; 3], [f32; 3]) {
-    let base = mat.base_color();
-    let tc = mat.color("Translucency Color").unwrap_or([1.0; 3]);
-    let a = base.map(|x| x * (1.0 - w).max(0.0).powf(SKIN_DIFFUSE_EXPONENT));
-    let volume = volume_factor(mat);
-    let b = [0, 1, 2].map(|k| w * SKIN_SSS_SHARE * tc[k] * tc[k] * volume[k]);
-    (a, b)
-}
-
-/// What Iray's skin shows, for Faithful's plain diffuse, as `a · D + b · Tc²`
-/// per channel (see [`skin_albedo`]) — derived where Enhanced's colour
-/// takes fitted corrections:
+/// map left it as it was. With, derived (#19):
 /// - the diffuse layer and the translucency under it in Base Color Effect's
 ///   shares (`base_color_effect_shares`, DAZ's `diffuse_base`; `d_mean` the
 ///   diffuse map's mean): × m / max on the diffuse, 1 − (1 − w)·m in place
@@ -3739,10 +3696,11 @@ fn skin_albedo(mat: &Material, w: f32) -> ([f32; 3], [f32; 3]) {
 ///   gives back less green and blue than red. Calib-Skin's eight figures as
 ///   a plain diffuse (front light, Octane / Iray): without it G 1.10 – 1.46,
 ///   B 0.97 – 1.96 × Iray against red 0.88 – 1.04; with it within 0.87 –
-///   1.11 but the dark Monique and Twosret's blue (1.23 – 1.34). The
-///   fitted hue that Enhanced keeps (`SKIN_HUE_OPENPBR`, relative to red
-///   0.72 / 0.59) is this factor (0.75 / 0.53 on the Genesis 8 volume).
-fn skin_albedo_iray(mat: &Material, w: f32, d_mean: Option<[f32; 3]>) -> ([f32; 3], [f32; 3]) {
+///   1.11 but the dark Monique and Twosret's blue (1.23 – 1.34). It
+///   replaced Enhanced's fitted hue (`SKIN_HUE_OPENPBR` 1.16 / 0.83 / 0.68,
+///   relative to red 0.72 / 0.59; this factor is 0.75 / 0.53 on the
+///   Genesis 8 volume) and dark gain.
+fn skin_albedo(mat: &Material, w: f32, d_mean: Option<[f32; 3]>) -> ([f32; 3], [f32; 3]) {
     let base = mat.base_color();
     let effect = mat.float("Base Color Effect").unwrap_or(0.0) as i32;
     let colour = [0, 1, 2].map(|k| base[k] * d_mean.map_or(1.0, |m| m[k]));
@@ -3856,17 +3814,6 @@ fn diffusion_reflectance(alpha: f32) -> f32 {
 const SKIN_DIFFUSE_EXPONENT: f32 = 1.3;
 /// See [`skin_albedo`].
 const SKIN_SSS_SHARE: f32 = 0.55;
-/// Octane / Iray's hue offset on OpenPBR's random walk, undone on the baked
-/// colour (`Textures::derived_skin`): with the colour as Iray's, the eight
-/// Calib-Skin figures came out 0.86 / 1.20 / 1.48 × Iray per channel.
-const SKIN_HUE_OPENPBR: [f32; 3] = [1.16, 0.83, 0.68];
-/// See `Textures::derived_skin`: Calib-Skin 0.2 (0.11 left Monique at 1.25).
-const SKIN_DARK_GAIN: f32 = 0.2;
-/// See `Textures::derived_skin`: the saturation where the hue offset stops.
-/// Calib-Skin's eight figures, front light, worst channel's |log| median
-/// 0.10 → 0.085 (Zurie 0.89 / 0.75 / 0.64 → 0.81 / 0.83 / 0.80 × Iray,
-/// Gabriela's blue 0.88 → 0.97; Angel's 1.06 → 1.24); 0.3 0.102 (#19).
-const SKIN_HUE_SAT_FLOOR: f32 = 0.45;
 
 /// Octane's random-walk skin comes out bluer than Iray's at the same tint:
 /// over nine regions of five figures (Genesis 8 Female, Fleur, Charity,
@@ -4378,7 +4325,7 @@ pub enum SkinShader {
     #[default]
     None,
     /// OpenPBR Surface (505) without subsurface: the colour Iray's skin
-    /// shows (`skin_albedo_iray`) as a diffuse, the gloss as Enhanced's —
+    /// shows (`skin_albedo`) as a diffuse, the gloss as Enhanced's —
     /// closest to Iray (#19).
     IrayAlbedo,
     /// OpenPBR Surface (505) with random walk: chromatic-SSS skins with the
@@ -5446,8 +5393,8 @@ mod tests {
         let base = &base[..base.find("</pin>\n      <pin").unwrap_or(base.len())];
         assert!(base.contains("<attr name='colorSpace' type='2'>1</attr>"), "{base}");
         // The maps unreadable here: Iray's shares as the map's tint, a + b
-        // (`skin_albedo_iray`; effect 1 on a white colour leaves 1 − w).
-        let (a, b) = skin_albedo_iray(&sss, 0.5, None);
+        // (`skin_albedo`; effect 1 on a white colour leaves 1 − w).
+        let (a, b) = skin_albedo(&sss, 0.5, None);
         assert!((a[0] - 0.5f32.powf(1.3)).abs() < 1e-6 && b.iter().all(|x| *x > 0.0 && *x < 1.0), "{a:?} {b:?}");
         let tint = [0, 1, 2].map(|k| num(a[k] + b[k])).join(" ");
         assert!(base.contains(&format!("<attr name='value' type='8'>{tint}</attr>")), "skin tint {tint}: {base}");
@@ -5481,8 +5428,6 @@ mod tests {
         assert!(pin("baseColor").contains("_skin.png") && pin("subsurfaceColor").contains("_skin.png"), "{ox}");
         assert!(pin("subsurface").contains("_skin_detail.png"), "{ox}");
         assert!(ox.contains("<pin name='specular'>"), "{ox}");
-        let (a, b) = skin_albedo(&sss, 0.5);
-        assert!((a[0] - 0.5f32.powf(1.3)).abs() < 1e-6 && (b[0] - 0.5 * 0.55 * volume_factor(&sss)[0]).abs() < 1e-6, "{a:?} {b:?}");
         let (radius, scale) = sss_radius(&sss);
         // Transmitted Color (0.706, 0.557, 0.467) is sRGB: linear 0.456, 0.271, 0.184.
         assert!((scale - 0.0115).abs() < 0.0005, "1.15 cm red diffusion length: {scale}");
@@ -6606,22 +6551,14 @@ mod tests {
 
         let mut tex = Textures::default();
         let (a, b) = ([0.6, 0.5, 0.4], [0.3, 0.2, 0.25]);
-        let (colour, detail) = tex.derived_skin(&dirs, Some("d.png"), Some("tc.png"), "skin", a, b, true).unwrap();
+        let (colour, detail) = tex.derived_skin(&dirs, Some("d.png"), Some("tc.png"), "skin", a, b).unwrap();
         let (w, h) = d.dimensions();
         let tc = image::imageops::resize(&tc, w, h, image::imageops::FilterType::Triangle);
         let low = |i: &image::RgbImage| image::imageops::resize(&image::imageops::resize(i, 32, 32, image::imageops::FilterType::Triangle), w, h, image::imageops::FilterType::Triangle);
         let (dl, tl) = (low(&d), low(&tc));
         let want = image::RgbImage::from_fn(w, h, |x, y| {
-            let (dp, tp, dlp, tlp) = (d.get_pixel(x, y).0, tc.get_pixel(x, y).0, dl.get_pixel(x, y).0, tl.get_pixel(x, y).0);
-            let colour = |d: [u8; 3], t: [u8; 3], t2: [u8; 3]| [0, 1, 2].map(|k| a[k] * decode(d[k]) + b[k] * decode(t[k]) * decode(t2[k]));
-            let (v, vl) = (colour(dp, tp, tlp), colour(dlp, tlp, tlp));
-            let (lo, hi) = (vl.iter().copied().fold(f32::MAX, f32::min), vl.iter().copied().fold(0.0f32, f32::max));
-            let sat = if hi > 0.0 { 1.0 - lo / hi } else { 0.0 };
-            let e = if sat >= 0.75 { (sat / 0.75).min(1.3) } else { ((sat - SKIN_HUE_SAT_FLOOR) / (0.75 - SKIN_HUE_SAT_FLOOR)).max(0.0) };
-            image::Rgb([0, 1, 2].map(|k| {
-                let hue = SKIN_HUE_OPENPBR[k].powf(e);
-                encode(v[k] * hue * ((vl[k] * hue).max(1e-4) / 0.3).powf(SKIN_DARK_GAIN), 2.2)
-            }))
+            let (dp, tp, tlp) = (d.get_pixel(x, y).0, tc.get_pixel(x, y).0, tl.get_pixel(x, y).0);
+            image::Rgb([0, 1, 2].map(|k| encode(a[k] * decode(dp[k]) + b[k] * decode(tp[k]) * decode(tlp[k]), 2.2)))
         });
         assert!(png(&tex, &colour) == want, "skin colour");
         let want = image::RgbImage::from_fn(w, h, |x, y| {

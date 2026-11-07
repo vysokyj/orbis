@@ -1556,12 +1556,12 @@ reddened) turned blue irises dark green (Calib-Hair, #20).
 
 **Faithful** (`SkinShader::IrayAlbedo`, #19): OpenPBR Surface with
 `subsurface` 0 — the colour Iray's skin shows, as a plain diffuse, the
-gloss as Enhanced's (`skin_gloss`, below). No random walk and no fitted
-hue: everything Enhanced corrects for is in the colour rule.
+gloss as Enhanced's (`skin_gloss`, below). No random walk; the colour
+rule is Enhanced's, with no fitted hue in either.
 
-- **Colour**, baked per texel into `baseColor` (`skin_albedo_iray`,
-  `Textures::derived_skin` without the hue and dark gain):
-  `a · D + b · Tc · Tc_low` per channel as Enhanced's (below), with
+- **Colour**, baked per texel into `baseColor` (`skin_albedo`,
+  `Textures::derived_skin`), the same as Enhanced's (below):
+  `a · D + b · Tc · Tc_low` per channel, with
   - Base Color Effect's **shares** from DAZ's `diffuse_base`
     (`base_color_effect_shares` with the diffuse map's mean colour):
     `a` = (1 − w)^1.3 × m / max, the subsurface part at 1 − (1 − w)·m in
@@ -1576,8 +1576,8 @@ hue: everything Enhanced corrects for is in the colour rule.
   its subsurface part was grey on the Genesis 8 volume (`volume_factor`
   is relative to that volume). Iray's volume (`add_uber_volume`) gives
   back A(α), on that volume 1 / 0.75 / 0.53 (needed ~1 / 0.78 / 0.62;
-  dipole Rd 1 / 0.71 / 0.48) — the same as Enhanced's fitted
-  `SKIN_HUE_OPENPBR` (relative to red 0.72 / 0.59). The G8F base skin's
+  dipole Rd 1 / 0.71 / 0.48) — what Enhanced's fitted `SKIN_HUE_OPENPBR`
+  had found (relative to red 0.72 / 0.59; replaced by it, see Enhanced). The G8F base skin's
   Translucency Color is deep red (subsurface part ~0): its shares (effect
   1) took it from 1.17 / 1.29 / 1.33 to 0.80 / 0.82 / 0.86.
 - Result, Octane / Iray, face and body medians R / G / B, front lamp:
@@ -1623,7 +1623,7 @@ skin; not baked, see below):
 its `radius` is the distance and `scale` the per-channel colour — the other
 way round from Standard Surface), random walk. On Iray's **chromatic SSS** (`SSS Mode` 1,
 the modern skins) and on **mono SSS with Base Color Effect 0** its own
-colour rule, fitted on Calib-Skin (eight Genesis 8 skins from pale to dark
+colour rule (`skin_albedo`, shared with Faithful), from Calib-Skin (eight Genesis 8 skins from pale to dark
 on one body, Iray probes; see docs/notes/2026-10-28-skin-tones.md) and its
 SSS variants (#28, docs/notes/2026-10-30-sss-volume.md). A mono-SSS skin
 with Base Color Effect 1 (the Genesis 8 base skin) keeps the Standard
@@ -1642,44 +1642,46 @@ under the baked rule (G / B 0.52 – 0.89; the volume factor didn't move it:
 its Translucency Color map carries the subsurface part), open in #28.
 
 - **Colour, baked per texel** into one map for `baseColor` and
-  `subsurfaceColor` (`Textures::derived_skin`, `skin_albedo`):
-  `(1 − w)^1.3 · D + w · 0.55 · Tc · Tc_low` per channel (D the diffuse map
-  × its colour, Tc the translucency map × its colour, `_low` low-passed).
-  Why: Iray's probes put the diffuse layer at (1 − w)^1.3 (w 0.9 and 0.5
-  within 0.94 – 1.03) and its subsurface part at ≈ 0.55 · Tc², not tied to
-  D (a white diffuse map left it as it was); Tc · Tc_low keeps the map's
-  texture at its contrast (Tc² doubled it).
-- The subsurface part × the **volume factor** (`volume_factor`) per
-  channel: (Rd(α) / Rd(α₀))^0.5, Rd Jensen's diffusion reflectance (dipole,
-  η 1.4) at the volume's reduced single-scattering albedo α = σs(1 − g) /
-  (σs(1 − g) + σa), α₀ the Genesis 8 skins' volume (Victoria 8's, which the
-  rule above was fit on). DAZ's MDL: σa = −ln(Transmitted Color) / d_t;
-  σs = −ln(SSS Color) / d_s (chromatic) or SSS Amount / d_s (mono); colours
-  linear. Why: Iray's SSS variants on Victoria / Monique / Zurie (SSS
-  Color grey, blue, deep; mono at Amount 2 and 0.5) moved the subsurface
-  part as Rd's root predicts within ~10 % (Zurie ~20 %); Rd itself
-  overshoots; Octane after it 0.81 – 1.34 × Iray relative to the base
-  render (before 0.61 – 1.90). SSS Reflectance Tint did nothing on the
-  figures and isn't read. The distances alone don't change α (Zurie's are
-  half Victoria's, her factor 1).
-- × **`SKIN_HUE_OPENPBR` (1.16, 0.83, 0.68)** — relative to red what
-  Faithful derives as the volume's A(α) (1 / 0.75 / 0.53 on this volume,
-  #19) — to the power of the smooth
-  colour's saturation ÷ 0.75, below 0.75 falling linearly to 0 at 0.45
-  (`SKIN_HUE_SAT_FLOOR`): the eight figures came out 0.86 / 1.20 / 1.48 ×
-  Iray per channel without it; at full strength the pale grey Zurie turned
-  orange, and at saturation ÷ 0.75 she was still 0.89 / 0.75 / 0.64 (0.81 /
-  0.83 / 0.80 with the floor; Angel's blue 1.06 → 1.24, the others within
-  0.90 – 1.07 under the front light; #19). Open: Monique (dark) stays 1.03 /
-  1.14 / 1.45 — not her darkness alone (Twosret, as dark, is 0.92 / 0.90 /
-  1.00), and a stronger `SKIN_DARK_GAIN` (0.4) pulled the mid skins' green
-  to 0.8. Under the HDRI every figure is ~0.2 bluer than under the front
-  light: the light's colour, not the material.
-- × (smooth colour / 0.3)^**0.2** (`SKIN_DARK_GAIN`): the random walk
-  brightens dark colours against mid ones (Monique 1.15 × her colour as a
-  plain diffuse, Victoria 0.91). From the smooth colour so pores and
-  wrinkles keep their contrast — per texel they turned grainy (#47 keeps
-  that as an Enhanced idea).
+  `subsurfaceColor` (`Textures::derived_skin`, `skin_albedo`): Faithful's
+  rule above — `(1 − w)^1.3 · D · m / max + t · 0.55 · Tc · Tc_low ·
+  A(α) / A(α₀)` per channel (D the diffuse map × its colour, Tc the
+  translucency map × its colour, `_low` low-passed; m / max and t
+  Base Color Effect's shares, t = w under effect 0; A the random-walk
+  albedo of the volume, α₀ Victoria 8's red). Why the two terms: Iray's
+  probes put the diffuse layer at (1 − w)^1.3 (w 0.9 and 0.5 within 0.94
+  – 1.03) and its subsurface part at ≈ 0.55 · Tc², not tied to D (a white
+  diffuse map left it as it was); Tc · Tc_low keeps the map's texture at
+  its contrast (Tc² doubled it).
+- **No fitted hue or dark gain** (#19, docs/notes/2026-11-07-skin-hue.md).
+  Until then the subsurface part took the grey `volume_factor` and the bake
+  × `SKIN_HUE_OPENPBR` (1.16 / 0.83 / 0.68) to the power of the smooth
+  colour's saturation ÷ 0.75 (falling to 0 at 0.45) × (smooth colour /
+  0.3)^0.2. The hue was the volume's A(α) found by fitting; the dark gain
+  darkened dark skins. Front light, Octane / Iray R / G / B, before →
+  after: Angel 0.95 / 1.04 / 1.06 → 0.93 / 1.04 / 1.04, Victoria 0.99 /
+  1.06 / 1.15 → 0.89 / 0.97 / 0.98, Kayo 1.09 / 0.97 / 0.97 → 0.98 / 1.12
+  / 1.15, Gabriela 0.97 / 0.90 / 0.88 → 0.89 / 0.98 / 0.92, Nishi 1.01 /
+  0.82 / 0.72 → 0.93 / 1.02 / 1.00, Zurie 0.81 / 0.83 / 0.84 → 0.87 / 0.87
+  / 0.81, Twosret 0.97 / 0.97 / 1.39 → 1.00 / 1.27 / 1.66, Monique 1.18 /
+  1.48 / 1.91 → 1.34 / 1.80 / 2.14; the worst channel's |log| median 0.17
+  → 0.13. HDRI: Victoria 1.09 / 1.15 / 1.30 → 0.97 / 1.07 / 1.17, Zurie
+  0.89 / 0.91 / 0.97 → 0.96 / 0.97 / 1.00. The G8F skin with Base Color
+  Effect 0 (Calib-Skin-Base-front-bce0) 0.79 / 0.82 / 0.84. Open (#19):
+  the dark skins come out brighter and bluer through the random walk than
+  as a plain diffuse (Monique 1.04 / 1.24 / 1.34 there) — Octane's albedo
+  inversion on dark colours, measurable with a probe on known spheres;
+  backlit ears red 0.17 – 0.24 × Iray.
+- The **volume factor** (`volume_factor`, props' translucency only since
+  #19): (Rd(α) / Rd(α₀))^0.5 per channel, Rd Jensen's diffusion reflectance
+  (dipole, η 1.4) at the volume's reduced single-scattering albedo α =
+  σs(1 − g) / (σs(1 − g) + σa), α₀ Victoria 8's volume. DAZ's MDL: σa =
+  −ln(Transmitted Color) / d_t; σs = −ln(SSS Color) / d_s (chromatic) or
+  SSS Amount / d_s (mono); colours linear. On the skins Iray's SSS
+  variants (Victoria / Monique / Zurie: SSS Color grey, blue, deep; mono
+  at Amount 2 and 0.5) moved the subsurface part as Rd's root predicts
+  within ~10 % (Zurie ~20 %). SSS Reflectance Tint did nothing on the
+  figures (their Base Color Effect is hidden). The distances alone don't
+  change α.
 - `subsurface` = the diffuse map's **detail mask**: D / D_low through a
   smoothstep 0.35 → 0.70 (1 on skin, 0 on brows and liner). Why: the random
   walk bled the skin's light under dark brows into blue-grey smudges;
@@ -1693,10 +1695,7 @@ its Translucency Color map carries the subsurface part), open in #28.
   shone blue-grey there on dark skins), the Top Coat as the coating with
   its weight map and **`coatingDarkening` 0** (OpenPBR's coat took the base
   to 0.58 – 0.80 of Universal's; Gabriela's skin 0.66 → 1.01).
-- Result, front light, face and chest medians: Angel 1.10, Victoria 1.00,
-  Kayo 0.99, Gabriela 0.98, Nishi 0.88, Twosret 0.92, Monique 1.17,
-  Zurie 0.80 × Iray (export before: 0.68 – 1.85); hue within ±15 % but
-  Monique's blue (b/g 1.30). Dark skins show more pore texture than Iray's.
+- Dark skins show more pore texture than Iray's.
 - Not a cause: Iray doesn't dim the gloss of translucent skin (highlight
   contrast on the dark foreheads is higher in Iray); the gloss alone ~0
   made faces flat.
