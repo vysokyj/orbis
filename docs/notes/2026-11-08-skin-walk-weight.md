@@ -129,3 +129,40 @@ map mean 0.58), Victoria 0.79 – 0.83, Zurie 0.15 – 0.23. No fitted number.
   gave the model in ~30 min. No number came from fitting the figures.
 - `ORBIS_X86` env flags for the variants during the session, removed
   before the commit (the cleaned build exports byte-identical to x2).
+
+## Step 4: Iray's ear at another w and Tc (Iray batch)
+
+`make-skin-variants.py` `whalf` (every material's own Translucency Weight
+× 0.5) and `tcwhite` (Translucency Color white, no map), the four `-back`
+scenes, Iray Server 5000 samples; Octane x2 (shipped) 256 samples, and
+`-w0` from both. The translucent part T = ear − (1 − w) · ear(w0), red:
+
+| | T(w) / T(w/2) Iray | Octane | T(tcwhite) / T Iray | Octane |
+|---|---|---|---|---|
+| Victoria (w 0.9) | 2.50 | 2.05 | 1.42 | 1.72 |
+| Kayo (0.9) | 2.88 | 2.81 | 4.06 | 5.00 |
+| Monique (0.9) | 3.14 | 4.05 | 11.25 | 11.78 |
+| Zurie (0.65) | 4.06 | 4.23 | 4.39 | 5.46 |
+
+Octane follows Iray's scaling in w and Tc (Iray's own exponent in w runs
+1.3 – 2.1, lower on the lighter skins). The rule's weight is right. What
+is short is a constant per figure: Octane's translucent part over Iray's,
+red, at w/2, w and tcwhite:
+
+| | whalf | base | tcwhite |
+|---|---|---|---|
+| Victoria | 0.63 | 0.52 | 0.63 |
+| Kayo | 0.38 | 0.37 | 0.46 |
+| Monique | 0.28 | 0.36 | 0.37 |
+| Zurie | 0.54 | 0.56 | 0.69 |
+
+(G / B: the parts are a few thousandths, the ratios noise.) The deficit
+follows the figure, not w or Tc: lighter skins lose less (Victoria) than
+darker ones (Monique), though their volumes (SSS Color, Transmitted Color,
+distance 0.125) are the same. So it is the walk's colour: `skin_albedo`
+derives it from what the skin reflects, which a darker skin lowers, and a
+random walk's transmission through a thin ear falls much faster with its
+albedo than its reflectance does. Iray's volume is set by its own
+coefficients, the same for these figures. The next step is the walk's
+transmission at Iray's volume albedo (α from SSS / Transmitted Color),
+not a fit on the ears. Open in #86.

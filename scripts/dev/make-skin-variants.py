@@ -33,6 +33,10 @@ VARIANTS = {
     'bce0': {'Base Color Effect': 0},
     'sssdir0': {'SSS Direction': 0.0},
     'w09': {'Translucency Weight': 0.9},
+    # How Iray's thin-ear transmission scales with w and Tc (#86): each
+    # material's own weight halved, and the translucency map off (white).
+    'whalf': {'Translucency Weight': lambda w: 0.5 * w},
+    'tcwhite': {'Translucency Color': [1.0, 1.0, 1.0]},
     # Dual lobe specular (#26): Ratio weighs lobe 1 against lobe 2.
     'dlratio1': {'Dual Lobe Specular Ratio': 1.0},
     'dlratio0': {'Dual Lobe Specular Ratio': 0.0},
@@ -73,6 +77,12 @@ def channels(m):
     return e['channels']
 
 
+def current(chs, cid):
+    for c in chs:
+        if c['channel']['id'] == cid:
+            return c['channel'].get('current_value')
+
+
 def set_channel(chs, cid, value):
     typ = 'float_color' if isinstance(value, list) else 'float'
     for c in chs:
@@ -97,6 +107,13 @@ for v in wanted:
     for m in d['scene']['materials']:
         if m['geometry'] in geos:
             for k, x in VARIANTS[v].items():
+                if callable(x):  # relative to the material's own value
+                    own = current(channels(m), k)
+                    if own is None:
+                        own = current(channels(lib[m['url'].lstrip('#')]), k)
+                    if own is None:
+                        continue
+                    x = x(own)
                 set_channel(channels(m), k, x)
                 set_channel(channels(lib[m['url'].lstrip('#')]), k, x)
     save(d, f'{SCENES}/Calib-Skin-{figure}-{light}-{v}.duf')
