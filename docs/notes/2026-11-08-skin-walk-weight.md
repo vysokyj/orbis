@@ -205,3 +205,35 @@ Next decomposition: one slab of known thickness with a uniform volume (no
 maps, Iray's skin volume) in both renderers, transmission against
 thickness. That needs a new generated Calib scene and one Iray batch.
 Not a fit on the ears.
+
+## Step 6: slabs of known thickness (Calib-SSSThick, Iray batch; probe 71)
+
+`make-sss-slab-scenes.py`: Calib-L-Distant-45's cubes flattened to slabs,
+Uber with Translucency Weight 1, white Tc, no gloss, Victoria 8's volume
+(σa 0.43 / 12.9 / 18.4, σs 3.56 / 53.7 / 40.1 per cm), the distant light
+behind. Iray Server 5000 samples, the slab's centre, linear:
+
+| slab | 1 mm | 2 | 3 | 5 | 9 | 15 |
+|---|---|---|---|---|---|---|
+| Iray red | 0.730 | 0.561 | 0.442 | 0.280 | 0.122 | 0.040 |
+
+G / B ≈ 0.005 at every thickness (their mean free path is 0.15 mm). Red
+falls as e^(−d / 4.7 mm) (3 → 9 mm) to e^(−d / 5.4 mm) (9 → 15 mm);
+diffusion theory's 1 / √(3 σa σt) for these coefficients is 4.4 mm. Iray's
+volume is the physical medium of the σ we compute (`volume_albedo`,
+`sss_radius`) — the Iray side of the ears holds.
+
+Probe 71 (`octane-probe-slab.lua`) put a fresh OpenPBR walk on the slabs
+(base colour 0, specular 0, subsurface 1, colour A(α), radius the mean
+free path, its colour per channel): the slabs came out pale pink, G / B
+0.20 at every thickness and radius, red 0.29 → 0.22 from 1 to 9 mm; the
+grey-volume slabs black. Not a medium of those coefficients either way,
+so the probe's node isn't the export's (a fresh 505's defaults differ from
+the exported skin material somewhere). Not a result about Octane's walk.
+Next: the slabs with the export's own skin material (the walk exactly as
+a figure gets it), then the same table from Octane.
+
+Also: Calib-SSSThick-B-ev10 (EV 10.1) rendered pixel for pixel as B (EV
+12.1), in Iray and in the Octane export — the Exposure Value written on
+the Tonemapper Options' library node reaches neither; harmless here (one
+exposure for both renderers).
