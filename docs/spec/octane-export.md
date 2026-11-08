@@ -845,7 +845,13 @@ leaves out, #15):
   are shared out by the weighted mix). A closed, non-thin solid with Iray's
   volume under it (Transmitted Color set; ~313 installed materials) has its
   `transmission` × the skin's volume factor (`volume_factor`, Rd(α) /
-  Rd(α₀))^0.5 per channel) × 0.7 (`PROP_VOLUME_LEVEL`): Calib-SSSColor's
+  Rd(α₀))^0.5 per channel) × 0.7 (`PROP_VOLUME_LEVEL`). Both are fits
+  (#83): Iray's spheres follow no function of α alone — mono SSS Amount 2
+  (α 1.00 / 0.91 / 0.88, σs 133 / cm) renders darker than chromatic grey
+  (α 0.99 / 0.80 / 0.74, σs 53 / cm), so how much passes through the
+  sphere counts; skin's derived A(α) / A(α₀) in place of the root spread
+  them 0.58 – 2.26 × Iray (the root 0.71 – 1.61, per channel); a derived
+  rule needs the volume itself (#87). Calib-SSSColor's
   spheres with SSS Color grey / blue / deep 0.84 – 1.05 × Iray, before 1.05 –
   2.68; mono 1.40 – 1.54 (before 1.40 – 1.69; Iray's mono spheres are darker
   than Rd says, its figures weren't), SSS Reflectance Tint 1.34 (unread,
@@ -1653,34 +1659,42 @@ rule is Enhanced's, with no fitted hue in either.
   shows it); backlit ears red 0.10 – 0.21 × Iray (no light passes
   through).
 
-**Enhanced, mono SSS with Base Color Effect 1 / 2** (the Genesis 8 base
-skin; not baked, see below):
+**Enhanced, the Genesis 8 base skin** (mono SSS, Base Color Effect 1,
+SSS Direction −0.65; #83): baked like every other skin (`skin_albedo`,
+below), no own rule. Until #83 it kept a fitted tint — the diffuse map ×
+½ · ((1 − w) + w · Tc) (`skin_tint`) × `SKIN_HUE` (1, 0.80, 0.62) × a lift
+by w (`openpbr_skin_lift`: 1 at w 0, 1.3 at 0.5, 0.45 at 0.9) — because
+the bake had rendered it 1.4 – 2.0 × Iray (Calib-Eye, before #19's
+fixes). Decomposed: Faithful's bake of this skin (a plain diffuse) is
+right (front 0.96 / 1.00 / 1.00, Calib-Eye 1.06 / 1.07 / 1.10); its
+subsurface part is next to nothing (Translucency Color 0.30 / 0.03 /
+0.01), and Iray's render doesn't move with SSS Direction (−0.65 → 0: 0.99
+/ 1.00 / 1.00). Enhanced's random walk on the same bake came out 8 – 14 %
+over Faithful, all of it the walk's anisotropy: at 0 the two agree
+within 1 %. Octane / Iray R / G / B, fitted → derived: Calib-Skin-Base
+front 0.86 / 0.75 / 0.69 → 0.95 / 1.00 / 1.00, back 0.86 / 0.75 / 0.67 →
+1.00 / 1.00 / 1.00, HDRI 1.00 / 0.90 / 1.00 → 1.05 / 1.05 / 1.11; Calib-Eye 1.01 /
+0.94 / 1.07 → 1.05 / 1.07 / 1.11, Calib-HDRI 1.04 / 0.96 / 1.06 →
+1.09 / 1.07 / 1.10. `SKIN_HUE` had made environment light right and a lamp 25 – 30 %
+short in G / B; derived, both within ~10 %. Open (#86): its backlit ears
+red 2.29 × Iray (0.89 under the fit): all of the colour goes through the
+walk at the volume's long red mean free path, where Iray's subsurface part
+is a few percent.
+- **`subsurfaceAnisotropy` 0**: SSS Direction is in the baked colour
+  already (the volume's reduced albedo, `volume_albedo`); OpenPBR's walk
+  reproduces the colour it is given as an albedo only without its own
+  anisotropy (g −0.65 made it 8 – 14 % brighter, above). Nishi (g −0.5,
+the only Calib-Skin figure with one): front 0.96 / 1.04 / 1.07 → 0.92 /
+0.98 / 0.95, HDRI 1.06 / 1.09 / 1.16 → 1.03 / 1.03 / 1.08, backlit ears
+0.60 / 0.65 / 0.70 → 0.90 / 0.53 / 0.39; the other seven have g 0.
 
-- `baseColor` and `subsurfaceColor` = the diffuse map (Iray's translucency
-  map is pale and bleached skin and make-up) × **½ · ((1 − w) + w · Tc)**
-  (`skin_tint`; w = translucency weight, Tc = `Translucency Color` × its
-  map's mean over painted texels) × the lift (`openpbr_skin_lift`, below),
-  `subsurface` = w, `subsurfaceAnisotropy` = `SSS Direction`. Why:
-  Calib-HDRI's Genesis 8 Female skin's effective albedo measured ½ · ((1 −
-  w) · D + w · D · Tc) per channel within 4 % (3.2× under the map as is).
-  D is the diffuse map's factor as DAZ hands it to Iray — with the SSS
-  Reflectance Tint folded in under a shown Base Color Effect (1 / 0.93 /
-  0.81 → × 1 / 0.85 / 0.63; `Material::base_color`, #52).
-- × **`SKIN_HUE` (1, 0.80, 0.62)**, fitted on environment-lit figures
-  (HDRI, Fetroom; #8). Not the tint counted twice: Octane / Iray R / G /
-  B with and without it — Calib-Eye 1.01 / 0.94 / 1.07 vs 1.01 / 1.10 /
-  1.34, Calib-HDRI 1.03 / 0.95 / 1.05 vs 1.03 / 1.08 / 1.26,
-  Calib-Skin-Base-hdri 1.00 / 0.90 / 1.00 vs 1.00 / 1.05 / 1.26. Under a
-  lamp it is right *without* it (Calib-Skin-Base-front 0.86 / 0.75 / 0.69
-  vs 0.86 / 0.90 / 1.00): the light dependence above, which no material
-  constant fits. Kept for environment light, which most scenes have
-  (Octane over Iray).
 - The subsurface's distance per channel = Iray's volume's **mean free
   path** 1 / (σa + σs) (`sss_radius`; σa = −ln Transmitted Color /
   Transmitted Measurement Distance, σs = −ln SSS Color — or SSS Amount —
   / Scattering Measurement Distance, DAZ's MDL `add_uber_volume`), OpenPBR's
   definition: the largest as the distance (m, clamped 0.1 mm – 5 cm), the
-  channels over it as the colour; SSS Direction is the anisotropy apart.
+  channels over it as the colour; SSS Direction stays in the bake
+  (`subsurfaceAnisotropy` 0, above).
   Why: it was a diffusion length without the SSS Color, normalised and
   square-rooted against fireflies — Victoria's 1.09 / 0.46 / 0.42 mm for
   Iray's 2.56 / 0.15 / 0.17: red too short to pass an ear, green and blue
@@ -1692,24 +1706,11 @@ skin; not baked, see below):
 **Enhanced** (`SkinShader::OpenPbr`, see Look; #19): OpenPBR Surface (505;
 its `radius` is the distance and `scale` the per-channel colour — the other
 way round from Standard Surface), random walk. On Iray's **chromatic SSS** (`SSS Mode` 1,
-the modern skins) and on **mono SSS with Base Color Effect 0** its own
+the modern skins) and mono SSS alike its own
 colour rule (`skin_albedo`, shared with Faithful), from Calib-Skin (eight Genesis 8 skins from pale to dark
 on one body, Iray probes; see docs/notes/2026-10-28-skin-tones.md) and its
-SSS variants (#28, docs/notes/2026-10-30-sss-volume.md). A mono-SSS skin
-with Base Color Effect 1 (the Genesis 8 base skin) keeps the Standard
-Surface tint × a lift by translucency w (`openpbr_skin_lift`): linear
-between 1 at w 0, 1.3 at 0.5, 0.45 at 0.9 and 0.35 at 1. Up to 0.5 that is
-1 / (1 − 0.46 · w), OpenPBR's darkening against Standard Surface (#8); past
-it Iray darkens this skin far more (w 0.9 a ninth of w 0). Calib-Skin-Base
-(docs/notes/2026-10-31-g8-base-skin.md): the base skin as it ships (w 0.5)
-0.83 – 1.18 × Iray under the front light, 1.0 – 1.1 under the HDRI with
-blue 1.2 – 1.4; w 0 0.94 – 1.08; w 0.9 luminance within ~0.8 – 1.3 but
-bluer (B 1.2 – 1.9; one scalar lift can't fix hue). Under the baked rule
-Calib-Eye came out 1.4 – 2.0 × Iray. SSS Direction changed nothing in
-Iray's render of it (−0.65 → 0) and only enters the subsurface anisotropy.
-Mono SSS with Base Color Effect 0 on this skin's volume is still too red
-under the baked rule (G / B 0.52 – 0.89; the volume factor didn't move it:
-its Translucency Color map carries the subsurface part), open in #28.
+SSS variants (#28, docs/notes/2026-10-30-sss-volume.md); the Genesis 8
+base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
 
 - **Colour, baked per texel** into one map for `baseColor` and
   `subsurfaceColor` (`Textures::derived_skin`, `skin_albedo`): Faithful's

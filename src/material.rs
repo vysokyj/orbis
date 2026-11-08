@@ -2239,43 +2239,20 @@ impl Ocs<'_> {
         let i = indent + 1;
         let _ = writeln!(self.out, "{:i$}<attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
         self.float_pin(i, "base", 1.0);
-        // OpenPBR (Enhanced) on Iray's chromatic SSS (`SSS Mode` 1, the
-        // modern skins): Iray's skin colour baked per texel, all of it
-        // through the random walk, the gloss as Universal's (#19). Mono SSS
-        // too with Base Color Effect 0: Calib-Skin's mono variants
-        // (Victoria, Monique, Zurie) came out 0.83 – 1.04 × Iray relative to
-        // the base render against 0.61 – 1.71 under the older rule (#28). Not the Genesis 8 base skin
-        // (mono, w 0.5, Base Color Effect 1, SSS Direction −0.65, a glossy
-        // layer): 1.4 – 2.0 × Iray under it on Calib-Eye, 1.0 – 1.4 under
-        // the older rule it keeps.
-        let mono = mat.float("SSS Mode").unwrap_or(0.0) as i32 != 1;
-        // Faithful bakes every skin (as a plain diffuse).
-        let bake = iray || !mono || mat.float("Base Color Effect").unwrap_or(0.0) as i32 == 0;
+        // Iray's skin colour (`skin_albedo`) baked per texel, for every
+        // skin: Enhanced sends all of it through the random walk, Faithful
+        // shows it as a plain diffuse (#19). The Genesis 8 base skin (mono
+        // SSS, Base Color Effect 1) too since #83: its fitted tint
+        // (`skin_tint` × `SKIN_HUE` × a lift by w) had come out 0.86 / 0.75
+        // / 0.69 × Iray under a lamp; baked, with the anisotropy below, 0.95
+        // / 1.00 / 1.00 (Calib-Eye 1.05 / 1.07 / 1.11).
         let (d, tc) = (mat.image("diffuse").map(str::to_string), mat.image("Translucency Color").map(str::to_string));
-        let albedo = bake.then(|| {
-            let d_mean = d.as_deref().and_then(|t| self.textures.mean_covered_colour(self.dirs, t));
-            skin_albedo(mat, translucency, d_mean)
-        });
-        let baked = albedo.and_then(|abk| {
-            let key = format!("skin:{d:?}:{tc:?}:{abk:?}");
-            self.textures.derived_skin(self.dirs, d.as_deref(), tc.as_deref(), &key, abk)
-        });
-        // Otherwise (Standard Surface — Faithful —, or mono SSS): the
-        // diffuse map darkened as Iray's translucent layer does
-        // (`skin_tint`) — not recalibrated by #19.
-        let tc_map = mat.image("Translucency Color").map(str::to_string).and_then(|t| self.textures.mean_covered_colour(self.dirs, &t));
-        let colour = match albedo {
-            // A diffuse map that doesn't read: Iray's shares over it.
-            Some((a, b, k)) => [0, 1, 2].map(|c| a[c] + b[c] / (1.0 - k[c]).max(1e-3)),
-            None => {
-                // OpenPBR's random walk shows less of the colour, the more
-                // so the more subsurface: brought back to Standard Surface's
-                // level.
-                let lift = openpbr_skin_lift(translucency);
-                let tint = skin_tint(mat, translucency, tc_map).map(|t| t * lift);
-                [0, 1, 2].map(|k| mat.base_color()[k] * tint[k])
-            }
-        };
+        let d_mean = d.as_deref().and_then(|t| self.textures.mean_covered_colour(self.dirs, t));
+        let (a, b, k) = skin_albedo(mat, translucency, d_mean);
+        let key = format!("skin:{d:?}:{tc:?}:{:?}", (a, b, k));
+        let baked = self.textures.derived_skin(self.dirs, d.as_deref(), tc.as_deref(), &key, (a, b, k));
+        // A diffuse map that doesn't read: Iray's shares over it.
+        let colour = [0, 1, 2].map(|c| a[c] + b[c] / (1.0 - k[c]).max(1e-3));
         let diffuse = mat.image("diffuse").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t));
         // The baked skin colour keeps the diffuse map's placement (#77).
         let dm = mat.image_mod("diffuse");
@@ -2286,13 +2263,7 @@ impl Ocs<'_> {
         };
         colour_pin(self, "baseColor");
         let (rough_ch, rough, inverted) = mat.roughness_source();
-        if bake {
-            self.skin_gloss(i, mat, rough_ch, rough, inverted);
-        } else {
-            // Standard Surface takes the slider unsquared; a glossiness map
-            // would need inverting: its value only.
-            self.float_or_map(i, "roughness", mat, rough_ch.filter(|_| !inverted), rough.clamp(0.0, 1.0));
-        }
+        self.skin_gloss(i, mat, rough_ch, rough, inverted);
         match &baked {
             // Faithful: no random walk (see `skin_albedo`).
             _ if iray => self.float_pin(i, "subsurface", 0.0),
@@ -2315,8 +2286,13 @@ impl Ocs<'_> {
         // OpenPBR: `radius` the distance, `scale` the per-channel colour.
         self.value_pin(i, "radius", 6, 9, &format!("{} 0 0 0", num(scale)));
         self.rgb_pin(i, "scale", radius);
-        let g = mat.float("SSS Direction").unwrap_or(0.0).clamp(-0.95, 0.95);
-        self.value_pin(i, "subsurfaceAnisotropy", 6, 9, &format!("{} 0 0 0", num(g)));
+        // SSS Direction is already in the baked colour (the volume's reduced
+        // albedo, `volume_albedo`); OpenPBR's random walk takes the colour as
+        // the albedo to reproduce, and its own anisotropy changed that
+        // albedo again: Calib-Skin-Base (g −0.65) +8 – 14 % over the same
+        // bake as a plain diffuse at g, ±1 % at 0, where Iray didn't move
+        // with g (−0.65 → 0: 0.99 / 1.00 / 1.00; #83).
+        self.value_pin(i, "subsurfaceAnisotropy", 6, 9, "0 0 0 0");
 
         if let Some((asset, m)) = self.channel_map(mat, "Normal Map") {
             self.with_map(m.placement(), |w| w.image_pin(i, "normal", &asset, false, 1.0, 1.0));
@@ -3745,22 +3721,6 @@ fn map_tint(c: [f32; 3]) -> f32 {
     ((c[0] + c[1] + c[2]) / 3.0).clamp(0.0, 1.0)
 }
 
-/// Iray's skin reflects only part of its diffuse map: the translucent share
-/// `w` shows the map × `Translucency Color` (× its map's mean, `tc_map`), and
-/// the whole comes out at half (`SKIN_ALBEDO_FACTOR`) — Calib-HDRI's
-/// Genesis 8 Female skin measured (0.228, 0.121, 0.081) of linear albedo
-/// against ½ · ((1 − w) · D + w · D · Tc) = (0.225, 0.116, 0.081), while
-/// Standard Surface shows the map as is (3.2× Iray). The tint for the map,
-/// per channel.
-fn skin_tint(mat: &Material, w: f32, tc_map: Option<[f32; 3]>) -> [f32; 3] {
-    let tc = mat.color("Translucency Color").unwrap_or([1.0; 3]);
-    let tc = [0, 1, 2].map(|k| tc[k] * tc_map.map_or(1.0, |m| m[k]));
-    [0, 1, 2].map(|k| SKIN_ALBEDO_FACTOR * ((1.0 - w) + w * tc[k]) * SKIN_HUE[k])
-}
-
-/// See [`skin_tint`].
-const SKIN_ALBEDO_FACTOR: f32 = 0.5;
-
 /// What Iray's skin shows, per channel and texel, as
 /// `a · D + b · Tc² / (1 − k · D)` (D the diffuse map × its colour, Tc the
 /// translucency map × its colour; see `Textures::derived_skin`), from DAZ's
@@ -3822,17 +3782,22 @@ fn reference_volume_albedo() -> [f32; 3] {
     volume_albedo_of(SKIN_TRANSMITTED.map(colour_to_linear), SKIN_TRANSMITTED_DISTANCE, Scattering::Chromatic(SKIN_SSS_COLOR.map(colour_to_linear)), SKIN_SCATTERING_DISTANCE, 0.0)
 }
 
-/// How much more (or less) Iray's subsurface layer reflects with the
-/// skin's volume than with the Genesis 8 skins' it was fit on, per channel:
-/// (Rd(α) / Rd(α₀))^0.5, Rd Jensen's diffusion reflectance (η 1.4) of the
-/// volume's reduced single-scattering albedo α. DAZ's MDL
-/// (`add_uber_volume`): σa = −ln(Transmitted Color) / d_t, σs = −ln(SSS
-/// Color) / d_s for chromatic SSS (`SSS Mode` 1), SSS Amount / d_s for mono,
-/// the colours linear. Calib-Skin's variants (Victoria 8, Monique, Zurie:
-/// SSS Color grey / blue / deep, mono at Amount 2 and 0.5) over the
-/// subsurface layer's share of the base render: within ~10 % on Victoria
-/// and Monique (Zurie, more diffuse, ~20 %); Rd itself overshoots. SSS
-/// Reflectance Tint did nothing on them (#28).
+/// How much more (or less) light a translucent prop's volume gives back
+/// than the Genesis 8 skins' volume, per channel: (Rd(α) / Rd(α₀))^0.5, Rd
+/// Jensen's diffusion reflectance (η 1.4) of the volume's reduced
+/// single-scattering albedo α. DAZ's MDL (`add_uber_volume`): σa =
+/// −ln(Transmitted Color) / d_t, σs = −ln(SSS Color) / d_s for chromatic
+/// SSS (`SSS Mode` 1), SSS Amount / d_s for mono, the colours linear. Only
+/// on props (Universal's diffuse transmission): skin takes the derived
+/// A(α) (`skin_albedo`, #19).
+///
+/// The square root is still a fit (#83): Iray's Calib-SSSColor spheres
+/// don't follow any function of α alone. Mono SSS Amount 2 (α 1.00 / 0.91
+/// / 0.88, σs 133 / cm) renders darker than chromatic grey (α 0.99 / 0.80
+/// / 0.74, σs 53 / cm): how much passes through the sphere counts, a
+/// thickness the albedo doesn't carry. A(α) / A(α₀), right on figures,
+/// spread the spheres 0.58 – 2.26 × Iray against the root's 0.71 – 1.61.
+/// The derived rule needs the volume itself (a random walk on props, #87).
 fn volume_factor(mat: &Material) -> [f32; 3] {
     let alpha = volume_albedo(mat);
     let reference = reference_volume_albedo();
@@ -3895,12 +3860,6 @@ fn diffusion_reflectance(alpha: f32) -> f32 {
     (alpha / 2.0 * (1.0 + (-4.0 / 3.0 * a * s).exp()) * (-s).exp()).max(1e-6)
 }
 
-
-/// Octane's random-walk skin comes out bluer than Iray's at the same tint:
-/// over nine regions of five figures (Genesis 8 Female, Fleur, Charity,
-/// Victoria 8, Paisley; HDRI and Fetroom) green 1.25× and blue 1.6× Iray
-/// relative to red. Iray's volume keeps less of them (#8).
-const SKIN_HUE: [f32; 3] = [1.0, 0.8, 0.62];
 
 /// Iray's weighted base mixing (2) without translucency: the glossy share
 /// of the diffuse + glossy weights. Iray blends a full-strength glossy
@@ -4196,26 +4155,6 @@ const METAL_TRANSLUCENCY_LOSS: f32 = 0.35;
 /// Metallic Weight below this (without a map) is left out: see `universal`.
 const NEGLIGIBLE_METALLIC: f32 = 0.05;
 
-/// How much brighter OpenPBR gets a mono-SSS skin's colour than Standard
-/// Surface's `skin_tint`, by translucency `w`, between the points of
-/// `OPENPBR_SKIN_LIFT`. For skins outside `skin_albedo`'s rule (mono SSS
-/// with Base Color Effect 1: the Genesis 8 base skin).
-fn openpbr_skin_lift(w: f32) -> f32 {
-    let w = w.clamp(0.0, 1.0);
-    let i = OPENPBR_SKIN_LIFT.windows(2).position(|p| w <= p[1].0).unwrap_or(OPENPBR_SKIN_LIFT.len() - 2);
-    let ((w0, l0), (w1, l1)) = (OPENPBR_SKIN_LIFT[i], OPENPBR_SKIN_LIFT[i + 1]);
-    l0 + (l1 - l0) * (w - w0) / (w1 - w0)
-}
-
-/// See [`openpbr_skin_lift`]: (translucency, lift). Up to w 0.5 OpenPBR
-/// rendered the colour darker than Standard Surface, evenly in R, G and B:
-/// 0.78 at w 0.5 (Genesis 8 Female, Calib-HDRI), 0.70 at 0.62 (Fleur,
-/// Octane4) — 1 / (1 − 0.46 · w) brought it back (#8). Iray darkens this
-/// skin far more with w than that (Calib-Skin-Base: w 0.5 a third of w 0,
-/// w 0.9 a ninth), so past 0.5 the lift falls: under 1 / (1 − 0.46 · w)
-/// w 0.9 came out 1.8 – 2.2 × Iray, w 0 and 0.5 0.83 – 1.08 (#28).
-const OPENPBR_SKIN_LIFT: [(f32, f32); 4] = [(0.0, 1.0), (0.5, 1.3), (0.9, 0.45), (1.0, 0.35)];
-
 /// OpenPBR's subsurface radius: the mean free path 1 / (σa + σs) of Iray's
 /// volume per channel (DAZ's MDL, `add_uber_volume`: σa = −ln Transmitted
 /// Color / its distance, σs = −ln SSS Color — or SSS Amount — / its
@@ -4436,8 +4375,8 @@ pub enum SkinShader {
     /// closest to Iray (#19).
     IrayAlbedo,
     /// OpenPBR Surface (505) with random walk: chromatic-SSS skins with the
-    /// colour baked as Iray's skin shows it (`skin_albedo`, Calib-Skin, #19),
-    /// mono ones brightened to Iray's level (`openpbr_skin_lift`).
+    /// colour baked as Iray's skin shows it (`skin_albedo`, Calib-Skin, #19,
+    /// #83).
     OpenPbr,
 }
 
@@ -5396,15 +5335,6 @@ mod tests {
     }
 
     #[test]
-    fn openpbr_skin_lift_rises_to_half_translucency_then_falls() {
-        assert_eq!(openpbr_skin_lift(0.0), 1.0);
-        assert!((openpbr_skin_lift(0.25) - 1.15).abs() < 1e-5);
-        assert!((openpbr_skin_lift(0.5) - 1.3).abs() < 1e-5);
-        assert!((openpbr_skin_lift(0.9) - 0.45).abs() < 1e-5);
-        assert!((openpbr_skin_lift(1.5) - 0.35).abs() < 1e-5, "clamped to w 1");
-    }
-
-    #[test]
     fn dual_lobe_second_lobe_as_coating() {
         let dirs: Vec<std::path::PathBuf> = vec![];
         let uber = mat(json!([
@@ -5514,11 +5444,14 @@ mod tests {
         // Octane keeps the pin's colour space only when told the image's was
         // chosen; every image node says so.
         assert_eq!(sx.matches("<attr name='initialColorSpaceSelected' type='1'>1</attr>").count(), sx.matches("<attr name='filename'").count());
-        // OpenPBR on mono SSS with Base Color Effect 1 (this one): radius the distance, scale the
-        // colour; the tint lifted by 1.3 (`openpbr_skin_lift` at w 0.5).
+        // OpenPBR on mono SSS with Base Color Effect 1 (this one, the Genesis
+        // 8 base skin's kind): the same colour as Faithful's, through the
+        // random walk; the anisotropy left to the bake (#83).
         let (mx, _) = material_inputs(&[("Torso".into(), sss.clone(), 1.0)], &dirs, HashMap::new(), 8050, SkinShader::OpenPbr);
         assert!(mx.contains("type='505' name='Torso'"), "{mx}");
-        assert!(mx.contains("<attr name='value' type='8'>0.65 0.52 0.403</attr>"), "lifted tint: {mx}");
+        assert!(mx.contains(&format!("<attr name='value' type='8'>{tint}</attr>")), "Iray's colour: {mx}");
+        let aniso = &mx[mx.find("<pin name='subsurfaceAnisotropy'>").unwrap()..];
+        assert!(aniso[..160].contains("type='9'>0 0 0 0</attr>"), "{aniso}");
         // On chromatic SSS: the colour baked per texel (`skin_albedo`), the
         // same for base and subsurface; the diffuse map's detail mask as the
         // subsurface weight; a gloss. A readable diffuse map to bake from.
