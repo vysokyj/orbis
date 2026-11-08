@@ -4316,11 +4316,21 @@ const NEGLIGIBLE_METALLIC: f32 = 0.05;
 /// ears' red 0.32 – 0.86 → 0.45 – 1.27 × Iray.
 const OCTANE_WALK_RADIUS: f32 = 1.52;
 
-/// OpenPBR's subsurface radius: the mean free path 1 / (σa + σs) of Iray's
-/// volume per channel (DAZ's MDL, `add_uber_volume`: σa = −ln Transmitted
-/// Color / its distance, σs = −ln SSS Color — or SSS Amount — / its
-/// distance; cm), as the scale per channel (over the largest) and the
-/// radius (m, the largest); SSS Direction goes to the anisotropy apart.
+/// OpenPBR's subsurface radius: the transport mean free path 1 / (σa +
+/// σs (1 − g)) of Iray's volume per channel (DAZ's MDL, `add_uber_volume`:
+/// σa = −ln Transmitted Color / its distance, σs = −ln SSS Color — or SSS
+/// Amount — / its distance, cm; g SSS Direction, the `anisotropic_vdf`'s
+/// Henyey-Greenstein bias), as the scale per channel (over the largest)
+/// and the radius (m, the largest).
+/// Why g (#88): the walk is isotropic (`subsurfaceAnisotropy` 0) and its
+/// colour is already the reduced albedo σs (1 − g) / (σa + σs (1 − g))
+/// (`volume_albedo`), so it must be the similar medium as a whole: the
+/// mean free path of the reduced σs too. Without it Nishi's (g −0.5) walk
+/// was 1.46 × too long in red, her backlit ears 1.24 × Iray's red; with
+/// it 0.88. A slab Monte Carlo (Nishi's red σ, η 1.4, 1 – 9 mm; the same
+/// code gives Iray's g 0 Calib-SSSThick slabs within 1 – 7 %) passes 3 –
+/// 10 % more light with the HG phase than through the similar isotropic
+/// medium: similarity holds at an ear's thickness. g 0 skins unchanged.
 /// Before (#19) a softened diffusion length without the SSS Color: red
 /// too short, green and blue too long (Victoria 1.09 / 0.46 / 0.42 mm for
 /// Iray's 2.56 / 0.15 / 0.17) — backlit ears 0.21 – 0.51 × Iray's red,
@@ -4334,13 +4344,16 @@ fn sss_radius(mat: &Material) -> ([f32; 3], f32) {
     let d_t = mat.float("Transmitted Measurement Distance").filter(|d| *d > 0.0).unwrap_or(SKIN_TRANSMITTED_DISTANCE);
     let d_s = mat.float("Scattering Measurement Distance").filter(|d| *d > 0.0).unwrap_or(SKIN_SCATTERING_DISTANCE);
     let sss = mat.color("SSS Color").unwrap_or(linear(SKIN_SSS_COLOR));
+    // SSS Direction as in `volume_albedo`: the walk is isotropic, so it
+    // takes the similar medium's reduced scattering σs (1 − g).
+    let g = mat.float("SSS Direction").unwrap_or(0.0).clamp(-0.95, 0.95);
     let mono = match mat.float("SSS Amount") {
         Some(a) if mat.float("SSS Mode").unwrap_or(0.0) as i32 != 1 => Some(a.max(0.0)),
         _ => None,
     };
     let mfp = [0, 1, 2].map(|k| {
         let sigma_a = extinction(t[k]) / d_t;
-        let sigma_s = mono.unwrap_or_else(|| extinction(sss[k])) / d_s;
+        let sigma_s = mono.unwrap_or_else(|| extinction(sss[k])) / d_s * (1.0 - g);
         0.01 / (sigma_a + sigma_s).max(1e-3)
     });
     let max = mfp.iter().copied().fold(1e-6f32, f32::max);

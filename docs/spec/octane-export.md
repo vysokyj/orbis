@@ -1689,13 +1689,27 @@ the only Calib-Skin figure with one): front 0.96 / 1.04 / 1.07 → 0.92 /
 0.98 / 0.95, HDRI 1.06 / 1.09 / 1.16 → 1.03 / 1.03 / 1.08, backlit ears
 0.60 / 0.65 / 0.70 → 0.90 / 0.53 / 0.39; the other seven have g 0.
 
-- The subsurface's distance per channel = Iray's volume's **mean free
-  path** 1 / (σa + σs) (`sss_radius`; σa = −ln Transmitted Color /
-  Transmitted Measurement Distance, σs = −ln SSS Color — or SSS Amount —
-  / Scattering Measurement Distance, DAZ's MDL `add_uber_volume`), OpenPBR's
-  definition: the largest as the distance (m, clamped 0.1 mm – 5 cm), the
-  channels over it as the colour; SSS Direction stays in the bake
-  (`subsurfaceAnisotropy` 0, above).
+- The subsurface's distance per channel = Iray's volume's **transport
+  mean free path** 1 / (σa + σs (1 − g)) (`sss_radius`; σa = −ln
+  Transmitted Color / Transmitted Measurement Distance, σs = −ln SSS Color
+  — or SSS Amount — / Scattering Measurement Distance, g = SSS Direction,
+  the `anisotropic_vdf`'s Henyey-Greenstein bias; DAZ's MDL
+  `add_uber_volume`), OpenPBR's definition: the largest as the distance
+  (m, clamped 0.1 mm – 5 cm), the channels over it as the colour; the walk
+  itself isotropic (`subsurfaceAnisotropy` 0, above).
+  Why the reduced σs (#88, docs/notes/2026-11-08-sss-direction.md): with
+  anisotropy 0 and the reduced albedo in the colour, the walk must be the
+  similar isotropic medium (σs (1 − g), g 0) as a whole — the mean free
+  path of the unreduced σs left a medium of the right albedo 1 / (1 − g)
+  too long. Nishi (g −0.5, red 1.46 × too long) backlit ears' red 1.24 →
+  0.88 × Iray (front 0.94 / 0.98 / 0.98, HDRI 1.07 / 1.03 / 1.08,
+  unchanged); the G8F base skin (g −0.65, the walk only w · Tc 0.14 of it)
+  ears 0.96 → 0.86, front / HDRI, Calib-Eye 1.05 / 1.07 / 1.10, Calib-HDRI
+  1.07 / 1.06 / 1.08 unchanged. Similarity checked against Iray's own
+  physics: a slab Monte Carlo (η 1.4) that reproduces Iray's g 0
+  Calib-SSSThick slabs within 1 – 7 % passes 3 – 10 % (1 – 9 mm) more
+  light with the HG phase at g −0.5 / −0.65 than through the similar
+  isotropic medium. Skins with g 0 export byte-identical.
   Why: it was a diffusion length without the SSS Color, normalised and
   square-rooted against fireflies — Victoria's 1.09 / 0.46 / 0.42 mm for
   Iray's 2.56 / 0.15 / 0.17: red too short to pass an ear, green and blue
@@ -1713,7 +1727,8 @@ the only Calib-Skin figure with one): front 0.96 / 1.04 / 1.07 → 0.92 /
   beyond "the distance light can scatter below the surface". Fronts,
   Calib-Eye, Calib-HDRI moved < 1 %; backlit ears' red 0.32 – 0.86 →
   0.45 – 1.27 × Iray (G8F 0.86 → 1.00; Kayo, Monique, Twosret still 0.45 –
-  0.66, Nishi 1.27: open in #86). Also: at S 1 (w · Tc 1) the base colour
+  0.66, Nishi 1.27: open in #86; Nishi 0.88 with the reduced σs, #88,
+  above). Also: at S 1 (w · Tc 1) the base colour
   fallback was 0 / 0 (NaN); now 0.
 
 **Enhanced** (`SkinShader::OpenPbr`, see Look; #19): OpenPBR Surface (505;
