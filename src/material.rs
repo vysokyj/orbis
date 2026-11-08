@@ -352,9 +352,9 @@ impl Textures {
     ///   detail (brows, liner) leaves the random walk and pores stay in it.
     ///
     /// Linear, written as sRGB-gamma PNGs.
-    fn derived_skin(&mut self, dirs: &[PathBuf], d: Option<&str>, tc: Option<&str>, key: &str, (a, b, k): ([f32; 3], [f32; 3], [f32; 3])) -> Option<(String, Option<String>)> {
+    fn derived_skin(&mut self, dirs: &[PathBuf], d: Option<&str>, tc: Option<&str>, key: &str, (a, b, k): ([f32; 3], [f32; 3], [f32; 3]), split: Option<f32>) -> Option<SkinBake> {
         if let Some(asset) = self.by_source.get(key) {
-            return Some((asset.clone(), self.by_source.get(&format!("{key}#detail")).cloned()));
+            return Some(SkinBake { colour: asset.clone(), subsurface: self.by_source.get(&format!("{key}#sss")).cloned(), detail: self.by_source.get(&format!("{key}#detail")).cloned() });
         }
         let open = |src: &str| {
             let rel = src.trim_start_matches('/');
@@ -381,23 +381,48 @@ impl Textures {
             i.as_ref().map(|i| &i.as_raw()[y as usize * stride..][..stride])
         }
         let px = |r: Option<&[u8]>, x: usize, or: [u8; 3]| r.map_or(or, |r| [r[3 * x], r[3 * x + 1], r[3 * x + 2]]);
-        let colour = |d: [u8; 3], t: [u8; 3], t2: [u8; 3]| {
+        // The diffuse layer's part and the volume's, per channel.
+        let parts = |d: [u8; 3], t: [u8; 3], t2: [u8; 3]| {
             [0, 1, 2].map(|c| {
                 let d = decode[d[c] as usize];
-                a[c] * d + b[c] * decode[t[c] as usize] * decode[t2[c] as usize] / (1.0 - k[c] * d).max(1e-3)
+                (a[c] * d, b[c] * decode[t[c] as usize] * decode[t2[c] as usize] / (1.0 - k[c] * d).max(1e-3))
             })
         };
-        let out = crate::bake::par_rgb(w, h, |y, out| {
-            let (dr, tr, tlr) = (row_of(&d_img, y, stride), row_of(&tc_img, y, stride), row_of(&tc_low, y, stride));
-            for x in 0..w as usize {
-                let dp = px(dr, x, [255; 3]);
-                let tp = px(tr, x, [255; 3]);
-                let tl = px(tlr, x, tp);
-                let v = colour(dp, tp, tl);
-                for k in 0..3 {
-                    out[3 * x + k] = enc.encode(v[k]);
+        let mask = |p: u8, q: u8| {
+            let t = ((decode[p as usize] / decode[q as usize].max(1e-3) - 0.35) / 0.35).clamp(0.0, 1.0);
+            t * t * (3.0 - 2.0 * t)
+        };
+        // Split (Enhanced, `skin_walk_weight`): Octane renders (1 − S) of
+        // the base and S² of the walk's colour; at S · m (m the detail mask)
+        // the walk takes the volume's part / S², the base the diffuse
+        // layer's and the volume's rest (1 − m²) / (1 − S · m) — together
+        // the same colour.
+        let bake = |sss: bool| {
+            crate::bake::par_rgb(w, h, |y, out| {
+                let (dr, dlr, tr, tlr) = (row_of(&d_img, y, stride), row_of(&d_low, y, stride), row_of(&tc_img, y, stride), row_of(&tc_low, y, stride));
+                for x in 0..w as usize {
+                    let dp = px(dr, x, [255; 3]);
+                    let tp = px(tr, x, [255; 3]);
+                    let tl = px(tlr, x, tp);
+                    let dl = px(dlr, x, dp);
+                    let v = parts(dp, tp, tl);
+                    for c in 0..3 {
+                        let (diffuse, volume) = v[c];
+                        out[3 * x + c] = enc.encode(match split {
+                            None => diffuse + volume,
+                            Some(s) if sss => volume / (s * s).max(1e-6),
+                            Some(s) => {
+                                let m = if dr.is_some() { mask(dp[c], dl[c]) } else { 1.0 };
+                                (diffuse + (1.0 - m * m) * volume) / (1.0 - s * m).max(1e-4)
+                            }
+                        });
+                    }
                 }
-            }
+            })
+        };
+        let (out, sss) = std::thread::scope(|s| {
+            let t = s.spawn(|| split.map(|_| bake(true)));
+            (bake(false), t.join().ok().flatten())
         });
         // The detail mask of a texel and its low-passed value, per channel:
         // a table over both bytes.
@@ -427,9 +452,19 @@ impl Textures {
             Some(asset)
         };
         let colour = store(&out, "skin", key.to_string())?;
+        let subsurface = sss.and_then(|img| store(&img, "skin_sss", format!("{key}#sss")));
         let detail = detail.and_then(|img| store(&img, "skin_detail", format!("{key}#detail")));
-        Some((colour, detail))
+        Some(SkinBake { colour, subsurface, detail })
     }
+}
+
+/// A baked skin (`Textures::derived_skin`): its colour — all of it, or with
+/// a split the base's part — the random walk's colour (split only), and the
+/// diffuse map's detail mask.
+struct SkinBake {
+    colour: String,
+    subsurface: Option<String>,
+    detail: Option<String>,
 }
 
 /// NVIDIA's textured MDL metals (`nvidia::metal_examples`, DAZ's "NVIDIA MDL
@@ -2240,26 +2275,44 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:i$}<attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
         self.float_pin(i, "base", 1.0);
         // Iray's skin colour (`skin_albedo`) baked per texel, for every
-        // skin: Enhanced sends all of it through the random walk, Faithful
-        // shows it as a plain diffuse (#19). The Genesis 8 base skin (mono
-        // SSS, Base Color Effect 1) too since #83: its fitted tint
-        // (`skin_tint` × `SKIN_HUE` × a lift by w) had come out 0.86 / 0.75
-        // / 0.69 × Iray under a lamp; baked, with the anisotropy below, 0.95
-        // / 1.00 / 1.00 (Calib-Eye 1.05 / 1.07 / 1.11).
+        // skin: Enhanced splits it between the diffuse and the random walk
+        // as Iray splits it between its diffuse layer and the volume (#86),
+        // Faithful shows all of it as a plain diffuse (#19). The Genesis 8
+        // base skin (mono SSS, Base Color Effect 1) too since #83.
         let (d, tc) = (mat.image("diffuse").map(str::to_string), mat.image("Translucency Color").map(str::to_string));
         let d_mean = d.as_deref().and_then(|t| self.textures.mean_covered_colour(self.dirs, t));
         let (a, b, k) = skin_albedo(mat, translucency, d_mean);
-        let key = format!("skin:{d:?}:{tc:?}:{:?}", (a, b, k));
-        let baked = self.textures.derived_skin(self.dirs, d.as_deref(), tc.as_deref(), &key, (a, b, k));
-        // A diffuse map that doesn't read: Iray's shares over it.
-        let colour = [0, 1, 2].map(|c| a[c] + b[c] / (1.0 - k[c]).max(1e-3));
+        // Enhanced: the random walk's weight S (`skin_walk_weight`), the
+        // base and the walk's colours split so that Octane's blend gives the
+        // same colour back (`Textures::derived_skin`).
+        let split = (!iray).then(|| {
+            let tc_mean = tc.as_deref().and_then(|t| self.textures.mean_covered_colour(self.dirs, t));
+            skin_walk_weight(skin_crossing(mat, translucency, d_mean), tc_mean)
+        });
+        let key = format!("skin:{d:?}:{tc:?}:{:?}:{split:?}", (a, b, k));
+        let baked = self.textures.derived_skin(self.dirs, d.as_deref(), tc.as_deref(), &key, (a, b, k), split);
+        // A diffuse map that doesn't read: Iray's shares over it (split for
+        // Enhanced as the bake splits them).
+        let colour = |sss: bool| {
+            [0, 1, 2].map(|c| {
+                let volume = b[c] / (1.0 - k[c]).max(1e-3);
+                match split {
+                    None => a[c] + volume,
+                    Some(s) if sss => volume / (s * s),
+                    Some(s) => a[c] / (1.0 - s),
+                }
+            })
+        };
         let diffuse = mat.image("diffuse").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t));
         // The baked skin colour keeps the diffuse map's placement (#77).
         let dm = mat.image_mod("diffuse");
         let colour_pin = |w: &mut Self, pin: &str| match (&baked, &diffuse) {
-            (Some((asset, _)), _) => w.with_map(dm.placement(), |w| w.image_pin(i, pin, asset, false, 2.2, 1.0)),
-            (None, Some(asset)) => w.with_map(dm, |w| w.tinted_image_pin(i, pin, asset, 1.0, colour)),
-            (None, None) => w.rgb_pin(i, pin, colour),
+            (Some(bake), _) => {
+                let asset = if pin == "subsurfaceColor" { bake.subsurface.as_ref().unwrap_or(&bake.colour) } else { &bake.colour };
+                w.with_map(dm.placement(), |w| w.image_pin(i, pin, asset, false, 2.2, 1.0))
+            }
+            (None, Some(asset)) => w.with_map(dm, |w| w.tinted_image_pin(i, pin, asset, 1.0, colour(pin == "subsurfaceColor"))),
+            (None, None) => w.rgb_pin(i, pin, colour(pin == "subsurfaceColor")),
         };
         colour_pin(self, "baseColor");
         let (rough_ch, rough, inverted) = mat.roughness_source();
@@ -2267,20 +2320,19 @@ impl Ocs<'_> {
         match &baked {
             // Faithful: no random walk (see `skin_albedo`).
             _ if iray => self.float_pin(i, "subsurface", 0.0),
-            // The diffuse map's marked detail (brows, liner) out of the random
-            // walk: under it they bled into blue-grey smudges, as a diffuse
-            // they stay dark like Iray's. Elsewhere all of the colour goes
-            // through it — at subsurface 0.5 Octane rendered 0.67 – 0.73 of
-            // the colour whatever it was (Calib-SSS's spheres).
-            Some((_, Some(detail))) => self.with_map(dm.placement(), |w| w.image_pin(i, "subsurface", detail, true, 2.2, 1.0)),
-            Some((_, None)) => self.float_pin(i, "subsurface", 1.0),
-            None => self.float_pin(i, "subsurface", translucency),
+            // The walk's weight S (see `skin_walk_weight`), × the diffuse
+            // map's detail mask: marked detail (brows, liner) out of the
+            // random walk — under it they bled into blue-grey smudges, as a
+            // diffuse they stay dark like Iray's.
+            Some(SkinBake { detail: Some(detail), .. }) => self.with_map(dm.placement(), |w| w.image_pin(i, "subsurface", detail, true, 2.2, split.unwrap_or(1.0))),
+            Some(_) => self.float_pin(i, "subsurface", split.unwrap_or(1.0)),
+            None => self.float_pin(i, "subsurface", split.unwrap_or(translucency)),
         }
-        // The SSS colour is the colour the skin *shows* (Standard Surface,
-        // like Arnold's): the diffuse map, with tan and make-up. Iray's
-        // translucency map is a pale, pinkish "sss" map of how light shines
-        // through — as subsurface colour it bleached Zelie and wiped her
-        // make-up (Octane1 vs Blender, 2026-10-21).
+        // The SSS colour: the volume's part of the baked colour / S² (the
+        // diffuse map's texture, tan and make-up in it, and the translucency
+        // map's) — not the bare translucency map, a pale, pinkish "sss" map
+        // of how light shines through: as subsurface colour it bleached
+        // Zelie and wiped her make-up (Octane1 vs Blender, 2026-10-21).
         colour_pin(self, "subsurfaceColor");
         let (radius, scale) = sss_radius(mat);
         // OpenPBR: `radius` the distance, `scale` the per-channel colour.
@@ -3747,15 +3799,59 @@ fn map_tint(c: [f32; 3]) -> f32 {
 /// (`SKIN_HUE_OPENPBR`), dark gain, and that fit.
 fn skin_albedo(mat: &Material, w: f32, d_mean: Option<[f32; 3]>) -> ([f32; 3], [f32; 3], [f32; 3]) {
     let base = mat.base_color();
-    let effect = mat.float("Base Color Effect").unwrap_or(0.0) as i32;
-    let colour = [0, 1, 2].map(|k| base[k] * d_mean.map_or(1.0, |m| m[k]));
-    let (diffuse, translucent) = base_color_effect_shares(effect, colour, w);
-    let tc = mat.color("Translucency Color").unwrap_or([1.0; 3]);
+    let (diffuse, _) = skin_shares(mat, w, d_mean);
     let a = base.map(|x| x * (1.0 - w).max(0.0) * diffuse);
     let albedo = volume_albedo(mat).map(random_walk_albedo);
-    let b = [0, 1, 2].map(|k| translucent * translucent * tc[k] * tc[k] * albedo[k]);
+    let crossing = skin_crossing(mat, w, d_mean);
+    let b = [0, 1, 2].map(|k| crossing[k] * albedo[k]);
     let k = [0, 1, 2].map(|c| a[c] * albedo[c]);
     (a, b, k)
+}
+
+/// Base Color Effect's diffuse and translucency shares on a skin (see
+/// [`skin_albedo`]).
+fn skin_shares(mat: &Material, w: f32, d_mean: Option<[f32; 3]>) -> (f32, f32) {
+    let base = mat.base_color();
+    let effect = mat.float("Base Color Effect").unwrap_or(0.0) as i32;
+    let colour = [0, 1, 2].map(|k| base[k] * d_mean.map_or(1.0, |m| m[k]));
+    base_color_effect_shares(effect, colour, w)
+}
+
+/// The share of light that crosses the skin's translucency layer twice —
+/// in, and out after the volume — per channel: (w · Tc)², w the
+/// translucency's share (Base Color Effect's), Tc its colour (the map
+/// apart). [`skin_albedo`]'s b is this × the volume's A(α).
+fn skin_crossing(mat: &Material, w: f32, d_mean: Option<[f32; 3]>) -> [f32; 3] {
+    let (_, translucent) = skin_shares(mat, w, d_mean);
+    let tc = mat.color("Translucency Color").unwrap_or([1.0; 3]);
+    tc.map(|t| (translucent * t).powi(2))
+}
+
+/// Enhanced's random-walk weight S on a skin, from the share that crosses
+/// its translucency layer twice per channel (`skin_crossing`, × the
+/// translucency map's mean squared): S = max over the channels of √ that —
+/// w · Tc, one crossing.
+///
+/// Why (#86): Octane's OpenPBR doesn't blend its diffuse and random walk
+/// linearly as the OpenPBR spec says. Probe 68
+/// (`scripts/dev/octane-probe-sssweight.lua`, greys on Victoria's skin):
+/// it renders (1 − S) of the base and S² of the walk's colour — the walk
+/// pays S going in and again coming out (S 0.25 / 0.5 / 0.75: 0.06 / 0.23
+/// / 0.54 of the walk at 1, an ear's transmission alike) — and with a
+/// black subsurface colour the whole base. That is Iray's translucency:
+/// (1 − w) diffuse, the volume behind w · Tc in and out. So S plays
+/// w · Tc, and in the strongest channel the walk's colour is the volume's
+/// own A(α): it scatters as Iray's volume, the light through a backlit ear
+/// included. The others' colour comes down by their (Tc / Tc_max)².
+/// All of the colour through the walk (S 1, #83) gave the Genesis 8 base
+/// skin's backlit ears 2.21 / 1.61 / 1.30 × Iray, with this 0.86 / 1.00 /
+/// 1.01; the eight Calib-Skin figures' fronts 0.91 – 1.16 / 0.95 – 1.24 /
+/// 0.95 – 1.44 → 0.91 – 1.00 / 0.95 – 1.03 / 0.95 – 1.07 (Monique's,
+/// Twosret's dark skins no longer lifted). Open: their ears' red came
+/// down from 0.58 – 1.03 to 0.32 – 0.83 (#86).
+fn skin_walk_weight(crossing: [f32; 3], tc_mean: Option<[f32; 3]>) -> f32 {
+    let tc = tc_mean.unwrap_or([1.0; 3]);
+    (0..3).map(|c| crossing[c] * tc[c] * tc[c]).fold(0.0f32, f32::max).sqrt().clamp(1e-2, 1.0)
 }
 
 /// The multiple-scattering albedo of a semi-infinite random-walk medium at
@@ -5445,16 +5541,26 @@ mod tests {
         // chosen; every image node says so.
         assert_eq!(sx.matches("<attr name='initialColorSpaceSelected' type='1'>1</attr>").count(), sx.matches("<attr name='filename'").count());
         // OpenPBR on mono SSS with Base Color Effect 1 (this one, the Genesis
-        // 8 base skin's kind): the same colour as Faithful's, through the
-        // random walk; the anisotropy left to the bake (#83).
+        // 8 base skin's kind): Faithful's colour split for Octane's blend —
+        // the walk at S = w · Tc (`skin_walk_weight`), the base (1 − S), the
+        // walk S² (#86); the anisotropy left to the bake (#83).
         let (mx, _) = material_inputs(&[("Torso".into(), sss.clone(), 1.0)], &dirs, HashMap::new(), 8050, SkinShader::OpenPbr);
         assert!(mx.contains("type='505' name='Torso'"), "{mx}");
-        assert!(mx.contains(&format!("<attr name='value' type='8'>{tint}</attr>")), "Iray's colour: {mx}");
+        let s = skin_walk_weight(skin_crossing(&sss, 0.5, None), None);
+        assert!((s - 0.5).abs() < 1e-6, "effect 1 on white, Tc white: S = w: {s}");
+        // The diffuse map × a / (1 − S) (here 1: the map as is) and × the
+        // volume's part / S².
+        assert!((0..3).all(|c| (a[c] / (1.0 - s) - 1.0).abs() < 1e-6), "{a:?}");
+        let walk_c = [0, 1, 2].map(|c| num(b[c] / (1.0 - k[c]) / (s * s))).join(" ");
+        let ssc = &mx[mx.find("<pin name='subsurfaceColor'>").unwrap()..];
+        assert!(ssc[..ssc.find("</pin>\n      <pin").unwrap_or(ssc.len())].contains(&format!("<attr name='value' type='8'>{walk_c}</attr>")), "walk {walk_c}: {ssc}");
+        let w_pin = &mx[mx.find("<pin name='subsurface'>").unwrap()..];
+        assert!(w_pin[..120].contains(&format!("type='6'>{}</attr>", num(s))), "{w_pin}");
         let aniso = &mx[mx.find("<pin name='subsurfaceAnisotropy'>").unwrap()..];
         assert!(aniso[..160].contains("type='9'>0 0 0 0</attr>"), "{aniso}");
-        // On chromatic SSS: the colour baked per texel (`skin_albedo`), the
-        // same for base and subsurface; the diffuse map's detail mask as the
-        // subsurface weight; a gloss. A readable diffuse map to bake from.
+        // On chromatic SSS: the colour baked per texel (`skin_albedo`), split
+        // between base and subsurface; the diffuse map's detail mask × S as
+        // the subsurface weight; a gloss. A readable diffuse map to bake from.
         image::RgbImage::from_pixel(8, 8, image::Rgb([200, 150, 120])).save(dir.path().join("Runtime/Textures/skin.jpg")).unwrap();
         let mut chromatic = (*sss).clone();
         chromatic.channels.insert("SSS Mode".into(), crate::daz_material::Channel { value: json!(1), image: None, gamma: None, image_mod: None, hidden: false });
@@ -5467,7 +5573,7 @@ mod tests {
             let p = &ox[ox.find(&format!("<pin name='{name}'>")).unwrap()..];
             p[..p.find("</pin>\n      <pin").unwrap_or(p.len())].to_string()
         };
-        assert!(pin("baseColor").contains("_skin.png") && pin("subsurfaceColor").contains("_skin.png"), "{ox}");
+        assert!(pin("baseColor").contains("_skin.png") && pin("subsurfaceColor").contains("_skin_sss.png"), "{ox}");
         assert!(pin("subsurface").contains("_skin_detail.png"), "{ox}");
         assert!(ox.contains("<pin name='specular'>"), "{ox}");
         let (radius, scale) = sss_radius(&sss);
@@ -6596,7 +6702,7 @@ mod tests {
 
         let mut tex = Textures::default();
         let (a, b, kd) = ([0.6, 0.5, 0.4], [0.3, 0.2, 0.25], [0.2, 0.15, 0.1]);
-        let (colour, detail) = tex.derived_skin(&dirs, Some("d.png"), Some("tc.png"), "skin", (a, b, kd)).unwrap();
+        let SkinBake { colour, detail, .. } = tex.derived_skin(&dirs, Some("d.png"), Some("tc.png"), "skin", (a, b, kd), None).unwrap();
         let (w, h) = d.dimensions();
         let tc = image::imageops::resize(&tc, w, h, image::imageops::FilterType::Triangle);
         let low = |i: &image::RgbImage| image::imageops::resize(&image::imageops::resize(i, 32, 32, image::imageops::FilterType::Triangle), w, h, image::imageops::FilterType::Triangle);
@@ -6614,6 +6720,30 @@ mod tests {
             }))
         });
         assert!(png(&tex, &detail.unwrap()) == want, "skin detail");
+
+        // Split for Octane's blend (Enhanced, S 0.6): the walk's colour the
+        // volume's part / S², the base the diffuse's and the volume's rest
+        // (1 − m²) / (1 − S · m), m the detail mask.
+        let s = 0.6f32;
+        let bake = tex.derived_skin(&dirs, Some("d.png"), Some("tc.png"), "skin-split", (a, b, kd), Some(s)).unwrap();
+        let (base_want, sss_want) = {
+            let parts = |x: u32, y: u32, k: usize| {
+                let (dp, tp, tlp, q) = (d.get_pixel(x, y).0, tc.get_pixel(x, y).0, tl.get_pixel(x, y).0, dl.get_pixel(x, y).0);
+                let t = ((decode(dp[k]) / decode(q[k]).max(1e-3) - 0.35) / 0.35).clamp(0.0, 1.0);
+                let m = t * t * (3.0 - 2.0 * t);
+                (a[k] * decode(dp[k]), b[k] * decode(tp[k]) * decode(tlp[k]) / (1.0 - kd[k] * decode(dp[k])), m)
+            };
+            (
+                image::RgbImage::from_fn(w, h, |x, y| image::Rgb([0, 1, 2].map(|k| {
+                    let (diffuse, volume, m) = parts(x, y, k);
+                    encode((diffuse + (1.0 - m * m) * volume) / (1.0 - s * m), 2.2)
+                }))),
+                image::RgbImage::from_fn(w, h, |x, y| image::Rgb([0, 1, 2].map(|k| encode(parts(x, y, k).1 / (s * s), 2.2)))),
+            )
+        };
+        let close = |got: &image::RgbImage, want: &image::RgbImage| got.as_raw().iter().zip(want.as_raw()).all(|(g, w)| g.abs_diff(*w) <= 1);
+        assert!(close(&png(&tex, &bake.colour), &base_want), "split base");
+        assert!(close(&png(&tex, &bake.subsurface.unwrap()), &sss_want), "split walk");
 
         // A luminance bake (grey texels from the table, one coloured texel
         // through `f`) and a channel bake.

@@ -1,0 +1,131 @@
+# 2026-11-08 — The skin's random-walk weight (#86)
+
+Since #83 Enhanced bakes the Genesis 8 base skin like every skin and sends
+all of the colour through OpenPBR's random walk (`subsurface` 1). Front
+light came out right; the backlit ears 2.29 / 1.61 / 1.30 × Iray. #86's
+candidate: the walk's weight = Iray's subsurface share b / (a + b).
+
+Octane 256 samples, Enhanced + Final. Octane / Iray, linear, R / G / B:
+skin = the median of Calib-Skin's face and body regions, ears = the two
+ear boxes (the #19 cmp.py); Calib-Eye / -HDRI as in #83. Work dir
+`~/Library/Caches/orbis/calib/s86` (`exp.sh`, `cmp.py`, variants m0 = master,
+x1, sh, df, x2; probes in `p68/`, `p68m/`).
+
+## Step 1: two derived weights, read as a linear blend
+
+OpenPBR's spec (and Octane's manual: "blends between the diffuse and
+subsurface scattering") mixes the two lobes linearly. Base = diffuse part /
+(1 − S), subsurface colour = volume part / S, then the same colour for any
+S. Tried:
+
+- **x1**: S = (w · Tc)², the share Iray sends through its volume (in and
+  out through the translucency), so the walk's colour is the volume's own
+  A(α);
+- **sh**: S = b / (a + b), #86's candidate;
+- **df**: S ≈ 0 — the diffuse layer alone (a decomposition, not a rule).
+
+| backlit ears | m0 (S 1) | x1 | sh | df |
+|---|---|---|---|---|
+| G8F (Base) | 2.21 / 1.61 / 1.30 | 0.58 / 1.00 / 1.10 | 0.61 / 1.00 / 1.10 | 0.58 / 1.00 / 1.05 |
+| Victoria | 0.62 / 0.51 / 0.20 | 0.33 / 0.43 / 0.35 | 0.40 / 0.51 / 0.35 | 0.02 / 0.33 / 0.44 |
+| Kayo | 0.58 / 0.39 / 0.47 | 0.18 / 0.60 / 0.66 | 0.33 / 0.60 / 0.76 | 0.04 / 0.60 / 0.82 |
+| Monique | 0.92 / 0.29 / 0.27 | 0.08 / 0.42 / 0.51 | 0.28 / 0.37 / 0.51 | 0.03 / 0.42 / 0.64 |
+
+| front | m0 | x1 | sh |
+|---|---|---|---|
+| G8F | 0.95 / 1.00 / 1.00 | 0.88 / 1.00 / 1.00 | 0.88 / 1.00 / 1.00 |
+| Victoria | 0.91 / 0.98 / 1.00 | 0.67 / 0.75 / 0.79 | 0.75 / 0.83 / 0.86 |
+| Monique | 1.16 / 1.24 / 1.44 | 0.45 / 0.50 / 0.58 | 0.67 / 0.79 / 0.85 |
+
+What it said:
+- df: on the G8F skin the diffuse layer alone gives Iray's ear in G / B
+  exactly and 0.58 of its red. The walk has to add ~0.42 of Iray's red;
+  at S 1 it added 1.63.
+- On the chromatic skins the diffuse alone gives almost nothing (red 0.02 –
+  0.09): their ears are the volume.
+- Both splits darkened every chromatic front by 15 – 55 %, though the
+  colours were split to add up. So the blend isn't linear: a fact about
+  Octane to measure, not a constant to fit.
+
+## Step 2: probe 68, how Octane blends (`octane-probe-sssweight.lua`)
+
+Victoria's Enhanced export (front, back), every OpenPBR skin material
+painted grey, its own radius. Lobes alone (MODE "lobes"), skin regions,
+over S 0 / S 1:
+
+| S | diffuse (base 0.5, sss colour 0) | walk (base 0, sss colour 0.5), face | walk, back ears |
+|---|---|---|---|
+| 0.10 | 1.000 | 0.010 | 0.005 |
+| 0.25 | 0.999 | 0.057 | 0.040 |
+| 0.50 | 0.999 | 0.231 | 0.192 |
+| 0.75 | 1.000 | 0.537 | 0.485 |
+
+The walk goes as S² (0.010 / 0.062 / 0.250 / 0.562). Through an ear it
+goes a little steeper (≈ S^2.3). With a black subsurface colour the base
+stays whole at any S. Both lobes at once (MODE "mix", 15 pairs) fit
+**(1 − S) · base + S² · walk** whenever the subsurface colour isn't black.
+In albedo units: (0.5, 0.5, S 0.5) 0.380 against 0.375, (0.25, 0.5, 0.75)
+0.338 / 0.344, (0.5, 0.25, 0.25) 0.383 / 0.383. The walk pays S going in
+and again coming out. That also explains #19's "at subsurface 0.5 Octane
+rendered 0.67 – 0.73 of the colour" (0.5 + 0.25).
+
+This is Iray's translucency: (1 − w) diffuse, and the volume behind the
+translucency layer, w · Tc in and w · Tc out. So S = w · Tc (one crossing),
+the walk's colour = the volume's part / S² (in the strongest channel
+exactly Iray's A(α), the others less by (Tc / Tc_max)²), the base = the
+diffuse part / (1 − S). S is a scalar, so take the strongest channel:
+max_c(w · Tc_c · mean Tc map_c). G8F 0.14 (Translucency Color 0.30 in red,
+map mean 0.58), Victoria 0.79 – 0.83, Zurie 0.15 – 0.23. No fitted number.
+
+## Step 3: the rule (x2, shipped)
+
+| | m0 (S 1, #83) | x2 |
+|---|---|---|
+| G8F front | 0.95 / 1.00 / 1.00 | 0.94 / 1.00 / 1.00 |
+| G8F HDRI | 1.05 / 1.05 / 1.11 | 1.04 / 1.05 / 1.11 |
+| G8F backlit ears | 2.21 / 1.61 / 1.30 | **0.86 / 1.00 / 1.01** |
+| Calib-Eye | 1.05 / 1.07 / 1.11 | 1.05 / 1.07 / 1.10 |
+| Calib-HDRI | 1.09 / 1.07 / 1.10 | 1.07 / 1.06 / 1.08 |
+| Angel front | 0.97 / 1.02 / 1.05 | 1.00 / 1.03 / 1.07 |
+| Gabriela front | 0.92 / 0.95 / 0.96 | 0.94 / 0.97 / 0.97 |
+| Kayo front | 0.98 / 1.09 / 1.15 | 0.94 / 1.03 / 1.03 |
+| Monique front | 1.16 / 1.24 / 1.44 | **0.97 / 1.00 / 1.07** |
+| Nishi front | 0.92 / 0.97 / 0.95 | 0.94 / 0.98 / 0.95 |
+| Nishi HDRI | 1.03 / 1.03 / 1.08 (#83) | 1.06 / 1.03 / 1.08 |
+| Twosret front | 1.03 / 1.11 / 1.30 | **0.91 / 0.95 / 1.06** |
+| Victoria front | 0.91 / 0.98 / 1.00 | 0.93 / 0.98 / 0.97 |
+| Zurie front | 1.00 / 1.00 / 0.99 | 0.94 / 0.97 / 0.97 |
+
+| backlit ears | m0 | x2 |
+|---|---|---|
+| Angel | 0.93 / 0.68 / 0.29 | 0.61 / 0.88 / 0.67 |
+| Gabriela | 1.03 / 0.49 / 0.00 | 0.53 / 0.79 / 0.51 |
+| Kayo | 0.58 / 0.39 / 0.47 | 0.40 / 0.60 / 0.76 |
+| Monique | 0.92 / 0.29 / 0.27 | 0.38 / 0.61 / 0.50 |
+| Nishi | 0.93 / 0.48 / 0.46 | 0.83 / 0.78 / 0.53 |
+| Twosret | 0.64 / 0.35 / 0.43 | 0.32 / 0.86 / 0.57 |
+| Victoria | 0.62 / 0.51 / 0.20 | 0.54 / 0.64 / 0.31 |
+| Zurie | 1.00 / 0.77 / 0.87 | 0.73 / 0.88 / 0.86 |
+
+- Every front within 0.91 – 1.07. The dark skins (Monique, Twosret) aren't
+  lifted any more: #19's "the walk brightens dark colours" was mostly S 1
+  sending the whole colour through a lobe that Iray only partly feeds.
+- The G8F ears are right; that is #86's case.
+- The eight chromatic figures' ears: G and B came closer to Iray, red came
+  down from 0.58 – 1.03 to 0.32 – 0.83. S 1 had them nearer by accident:
+  far too much walk, at a darker walk colour. Open in #86. Iray must pass
+  more red through a thin ear than (w · Tc)² · its volume. To split that,
+  Iray's back renders are needed at another w and with a white
+  translucency map (Iray batch: needs, in #86).
+- The `_skin_sss` maps don't clip (Victoria's red median 180 / 255 ≈ A
+  0.46), so the clamp isn't the cause.
+- Faithful is unchanged (S 0, the whole colour as a diffuse).
+
+## Process
+
+- Three variants and a decomposition (df) in one batch before deciding.
+  The front's drop said "the blend", not "the weight".
+- Probe first, then the rule: two probe runs (lobes alone, then pairs)
+  gave the model in ~30 min. No number came from fitting the figures.
+- `ORBIS_X86` env flags for the variants during the session, removed
+  before the commit (the cleaned build exports byte-identical to x2).

@@ -1676,10 +1676,11 @@ front 0.86 / 0.75 / 0.69 → 0.95 / 1.00 / 1.00, back 0.86 / 0.75 / 0.67 →
 1.00 / 1.00 / 1.00, HDRI 1.00 / 0.90 / 1.00 → 1.05 / 1.05 / 1.11; Calib-Eye 1.01 /
 0.94 / 1.07 → 1.05 / 1.07 / 1.11, Calib-HDRI 1.04 / 0.96 / 1.06 →
 1.09 / 1.07 / 1.10. `SKIN_HUE` had made environment light right and a lamp 25 – 30 %
-short in G / B; derived, both within ~10 %. Open (#86): its backlit ears
-red 2.29 × Iray (0.89 under the fit): all of the colour goes through the
-walk at the volume's long red mean free path, where Iray's subsurface part
-is a few percent.
+short in G / B; derived, both within ~10 %. Its backlit ears came out
+2.21 / 1.61 / 1.30 × Iray with all of the colour through the walk (0.89 /
+0.81 / 0.75 under the fit), 0.86 / 1.00 / 1.01 with the walk weighted as
+Iray's translucency (#86, the split below): Iray's volume on this skin
+sits behind w · Tc = 0.14 in red.
 - **`subsurfaceAnisotropy` 0**: SSS Direction is in the baked colour
   already (the volume's reduced albedo, `volume_albedo`); OpenPBR's walk
   reproduces the colour it is given as an albedo only without its own
@@ -1712,9 +1713,34 @@ on one body, Iray probes; see docs/notes/2026-10-28-skin-tones.md) and its
 SSS variants (#28, docs/notes/2026-10-30-sss-volume.md); the Genesis 8
 base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
 
+- **Split between the diffuse and the random walk as Iray splits it**
+  (#86, `skin_walk_weight`, docs/notes/2026-11-08-skin-walk-weight.md):
+  `subsurface` S = max over the channels of w · Tc (the translucency's
+  share, Base Color Effect's, × Translucency Color × its map's mean),
+  `subsurfaceColor` = the volume's part of the colour below / S²,
+  `baseColor` = the diffuse layer's part / (1 − S). Why: Octane's OpenPBR
+  doesn't blend linearly as OpenPBR's spec says — probe 68
+  (`octane-probe-sssweight.lua`, greys on Victoria's skin) renders (1 − S)
+  of the base and S² of the walk (S 0.25 / 0.5 / 0.75: 0.06 / 0.23 / 0.54
+  of the walk at 1, within 4 %; an ear's transmission alike), and the
+  whole base when the subsurface colour is black. That is Iray's
+  translucency, (1 − w) diffuse and the volume behind w · Tc in and out:
+  with S = w · Tc the walk's colour in the strongest channel is the
+  volume's own A(α), so it scatters (and passes an ear) as Iray's volume
+  does. All of the colour through the walk (S 1, #83) had the front lamp
+  at R 0.91 – 1.16, G 0.95 – 1.24, B 0.95 – 1.44 over the eight
+  Calib-Skin figures (Monique 1.16 / 1.24 / 1.44, Twosret 1.03 / 1.11 /
+  1.30 — the "dark skins lifted by the walk" of #19), split 0.91 – 1.00 /
+  0.95 – 1.03 / 0.95 – 1.07; G8F front 0.94 / 1.00 / 1.00, HDRI 1.04 /
+  1.05 / 1.11, Calib-Eye 1.05 / 1.07 / 1.10, Calib-HDRI 1.07 / 1.06 /
+  1.08; backlit ears R / G / B: G8F 2.21 / 1.61 / 1.30 → 0.86 / 1.00 /
+  1.01. Open (#86): the eight figures' backlit ears' red came down from
+  0.58 – 1.03 to 0.32 – 0.83 (G 0.29 – 0.77 → 0.60 – 0.88, B 0.00 – 0.87 → 0.31 – 0.86): Iray passes
+  more red through them than (w · Tc)² · its volume — needs Iray's back
+  renders at another w and a white translucency map.
 - **Colour, baked per texel** into one map for `baseColor` and
-  `subsurfaceColor` (`Textures::derived_skin`, `skin_albedo`): Faithful's
-  rule above, `a · D + b · Tc · Tc_low / (1 − k · D)`. Tc · Tc_low keeps
+  `subsurfaceColor` (`Textures::derived_skin`, `skin_albedo`; split
+  between them as above): Faithful's rule above, `a · D + b · Tc · Tc_low / (1 − k · D)`. Tc · Tc_low keeps
   the map's texture at its contrast (Tc² doubled it). With it (diffuse
   depth 64), front lamp: Angel 0.98 / 1.07 / 1.13, Victoria 0.89 / 0.97 /
   0.97, Kayo 0.95 / 1.18 / 1.30, Gabriela 0.90 / 1.02 / 1.03, Nishi 0.92 /
@@ -1773,12 +1799,13 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   within ~10 % (Zurie ~20 %). SSS Reflectance Tint did nothing on the
   figures (their Base Color Effect is hidden). The distances alone don't
   change α.
-- `subsurface` = the diffuse map's **detail mask**: D / D_low through a
-  smoothstep 0.35 → 0.70 (1 on skin, 0 on brows and liner). Why: the random
-  walk bled the skin's light under dark brows into blue-grey smudges;
-  Universal at w 0 kept them dark. Elsewhere all of the colour goes through
-  the random walk: at `subsurface` 0.5 Octane rendered 0.67 – 0.73 of the
-  colour whatever it was (Calib-SSS's spheres).
+- `subsurface` = S × the diffuse map's **detail mask** m: D / D_low
+  through a smoothstep 0.35 → 0.70 (1 on skin, 0 on brows and liner); the
+  base takes the volume's part the mask leaves, (diffuse + (1 − m²) ·
+  volume) / (1 − S · m). Why: the random walk bled the skin's light under
+  dark brows into blue-grey smudges; Universal at w 0 kept them dark.
+  (Calib-SSS's spheres at `subsurface` 0.5 rendering 0.67 – 0.73 of the
+  colour was the S² of the split above: 0.5 + 0.25.)
 - **Gloss** (`skin_gloss`): **roughness derived, `openpbr_roughness`** —
   Iray's lobes (and Top Coat) are `simple_glossy_bsdf`, a Phong microfacet
   lobe of exponent 2 / r² (r the MDL roughness, the slider squared), as
