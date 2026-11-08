@@ -2298,8 +2298,10 @@ impl Ocs<'_> {
                 let volume = b[c] / (1.0 - k[c]).max(1e-3);
                 match split {
                     None => a[c] + volume,
-                    Some(s) if sss => volume / (s * s),
-                    Some(s) => a[c] / (1.0 - s),
+                    Some(s) if sss => volume / (s * s).max(1e-6),
+                    // S 1 (w · Tc 1) leaves no diffuse layer: a is 0 there,
+                    // and 0 / 0 wrote NaN (Calib-SSSThick).
+                    Some(s) => a[c] / (1.0 - s).max(1e-4),
                 }
             })
         };
@@ -4251,6 +4253,23 @@ const METAL_TRANSLUCENCY_LOSS: f32 = 0.35;
 /// Metallic Weight below this (without a map) is left out: see `universal`.
 const NEGLIGIBLE_METALLIC: f32 = 0.05;
 
+/// How much longer OpenPBR's subsurface radius must be than Iray's mean
+/// free path for Octane's random walk to pass light through a slab as
+/// Iray's volume does (see [`sss_radius`]).
+///
+/// Measured, not derived (#86): Calib-SSSThick's backlit slabs of one
+/// volume, 1 – 15 mm, Iray against Octane at the radius × 0.5 / 1 / 2.
+/// Iray's red falls off as e^(−d / 4.69 mm) — diffusion theory for the σ
+/// we compute says 4.4 mm, so Iray's volume is that medium — Octane's at
+/// the mean free path as e^(−d / 3.38 mm), and its decay length goes about
+/// as the radius^0.8. The radius that gives Iray's is × 1.52, the same for
+/// a second volume of another albedo (SSS Color grey: A 0.81 for 0.46;
+/// 1.05 mm for Octane's 0.81). The manual says only "the distance light
+/// can scatter below the surface". Reflectance barely depends on it: every
+/// Calib-Skin front, Calib-Eye and Calib-HDRI moved < 1 %; the backlit
+/// ears' red 0.32 – 0.86 → 0.45 – 1.27 × Iray.
+const OCTANE_WALK_RADIUS: f32 = 1.52;
+
 /// OpenPBR's subsurface radius: the mean free path 1 / (σa + σs) of Iray's
 /// volume per channel (DAZ's MDL, `add_uber_volume`: σa = −ln Transmitted
 /// Color / its distance, σs = −ln SSS Color — or SSS Amount — / its
@@ -4260,6 +4279,8 @@ const NEGLIGIBLE_METALLIC: f32 = 0.05;
 /// too short, green and blue too long (Victoria 1.09 / 0.46 / 0.42 mm for
 /// Iray's 2.56 / 0.15 / 0.17) — backlit ears 0.21 – 0.51 × Iray's red,
 /// with it 0.58 – 1.07, glowing red like Iray's.
+/// × [`OCTANE_WALK_RADIUS`]: Octane's walk at radius r is a denser medium
+/// than one of mean free path r.
 fn sss_radius(mat: &Material) -> ([f32; 3], f32) {
     let linear = |c: [f32; 3]| c.map(colour_to_linear);
     let extinction = |c: f32| -c.clamp(1e-4, 0.9999).ln();
@@ -4277,7 +4298,7 @@ fn sss_radius(mat: &Material) -> ([f32; 3], f32) {
         0.01 / (sigma_a + sigma_s).max(1e-3)
     });
     let max = mfp.iter().copied().fold(1e-6f32, f32::max);
-    (mfp.map(|l| l / max), max.clamp(0.0001, 0.05))
+    (mfp.map(|l| l / max), (max * OCTANE_WALK_RADIUS).clamp(0.0001, 0.05))
 }
 
 /// A DAZ light as Octane sees it: Octane turns each UsdLux light into an
@@ -5580,7 +5601,7 @@ mod tests {
         // Transmitted Color (0.706, 0.557, 0.467) is sRGB: linear 0.456, 0.271, 0.184.
         // The mean free path 1 / (σa + σs), red the longest.
         let lin = colour_to_linear(0.7058824);
-        let want = (0.01 / (-lin.ln() / 10.0 - colour_to_linear(SKIN_SSS_COLOR[0]).ln() / 0.5)).min(0.05);
+        let want = (0.01 / (-lin.ln() / 10.0 - colour_to_linear(SKIN_SSS_COLOR[0]).ln() / 0.5) * OCTANE_WALK_RADIUS).min(0.05);
         assert!((scale - want).abs() < 1e-4 * want.max(1.0), "red mean free path {want}: {scale}");
         assert!(radius[0] == 1.0 && radius[1] < 0.2 && radius[2] < 0.2, "red the longest: {radius:?}");
         let lashes = mat(json!([

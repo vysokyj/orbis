@@ -1703,6 +1703,18 @@ the only Calib-Skin figure with one): front 0.96 / 1.04 / 1.07 → 0.92 /
   Iray → 0.58 – 1.07, glowing red like Iray's (G / B 0.26 – 0.78: Iray's
   ears pass more of them); no fireflies at 256 samples. Front skin within
   ±0.06 but the dark ones' red (Monique 1.09 → 1.19, HDRI 1.12 → 1.27).
+- The distance × **1.52** (`OCTANE_WALK_RADIUS`, measured, #86): Octane's
+  walk at radius r is a denser medium than one of mean free path r.
+  Calib-SSSThick (backlit slabs 1 – 15 mm of one volume, w 1, white Tc):
+  Iray's red decays over 4.69 mm (diffusion theory for our σ: 4.4 mm —
+  Iray's volume is that medium), Octane's at the mean free path over 3.38
+  mm, about as radius^0.8; × 1.52 matches, the same for a volume of
+  another albedo (A 0.81 for 0.46). The manual doesn't define the radius
+  beyond "the distance light can scatter below the surface". Fronts,
+  Calib-Eye, Calib-HDRI moved < 1 %; backlit ears' red 0.32 – 0.86 →
+  0.45 – 1.27 × Iray (G8F 0.86 → 1.00; Kayo, Monique, Twosret still 0.45 –
+  0.66, Nishi 1.27: open in #86). Also: at S 1 (w · Tc 1) the base colour
+  fallback was 0 / 0 (NaN); now 0.
 
 **Enhanced** (`SkinShader::OpenPbr`, see Look; #19): OpenPBR Surface (505;
 its `radius` is the distance and `scale` the per-channel colour — the other

@@ -237,3 +237,44 @@ Also: Calib-SSSThick-B-ev10 (EV 10.1) rendered pixel for pixel as B (EV
 12.1), in Iray and in the Octane export — the Exposure Value written on
 the Tonemapper Options' library node reaches neither; harmless here (one
 exposure for both renderers).
+
+## Step 7: the slabs with the export's own skin material; radius × 1.52
+
+Probe 71's fresh node aside: the slabs exported through the skin path (a
+temporary flag let the props through) gave first a NaN base colour — at
+S 1 the base fallback was a / (1 − S) = 0 / 0; fixed — then, with probe
+70's radius × 0.5 / 1 / 2, red with the floor's 0.004 off:
+
+| slab | 1 mm | 2 | 3 | 5 | 9 | 15 | decay length |
+|---|---|---|---|---|---|---|---|
+| Iray | 0.726 | 0.556 | 0.438 | 0.276 | 0.118 | 0.036 | 4.69 mm |
+| Octane × 0.5 | 0.550 | 0.268 | 0.141 | 0.044 | 0.007 | 0.003 | 1.59 |
+| Octane × 1 | 0.832 | 0.550 | 0.380 | 0.194 | 0.056 | 0.013 | 3.38 |
+| Octane × 2 | 0.996 | 0.824 | 0.669 | 0.455 | 0.229 | 0.090 | 5.82 |
+
+Grey volume (A 0.81), 1 / 3 mm: Iray 0.186 / 0.028 (1.05 mm), Octane × 1
+0.144 / 0.012 (0.81 mm), × 2 0.335 / 0.068 (1.25 mm). The radius that
+gives Iray's decay: × 1.52 on both (log-interpolated between × 1 and × 2).
+Iray matches diffusion theory for our σ (4.4 mm); Octane's walk at the
+mean free path is the denser medium. A measured Octane property, like
+probe 68's S²: `OCTANE_WALK_RADIUS` 1.52.
+
+Calib-Skin at × 1.52 (Octane / Iray, red / green / blue):
+
+| backlit ears | x2 (step 3) | × 1.52 |
+|---|---|---|
+| Angel | 0.61 / 0.88 / 0.67 | 0.96 / 1.26 / 0.37 |
+| G8F (Base) | 0.86 / 1.00 / 1.01 | 1.00 / 1.00 / 1.10 |
+| Gabriela | 0.53 / 0.79 / 0.51 | 0.86 / 1.00 / 0.28 |
+| Kayo | 0.40 / 0.60 / 0.76 | 0.66 / 0.68 / 0.47 |
+| Monique | 0.38 / 0.61 / 0.50 | 0.66 / 0.62 / 0.27 |
+| Nishi | 0.83 / 0.78 / 0.53 | 1.27 / 1.04 / 0.18 |
+| Twosret | 0.32 / 0.86 / 0.57 | 0.45 / 0.86 / 0.43 |
+| Victoria | 0.54 / 0.64 / 0.31 | 0.88 / 1.00 / 0.01 |
+| Zurie | 0.73 / 0.88 / 0.86 | 0.89 / 0.94 / 0.86 |
+
+Fronts, Calib-Eye (1.05 / 1.07 / 1.10) and Calib-HDRI (1.07 / 1.06 /
+1.08) unchanged within 1 %. Red: five of nine within ±15 %; Kayo, Monique,
+Twosret (the darker store skins) 0.45 – 0.66, Nishi (g −0.5) 1.27. Blue in
+the ears is a few thousandths in both renderers (Victoria's 0.01 is noise
+on ~0.002). Open in #86: what is left on the darker skins.
