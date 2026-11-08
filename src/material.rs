@@ -368,8 +368,12 @@ impl Textures {
         let (w, h) = d_img.as_ref().or(tc_img.as_ref()).map(|i| i.dimensions())?;
         let tc_img = tc_img.map(|i| if i.dimensions() == (w, h) { i } else { image::imageops::resize(&i, w, h, image::imageops::FilterType::Triangle) });
         let (decode, enc) = (crate::bake::decode_lut(), crate::bake::Encoder::srgb());
+        // The low-pass of the texels on the UV islands only: a flat white
+        // (or black) padding around them, filled with the islands' mean
+        // first, else it bleeds into their edges (see `fill_padding`).
         let low = |i: &image::RgbImage| {
-            let small = image::imageops::resize(i, 32, 32, image::imageops::FilterType::Triangle);
+            let filled = fill_padding(i);
+            let small = image::imageops::resize(filled.as_ref().unwrap_or(i), 32, 32, image::imageops::FilterType::Triangle);
             image::imageops::resize(&small, w, h, image::imageops::FilterType::Triangle)
         };
         let (d_low, tc_low) = std::thread::scope(|s| {
@@ -456,6 +460,46 @@ impl Textures {
         let detail = detail.and_then(|img| store(&img, "skin_detail", format!("{key}#detail")));
         Some(SkinBake { colour, subsurface, detail })
     }
+}
+
+/// The flat colour a texture map pads its UV islands with: all four
+/// corners the same (within 2) pure white or black, else none.
+fn padding_colour(i: &image::RgbImage) -> Option<[u8; 3]> {
+    let (w, h) = i.dimensions();
+    if w < 2 || h < 2 {
+        return None;
+    }
+    let corners = [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)].map(|(x, y)| i.get_pixel(x, y).0);
+    let c = corners[0];
+    let same = corners.iter().all(|p| (0..3).all(|k| p[k].abs_diff(c[k]) <= 2));
+    let flat = c.iter().all(|&v| v >= 250) || c.iter().all(|&v| v <= 5);
+    (same && flat).then_some(c)
+}
+
+/// The map with its padding (`padding_colour`) replaced by the islands'
+/// mean, for a low-pass that stays on the islands; `None` without padding.
+///
+/// Why (#86): Monique 8's face map pads its islands with white; the
+/// skin's detail mask (D / D_low) read the white blurred into the ears'
+/// small islands as dark detail and took their rims out of the random
+/// walk — her backlit ears 0.66 × Iray's red where the same body, volume
+/// and Translucency Color passed 1.07 on Victoria (dilated padding). The
+/// mask off: 0.99 – 1.06 on all three.
+fn fill_padding(i: &image::RgbImage) -> Option<image::RgbImage> {
+    let pad = padding_colour(i)?;
+    let is_pad = |p: &[u8; 3]| (0..3).all(|k| p[k].abs_diff(pad[k]) <= 2);
+    let (mut sum, mut n) = ([0u64; 3], 0u64);
+    for p in i.pixels().filter(|p| !is_pad(&p.0)) {
+        (0..3).for_each(|k| sum[k] += p[k] as u64);
+        n += 1;
+    }
+    if n == 0 {
+        return None;
+    }
+    let mean = sum.map(|s| (s / n) as u8);
+    let mut out = i.clone();
+    out.pixels_mut().filter(|p| is_pad(&p.0)).for_each(|p| p.0 = mean);
+    Some(out)
 }
 
 /// A baked skin (`Textures::derived_skin`): its colour — all of it, or with
@@ -5943,6 +5987,21 @@ mod tests {
         let (avg, top) = (lin.iter().sum::<f32>() / 3.0, max_channel(lin));
         assert!((e1 / e0 - avg / top).abs() < 1e-3, "{e0} {e1}");
         assert!((e2 / e0 - 1.0).abs() < 1e-3, "{e0} {e2}");
+    }
+
+    #[test]
+    fn a_flat_padding_is_filled_with_the_islands_mean() {
+        // White around a 2 × 2 island of 100 / 50 / 20: the padding becomes
+        // the island's mean, the island stays; a map without a flat
+        // padding (a corner off) is left alone.
+        let mut i = image::RgbImage::from_pixel(4, 4, image::Rgb([255, 255, 255]));
+        for (x, y) in [(1, 1), (2, 1), (1, 2), (2, 2)] {
+            i.put_pixel(x, y, image::Rgb([100, 50, 20]));
+        }
+        let f = fill_padding(&i).expect("white padding");
+        assert!(f.pixels().all(|p| p.0 == [100, 50, 20]), "{f:?}");
+        i.put_pixel(0, 0, image::Rgb([120, 60, 30]));
+        assert!(fill_padding(&i).is_none());
     }
 
     #[test]

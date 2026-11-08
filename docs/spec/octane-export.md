@@ -1818,6 +1818,17 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   dark brows into blue-grey smudges; Universal at w 0 kept them dark.
   (Calib-SSS's spheres at `subsurface` 0.5 rendering 0.67 – 0.73 of the
   colour was the S² of the split above: 0.5 + 0.25.)
+- The low-pass (D_low, Tc_low) stays on the **UV islands**
+  (`fill_padding`, #86): a map whose padding is a flat white or black
+  (four equal corners) gets it replaced by the islands' mean before the
+  32 px blur. Why: Monique 8's and Kayo 8's face maps pad with white; the
+  blur pulled it into the ears' small islands, the mask read their rims
+  as dark detail and took them out of the walk — backlit ears 0.66 ×
+  Iray's red where the same body, volume and white Tc gave Victoria 1.07.
+  Now 1.02 / 1.10; fronts unchanged. Not done: the walk's weight per texel
+  (w · Tc of the texel) — the walk enters at one texel and leaves at
+  another, so a varying S passes mean(S_in · S_out) < mean(S²): Monique's
+  front 0.97 / 1.00 / 1.08 → 0.89 / 0.83 / 0.93. S stays one per material.
 - **Gloss** (`skin_gloss`): **roughness derived, `openpbr_roughness`** —
   Iray's lobes (and Top Coat) are `simple_glossy_bsdf`, a Phong microfacet
   lobe of exponent 2 / r² (r the MDL roughness, the slider squared), as

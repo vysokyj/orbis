@@ -278,3 +278,43 @@ Fronts, Calib-Eye (1.05 / 1.07 / 1.10) and Calib-HDRI (1.07 / 1.06 /
 Twosret (the darker store skins) 0.45 – 0.66, Nishi (g −0.5) 1.27. Blue in
 the ears is a few thousandths in both renderers (Victoria's 0.01 is noise
 on ~0.002). Open in #86: what is left on the darker skins.
+
+## Step 8: the darker skins — the detail mask and the UV padding
+
+At × 1.52 the tcwhite variants (same body, volume, w 0.9, white Tc):
+Octane / Iray ears red Victoria 1.07, Kayo 0.72, Monique 0.66 — only the
+diffuse map differs. With the detail mask off (a temporary flag): 1.03 /
+1.06 / 0.99. The mask (D / D_low, smoothstep 0.35 → 0.70) on Monique's
+face map: black bands along every UV island's edge — her map pads the
+islands with white (255), the 32 px low-pass carries it inside, D / D_low
+drops below 0.35. The ears are small islands, their rims (the thin part
+that passes light) out of the walk. Victoria's map has a dilated padding.
+
+Fix: `fill_padding` — a flat white / black padding (four equal corners)
+replaced by the islands' mean before the low-pass.
+
+Tried and left out:
+- excluding the padding from the maps' covered means (d_mean, tc_mean):
+  a lower tc_mean → a lower S → Monique's front 0.89 / 0.83 / 0.94;
+- the walk's weight per texel (S = w · Tc of the texel, the walk's colour
+  then exactly A(α)): the same drop, 0.89 / 0.83 / 0.93. The walk enters
+  at one texel and leaves at another: a varying S passes mean(S_in ·
+  S_out) < mean(S²). One S per material holds.
+
+Final (fill only), Octane / Iray:
+
+| | ears (back) | front |
+|---|---|---|
+| Angel | 0.97 / 1.25 / 0.46 | 1.01 / 1.02 / 1.07 |
+| G8F | 0.96 / 1.07 / 1.10 | 0.94 / 1.00 / 1.00 |
+| Gabriela | 1.00 / 1.08 / 0.20 | 0.94 / 0.97 / 0.97 |
+| Kayo | 1.10 / 0.68 / 0.14 | 0.95 / 1.00 / 1.00 |
+| Monique | 1.02 / 0.62 / 0.04 | 1.00 / 0.96 / 1.07 |
+| Nishi | 1.27 / 1.00 / 0.23 | 0.95 / 0.98 / 0.98 |
+| Twosret | 0.47 / 0.86 / 0.43 | 0.93 / 0.96 / 1.06 |
+| Victoria | 0.90 / 0.94 / 0.05 | 0.94 / 0.96 / 0.98 |
+| Zurie | 0.89 / 0.94 / 0.83 | 0.93 / 0.97 / 0.97 |
+
+Calib-Eye 1.05 / 1.07 / 1.10, Calib-HDRI 1.07 / 1.06 / 1.08. Red in the
+ears within ±15 % on seven of nine (G / B there are thousandths, noise).
+Open: Twosret 0.47, Nishi 1.27 (the only g ≠ 0 skin).
