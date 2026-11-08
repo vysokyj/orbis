@@ -463,7 +463,9 @@ impl Textures {
 }
 
 /// The flat colour a texture map pads its UV islands with: all four
-/// corners the same (within 2) pure white or black, else none.
+/// corners the same (within 2), else none. Any colour: white (Monique 8),
+/// a light grey (Twosret 8, 238), a skin tone (Clara 8.1's make-up maps);
+/// an island never reaches all four corners of a figure's map.
 fn padding_colour(i: &image::RgbImage) -> Option<[u8; 3]> {
     let (w, h) = i.dimensions();
     if w < 2 || h < 2 {
@@ -471,9 +473,7 @@ fn padding_colour(i: &image::RgbImage) -> Option<[u8; 3]> {
     }
     let corners = [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)].map(|(x, y)| i.get_pixel(x, y).0);
     let c = corners[0];
-    let same = corners.iter().all(|p| (0..3).all(|k| p[k].abs_diff(c[k]) <= 2));
-    let flat = c.iter().all(|&v| v >= 250) || c.iter().all(|&v| v <= 5);
-    (same && flat).then_some(c)
+    corners.iter().all(|p| (0..3).all(|k| p[k].abs_diff(c[k]) <= 2)).then_some(c)
 }
 
 /// The map with its padding (`padding_colour`) replaced by the islands'
@@ -485,6 +485,8 @@ fn padding_colour(i: &image::RgbImage) -> Option<[u8; 3]> {
 /// walk — her backlit ears 0.66 × Iray's red where the same body, volume
 /// and Translucency Color passed 1.07 on Victoria (dilated padding). The
 /// mask off: 0.99 – 1.06 on all three.
+/// Twosret 8 pads with a flat grey 238: the same rims, her ears 0.44 ×
+/// Iray's red while only white or black counted as padding, 1.11 since (#88).
 fn fill_padding(i: &image::RgbImage) -> Option<image::RgbImage> {
     let pad = padding_colour(i)?;
     let is_pad = |p: &[u8; 3]| (0..3).all(|k| p[k].abs_diff(pad[k]) <= 2);
@@ -6002,6 +6004,10 @@ mod tests {
         assert!(f.pixels().all(|p| p.0 == [100, 50, 20]), "{f:?}");
         i.put_pixel(0, 0, image::Rgb([120, 60, 30]));
         assert!(fill_padding(&i).is_none());
+        // A grey padding (Twosret 8's 238) is a padding too.
+        let mut g = image::RgbImage::from_pixel(4, 4, image::Rgb([238, 238, 238]));
+        g.put_pixel(1, 1, image::Rgb([100, 50, 20]));
+        assert!(fill_padding(&g).expect("grey padding").pixels().all(|p| p.0 == [100, 50, 20]));
     }
 
     #[test]

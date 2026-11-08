@@ -1800,6 +1800,13 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   grey subsurface colour under 0.07 renders brighter than its value (0.01 →
   0.020, 0.02 → 0.028, 0.04 → 0.044 at any depth and radius), and they are
   1.04 / 1.24 / 1.34 already as a plain diffuse (Faithful).
+  Since the walk's weight S (#86) the dark skins sit with the light ones
+  (#84): front Monique 1.00 / 1.00 / 1.07, Twosret 0.94 / 0.96 / 1.00,
+  Kayo 0.93 / 1.00 / 1.00, Gabriela 0.94 / 0.96 / 0.96; HDRI over the grey
+  sphere (the environment itself 1.04 – 1.07) 1.03 / 0.94 / 1.12, 0.99 /
+  0.94 / 1.09, 1.02 / 0.98 / 1.06, 1.02 / 0.90 / 1.01 (Calib-HDRI's G8F
+  skin 1.07 / 1.06 / 1.08). The excess was the walk at S 1; at S² ≈ 0.2
+  its +0.01 floor is a few thousandths. No compensation.
 - The **volume factor** (`volume_factor`, props' translucency only since
   #19): (Rd(α) / Rd(α₀))^0.5 per channel, Rd Jensen's diffusion reflectance
   (dipole, η 1.4) at the volume's reduced single-scattering albedo α =
@@ -1819,13 +1826,14 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   (Calib-SSS's spheres at `subsurface` 0.5 rendering 0.67 – 0.73 of the
   colour was the S² of the split above: 0.5 + 0.25.)
 - The low-pass (D_low, Tc_low) stays on the **UV islands**
-  (`fill_padding`, #86): a map whose padding is a flat white or black
-  (four equal corners) gets it replaced by the islands' mean before the
-  32 px blur. Why: Monique 8's and Kayo 8's face maps pad with white; the
-  blur pulled it into the ears' small islands, the mask read their rims
-  as dark detail and took them out of the walk — backlit ears 0.66 ×
-  Iray's red where the same body, volume and white Tc gave Victoria 1.07.
-  Now 1.02 / 1.10; fronts unchanged. Not done: the walk's weight per texel
+  (`fill_padding`, #86): a map whose padding is a flat colour (four
+  equal corners, any colour) gets it replaced by the islands' mean before
+  the 32 px blur. Why: Monique 8's and Kayo 8's face maps pad with white,
+  Twosret 8's with a grey 238; the blur pulled it into the ears' small
+  islands, the mask read their rims as dark detail and took them out of
+  the walk — backlit ears 0.66 / 0.66 / 0.44 × Iray's red where the same
+  body, volume and white Tc gave Victoria 1.07. Now 1.02 / 1.10 / 1.11;
+  fronts unchanged. Not done: the walk's weight per texel
   (w · Tc of the texel) — the walk enters at one texel and leaves at
   another, so a varying S passes mean(S_in · S_out) < mean(S²): Monique's
   front 0.97 / 1.00 / 1.08 → 0.89 / 0.83 / 0.93. S stays one per material.
