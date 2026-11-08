@@ -223,6 +223,46 @@ impl Textures {
 }
 
 impl Textures {
+    /// A packaged asset's pixels: its file, or the image the export made.
+    fn load(&self, asset: &str) -> Option<image::DynamicImage> {
+        if let Some((_, file)) = self.files.iter().find(|(a, _)| a == asset) {
+            return image::open(file).map_err(|e| tracing::warn!(file = %file.display(), error = %e, "Octane export: map unreadable")).ok();
+        }
+        image::load_from_memory(&self.generated.iter().find(|(a, _)| a == asset)?.1).ok()
+    }
+
+    /// Iray Uber's surface detail baked into one tangent-space normal map
+    /// (`detail_normal`, #85): `base` with `detail` blended onto it, each a
+    /// height map at its `file_bump_texture` factor or a normal map (None).
+    fn detail_normal(&mut self, base: (&str, Option<f32>), detail: Option<(&str, Option<f32>)>) -> Option<String> {
+        let tag = |(a, f): (&str, Option<f32>)| f.map_or(format!("n:{a}"), |f| format!("h{f}:{a}"));
+        let key = format!("detail-normal|{}|{}", tag(base), detail.map(tag).unwrap_or_default());
+        if let Some(a) = self.by_source.get(&key) {
+            return Some(a.clone());
+        }
+        let bi = self.load(base.0)?;
+        let di = match detail {
+            Some((a, _)) => Some(self.load(a)?),
+            None => None,
+        };
+        fn src(img: &image::DynamicImage, f: Option<f32>) -> crate::detail_normal::Source<'_> {
+            match f {
+                Some(factor) => crate::detail_normal::Source::Height { image: img, factor },
+                None => crate::detail_normal::Source::Normal { image: img },
+            }
+        }
+        let bs = src(&bi, base.1);
+        let ds = di.as_ref().zip(detail).map(|(img, (_, f))| src(img, f));
+        let out = crate::detail_normal::bake(&bs, ds.as_ref());
+        let mut png = Vec::new();
+        out.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+        let stem = Path::new(detail.map_or(base.0, |d| d.0)).file_stem().and_then(|n| n.to_str()).unwrap_or("map");
+        let asset = format!("assets/tex/{:04}_{stem}_n.png", self.files.len() + self.generated.len());
+        self.generated.push((asset.clone(), png));
+        self.by_source.insert(key, asset.clone());
+        Some(asset)
+    }
+
     /// Two colour maps mixed per pixel, `wa` · a + `wb` · b in linear light,
     /// written sRGB-encoded (gamma 2.2) at `a`'s size.
     fn blend(&mut self, dirs: &[PathBuf], a: &str, b: &str, wa: f32, wb: f32) -> Option<String> {
@@ -1165,10 +1205,7 @@ impl Ocs<'_> {
         let aniso = Anisotropy::glossy(mat);
         self.aniso_brdf_pin(j + 1, aniso.saturates(rough));
         self.gloss_roughness_pins(j + 1, mat, rough_ch, rough, RoughCurve::Ggx, aniso);
-        if let Some((asset, m)) = self.channel_map(mat, "Normal Map") {
-            self.with_map(m.placement(), |w| w.image_pin(j + 1, "normal", &asset, false, 1.0, 1.0));
-        }
-        self.base_bump_pin(j + 1, mat, "bump");
+        self.base_detail_pins(j + 1, mat, "normal", "bump");
         self.round_edges_pin(j + 1, mat);
         // Iray's top coat lies over both parts: on the base alone a dark
         // weighted surface under a 0.8 coat lost half its sheen (Calib-Mixing
@@ -1660,6 +1697,37 @@ impl Ocs<'_> {
     /// texture at ½ of both at twice the power: Iray's B7 shows both).
     fn coat_bump_pins(&mut self, i: usize, mat: &Material, bump_pin: &str, normal_pin: &str) {
         // Bump and normal maps take only their placement (#77).
+        let coat = self.channel_map(mat, "Top Coat Bump").map(|(a, m)| (a, m.placement()));
+        let coat_normal = mat.float("Top Coat Bump Mode").unwrap_or(0.0) as i32 == 1;
+        let layer = coat.and_then(|(a, m)| {
+            if coat_normal {
+                Some((a, None, m))
+            } else {
+                let f = mat.float("Top Coat Bump").unwrap_or(1.0);
+                (f > 0.0).then_some((a, Some(f), m))
+            }
+        });
+        let base = match self.channel_map(mat, "Normal Map") {
+            Some((a, m)) => Some((a, None, m.placement())),
+            None => self.base_bump(mat).map(|(a, f, m)| (a, Some(f), m)),
+        };
+        let baked = match (&layer, &base) {
+            (None, Some(_)) => return self.base_detail_pins(i, mat, normal_pin, bump_pin),
+            (None, None) => return,
+            (Some((l, lf, lm)), Some((b, bf, bm))) if lm == bm => self.textures.detail_normal((b, *bf), Some((l, *lf))).map(|a| (a, *lm)),
+            (Some((l, lf @ Some(_), lm)), None) => self.textures.detail_normal((l, *lf), None).map(|a| (a, *lm)),
+            _ => None,
+        };
+        match baked {
+            Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, normal_pin, &asset, false, 1.0, 1.0)),
+            None => self.coat_bump_pins_octane(i, mat, bump_pin, normal_pin),
+        }
+    }
+
+    /// The Top Coat's surface detail on Octane's own `bump` / `normal` pins:
+    /// what `coat_bump_pins` falls back to when the maps can't be baked
+    /// into one normal map (different placements, an unreadable map).
+    fn coat_bump_pins_octane(&mut self, i: usize, mat: &Material, bump_pin: &str, normal_pin: &str) {
         let asset = |s: &mut Self, id: &str| s.channel_map(mat, id).map(|(a, m)| (a, m.placement()));
         let coat = asset(self, "Top Coat Bump");
         let coat_normal = mat.float("Top Coat Bump Mode").unwrap_or(0.0) as i32 == 1;
@@ -1709,12 +1777,34 @@ impl Ocs<'_> {
         self.channel_map(mat, "Bump Strength").map(|(a, m)| (a, f, m.placement()))
     }
 
-    /// The base's height map on `pin` at `bump_power` of Bump Strength.
-    fn base_bump_pin(&mut self, i: usize, mat: &Material, pin: &str) {
-        if let Some((a, f, m)) = self.base_bump(mat) {
+    /// Iray Uber's base surface detail (#85): the Normal Map and the Bump
+    /// Strength height map baked into one normal map on `normal_pin`
+    /// (`Textures::detail_normal`): the normal map DAZ's base bump, the
+    /// height map its detail bump blended onto it (`add_detail_normal`), a
+    /// height map alone the base. Maps of different placements, or one that
+    /// can't be read, go in as Octane's own: the normal map on
+    /// `normal_pin`, the height map on `bump_pin` at `bump_power`.
+    fn base_detail_pins(&mut self, i: usize, mat: &Material, normal_pin: &str, bump_pin: &str) {
+        let nm = self.channel_map(mat, "Normal Map").map(|(a, m)| (a, m.placement()));
+        let bump = self.base_bump(mat);
+        if let Some((b, f, bm)) = &bump {
+            if nm.as_ref().map_or(true, |(_, m)| m == bm) {
+                let baked = match &nm {
+                    Some((a, _)) => self.textures.detail_normal((a, None), Some((b, Some(*f)))),
+                    None => self.textures.detail_normal((b, Some(*f)), None),
+                };
+                if let Some(asset) = baked {
+                    return self.with_map(*bm, |w| w.image_pin(i, normal_pin, &asset, false, 1.0, 1.0));
+                }
+            }
+        }
+        if let Some((a, m)) = nm {
+            self.with_map(m, |w| w.image_pin(i, normal_pin, &a, false, 1.0, 1.0));
+        }
+        if let Some((a, f, m)) = bump {
             self.with_map(m, |w| {
                 let p = w.bump_power(&a, f);
-                w.image_pin(i, pin, &a, true, 1.0, p);
+                w.image_pin(i, bump_pin, &a, true, 1.0, p);
             });
         }
     }
@@ -2394,10 +2484,7 @@ impl Ocs<'_> {
         // with g (−0.65 → 0: 0.99 / 1.00 / 1.00; #83).
         self.value_pin(i, "subsurfaceAnisotropy", 6, 9, "0 0 0 0");
 
-        if let Some((asset, m)) = self.channel_map(mat, "Normal Map") {
-            self.with_map(m.placement(), |w| w.image_pin(i, "normal", &asset, false, 1.0, 1.0));
-        }
-        self.base_bump_pin(i, mat, "bump");
+        self.base_detail_pins(i, mat, "normal", "bump");
         self.round_edges_pin(i, mat);
         self.displacement_pin(i, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
@@ -3020,10 +3107,7 @@ impl Ocs<'_> {
         }
 
         // Surface detail.
-        if let Some((asset, m)) = self.channel_map(mat, "Normal Map") {
-            self.with_map(m.placement(), |w| w.image_pin(i, "normal", &asset, false, 1.0, 1.0));
-        }
-        self.base_bump_pin(i, mat, "bump");
+        self.base_detail_pins(i, mat, "normal", "bump");
         self.round_edges_pin(i, mat);
         // In a weighted mix the mix material carries it.
         if !self.in_mix && !self.in_coat_mix {
@@ -5144,9 +5228,39 @@ mod tests {
         // Glossy weight: the red channel's copy, the material's tiles only.
         let specular = pin("specular");
         assert!(specular.contains("_red.png") && specular.contains("<attr name='scale' type='8'>0.333333 1 1</attr>") && !specular.contains("type='38'"), "{specular}");
-        // Bump: no value range, its own vertical tiles.
-        let bump = pin("bump");
-        assert!(!bump.contains("type='38'") && bump.contains("<attr name='scale' type='8'>0.333333 0.25 1</attr>"), "{bump}");
+        // Bump: baked into a normal map (#85), no value range, its own
+        // vertical tiles.
+        let normal = pin("normal");
+        assert!(normal.contains("_n.png") && !normal.contains("type='38'") && normal.contains("<attr name='scale' type='8'>0.333333 0.25 1</attr>"), "{normal}");
+        assert!(!x.contains("<pin name='bump'>"), "{x}");
+    }
+
+    /// Iray's height map goes in as a normal map baked from it (#85): MDL's
+    /// slope, the normal map (if any) as the base it is blended onto.
+    #[test]
+    fn height_map_bakes_into_the_normal_map() {
+        let dir = tempfile::tempdir().unwrap();
+        // A ramp along u, 0.01 a texel; a flat normal map.
+        image::GrayImage::from_fn(64, 8, |x, _| image::Luma([(50 + x) as u8])).save(dir.path().join("h.png")).unwrap();
+        image::RgbImage::from_pixel(64, 8, image::Rgb([128, 128, 255])).save(dir.path().join("n.png")).unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        for with_normal in [false, true] {
+            let mut ch = vec![json!({"channel": {"id": "Bump Strength", "current_value": 2.0, "image_file": "/h.png"}})];
+            if with_normal {
+                ch.push(json!({"channel": {"id": "Normal Map", "current_value": 1, "image_file": "/n.png"}}));
+            }
+            let (x, textures) = material_inputs(&[("M".into(), mat(serde_json::Value::Array(ch)), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+            assert!(!x.contains("<pin name='bump'>"), "{x}");
+            let n = &x[x.find("<pin name='normal'>").expect(&x)..];
+            let asset = n[n.find("type='11'>").unwrap() + 10..].split('<').next().unwrap().to_string();
+            assert!(asset.ends_with("_n.png"), "{asset}");
+            let (_, png) = textures.generated.iter().find(|(a, _)| *a == asset).unwrap();
+            let img = image::load_from_memory(png).unwrap().to_rgb8();
+            // du = 2 / 255 over the texels either side, × 2: the normal
+            // leans to −u by 0.0157 (8-bit steps of 0.0078).
+            let nx = img.get_pixel(30, 4)[0] as f32 / 255.0 * 2.0 - 1.0;
+            assert!((nx + 4.0 / 255.0).abs() < 0.006, "{nx}");
+        }
     }
 
     fn mat(chs: serde_json::Value) -> Rc<Material> {
@@ -6154,15 +6268,21 @@ mod tests {
         // Iray's file_bump_texture tilts by factor / the map's width,
         // whatever the tiling or the object's size; Octane by power × the
         // slope per meter (#75): power = factor × 2 × 512 / width ×
-        // UV scale / 0.542 / tiles.
+        // UV scale / 0.542 / tiles. Octane's own bump is the fallback when
+        // the maps can't be baked into one normal map (#85): here a normal
+        // map placed differently.
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("t")).unwrap();
         for (f, n) in [("h512.png", 512), ("h2048.png", 2048)] {
             image::GrayImage::new(n, n).save(dir.path().join("t").join(f)).unwrap();
         }
+        std::fs::write(dir.path().join("t").join("n.png"), b"x").unwrap();
         let dirs = vec![dir.path().to_path_buf()];
         let power = |map: &str, extra: serde_json::Value, scale: Option<f64>| -> f32 {
-            let mut ch = vec![json!({"channel": {"id": "Bump Strength", "current_value": 1.5, "image_file": map}})];
+            let mut ch = vec![
+                json!({"channel": {"id": "Bump Strength", "current_value": 1.5, "image_file": map}}),
+                json!({"channel": {"id": "Normal Map", "current_value": 1, "image_file": "/t/n.png", "image_modification": {"horizontal_tiles": 3}}}),
+            ];
             ch.extend(extra.as_array().unwrap().iter().cloned());
             let m = mat(serde_json::Value::Array(ch));
             let scales: UvScales = scale.map(|s| (std::rc::Rc::as_ptr(&m), s)).into_iter().collect();

@@ -1059,15 +1059,47 @@ leaves out, #15):
   and **the base's alone when the coat has none** — Octane's coating
   instead takes the unbumped shading normal unless its pins are set (the
   manual; Calib-CoatBump B2 / B6: the base's ridges stayed out of the
-  coat's highlights). So the coat pins get the coat's height map, else
-  the base's (Bump Strength's); with both, their sum — a Mix texture
-  (38) at amount ½ of the two at twice their power (Iray's B7 shows the
-  coat's dimples and the base's ridges at once; with the coat's alone,
-  Octane's B7 was nearly smooth: RMS vs Iray 7.2 → 2.1). The normal pin
-  gets the coat's normal map (Mode 1), else the base's Normal Map.
-- **Bump strength** (#61, #75): every Uber height map — the base's Bump
-  Strength map on `bump` (and on the coat), the Top Coat Bump — goes in
-  at Octane image `power` = Iray's `file_bump_texture` factor (Bump
+  coat's highlights). So the coat's `normal` pin gets the MDL's coat
+  normal baked (**height maps as normal maps**, below): the coat's bump
+  (a height or normal map) blended onto the base's (the Normal Map, else
+  Bump Strength's height map; `add_detail_normal`, Iray's B7 shows the
+  coat's dimples and the base's ridges at once), the coat's alone without
+  a base, the base's whole surface detail without a coat bump. Maps that
+  can't be baked together (different placements, unreadable) go on
+  Octane's own pins as before #85: the coat's height map, else the
+  base's; with both, their sum — a Mix texture (38) at amount ½ of the
+  two at twice their power — and the coat's normal map, else the base's.
+- **Height maps as normal maps** (#85): every Uber height map — Bump
+  Strength's, the Top Coat Bump in Mode 0 — goes in **baked into a
+  tangent-space normal map** on `normal` (`detail_normal`), with the
+  Normal Map it lies on: per texel MDL's `file_bump_texture` (the height
+  difference of the texels either side, `h[i+1] − h[i−1]`, v up the
+  image, the map's luminance as read, linear) on unit tangents
+  (`apply_bump`: n = normalize(−f · du, −f · dv, 1), f the channel's
+  value), the normal map (`tangent_space_normal_texture`: 2c − 1, |z|)
+  the base and the height map blended onto it by `base::blend_normals`
+  (reoriented normal mapping; DAZ's `add_detail_normal`), at the larger
+  map's size (a coarser height map's slope per its own texel), 8 bits
+  ((n + 1) / 2). The inputs leave the package (only what `project.ocs`
+  names is packed). Why: Octane's bump reads the height map per texel
+  without interpolation and takes its slope over about a pixel: the
+  normal is flat inside a texel and tilts hard in a one-pixel line at
+  each texel edge, and keeps every frequency up to the texel's (a flat
+  plane, Info kernel point samples, `octane-probe-bumpfreq.lua`,
+  `bump-freq.py`: 87 – 93 % of samples untilted, the RMS slope of sine
+  stripes the same from a 48- to a 2-texel period, where MDL's central
+  difference gives 0). Its normal map Octane interpolates bilinearly
+  (correlation 0.99 with the bilinear normal) and reads as Iray at
+  strength 1 (B5, B6, B8). So the mapping is exact and has no constant:
+  Calib-BumpRes against Iray (`bump-ladder-fit.py`, band-passed residual
+  per sphere) 1.18 / 1.22 / 0.23 / 0.77 / 0.80 / 0.34 / 0.56 / 0.17 →
+  0.27 / 0.14 / 0.09 / 0.09 / 0.25 / 0.18 / 0.16 / 0.10, Calib-CoatBump
+  (RMS of the grey image per sphere) B2 3.5 → 2.5, B3 6.5 → 2.2, B4 9.9
+  → 3.3, the rest unchanged or lower; the skin's dual lobe narrows with
+  the bump as Iray's does (below, Gloss).
+- **Bump strength** (#61, #75): the fallback above and the NVIDIA MDL
+  presets' bumps (`mdl_metal`, `mdl_dielectric`; #89) still use Octane's own
+  bump: a height map on `bump` goes in at Octane image `power` = Iray's `file_bump_texture` factor (Bump
   Strength, Top Coat Bump; none at 0) × `BUMP_POWER` 2 × 512 / the map's
   width × the material's UV scale / 0.542 m / the UV tiles
   (`bump_power`; width and tiles as geometric means of both axes, the
@@ -1393,8 +1425,11 @@ leaves out, #15):
     the bake).
   - Bump, normal and Top Coat Bump maps take the placement only: DAZ
     passes no scale, offset or invert for them (I7's inverted, scaled bump
-    reached Iray as the plain factor). Their `bump_power` counts the map's
-    tiles with the material's.
+    reached Iray as the plain factor). Baked into one normal map (#85)
+    they take that placement (they bake together only when theirs agree;
+    a tangent-space normal tilts the same at any tiling, as MDL's unit
+    tangents do); on Octane's own bump `bump_power` counts the map's tiles
+    with the material's.
   How common (the user's 476 scenes, 110 with `image_modification`):
   invert in 80 scenes (Glossy Roughness 58, Top Coat Roughness 42 — mostly
   glossiness maps on a roughness channel), per-map tiles in 38, scale 29,
@@ -1906,9 +1941,15 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   Victoria 0.87, Kayo 0.84, Gabriela 0.91, Nishi 0.91, Twosret 0.81,
   Monique 0.87, Zurie 0.94 (−12 … +30 % with the roughness as is, −15 …
   +9 % at Universal's curve, which looked closer only where bump happened
-  to make up for it). Left: the peaks ~10 % under, ~6 % of it Octane's
-  bump (dlflat with it 0.77 – 0.86 against 0.82 – 0.91 without; Iray's
-  bump hardly widens a highlight).
+  to make up for it). The bump's share is gone since the height maps
+  bake into normal maps (#85, above): the dual lobe (dlflat − gloss0,
+  p99.5 over the face) with bump / without, Octane / Iray, Victoria 0.76 /
+  0.83 → 0.83 / 0.83, Gabriela 0.85 / 0.89 → 0.88 / 0.90, Nishi 0.78 /
+  0.82 → 0.79 / 0.84, Kayo 0.88 / 0.94 → 0.97 / 0.94 — the bump now
+  narrows it as Iray's does; the rest (0.83 – 0.94 without bump) is the
+  lobe's own. The full faces (p99.5 over the face box): Angel 1.11,
+  Victoria 0.96, Kayo 1.01, Gabriela 1.00, Nishi 0.95, Twosret 0.91,
+  Monique 0.95, Zurie 1.01.
 - Dark skins show more pore texture than Iray's.
 - Not a cause: Iray doesn't dim the gloss of translucent skin (highlight
   contrast on the dark foreheads is higher in Iray); the gloss alone ~0

@@ -260,6 +260,11 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
             .replace("@MESH_CONNECT@", &mesh_connect.to_string())
             .replace("@ENV_POWER@", &format!("{env_power}"));
         report.render_targets = cameras.len();
+        // Maps a material only read to bake another (a height map baked into
+        // a normal map, #85) stay out of the package and the texture budget.
+        let used = |a: &str| !a.starts_with("assets/tex/") || ocs.contains(a);
+        textures.files.retain(|(a, _)| used(a));
+        textures.generated.retain(|(a, _)| used(a));
         report.textures = textures.files.len() + textures.generated.len();
         report.missing_textures = textures.missing.clone();
         for t in &textures.missing {
