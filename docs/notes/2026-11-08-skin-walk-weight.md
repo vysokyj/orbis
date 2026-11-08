@@ -166,3 +166,42 @@ albedo than its reflectance does. Iray's volume is set by its own
 coefficients, the same for these figures. The next step is the walk's
 transmission at Iray's volume albedo (α from SSS / Transmitted Color),
 not a fit on the ears. Open in #86.
+
+## Step 5: the walk's albedo and mean free path in an ear (probes 69, 70)
+
+Probe 69 (`octane-probe-walkalbedo.lua`): every skin material as the walk
+alone (base 0, subsurface 1) at a grey colour A, the export's radius;
+Victoria and Monique, front (face, reflectance) and back (ears,
+transmission), over A 1:
+
+| A | 0.30 | 0.50 | 0.70 | 0.85 | 0.95 |
+|---|---|---|---|---|---|
+| Victoria front | 0.36 | 0.60 | 0.83 | 0.96 | 0.99 |
+| Victoria ears | 0.21 | 0.44 | 0.75 | 0.92 | 0.95 |
+| Monique front | 0.37 | 0.60 | 0.83 | 0.96 | 0.99 |
+| Monique ears | 0.21 | 0.46 | 0.79 | 0.96 | 1.05 |
+
+Reflectance ≈ A (Octane's albedo inversion holds), an ear's transmission
+≈ A^1.5 — the same on both figures. So a darker walk colour does cost an
+ear more than a face, but it doesn't explain step 4: at tcwhite the walk's
+colour is the same on Victoria, Kayo and Monique (A(α) of one volume; the
+1 / (1 − k · D) term is a few percent), yet Octane's translucent part is
+0.63 / 0.46 / 0.37 of Iray's. The Tc map hypothesis (Tc² in the albedo
+instead of the weight) is out.
+
+Probe 70 (`octane-probe-mfp.lua`): the export as is, the radius (Iray's
+mean free path 1 / (σa + σs), red 2.56 mm) × 0.5 / 1 / 2, ears O / I red:
+Victoria 0.23 / 0.53 / 1.20, Monique 0.16 / 0.34 / 0.98. The ear goes
+about as mfp^1.2 – 1.5 in Octane. Iray's ears differ less between figures
+at tcwhite (red 0.101 / 0.093 / 0.088) than Octane's (0.063 / 0.043 /
+0.033): the same volume through ears of different shape (the figures'
+morphs) loses more in Octane. Octane's walk, at the radius we give it,
+behaves as a denser medium than Iray's volume, more sensitive to
+thickness. Whether that is Octane's reading of the radius (a mean free
+path, or a diffuse length it rescales by the albedo) the manual doesn't
+say; it calls it "the distance light can scatter below the surface".
+
+Next decomposition: one slab of known thickness with a uniform volume (no
+maps, Iray's skin volume) in both renderers, transmission against
+thickness. That needs a new generated Calib scene and one Iray batch.
+Not a fit on the ears.
