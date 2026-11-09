@@ -86,6 +86,9 @@ thing at a time.
 | `Calib-TopCoat` | Top Coat layering modes | — | [#25](https://github.com/vysokyj/orbis/issues/25) |
 | `Calib-CoatBump` | Top Coat Bump (height / normal map) and the base's bump under a coat | mapped (strength awaits Iray) | [#61](https://github.com/vysokyj/orbis/issues/61) |
 | `Calib-BumpRes` | One height map at 256 / 1024 / 4096 px, bump factors, UV tiles, a half-size sphere: bump vs the map's size | rule from MDL's reference code, Iray pending | [#75](https://github.com/vysokyj/orbis/issues/75) |
+| `Calib-BumpGamma-Uber`, `-Uber2`, `-NVIDIA` | Calib-Leaf's cards lit in the plane of v, a synthetic sawtooth height map and ±0.25 normal maps at `map_gamma` 0 / 1 / 16 bit (`bump-gamma.py`): the heights' decode gamma | 8 bit "auto" 2.2, 1 / 16 bit linear; export within 0.01 RMS | [#91](https://github.com/vysokyj/orbis/issues/91) |
+| `Calib-NVIDIA-BumpG1` | Calib-NVIDIA with its bump maps at `map_gamma` 1: Iray's Cast Iron detail against the decode | 0.94 × — the measure doesn't test the decode | [#92](https://github.com/vysokyj/orbis/issues/92) |
+| `Calib-Mi-ImageGamma` | .mi only: maps the `image_library` doesn't list | the first loading channel's `default_image_gamma` | [#91](https://github.com/vysokyj/orbis/issues/91) |
 | `Calib-Smooth` | Smooth On / Smooth Angle: icosahedra, cubes, a cylinder; normals as in the .mi | mapped, checked against Iray | [#40](https://github.com/vysokyj/orbis/issues/40) |
 | `Calib-RoundCorners` | Round Corners radius 0 – 1, roundness, across materials | mapped, checked against Iray (radius in meters) | [#40](https://github.com/vysokyj/orbis/issues/40) |
 | `Calib-DualLobe`, `-DualLobe2` | dual lobe ratio and lobe 2 roughness; Uber's defaults, lobe 1 at roughness 0.6 | [Universal](spec/octane-export.md#universal-130--default) | [#26](https://github.com/vysokyj/orbis/issues/26), [#56](https://github.com/vysokyj/orbis/issues/56) |

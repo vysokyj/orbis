@@ -18,9 +18,13 @@ pub struct Channel {
     pub value: Value,
     /// Content-relative image path (`/Runtime/Textures/…`), percent-decoded.
     pub image: Option<String>,
-    /// The image's own gamma (`image_library` `map_gamma`), when it sets one
-    /// (0 is DAZ's automatic).
+    /// The gamma DAZ hands Iray for the image (`resolve_gammas`): its
+    /// `image_library` `map_gamma`, or the channel's `default_image_gamma`
+    /// when the scene lists no entry for it; None is gamma "auto" (a
+    /// `map_gamma` of 0, DAZ's automatic).
     pub gamma: Option<f32>,
+    /// The channel definition's `default_image_gamma`, where it gives one.
+    pub default_gamma: Option<f32>,
     /// DAZ's per-map texture-instance settings (`image_modification`), when
     /// the channel saves them.
     pub image_mod: Option<ImageMod>,
@@ -184,7 +188,9 @@ impl Material {
                 Some(v) => !v,
                 None => self.channels.get(id).is_some_and(|c| c.hidden),
             };
-            self.channels.insert(id.to_string(), Channel { value, image, gamma: None, image_mod, hidden });
+            // An override without one keeps the definition's.
+            let default_gamma = c.get("default_image_gamma").and_then(Value::as_f64).map(|g| g as f32).or_else(|| self.channels.get(id).and_then(|c| c.default_gamma));
+            self.channels.insert(id.to_string(), Channel { value, image, gamma: None, default_gamma, image_mod, hidden });
         };
         if let Some(obj) = m.as_object() {
             for v in obj.values() {
@@ -225,7 +231,7 @@ impl Material {
             }
         }
         if weighted_brick && !self.channels.contains_key("Base Mixing") {
-            self.channels.insert("Base Mixing".into(), Channel { value: Value::from(2), image: None, gamma: None, image_mod: None, hidden: false });
+            self.channels.insert("Base Mixing".into(), Channel { value: Value::from(2), ..Channel::default() });
         }
     }
 
@@ -442,19 +448,62 @@ pub fn image_library(doc: &Value) -> HashMap<String, String> {
         .collect()
 }
 
-/// The gamma `image_library` gives an image file (`map_gamma`, by its
-/// path), where it isn't DAZ's automatic 0.
+/// The `map_gamma` `image_library` gives each image file it lists (by its
+/// path; 0 is DAZ's automatic).
 pub fn image_gammas(doc: &Value) -> HashMap<String, f32> {
     doc.get("image_library")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter_map(|i| {
-            let g = i.get("map_gamma")?.as_f64()? as f32;
+            let g = i.get("map_gamma").and_then(Value::as_f64).unwrap_or(0.0) as f32;
             let url = i.get("map")?.as_array()?.first()?.get("url")?.as_str()?;
-            (g > 0.0).then(|| (crate::dson::percent_decode(url), g))
+            Some((crate::dson::percent_decode(url), g))
         })
         .collect()
+}
+
+/// `image_gammas` with the files the scene's `image_library` doesn't list
+/// (Calib-Mi-ImageGamma, #91): DAZ keeps one image per file, and an
+/// unlisted one takes the `default_image_gamma` of the first channel that
+/// loads it — in the scene's material order, a material's own channels
+/// (top level, then `extra`) before its definition's. Iray Uber's defaults
+/// are 1 for bump, normal and the float channels, 0 ("auto") for the
+/// colours: a file alone on Bump Strength went to Iray at gamma 1, the
+/// same file first on the diffuse then on a bump "auto" on both, the other
+/// way round 1 on both. The Calib-Skin spheres' cropped maps, saved
+/// without entries, went at 1; Calib-Mi-AoA's calib-tiles.png, on the
+/// diffuse first, "auto" on its Normal Map too. `def` gives a scene
+/// material's definition (its `url`).
+pub fn scene_image_gammas(doc: &Value, images: &HashMap<String, String>, mut def: impl FnMut(&str) -> Option<Value>) -> HashMap<String, f32> {
+    let mut gammas = image_gammas(doc);
+    fn ids(m: &Value) -> Vec<String> {
+        let top = m.as_object().into_iter().flat_map(|o| o.values()).filter_map(|v| v.get("channel")?.get("id")?.as_str());
+        let extra = m.get("extra").and_then(Value::as_array).into_iter().flatten().filter_map(|e| e.get("channels")?.as_array()).flatten().filter_map(|c| c.get("channel")?.get("id")?.as_str());
+        top.chain(extra).map(str::to_string).collect()
+    }
+    for m in doc.pointer("/scene/materials").and_then(Value::as_array).into_iter().flatten() {
+        let d = m.get("url").and_then(Value::as_str).and_then(&mut def);
+        let mut mat = d.as_ref().map_or_else(Material::default, |d| Material::from_dson(d, images));
+        mat.merge(m, images);
+        for id in ids(m).into_iter().chain(d.as_ref().map(ids).unwrap_or_default()) {
+            let Some(c) = mat.channels.get(&id) else { continue };
+            if let Some(i) = &c.image {
+                gammas.entry(i.clone()).or_insert(c.default_gamma.unwrap_or(0.0));
+            }
+        }
+    }
+    gammas
+}
+
+impl Material {
+    /// Each channel image's gamma as DAZ hands it Iray, from
+    /// `scene_image_gammas`: None for "auto" (0) or an image it doesn't know.
+    pub fn resolve_gammas(&mut self, gammas: &HashMap<String, f32>) {
+        for c in self.channels.values_mut() {
+            c.gamma = c.image.as_ref().and_then(|i| gammas.get(i).copied()).filter(|g| *g > 0.0);
+        }
+    }
 }
 
 impl Material {

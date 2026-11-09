@@ -47,7 +47,10 @@
         Scene.selectAllNodes(false);
         oCard.select(true);
         Scene.setPrimarySelection(oCard);
-        sLog += "uber " + oContent.openFile(sUber, true) + "\n";
+        // A shader preset applies to the selected node's selected surfaces.
+        var oShape = oCard.getObject().getCurrentShape();
+        for (var m = 0; m < oShape.getNumMaterials(); m++) oShape.getMaterial(m).select(true);
+        sLog += "preset " + oContent.openFile(sUber, true) + "\n";
     }
     done("saved " + Scene.saveScene(sOut));
 })();

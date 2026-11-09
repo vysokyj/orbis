@@ -60,11 +60,13 @@ pub(super) struct Library {
     pub(super) files: HashMap<String, Option<Rc<Value>>>,
     pub(super) topologies: HashMap<String, Option<Rc<Topology>>>,
     pub(super) uv_sets: HashMap<String, Option<Rc<UvSet>>>,
+    /// The scene's image gammas (`daz_material::scene_image_gammas`), once.
+    pub(super) image_gammas: Option<Rc<HashMap<String, f32>>>,
 }
 
 impl Library {
     pub(super) fn new(dirs: Vec<PathBuf>, duf: Value) -> Self {
-        Library { dirs, duf, files: HashMap::new(), topologies: HashMap::new(), uv_sets: HashMap::new() }
+        Library { dirs, duf, files: HashMap::new(), topologies: HashMap::new(), uv_sets: HashMap::new(), image_gammas: None }
     }
 
     /// Split a DSON URL into (decoded file path, decoded fragment id); an

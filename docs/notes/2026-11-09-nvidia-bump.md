@@ -104,3 +104,7 @@ texture by its package path: a re-export under the same file name while
 a render waits for the lock may render the old texture (the coating
 variant's Cast Iron matched the 2.2 bake's numbers); give each variant
 its own directory.
+
+**Superseded (#91):** the decode is 2.2 for an 8-bit map at `map_gamma`
+0 (synthetic cards, `2026-11-09-bump-gamma.md`); Cast Iron's detail measure
+turned out not to depend on the decode in Iray.

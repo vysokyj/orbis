@@ -2,6 +2,9 @@ scene	samples	max_time	renderer	rendered	seconds
 Calib-Aniso	5000	0	Iray Server (Boost for Daz)	2026-10-30 03:15	104
 Calib-Aniso2	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:04	116
 Calib-Backscatter	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:52	108
+Calib-BumpGamma-NVIDIA	5000	0	Iray Server (Boost for Daz)	2026-11-09 23:25	99
+Calib-BumpGamma-Uber	5000	0	Iray Server (Boost for Daz)	2026-11-09 23:22	98
+Calib-BumpGamma-Uber2	5000	0	Iray Server (Boost for Daz)	2026-11-09 23:24	87
 Calib-BumpRes	5000	0	Iray Server (Boost for Daz)	2026-11-05 01:00	113
 Calib-CastShadows-Off	5000	0	Iray Server (Boost for Daz)	2026-11-06 00:01	143
 Calib-CoatBump	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:23	109
@@ -155,6 +158,7 @@ Calib-Mi-Mix1	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:44	110
 Calib-Mi-Mix2	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:43	111
 Calib-Mixing	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:28	106
 Calib-NVIDIA	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:18	123
+Calib-NVIDIA-BumpG1	5000	0	Iray Server (Boost for Daz)	2026-11-09 23:27	127
 Calib-NVIDIA2	5000	0	Iray Server (Boost for Daz)	2026-11-05 18:41	173
 Calib-NVIDIA3	5000	0	Iray Server (Boost for Daz)	2026-11-05 20:43	133
 Calib-Overlay	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:43	104

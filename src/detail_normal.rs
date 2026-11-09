@@ -18,20 +18,37 @@
 //! A normal map and a height map together are DAZ's base and detail bump,
 //! combined by `base::blend_normals` (reoriented normal mapping; DAZ's
 //! `add_detail_normal`).
+//!
+//! Each map is decoded at the gamma Iray reads it with (#91): the image's
+//! own `map_gamma`, else gamma "auto" — Iray's loader gives the canvas its
+//! pixel type's gamma, 2.2 for 8 bits, 1.0 for 16 bits or float
+//! ([`auto_gamma`]). Calib-BumpGamma: an 8-bit sawtooth at `map_gamma` 0
+//! tilted the normal as its 2.2-decoded heights' slope, at `map_gamma` 1
+//! and as a 16-bit PNG as the linear slope.
 
 /// One input: a height map read as MDL's `file_bump_texture` at `factor`,
-/// or a tangent-space normal map (`tangent_space_normal_texture`, factor 1).
+/// or a tangent-space normal map (`tangent_space_normal_texture`, factor 1);
+/// its texels decoded at `gamma`.
 pub enum Source<'a> {
-    Height { image: &'a image::DynamicImage, factor: f32 },
-    Normal { image: &'a image::DynamicImage },
+    Height { image: &'a image::DynamicImage, factor: f32, gamma: f32 },
+    Normal { image: &'a image::DynamicImage, gamma: f32 },
 }
 
 impl Source<'_> {
     fn dims(&self) -> (u32, u32) {
         match self {
-            Source::Height { image, .. } | Source::Normal { image } => (image.width(), image.height()),
+            Source::Height { image, .. } | Source::Normal { image, .. } => (image.width(), image.height()),
         }
     }
+}
+
+/// The gamma Iray's image loader gives a canvas under gamma "auto" (MDL
+/// `gamma_default`) by its pixel type, ignoring the file's colour
+/// metadata (#90): 8 bits a channel 2.2, deeper 1.0. Calib-BumpGamma's
+/// 16-bit greyscale height map rendered linear (#91); a 16-bit RGB map is
+/// taken the same way (the loader's type rule), unverified.
+pub fn auto_gamma(color: image::ColorType) -> f32 {
+    if color.bytes_per_pixel() as u16 / color.channel_count() as u16 <= 1 { 2.2 } else { 1.0 }
 }
 
 /// A tangent-space normal field at `w` × `h` texels, row by row from the
@@ -46,6 +63,14 @@ fn normalize(v: [f32; 3]) -> [f32; 3] {
     if l > 0.0 { v.map(|c| c / l) } else { [0.0, 0.0, 1.0] }
 }
 
+/// Texels as Iray reads them at `gamma` (a pure power, as the colour maps).
+fn decode(mut rgb: image::Rgb32FImage, gamma: f32) -> image::Rgb32FImage {
+    if gamma != 1.0 {
+        rgb.pixels_mut().for_each(|p| p.0 = p.0.map(|c| c.max(0.0).powf(gamma)));
+    }
+    rgb
+}
+
 fn field(src: &Source, w: u32, h: u32) -> Field {
     let resize = |img: &image::DynamicImage| {
         let rgb = img.to_rgb32f();
@@ -53,17 +78,17 @@ fn field(src: &Source, w: u32, h: u32) -> Field {
     };
     let (wu, hu) = (w as usize, h as usize);
     match src {
-        Source::Normal { image } => {
+        Source::Normal { image, gamma } => {
             // MDL: (texel − 0.5) · 2, then apply_bump with the normal's
             // weight |z|.
-            let rgb = resize(image);
+            let rgb = decode(resize(image), *gamma);
             let n = rgb.pixels().map(|p| normalize([2.0 * p[0] - 1.0, 2.0 * p[1] - 1.0, (2.0 * p[2] - 1.0).abs()])).collect();
             Field { w: wu, n }
         }
-        Source::Height { image, factor } => {
-            // `mono_average`; the map as read (bump maps are linear).
+        Source::Height { image, factor, gamma } => {
+            // `mono_average` of the decoded texels.
             let (sw, sh) = (image.width(), image.height());
-            let rgb = resize(image);
+            let rgb = decode(resize(image), *gamma);
             let ht: Vec<f32> = rgb.pixels().map(|p| (p[0] + p[1] + p[2]) / 3.0).collect();
             // The slope per texel of the map itself: a map resampled to a
             // finer grid keeps its slope per its own texel.
@@ -131,7 +156,7 @@ mod tests {
         // A ramp of 0.01 per texel along u: MDL's du = 0.02, at factor 2
         // the normal leans to −0.04 along u.
         let img = grey(64, 8, |x, _| 0.2 + 0.01 * (x as f32));
-        let out = bake(&Source::Height { image: &img, factor: 2.0 }, None);
+        let out = bake(&Source::Height { image: &img, factor: 2.0, gamma: 1.0 }, None);
         let n = decode(out.get_pixel(20, 4));
         let want = normalize([-0.04, 0.0, 1.0]);
         assert!((n[0] - want[0]).abs() < 0.01 && n[1].abs() < 0.01, "{n:?}");
@@ -142,7 +167,7 @@ mod tests {
         // Height rising towards the image's top = rising with v: the normal
         // leans to −v (green below 0.5).
         let img = grey(8, 64, |_, y| 0.8 - 0.01 * (y as f32));
-        let out = bake(&Source::Height { image: &img, factor: 4.0 }, None);
+        let out = bake(&Source::Height { image: &img, factor: 4.0, gamma: 1.0 }, None);
         let n = decode(out.get_pixel(4, 30));
         assert!(n[1] < -0.05 && n[0].abs() < 0.01, "{n:?}");
     }
@@ -152,7 +177,7 @@ mod tests {
         // Texels alternating 0 / 1: the central difference sees none of it
         // (Octane's own bump tilts hardest there).
         let img = grey(32, 4, |x, _| (x % 2) as f32);
-        let out = bake(&Source::Height { image: &img, factor: 4.0 }, None);
+        let out = bake(&Source::Height { image: &img, factor: 4.0, gamma: 1.0 }, None);
         assert!(out.pixels().all(|p| p.0 == [128, 128, 255]), "{:?}", out.get_pixel(3, 1));
     }
 
@@ -162,10 +187,27 @@ mod tests {
         // map twice its size: the slope per the height map's own texel.
         let img = grey(32, 4, |x, _| 0.2 + 0.02 * (x as f32));
         let flat = image::DynamicImage::ImageRgb8(image::ImageBuffer::from_pixel(64, 8, image::Rgb([128, 128, 255])));
-        let out = bake(&Source::Normal { image: &flat }, Some(&Source::Height { image: &img, factor: 1.0 }));
+        let out = bake(&Source::Normal { image: &flat, gamma: 1.0 }, Some(&Source::Height { image: &img, factor: 1.0, gamma: 1.0 }));
         assert_eq!(out.dimensions(), (64, 8));
         let n = decode(out.get_pixel(30, 4));
         assert!((n[0] + 0.04).abs() < 0.012, "{n:?}");
+    }
+
+    #[test]
+    fn auto_gamma_decodes_8_bit_heights_at_2_2() {
+        // Calib-BumpGamma's sawtooth, 8 levels a texel: at gamma 2.2 the
+        // slope at texel j is (8 (j + 1) / 255)^2.2 − (8 (j − 1) / 255)^2.2.
+        let img = image::DynamicImage::ImageLuma8(image::ImageBuffer::from_fn(4, 32, |_, y| image::Luma([(8 * (31 - y)) as u8])));
+        assert_eq!(auto_gamma(img.color()), 2.2);
+        assert_eq!(auto_gamma(image::ColorType::L16), 1.0);
+        assert_eq!(auto_gamma(image::ColorType::Rgb32F), 1.0);
+        let out = bake(&Source::Height { image: &img, factor: 4.0, gamma: 2.2 }, None);
+        for j in [5u32, 25] {
+            let d = |k: u32| (8.0 * k as f32 / 255.0).powf(2.2);
+            let want = normalize([0.0, -4.0 * (d(j + 1) - d(j - 1)), 1.0]);
+            let n = decode(out.get_pixel(1, 31 - j));
+            assert!((n[1] - want[1]).abs() < 0.01, "j {j}: {n:?} vs {want:?}");
+        }
     }
 
     #[test]

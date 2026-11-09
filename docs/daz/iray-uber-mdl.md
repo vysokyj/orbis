@@ -83,7 +83,13 @@ Found beyond it:
   `top_coat_bump` — Mode 0 a `file_bump_texture`, 1 a
   `tangent_space_normal_texture`, the value as the factor (Calib-CoatBump); UV transform Horizontal / Vertical
   Tiles and Offset, the vertical offset negated; gamma the image's own, else
-  "auto" (Iray decides). A metal, refraction or backscattering map at
+  "auto" (Iray decides: its loader gives 8 bits a channel 2.2, 16 bits and
+  float 1.0, ignoring the file's metadata; bump and normal maps alike,
+  Calib-BumpGamma). The image's own gamma is its `image_library` entry's
+  `map_gamma` (0 = "auto"); DAZ keeps one image per file, and a file the
+  scene doesn't list takes the `default_image_gamma` of the first channel
+  that loads it — Uber: 1 for bump, normal and the float channels, 0 for
+  the colours (Calib-Mi-ImageGamma). A metal, refraction or backscattering map at
   weight 1 leaves the diffuse on.
 - **Emission units:** cd/m² and kcd/m² (× 1000) per m², cd/ft² per foot
   (`emission_scene_unit_size` 0.3048), kcd/ft² as cd per cm² (0.01, no ×

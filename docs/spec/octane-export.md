@@ -1074,7 +1074,7 @@ leaves out, #15):
   tangent-space normal map** on `normal` (`detail_normal`), with the
   Normal Map it lies on: per texel MDL's `file_bump_texture` (the height
   difference of the texels either side, `h[i+1] − h[i−1]`, v up the
-  image, the map's luminance as read, linear) on unit tangents
+  image, the map's luminance decoded at its gamma — below) on unit tangents
   (`apply_bump`: n = normalize(−f · du, −f · dv, 1), f the channel's
   value), the normal map (`tangent_space_normal_texture`: 2c − 1, |z|)
   the base and the height map blended onto it by `base::blend_normals`
@@ -1097,6 +1097,37 @@ leaves out, #15):
   (RMS of the grey image per sphere) B2 3.5 → 2.5, B3 6.5 → 2.2, B4 9.9
   → 3.3, the rest unchanged or lower; the skin's dual lobe narrows with
   the bump as Iray's does (below, Gloss).
+- **Height and normal maps are decoded at the gamma Iray reads them
+  with** (#91): the image's own gamma (Textures, image gamma below),
+  else gamma "auto" by the file's pixel type — 2.2 for 8 bits a
+  channel, 1.0 for 16 bits or float (`detail_normal::auto_gamma`, the
+  loader's rule from #90). The bake decodes each texel at that gamma
+  before the central difference (a normal map before 2c − 1). A normal
+  map Octane takes as it is (on `normal`, unbaked) goes in re-baked
+  linear when its gamma isn't 1: Octane reads a normal texture linear
+  whatever its `gamma` pin and colour space say (Calib-BumpGamma-Uber2:
+  the 8-bit map at 2.2 in legacy gamma rendered as at 1.0). Octane's own
+  bump (the fallback) gets the gamma on its pin. Why: Calib-BumpGamma
+  (three vertical cards, a distant light 45° up in the plane of v and
+  nothing else; `bump-gamma.py`): a 128-texel sawtooth rising and falling
+  8 levels a texel against a flat band of the same row gives the slope
+  f · s per texel row from the Lambert ratio (1 ∓ f s) / √(1 + f² s²)
+  with no fitted scale. Iray, 8-bit PNG at `map_gamma` 0: RMS of f · s
+  against a 2.2 decode 0.031, against 1.0 0.130 (f / 2: 0.005 / 0.059);
+  the same map at `map_gamma` 1 and a 16-bit PNG at 0: 0.018 against
+  1.0, 0.116 against 2.2. NVIDIA's Concrete alike (0.032 / 0.130; 1.0:
+  0.018). The export now: 0.009 / 0.010 against 2.2, 0.002 / 0.003
+  against 1.0. An 8-bit normal map at `map_gamma` 0: its flat band at
+  0.386 of a flat height band in Iray (a 2.2 decode, Lambert: 0.344;
+  1.0: 1.00), the export 0.379; contrast of the ±0.25 tilts 0.313 /
+  0.304. Product content: bump maps at `map_gamma` 0 and 1 alike (76 /
+  57 of 133 sampled), normal maps nearly always 1; the eight Calib-Skin
+  figures' face and body maps 1 (unchanged), Zurie's arms and some
+  eyes and mouths 0. The linear rule before rested on Cast Iron's
+  band-passed detail (#89), which the decode hardly moves in Iray
+  (Calib-NVIDIA-BumpG1, its maps at `map_gamma` 1: detail 0.94 ×,
+  correlation 0.98 against Calib-NVIDIA) — that measure doesn't test
+  the decode (NVIDIA presets, Bump, below).
 - **Bump strength** (#61, #75): the fallback above and architectural's
   bump (`mdl_dielectric`; the NVIDIA presets below) still use Octane's own
   bump: a height map on `bump` goes in at Octane image `power` = Iray's `file_bump_texture` factor (Bump
@@ -1436,7 +1467,7 @@ leaves out, #15):
   grey mode 18 (overlay and make-up weights by alpha), tiling offsets 13
   (Calib-Skin's normal maps at 1: a whole period), offset 2.
 - **Colour space.** Colour and data maps are read at a pure gamma 2.2;
-  bump and normal maps are linear. Every gamma above 1 (2.2, an image's
+  bump and normal maps at theirs (Height and normal maps, #91). Every gamma above 1 (2.2, an image's
   own `map_gamma`, a squared overlay weight map at 4.4) goes in "linear
   sRGB + legacy gamma" (6) with that gamma: Octane applies the `gamma` pin
   only there and ignores it in sRGB (Calib-Overlay's squared belts, #71).
@@ -1465,7 +1496,21 @@ leaves out, #15):
   displacement. DAZ reads a map with no gamma of its own (`map_gamma` 0,
   "automatic", which is every map in the user's scenes) at 2.2, though
   the Uber channels declare `default_image_gamma` 1. An image's own
-  `map_gamma` (from `image_library`) wins.
+  gamma wins:
+- **An image's gamma** is what DAZ hands Iray for it
+  (`daz_material::scene_image_gammas`, #91): its `image_library` entry's
+  `map_gamma` (0 = "auto"); a file the scene doesn't list takes the
+  `default_image_gamma` of the first channel that loads it — scene
+  materials in order, a material's own channels before its
+  definition's — and keeps it on every channel (DAZ has one image per
+  file). Iray Uber's defaults: 1 for bump, normal and the float
+  channels, 0 ("auto") for the colours. Why (Calib-Mi-ImageGamma's .mi,
+  the maps unlisted): alone on the diffuse "auto", on Bump Strength,
+  Normal Map or Glossy Roughness 1; one file on a diffuse and then a
+  bump "auto" on both, the other way round 1 on both. The Calib-Skin
+  spheres' cropped maps are saved without entries: read at 2.2 their
+  normal map tilted the skin sphere to 0.47 – 0.51 × Iray (1.0: 0.95 /
+  1.17, as before).
 
   Why (#49): on Calib-DataGamma a grey 128 map renders as a value of 0.22
   in Iray. The same grey at `map_gamma` 1 renders as the plain value 0.5.
@@ -1474,7 +1519,7 @@ leaves out, #15):
   - metallic: Iray 1.36, now 1.25 (1.14).
 
   The eight Calib-Skin figures (front light) moved by at most 2 % (ears
-  5 %). Bump and normal maps are untested and stay linear.
+  5 %). Bump and normal maps: their own rule (#91, above).
 - **Colour channels** (Base / Glossy / Translucency / Transmitted / Emission
   Color, light colours) are gamma-encoded as DAZ stores them and decoded to
   linear by a **pure gamma 2.2** (`colour_to_linear`), as Iray does — not
@@ -1621,7 +1666,8 @@ leaves out, #15):
     shader's tiling — the Uber's rule — so the map goes in baked into a
     tangent-space normal map on `normal` (`detail_normal`, the Uber's
     height-map rule above: MDL's central difference, factor = Bump
-    Strength), read linear like the Uber's; unreadable, Octane's bump at
+    Strength), decoded at its gamma like the Uber's (#91: "auto", 2.2
+    for the presets' 8-bit maps); unreadable, Octane's bump at
     `bump_power`. Architectural's `bump` is a ready normal (`float3`) and
     DAZ's .mi shows no map wired in, so a Bump Strength map there keeps
     Octane's bump. DAZ's bricks have no `is_normaltexture` channel (the
@@ -1639,12 +1685,15 @@ leaves out, #15):
     detail 1.01 / 0.98 → 1.00 / 0.98, correlation 0.99 / 0.94 → 0.99 /
     0.95; Calib-NVIDIA2 (floor 1.05) asphalt disk 0.96 → 1.00, tiles 1.06
     → 1.06, tiles detail 1.02 → 1.04, correlation 0.87 → 0.90; the
-    spheres without a bump unchanged. Decoding the 8-bit heights at 2.2
-    (the MDL's `gamma_default` for an 8-bit file, which Iray's loader
-    keeps whatever the PNGs' gAMA 1.0 says — colour space above) put
-    Cast Iron's detail at 1.13 × with correlation 0.82; linear 1.05 ×,
-    0.91. That contradicts the loader; open in #91. Polished concrete's gloss on
-    the coating: detail 1.58 ×, correlation 0.84.
+    spheres without a bump unchanged (all with the heights linear). At
+    2.2 (#91) Cast Iron's detail goes up (1.21 → 1.39 ×, correlation
+    0.90 → 0.81, disk 0.98 → 0.94 in #91's windows; concrete 0.98 →
+    1.02, polished 1.03 → 1.07). That measure doesn't decide the decode:
+    in Iray the decode moves Cast Iron's detail by 6 %
+    (Calib-NVIDIA-BumpG1, the maps at `map_gamma` 1: 0.94 ×, correlation
+    0.98), while Octane's exceeds Iray's at either decode — open (#92).
+    Polished concrete's gloss on the coating: detail 1.58 ×, correlation
+    0.84.
 - **Layered images** are flattened into one PNG per stack.
 
 ### Skin — OpenPBR Surface (505), Final only

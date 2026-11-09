@@ -327,7 +327,7 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     let sss_mode = ch.int("SSS Mode", 0);
     let sss = ch.float("SSS Amount", 0.0);
     let enters = refraction > 0.0 || translucency > 0.0 || sss > 0.0;
-    let volume = enters && !thin;
+    let volume = !thin;
     let transmitted = ch.color("Transmitted Color", [0.0; 3]);
     out.insert("transmitted_color", Arg::Color(if volume { transmitted } else { [1.0; 3] }));
     out.insert("transmitted_distance_of_measurement", Arg::Float(if volume { CM * ch.float("Transmitted Measurement Distance", 0.1) } else { 1.0 }));
@@ -764,7 +764,7 @@ pub fn daz_default_as_uber(mat: &Material) -> Option<Material> {
     let mut out = mat.clone();
     let mut set = |id: &str, v: Value| {
         let (image, image_mod) = out.channels.get(id).map_or((None, None), |c| (c.image.clone(), c.image_mod));
-        out.channels.insert(id.to_string(), crate::daz_material::Channel { value: v, image, gamma: None, image_mod, hidden: false });
+        out.channels.insert(id.to_string(), crate::daz_material::Channel { value: v, image, image_mod, ..Default::default() });
     };
     let spec = ch.color("specular", [0.6f32.powf(COLOUR_GAMMA); 3]);
     let peak = spec.into_iter().fold(0.0, f32::max);
@@ -831,7 +831,7 @@ pub fn legacy_shader_as_uber(mat: &Material, keep_maps: bool) -> Option<Material
         ("Roughness Squared", Value::from(false)),
         ("Thin Walled", Value::from(true)),
     ] {
-        out.channels.insert(id.to_string(), crate::daz_material::Channel { value: v, image: None, gamma: None, image_mod: None, hidden: false });
+        out.channels.insert(id.to_string(), crate::daz_material::Channel { value: v, ..Default::default() });
     }
     Some(out)
 }
@@ -878,7 +878,7 @@ pub fn aoa_subsurface_as_uber(mat: &Material) -> Option<Material> {
     let encode = |c: [f32; 3]| Value::from(c.map(|x| f64::from(x.max(0.0).powf(1.0 / COLOUR_GAMMA))).to_vec());
     let image = |id: &str| mat.channels.get(id).and_then(|c| c.image.clone());
     let mut set = |id: &str, v: Value, image: Option<String>| {
-        out.channels.insert(id.to_string(), Channel { value: v, image, gamma: None, image_mod: None, hidden: false });
+        out.channels.insert(id.to_string(), Channel { value: v, image, ..Default::default() });
     };
     // A lobe from a colour × strength: (weight, hue).
     let lobe = |colour: &str, strength: &str, default: f32| {
@@ -1644,8 +1644,8 @@ mod tests {
     fn scene_materials(duf: &Path) -> HashMap<String, Material> {
         let doc: Value = serde_json::from_str(&crate::dson::decompress_scene(&std::fs::read(duf).unwrap()).unwrap()).unwrap();
         let images = image_library(&doc);
-        let gammas = crate::daz_material::image_gammas(&doc);
         let lib: HashMap<&str, &Value> = doc["material_library"].as_array().into_iter().flatten().filter_map(|m| Some((m["id"].as_str()?, m))).collect();
+        let gammas = crate::daz_material::scene_image_gammas(&doc, &images, |u| lib.get(u.trim_start_matches('#')).map(|v| (*v).clone()));
         let mut label = HashMap::new();
         for n in doc.pointer("/scene/nodes").and_then(Value::as_array).into_iter().flatten() {
             for g in n["geometries"].as_array().into_iter().flatten() {
@@ -1659,9 +1659,7 @@ mod tests {
             let url = m["url"].as_str().unwrap_or("");
             let mut mat = lib.get(url.trim_start_matches('#')).map_or_else(Material::default, |d| Material::from_dson(d, &images));
             mat.merge(m, &images);
-            for c in mat.channels.values_mut() {
-                c.gamma = c.image.as_ref().and_then(|i| gammas.get(i)).copied();
-            }
+            mat.resolve_gammas(&gammas);
             let geo = m["geometry"].as_str().unwrap_or("").rsplit('#').next().unwrap_or("");
             let node = label.get(geo).cloned().unwrap_or_else(|| geo.to_string());
             for g in m["groups"].as_array().into_iter().flatten().filter_map(Value::as_str) {

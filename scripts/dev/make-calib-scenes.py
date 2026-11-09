@@ -16,6 +16,13 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-Overlay: Diffuse Overlay with weight / colour maps (#71).
 - Calib-BumpRes: one height map at 256 / 1024 / 4096 px, bump factors,
   UV tiles and a half-size sphere (#75): Iray's bump vs the map's size.
+- Calib-BumpGamma-Uber, -Uber2, -NVIDIA (#91): Calib-Leaf's cards lit in
+  the plane of v, a synthetic sawtooth height map (and normal maps) at
+  `map_gamma` 0 / 1 / 16 bit - the heights' decode gamma (bump-gamma.py);
+  -NVIDIA built headless by daz-build-leaf-scene.dsa (Concrete), tuned
+  here. Calib-NVIDIA-BumpG1: Calib-NVIDIA's bump maps at `map_gamma` 1.
+- Calib-Mi-ImageGamma (#91, .mi only): maps the image_library doesn't
+  list - which channel's default_image_gamma DAZ gives the image.
 - Calib-Mi-ImageMod, -ImageMod2: per-map image modifications (#77) - tiles, tiling
   offsets, scale / offset / invert, grey channel - for DAZ's .mi export.
 - Calib-Mi-SSSTint: SSS Reflectance Tint with Base Color Effect 0 / 1 / 2,
@@ -1255,5 +1262,159 @@ if made[-1][0]:
     lib = next(l for l in d['node_library'] if '#' + l['id'].replace('(', '%28').replace(')', '%29') == s1['url'])
     lib['general_scale']['current_value'] = 0.5
     open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+
+# --- Calib-Mi-ImageGamma (#91, .mi only): maps the scene's image_library
+# doesn't list. The Calib-Skin spheres' cropped maps, saved without
+# entries, went to Iray at gamma 1 (their channels' default_image_gamma),
+# while Calib-Mi-AoA's calib-tiles.png, also unlisted, went "auto" on its
+# Normal Map (default 1) - the same file was on the diffuse (default 0)
+# too. One file per channel alone, then one file on two channels in either
+# order: which channel's default does DAZ give the image?
+IG = {k: f'/Runtime/Textures/ORBIS/calib-imggamma-{k}.png' for k in 'abcdef'}
+for p in IG.values():
+    p = os.path.join(os.path.dirname(out_dir), p.lstrip('/'))
+    if not os.path.exists(p):
+        from PIL import Image
+        Image.new('L', (64, 64), 128).save(p)
+uber_spheres('Calib-Mi-ImageGamma', GREY_SPHERE, {}, [
+    ('I1 diffuse map', {('diffuse', 'image'): IG['a']}),
+    ('I2 bump map', {('Bump Strength', 'image'): IG['b'], 'Bump Strength': 1.0}),
+    ('I3 normal map', {('Normal Map', 'image'): IG['c'], 'Normal Map': 1.0}),
+    ('I4 roughness map', {('Glossy Roughness', 'image'): IG['d'], 'Glossy Layered Weight': 1.0, 'Glossy Roughness': 0.5}),
+    ('I5 diffuse map shared', {('diffuse', 'image'): IG['e']}),
+    ('I6 bump map shared', {('Bump Strength', 'image'): IG['e'], 'Bump Strength': 1.0}),
+    ('I7 bump map shared first', {('Bump Strength', 'image'): IG['f'], 'Bump Strength': 1.0}),
+    ('I8 diffuse map shared second', {('diffuse', 'image'): IG['f']}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    d['image_library'] = [i for i in d.get('image_library', []) if i['map'][0]['url'] not in IG.values()]
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+
+# --- Height-map gamma (#91): Calib-Leaf's three vertical cards, lit from
+# the front 45 degrees up (the distant light turned round), Scene Only, tone
+# mapping linear (burn 1, crush 0). A synthetic 128 px height map whose v
+# runs up the card, in the light's plane: four bands of 32 texels across u -
+# a sawtooth rising 8 levels a texel along v, the same falling, a 0.5 grey
+# (128) with a step to 160 every 32 texels, and a flat 128. The rising and
+# the falling band tilt the normal by the same slope away from / towards
+# the light, so (I_fall - I_rise) / (I_fall + I_rise) = f s tan 45 per row,
+# with no fitted scale: a 1.0 decode makes the sawtooth's slope constant
+# along v, a 2.2 decode grows it as h^1.2 (zero at the bottom, 2.2 x the
+# linear slope at the top, equal near 0.5). The same map at `map_gamma` 1
+# and as a 16-bit PNG (#90: Iray reads a 16-bit single channel at 1.0)
+# beside it; normal maps of a known tilt (0.25 up / down) at gamma auto and
+# 1 in Calib-BumpGamma-Uber2. Calib-BumpGamma-NVIDIA: the same cards in
+# NVIDIA's Concrete (`file_bump_texture` on the whole surface), its colour
+# a flat grey map, Overall Reflectivity 0 (a plain diffuse); built headless
+# by daz-build-leaf-scene.dsa with the Concrete preset, tuned here once.
+BG = {name: f'/Runtime/Textures/ORBIS/calib-bumpgamma{name}.png' for name in ('', '-g1', '-16', '-n', '-n-g1', '-grey')}
+if not all(os.path.exists(os.path.join(os.path.dirname(out_dir), p.lstrip('/'))) for p in BG.values()):
+    from PIL import Image
+    import numpy as np
+    n = 128
+    j = (n - 1 - np.arange(n))[:, None] * np.ones((1, n), int)  # v texel index, 0 at the bottom row
+    band = np.ones((n, 1), int) * (np.arange(n)[None, :] // 32)
+    h = np.select([band == 0, band == 1, band == 2], [8 * (j % 32), 248 - 8 * (j % 32), np.where(j % 64 < 32, 128, 160)], 128)
+    def put(name, img):
+        img.save(os.path.join(os.path.dirname(out_dir), BG[name].lstrip('/')))
+    for name in ('', '-g1'):
+        put(name, Image.fromarray(h.astype(np.uint8)))
+    put('-16', Image.fromarray((h * 257).astype(np.uint16)))
+    t = np.select([band == 0, band == 1], [0.25, -0.25], 0.0)  # tilt n_y / n_z, +v up the card
+    nv = np.stack([np.zeros_like(t), t, np.ones_like(t)], -1)
+    nv /= np.linalg.norm(nv, axis=-1, keepdims=True)
+    for name in ('-n', '-n-g1'):
+        put(name, Image.fromarray(((nv + 1) / 2 * 255).round().astype(np.uint8)))
+    put('-grey', Image.fromarray(np.full((n, n), 186, np.uint8)))  # 0.5 at 2.2
+BG_F = 4.0
+
+
+def bump_gamma_cards(d, variants, nvidia):
+    """Label Calib-Leaf's cards, turn the light to the front, give each card
+    its map (path, channel, factor) and set the images' `map_gamma`."""
+    sun = next(l for l in d['node_library'] if l['id'].startswith('DistantLight'))
+    next(r for r in sun['rotation'] if r['id'] == 'y')['current_value'] = 0.0
+    # A stop darker than Calib-Leaf (8.1): lit from the front its cards came out
+    # at 0.8 linear, the tilt towards the light would clip.
+    # Calib-L-Distant-45's (the NVIDIA cards' base) exposure.
+    set_channel(node_channels(d, 'Tonemapper Options'), 'Exposure Value', 9.1, 'float')
+    set_channel(node_channels(d, 'Tonemapper Options'), 'Shutter Speed', 8.574187, 'float')
+    # A black floor: its bounce lit the cards by 45 % of the light's share
+    # (an unknown ambient that dilutes the tilt's contrast); the distant
+    # light alone leaves the ratio exact. (Hidden, DAZ's .mi moved the dome
+    # ground's 1 mm drop, untested; the floor has no gloss.)
+    floor = next(n for n in d['scene']['nodes'] if n.get('label') == 'Plane')
+    fm = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + floor['geometries'][0]['id'])
+    fm['diffuse']['channel']['current_value'] = [0.0, 0.0, 0.0]
+    cards = sorted((n for n in d['scene']['nodes'] if n.get('label', '').startswith('Leaf ')), key=lambda n: n['label'])
+    mlib = {m['id']: m for m in d['material_library']}
+    lib_images = d.setdefault('image_library', [])
+    gammas = {}
+    for card, (label, path, cid, f, gamma) in zip(cards, variants):
+        card['label'] = label
+        lib = next(l for l in d['node_library'] if '#' + l['id'].replace('(', '%28').replace(')', '%29') == card['url'])
+        lib['label'] = label
+        m = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + card['geometries'][0]['id'])
+        extra = m.setdefault('extra', [])
+        sc = next((e for e in extra if e.get('type') == 'studio_material_channels'), None)
+        if sc is None:
+            sc = {'type': 'studio_material_channels', 'channels': []}
+            extra.append(sc)
+        if nvidia:
+            sc['channels'] = [c for c in sc['channels'] if c['channel']['id'] not in ('Diffuse Color', 'Bump Strength', 'glossy_weight')]
+            sc['channels'] += [{'channel': {'id': 'Diffuse Color', 'type': 'image', 'image_file': BG['-grey']}},
+                               {'channel': {'id': 'Bump Strength', 'type': 'float', 'current_value': f, 'image_file': path}},
+                               {'channel': {'id': 'glossy_weight', 'type': 'float', 'current_value': 0.0}}]
+            gammas[BG['-grey']] = 0
+        else:
+            ch = next(e for e in mlib[m['url'].lstrip('#')]['extra'] if e['type'] == 'studio_material_channels')['channels']
+            grey = [0.7297, 0.7297, 0.7297]  # 0.5 linear, as the NVIDIA cards' grey map
+            for x in (m, mlib[m['url'].lstrip('#')]):
+                x['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': grey}}
+            for k, v in {'Base Mixing': 0, 'Glossy Layered Weight': 0.0, 'Metallic Weight': 0.0, 'Translucency Weight': 0.0,
+                         'Thin Walled': False, 'Diffuse Roughness': 0.0}.items():
+                set_channel(ch, k, v, TYPES.get(type(v), 'float'))
+            sc['channels'] = [c for c in sc['channels'] if c['channel']['id'] != cid]
+            sc['channels'].append({'channel': {'id': cid, 'type': 'float', 'current_value': f, 'image_file': path}})
+        gammas[path] = gamma
+    for path, gamma in gammas.items():
+        lib_images[:] = [i for i in lib_images if i['map'][0]['url'] != path]
+        lib_images.append({'id': path, 'name': os.path.basename(path), 'map_gamma': gamma, 'map': [{'url': path, 'label': os.path.basename(path)}]})
+
+
+if os.path.exists(leaf):
+    for name, variants in {
+        'Calib-BumpGamma-Uber': [('B1 height 8-bit auto', BG[''], 'Bump Strength', BG_F, 0),
+                                 ('B2 height 8-bit gamma 1', BG['-g1'], 'Bump Strength', BG_F, 1),
+                                 ('B3 height 16-bit auto', BG['-16'], 'Bump Strength', BG_F, 0)],
+        'Calib-BumpGamma-Uber2': [('B4 normal 8-bit auto', BG['-n'], 'Normal Map', 1.0, 0),
+                                  ('B5 normal 8-bit gamma 1', BG['-n-g1'], 'Normal Map', 1.0, 1),
+                                  ('B6 height 8-bit auto half', BG[''], 'Bump Strength', BG_F / 2, 0)]}.items():
+        d = load(leaf)
+        bump_gamma_cards(d, variants, False)
+        made.append((save(d, name), None))
+bgn = os.path.join(out_dir, 'Calib-BumpGamma-NVIDIA.duf')
+if os.path.exists(bgn):
+    d = load(bgn)
+    if any(n.get('label', '').startswith('Leaf ') for n in d['scene']['nodes']):
+        bump_gamma_cards(d, [('N1 height 8-bit auto', BG[''], None, BG_F, 0),
+                             ('N2 height 8-bit gamma 1', BG['-g1'], None, BG_F, 1),
+                             ('N3 height 16-bit auto', BG['-16'], None, BG_F, 0)], True)
+        open(bgn, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+        print(bgn, '(cards tuned)')
+# Calib-NVIDIA-BumpG1: Calib-NVIDIA with its bump maps at `map_gamma` 1, so
+# Iray reads them linear - Cast Iron's band-passed detail (#89, linear
+# 1.05 x, 2.2 1.13 x) with Iray's decode known: does the measure itself
+# favour one decode? Cast Iron's MDL reads the same map as its roughness,
+# and the presets' gloss tint too (#90), in Iray and the export alike.
+nv = os.path.join(out_dir, 'Calib-NVIDIA.duf')
+if os.path.exists(nv):
+    d = load(nv)
+    for i in d['image_library']:
+        if i['map'][0]['url'] in ('/resources/brushed_a.jpg', '/resources/grunge_d.jpg', '/resources/concrete_plain_bump.png',
+                                  '/resources/concrete_fine_polished_bump.png'):
+            i['map_gamma'] = 1
+    made.append((save(d, 'Calib-NVIDIA-BumpG1'), None))
 
 # Scene dumps: scripts/dev/daz-dump.sh (DAZ evaluates each scene headless).

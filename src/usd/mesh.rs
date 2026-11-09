@@ -175,9 +175,18 @@ pub(super) fn material_uv_sets(duf: &Value, instance_id: &str) -> HashMap<String
 /// definition (`url` into a `material_library`) overlaid with the scene
 /// material's own channels.
 pub(super) fn scene_materials(lib: &mut Library, instance_id: &str) -> HashMap<String, Rc<crate::daz_material::Material>> {
-    use crate::daz_material::{image_gammas, image_library, Material};
+    use crate::daz_material::{image_library, scene_image_gammas, Material};
     let images = image_library(&lib.duf);
-    let gammas = image_gammas(&lib.duf);
+    let gammas = match &lib.image_gammas {
+        Some(g) => g.clone(),
+        None => {
+            // Only what it reads: the scene document can be large.
+            let doc = serde_json::json!({ "image_library": lib.duf.get("image_library"), "scene": { "materials": lib.duf.pointer("/scene/materials") } });
+            let g = Rc::new(scene_image_gammas(&doc, &images, |u| lib.entry(u, "material_library")));
+            lib.image_gammas = Some(g.clone());
+            g
+        }
+    };
     let mats: Vec<Value> = lib
         .duf
         .pointer("/scene/materials")
@@ -194,9 +203,7 @@ pub(super) fn scene_materials(lib: &mut Library, instance_id: &str) -> HashMap<S
             None => Material::default(),
         };
         mat.merge(&m, &images);
-        for c in mat.channels.values_mut() {
-            c.gamma = c.image.as_ref().and_then(|i| gammas.get(i)).copied();
-        }
+        mat.resolve_gammas(&gammas);
         // DAZ's legacy shaders render as the Iray Uber material DAZ makes
         // of them (`crate::iray::daz_default_as_uber`,
         // `legacy_shader_as_uber`, `aoa_subsurface_as_uber`). The scripted
