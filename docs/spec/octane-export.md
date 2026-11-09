@@ -1097,8 +1097,8 @@ leaves out, #15):
   (RMS of the grey image per sphere) B2 3.5 → 2.5, B3 6.5 → 2.2, B4 9.9
   → 3.3, the rest unchanged or lower; the skin's dual lobe narrows with
   the bump as Iray's does (below, Gloss).
-- **Bump strength** (#61, #75): the fallback above and the NVIDIA MDL
-  presets' bumps (`mdl_metal`, `mdl_dielectric`; #89) still use Octane's own
+- **Bump strength** (#61, #75): the fallback above and architectural's
+  bump (`mdl_dielectric`; the NVIDIA presets below) still use Octane's own
   bump: a height map on `bump` goes in at Octane image `power` = Iray's `file_bump_texture` factor (Bump
   Strength, Top Coat Bump; none at 0) × `BUMP_POWER` 2 × 512 / the map's
   width × the material's UV scale / 0.542 m / the UV tiles
@@ -1513,17 +1513,14 @@ leaves out, #15):
     GGX curve: Octane's roughness = the longer axis per texel, anisotropy
     = (v − u) / (v + u) **per texel** (a derived map when one map drives
     both axes, as in both presets; else at a mid-grey texel), **plain GGX**
-    (`brdf` 2), the bump at the Uber's bump power (`bump_power`: × 2 per
-    unit of amount for a 512 px map, untiled), the shader's tiles
-    (`mdl_metal`). Why: Metal Brushed's map runs u 0.04 – 0.18 against v
+    (`brdf` 2), the bump baked into a normal map (below), the shader's
+    tiles (`mdl_metal`). Why: Metal Brushed's map runs u 0.04 – 0.18 against v
     0.36 – 0.48; its darkest texels draw Iray's thin vertical streak and
     brush bands, which a mid-grey ratio blurred into one broad highlight.
     Plain GGX because `metal_generic`'s lobe has no multiple-scattering
     compensation: at its broad long axis (0.6 – 0.7 on the curve) the
     energy-preserving GGX rendered it 1.16 × Iray, plain GGX 1.02 (the
-    scene's floor 1.04) — measured, the MDL doesn't settle it. Cast Iron
-    1.11 (centre 0.97) either way; its sparkle at 256 samples is noise of
-    the 2048 px bump, gone at 1024.
+    scene's floor 1.04) — measured, the MDL doesn't settle it.
   - Dielectrics (concrete, concrete polished, asphalt, ceramic tiles small,
     granite black, porcelain, resin polyurethane matte, architectural):
     `df::fresnel_layer(ior, weight, glossy, diffuse)` → Universal albedo,
@@ -1532,7 +1529,7 @@ leaves out, #15):
     map weights it, polished concrete's colour map does — its diffuse is
     that map × the weight too), `ior` = the layer's IOR, the MDL roughness
     on the Uber gloss's GGX curve under energy-preserving GGX (`brdf` 6),
-    bump × the Uber's bump power (`mdl_dielectric`). Granite's varnish is a
+    the bump baked into a normal map (below; `mdl_dielectric`). Granite's varnish is a
     mirror (roughness 0). Resin's base is a tinted glossy reflect +
     transmit (`simple_glossy_bsdf`, `scatter_reflect_transmit`): specular
     and transmission its colour, which Octane, like Iray, applies at every
@@ -1600,13 +1597,43 @@ leaves out, #15):
     Calib-NVIDIA2 (floor 1.05): glossiness 0.3 0.90 → 1.02, 0 1.01,
     anisotropy 4 0.95 → 1.06, glass 1.46 → 0.98.
     Calib-NVIDIA (Iray 5000 samples, Octane 1024; sphere disk luminance,
-    Octane / Iray; floor 1.04): Metal Brushed 1.02, Cast Iron 1.11,
+    Octane / Iray; floor 1.04): Metal Brushed 1.02, Cast Iron 1.11 (1.04
+    with the bump baked, #89),
     concrete 1.00, polished 0.95, porcelain 1.09, granite 1.09, resin 1.05,
     architectural 1.07; Calib-NVIDIA2: asphalt 1.05, ceramic tiles small
     1.04 (floor 1.05); hue within 0.02 (g/r) – 0.04 (b/r) but resin.
     Porcelain's and granite's excess (centre 1.14) is the diffuse under a
     full Fresnel gloss, as on the Uber's glossy spheres (Calib-Glossy
     1.02 – 1.16), not theirs alone.
+  - **Bump** (#89): the metals (`metal_generic`), concrete, polished
+    concrete, asphalt and the small tiles build it as
+    `base::file_bump_texture(bump_texture, bump_amount, uvw)` on the
+    shader's tiling — the Uber's rule — so the map goes in baked into a
+    tangent-space normal map on `normal` (`detail_normal`, the Uber's
+    height-map rule above: MDL's central difference, factor = Bump
+    Strength), read linear like the Uber's; unreadable, Octane's bump at
+    `bump_power`. Architectural's `bump` is a ready normal (`float3`) and
+    DAZ's .mi shows no map wired in, so a Bump Strength map there keeps
+    Octane's bump. DAZ's bricks have no `is_normaltexture` channel (the
+    metals' normal-map mode). Polished concrete's MDL bumps only the
+    diffuse (`weighted_layer(normal: bump)` under the `fresnel_layer`) —
+    Universal's bump tilts both; the gloss on the coating, which keeps
+    the plain normal, came out worse (below), so both stay bumped.
+    Why: Octane's bump reads the height per texel (above); Cast Iron's
+    2048 px bump drew it as sparkle. Against Iray (Calib-NVIDIA, Octane
+    1024, floor 1.04; disk luminance Octane / Iray, and band-passed
+    luminance detail in the sphere's centre box, Octane / Iray, with its
+    correlation with Iray's): Cast Iron disk 1.13 → 1.04, detail 0.91 →
+    1.05, correlation 0.82 → 0.91, its noise at 256 samples (against
+    1024) 0.21 → 0.12; concrete disk 1.01 → 1.04, polished 0.97 → 0.99,
+    detail 1.01 / 0.98 → 1.00 / 0.98, correlation 0.99 / 0.94 → 0.99 /
+    0.95; Calib-NVIDIA2 (floor 1.05) asphalt disk 0.96 → 1.00, tiles 1.06
+    → 1.06, tiles detail 1.02 → 1.04, correlation 0.87 → 0.90; the
+    spheres without a bump unchanged. Decoding the 8-bit heights at 2.2
+    (the MDL's `gamma_default` for an 8-bit file; the bump PNGs carry a
+    gAMA of 1.0, the JPEGs none) put Cast Iron's detail at 1.13 × with
+    correlation 0.82; linear 1.05 ×, 0.91. Polished concrete's gloss on
+    the coating: detail 1.58 ×, correlation 0.84.
 - **Layered images** are flattened into one PNG per stack.
 
 ### Skin — OpenPBR Surface (505), Final only

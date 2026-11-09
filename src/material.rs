@@ -735,6 +735,10 @@ struct MdlDielectric {
     roughness: f32,
     ior: f32,
     bump: Option<(String, f32)>,
+    /// The MDL reads `bump` through `base::file_bump_texture` (all but
+    /// architectural, whose `bump` is a ready normal DAZ wires in): baked
+    /// into a normal map (`mdl_bump_pins`), else Octane's bump.
+    bump_file_texture: bool,
     tiles: [f32; 2],
     /// Resin's base: a tinted glossy reflect + transmit (rough coloured
     /// glass) under the clear coat.
@@ -826,6 +830,7 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
         roughness,
         ior,
         bump,
+        bump_file_texture: true,
         tiles,
         transmission: None,
         refraction: None,
@@ -903,6 +908,7 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
             }
             d.opacity = mat.float("Cutout Opacity").unwrap_or(1.0);
             d.bump = mat.image("Bump Strength").map(|m| (m.to_string(), mat.float("Bump Strength").unwrap_or(1.0))).filter(|(_, a)| *a > 0.0);
+            d.bump_file_texture = false;
             d.tiles = tiles;
         }
     }
@@ -1516,12 +1522,7 @@ impl Ocs<'_> {
             }
         }
         let (bmap, amount) = &m.bump;
-        if *amount > 0.0 {
-            if let Some(asset) = self.textures.asset(self.dirs, bmap) {
-                let p = self.bump_power(&asset, *amount);
-                self.image_pin(i, "bump", &asset, true, 1.0, p);
-            }
-        }
+        self.mdl_bump_pins(i, bmap, *amount);
         self.round_edges_pin(i, mat);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
@@ -1612,19 +1613,43 @@ impl Ocs<'_> {
         } else {
             self.float_pin(i, "ior", m.ior);
         }
-        if let Some((map, amount)) = &m.bump {
-            if *amount > 0.0 {
+        match &m.bump {
+            Some((map, amount)) if m.bump_file_texture => self.mdl_bump_pins(i, map, *amount),
+            Some((map, amount)) if *amount > 0.0 => {
                 if let Some(asset) = self.textures.asset(self.dirs, map) {
                     let p = self.bump_power(&asset, *amount);
                     self.image_pin(i, "bump", &asset, true, 1.0, p);
                 }
             }
+            _ => {}
         }
         self.round_edges_pin(i, mat);
         if m.opacity < 1.0 {
             self.float_pin(i, "opacity", m.opacity.max(0.0));
         }
         let _ = writeln!(self.out, "{:indent$}</node>", "");
+    }
+
+    /// An NVIDIA MDL preset's bump (#89): the metals (`metal_generic`),
+    /// concrete, polished concrete, asphalt and the small tiles build it as
+    /// `base::file_bump_texture(bump_texture, bump_amount, uvw)` on their
+    /// tiling, the Uber's rule, so the map goes in baked into a
+    /// tangent-space normal map on `normal` (`Textures::detail_normal`),
+    /// read linear as the Uber's (Calib-NVIDIA's Cast Iron: decoded at 2.2
+    /// its bump detail came out 1.13 × Iray, linear 1.05 ×). An unreadable
+    /// map falls back to Octane's bump at `bump_power`.
+    fn mdl_bump_pins(&mut self, i: usize, map: &str, amount: f32) {
+        if amount <= 0.0 {
+            return;
+        }
+        let Some(asset) = self.textures.asset(self.dirs, map) else { return };
+        match self.textures.detail_normal((&asset, Some(amount)), None) {
+            Some(baked) => self.image_pin(i, "normal", &baked, false, 1.0, 1.0),
+            None => {
+                let p = self.bump_power(&asset, amount);
+                self.image_pin(i, "bump", &asset, true, 1.0, p);
+            }
+        }
     }
 
     /// Iray's Top Coat: a clear dielectric layer over everything, as
@@ -6750,6 +6775,30 @@ mod tests {
         assert!((a - (v - u) / (v + u)).abs() < 1e-5, "{a}");
         assert!(x.contains("<pin name='brdf'>") && x.contains("type='2'>2<"), "{x}");
         assert!(x.contains("<pin name='edgeTint'>"), "{x}");
+    }
+
+    #[test]
+    fn mdl_presets_bake_their_bump_into_a_normal_map() {
+        // #89: the metals' and the file_bump_texture dielectrics' bump goes
+        // in baked on `normal`; architectural's keeps Octane's bump.
+        let dir = tempfile::tempdir().unwrap();
+        image::GrayImage::from_fn(16, 16, |x, _| image::Luma([(x * 8) as u8])).save(dir.path().join("b.png")).unwrap();
+        let dirs = [dir.path().to_path_buf()];
+        let mut textures = Textures::default();
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None, map_mod: ImageMod::default() };
+        let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.06, 0.4), rough_v: (String::new(), 0.06, 0.4), bump: ("b.png".into(), 1.5), tiles: [1.0, 1.0] };
+        w.mdl_metal(0, "Metal", &m, &mat(json!([])));
+        assert!(w.out.contains("<pin name='normal'>") && !w.out.contains("<pin name='bump'>"), "{}", w.out);
+        let mut concrete = Material::from_dson(&json!({"extra": [{"channels": [{"channel": {"id": "Bump Strength", "current_value": 6.0, "image_file": "b.png"}}]}]}), &HashMap::new());
+        concrete.mdl.push("nvidia::concrete::concrete".into());
+        let mut d = mdl_dielectric(&concrete).unwrap();
+        w.out.clear();
+        w.mdl_dielectric(0, "Concrete", &d, &concrete);
+        assert!(w.out.contains("<pin name='normal'>") && !w.out.contains("<pin name='bump'>"), "{}", w.out);
+        d.bump_file_texture = false;
+        w.out.clear();
+        w.mdl_dielectric(0, "Arch", &d, &concrete);
+        assert!(w.out.contains("<pin name='bump'>") && !w.out.contains("<pin name='normal'>"), "{}", w.out);
     }
 
     /// NVIDIA's MDL examples get the channels straight as their MDL
