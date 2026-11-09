@@ -1450,6 +1450,16 @@ leaves out, #15):
   node gets `initialColorSpaceSelected` = 1, and the HDRI stays linear. Why: without the attribute, data maps were decoded as
   sRGB and sunglasses came out nearly clear (probes 55–57). With it the
   lenses tint like Iray's, brightness unchanged (Octane2 moved 0.28 / 255).
+  **A file's own colour metadata is ignored** (PNG gAMA / sRGB / iCCP),
+  as Iray does: under `gamma "auto"` (MDL `gamma_default`) Iray's
+  OpenImageIO reader gives a canvas its pixel type's gamma — 8 bit 2.2,
+  half / float 1.0 — and reads `oiio:ColorSpace` only when the debug
+  option `ignore_gamma_metadata_on_import` is 0 (default 1, MDL SDK
+  2025 = DAZ Studio 6's Iray 2025.0.3; DAZ never sets it). Why (#90):
+  the NVIDIA presets' PNGs all carry gAMA 1.0; read linear, asphalt's
+  colour map would be 6 × brighter (Octane disk 5.4 × Iray), its gloss
+  weight map at 1.0 put the disk at 1.17 × and the rim 1.26 × (at 2.2
+  0.99 / 1.00; diffuse alone 0.83).
 - **Float channels' maps are read at gamma 2.2.** This covers roughness,
   opacity, metallic, translucency, glossy weight and reflectivity, and
   displacement. DAZ reads a map with no gamma of its own (`map_gamma` 0,
@@ -1526,7 +1536,7 @@ leaves out, #15):
     `df::fresnel_layer(ior, weight, glossy, diffuse)` → Universal albedo,
     specular = the weight (a map where the MDL weights or tints the gloss
     with one: concrete's bump map tints it, asphalt's and the tiles' bump
-    map weights it, polished concrete's colour map does — its diffuse is
+    map weights it — read at 2.2 like any 8-bit map, #90 —, polished concrete's colour map does — its diffuse is
     that map × the weight too), `ior` = the layer's IOR, the MDL roughness
     on the Uber gloss's GGX curve under energy-preserving GGX (`brdf` 6),
     the bump baked into a normal map (below; `mdl_dielectric`). Granite's varnish is a
@@ -1630,9 +1640,10 @@ leaves out, #15):
     0.95; Calib-NVIDIA2 (floor 1.05) asphalt disk 0.96 → 1.00, tiles 1.06
     → 1.06, tiles detail 1.02 → 1.04, correlation 0.87 → 0.90; the
     spheres without a bump unchanged. Decoding the 8-bit heights at 2.2
-    (the MDL's `gamma_default` for an 8-bit file; the bump PNGs carry a
-    gAMA of 1.0, the JPEGs none) put Cast Iron's detail at 1.13 × with
-    correlation 0.82; linear 1.05 ×, 0.91. Polished concrete's gloss on
+    (the MDL's `gamma_default` for an 8-bit file, which Iray's loader
+    keeps whatever the PNGs' gAMA 1.0 says — colour space above) put
+    Cast Iron's detail at 1.13 × with correlation 0.82; linear 1.05 ×,
+    0.91. That contradicts the loader; open in #91. Polished concrete's gloss on
     the coating: detail 1.58 ×, correlation 0.84.
 - **Layered images** are flattened into one PNG per stack.
 
