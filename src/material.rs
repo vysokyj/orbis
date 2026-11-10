@@ -709,16 +709,31 @@ fn mdl_metal(mat: &Material) -> Option<MdlMetal> {
 }
 
 /// Octane's `anisotropyTexture` for an MDL lobe of roughness `u` along
-/// the tangent and `v` across: (α_v − α_u) / (α_v + α_u) of the two axes'
-/// Beckmann α (`phong_pin` squared, ≈ r). On the pins (√α) the
-/// ratio is its root: Metal Brushed's streak came out broad (correlation
-/// of its band-passed detail with Iray's 0.87; on α 0.99, #92).
+/// the tangent and `v` across: each axis at its `phong_pin`
+/// (`octane_anisotropy`).
 fn mdl_anisotropy(u: f32, v: f32) -> f32 {
-    let (u, v) = (phong_pin(u).powi(2), phong_pin(v).powi(2));
-    if (u - v).abs() < 1e-6 || u + v <= 0.0 {
+    octane_anisotropy(phong_pin(u), phong_pin(v))
+}
+
+/// Octane's `anisotropyTexture` for a lobe whose pins along the tangent
+/// and across are `u` and `v`, with `roughness` the longer of the two:
+/// 1 − short / long, positive when v is the long axis. Octane's lobe at
+/// roughness p and anisotropy a has α = p² along the long axis and p² (1 −
+/// |a|)² across it — measured (#96): an orthographic probe of white metal
+/// spheres lit from the camera by one small spot, the highlight fitted
+/// with an anisotropic Beckmann / GGX lobe per axis (k = 1.00 ± 0.02
+/// against a Lambert sphere): at pin 0.6 the short α / long α 0.571 /
+/// 0.259 / 0.064 at a 0.25 / 0.5 / 0.75 ((1 − a)² 0.5625 / 0.25 / 0.0625),
+/// the same at pins 0.2 – 1 and under GGX; the long axis stays p². The
+/// rules before were (α_v − α_u) / (α_v + α_u) (#92) and (v − u) / (v + u)
+/// of the pins (#23), both narrower across than Iray's lobe.
+fn octane_anisotropy(u: f32, v: f32) -> f32 {
+    let long = u.max(v);
+    if (u - v).abs() < 1e-6 || long <= 0.0 {
         return 0.0;
     }
-    ((v - u) / (v + u)).clamp(-1.0, 1.0)
+    let a = 1.0 - u.min(v) / long;
+    if v > u { a } else { -a }
 }
 
 /// Iray Uber / PBRSkin displacement: the map, Octane's height (m) and mid
@@ -1253,15 +1268,21 @@ impl Ocs<'_> {
     }
 
     /// `brdf_pin` for a lobe whose anisotropy may saturate: plain GGX (2)
-    /// when Iray's long axis runs past roughness 1 (`Anisotropy::saturates`,
-    /// `fitted_ggx_pin`): energy-preserving GGX at roughness 1 adds the
-    /// light of multiple scattering that Iray's lobe at r / 0.0001 doesn't
-    /// have — Calib-Aniso2's sharp anisotropic metal K3 1.52 → 1.08 × Iray,
-    /// the weighted coat K4 1.31 → 0.96; not below the cap (Calib-Aniso's
-    /// metal at v 0.8 1.12 → 0.86, #23).
+    /// instead of Beckmann when Iray's long axis runs past roughness 1
+    /// (`Anisotropy::saturates`). Phong of exponent n = 2 / r² goes flat as
+    /// n → 0 (r / 0.0001 at anisotropy 1: D = 1 / π along v), and GGX at
+    /// α = 1 is exactly that flat distribution, where Beckmann at α 1
+    /// (Walter's √(2 / (n + 2))) is not. Single scatter, as Iray's lobe;
+    /// the short axis at its `phong_pin` (GGX at a sharp Phong's α has its
+    /// peak). Calib-Aniso2's sharp metal K3 (r 0.04, a 1) 1.53 → 1.14 ×
+    /// Iray, the weighted coat K4 1.32 → 1.05 (the scene's other spheres
+    /// 1.09 – 1.12); analytically under the scene's HDRI Beckmann / GGX
+    /// 1.37, Octane's two renders 1.34 (#96). A dielectric node stays on
+    /// GGX energy preserving (`phong_brdf`: its long axis is past
+    /// `BECKMANN_DIELECTRIC_MAX_ALPHA`).
     fn aniso_brdf_pin(&mut self, i: usize, saturated: bool) {
         if let Some(b) = self.gloss_brdf {
-            self.value_pin(i, "brdf", 57, 2, if saturated { BRDF_GGX } else { b });
+            self.value_pin(i, "brdf", 57, 2, if saturated && b == BRDF_BECKMANN { BRDF_GGX } else { b });
         }
     }
 
@@ -1733,18 +1754,11 @@ impl Ocs<'_> {
             // (`mdl_anisotropy`, as the metals'); past 1 (or fitted) each
             // axis on `fitted_ggx_pin`, their pins' ratio (#23), plain GGX
             // past 1 (`aniso_brdf_pin`).
-            let (u, v) = (u.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
-            let saturated = u.max(v) >= 1.0;
-            let brdf = if saturated { BRDF_GGX } else if m.fitted_pins { BRDF_GGX_EP } else { phong_brdf(&[u.max(v)]) };
+            let brdf = if m.fitted_pins { BRDF_GGX_EP } else { phong_brdf(&[u.max(v)]) };
             self.value_pin(i, "brdf", 57, 2, brdf);
-            let a = if saturated || m.fitted_pins {
-                let (cu, cv) = (fitted_ggx_pin(u), fitted_ggx_pin(v));
-                self.float_pin(i, roughness_pin, cu.max(cv));
-                if cu + cv > 0.0 { ((cv - cu) / (cv + cu)).clamp(-1.0, 1.0) } else { 0.0 }
-            } else {
-                self.float_pin(i, roughness_pin, phong_pin(u.max(v)));
-                mdl_anisotropy(u, v)
-            };
+            let (pu, pv) = (pin(u), pin(v));
+            self.float_pin(i, roughness_pin, pu.max(pv));
+            let a = octane_anisotropy(pu, pv);
             if a != 0.0 {
                 self.float_pin(i, "anisotropyTexture", a);
             }
@@ -2447,7 +2461,6 @@ impl Ocs<'_> {
     /// coating at the gloss's roughness.
     fn gloss_roughness_pins(&mut self, indent: usize, mat: &Material, channel: Option<&str>, r: f32, curve: RoughCurve, aniso: Anisotropy) -> f32 {
         let stretch = aniso.stretch();
-        let curve = if curve == RoughCurve::Phong && aniso.saturates(r) { RoughCurve::FittedGgx } else { curve };
         let (rough, a) = anisotropic_roughness(r.clamp(0.0, 1.0), stretch, curve);
         self.roughness_pin(indent, mat, channel, rough, curve, stretch);
         if a == 0.0 {
@@ -2457,9 +2470,8 @@ impl Ocs<'_> {
         if let Some(rot) = aniso.octane_rotation() {
             self.float_pin(indent, "rotation", rot);
         }
-        // The short axis u from a (`anisotropic_roughness`), then √(u v).
-        let ratio = (1.0 - a) / (1.0 + a);
-        let u = if curve == RoughCurve::Phong { rough * ratio.sqrt() } else { rough * ratio };
+        // The short axis's pin from a (`octane_anisotropy`), then √(u v).
+        let u = rough * (1.0 - a.abs());
         (u * rough).sqrt()
     }
 
@@ -4447,9 +4459,10 @@ fn metallic(mat: &Material) -> f32 {
 /// 1.31 / 1.75 × Iray's band-passed detail at correlation 0.93 / 0.91
 /// (Beckmann here 0.98 / 0.99 at 0.999 / 0.994), Calib-Aniso's isotropic
 /// r 0.16 3.34 at 0.69 (1.02 at 0.996). The skin's lobes (#19): its
-/// face's highlight 0.82 – 0.91 × Iray.
+/// face's highlight 0.82 – 0.91 × Iray. Not capped at r 1: an anisotropic
+/// long axis runs to r / 0.0001, where α → 1 (#96).
 fn phong_pin(r: f32) -> f32 {
-    let r = r.clamp(0.0, 1.0);
+    let r = r.max(0.0);
     (r / (1.0 + r * r).sqrt()).sqrt()
 }
 
@@ -4493,16 +4506,9 @@ fn phong_brdf(dielectric: &[f32]) -> &'static str {
 }
 
 /// The GGX curve min(r + 1.85 r², √r) every Uber gloss had before #95,
-/// fitted to highlight peaks (#56) — kept where a rule was fitted on it:
-/// architectural's reflection (`MdlDielectric::fitted_pins`), and an
-/// anisotropic Phong lobe whose long axis runs past 1
-/// (`Anisotropy::saturates`), per axis, under plain GGX (`aniso_brdf_pin`).
-/// Iray's lobe at r / 0.0001 is flat along v, which no Octane distribution
-/// is; #23 matched it so (Calib-Aniso2's sharp metal K3 1.08 × Iray, the
-/// weighted coat K4 0.96). At `phong_pin` (the α's ratio) under Beckmann K3
-/// went to 1.73, K4 to 1.41, Calib-Aniso's streaks broader (A3's detail
-/// 1.97 → 2.35 × Iray's), where the unsaturated lobes improved (A2 1.56 →
-/// 0.98, K7 2.70 → 1.24). Octane's anisotropy itself is #96.
+/// fitted to highlight peaks (#56) — kept only where a rule was fitted on
+/// it: architectural's reflection (`MdlDielectric::fitted_pins`). (A
+/// saturated anisotropy kept it until #96, `aniso_brdf_pin`.)
 fn fitted_ggx_pin(r: f32) -> f32 {
     (r + FITTED_GGX_CURVE * r * r).min(r.max(0.0).sqrt()).clamp(0.0, 1.0)
 }
@@ -4518,8 +4524,6 @@ enum RoughCurve {
     Linear,
     /// `phong_pin`: a `simple_glossy_bsdf` lobe.
     Phong,
-    /// `fitted_ggx_pin`: a Phong lobe whose anisotropy saturates.
-    FittedGgx,
 }
 
 impl RoughCurve {
@@ -4527,7 +4531,6 @@ impl RoughCurve {
         match self {
             RoughCurve::Linear => r.clamp(0.0, 1.0),
             RoughCurve::Phong => phong_pin(r),
-            RoughCurve::FittedGgx => fitted_ggx_pin(r),
         }
     }
 
@@ -4536,7 +4539,6 @@ impl RoughCurve {
         match self {
             RoughCurve::Linear => "false",
             RoughCurve::Phong => "phong",
-            RoughCurve::FittedGgx => "true",
         }
     }
 }
@@ -4612,8 +4614,8 @@ impl Anisotropy {
         if self.amount >= 1.0 { 1.0e4 } else { 1.0 / (1.0 - self.amount) }
     }
 
-    /// Whether Iray's long axis r · stretch runs past roughness 1, where
-    /// Octane's is capped (`aniso_brdf_pin`).
+    /// Whether Iray's long axis r · stretch runs past roughness 1: Phong's
+    /// exponent below 2 along it (`aniso_brdf_pin`).
     fn saturates(self, r: f32) -> bool {
         self.amount > 0.0 && r * self.stretch() > 1.0
     }
@@ -4629,12 +4631,11 @@ impl Anisotropy {
 }
 
 /// Octane's roughness and anisotropy for Iray's roughness r along u and
-/// r · `stretch` along v (capped at 1), each axis through `curve`: the long
-/// axis v and (v − u) / (v + u) — of the axes' Beckmann α for a Phong lobe
-/// (`mdl_anisotropy`: on the pins, the α's ratio's root, Metal Brushed's
-/// streak came out broad, #92), else of the pins. Octane's anisotropy 1
-/// stretches the highlight along v ("vertical"). Octane's roughness is the
-/// long axis, its anisotropy narrows the other: at the axes' geometric mean
+/// r · `stretch` along v, each axis through `curve` (a Phong lobe's long
+/// axis uncapped: `phong_pin` → 1 as r → ∞): the long axis v and
+/// `octane_anisotropy` of the two pins. Octane's anisotropy 1 stretches the
+/// highlight along v ("vertical"). Octane's roughness is the long axis,
+/// its anisotropy narrows the other: at the axes' geometric mean
 /// Calib-Aniso's streaks came out short and bright (rough 0.1, aniso 1:
 /// highlight elongation 1.96 against Iray's 9.9, mean 1.52 × Iray), at v
 /// 9.85 and 1.15 × (#23).
@@ -4643,12 +4644,8 @@ fn anisotropic_roughness(r: f32, stretch: f32, curve: RoughCurve) -> (f32, f32) 
     if stretch == 1.0 {
         return (pin(r), 0.0);
     }
-    let (u, v) = (pin(r), pin((r * stretch).min(1.0)));
-    let (au, av) = if curve == RoughCurve::Phong { (u * u, v * v) } else { (u, v) };
-    if au + av <= 0.0 {
-        return (0.0, 0.0);
-    }
-    (v, ((av - au) / (av + au)).clamp(-1.0, 1.0))
+    let (u, v) = (pin(r), pin(r * stretch));
+    (v, octane_anisotropy(u, v))
 }
 
 /// Iray's metal at Metallic Weight w (DAZ's MDL, `metallic_layered_base`):
@@ -5837,12 +5834,13 @@ mod tests {
         ]));
         let (y, _) = material_inputs(&[("Aniso".into(), aniso, 1.0)], &[], HashMap::new(), 9700, SkinShader::None);
         // mia's anisotropy on the MDL roughness, then the fitted GGX curve
-        // per axis (`MdlDielectric::fitted_pins`).
+        // per axis (`MdlDielectric::fitted_pins`), Octane's anisotropy of
+        // the two pins (`octane_anisotropy`: negative, u the long axis).
         let r = architectural_gloss_to_rough(0.3);
         let (u, v) = (fitted_ggx_pin(arch_reflection_rough(r * 2.0)), fitted_ggx_pin(arch_reflection_rough(r / 2.0)));
         assert_eq!(pin(&y, "roughness"), num(u), "{y}");
         let a: f32 = pin(&y, "anisotropyTexture").parse().unwrap();
-        assert!((a - (v - u) / (v + u)).abs() < 1e-5 && a < 0.0, "{a}");
+        assert!((a + (1.0 - v / u)).abs() < 1e-5 && a < 0.0, "{a}");
     }
 
     /// Arch+Design glossiness → roughness as Iray's
@@ -6928,24 +6926,36 @@ mod tests {
         assert!((pin(&iso, "roughness").unwrap() - phong_pin(0.16)).abs() < 1e-5, "{iso}");
         let brdf = |x: &str| x.find("<pin name='brdf'>").map(|at| x[at..].split("type='2'>").nth(1).unwrap().split('<').next().unwrap().to_string());
         // Anisotropy 0.5: v = 0.16 / 0.5 = 0.32 the long axis, the
-        // anisotropy of the axes' α (the pins squared); Iray's rotation 0.125
-        // the other way round, 0.875; v's α 0.31 past the dielectric limit:
-        // energy-preserving GGX below the cap.
+        // anisotropy 1 − u / v of the pins (Octane's short α is long α ·
+        // (1 − a)², #96); Iray's rotation 0.125 the other way round, 0.875;
+        // v's α 0.31 past the dielectric limit: energy-preserving GGX.
         let a = ball(json!([
             {"channel": {"id": "Glossy Anisotropy", "current_value": 0.5}},
             {"channel": {"id": "Glossy Anisotropy Rotations", "current_value": 0.125}},
         ]));
-        let (au, av) = (phong_pin(0.16).powi(2), phong_pin(0.32).powi(2));
-        assert!((pin(&a, "roughness").unwrap() - phong_pin(0.32)).abs() < 1e-5, "{a}");
-        assert!((pin(&a, "anisotropyTexture").unwrap() - (av - au) / (av + au)).abs() < 1e-5, "{a}");
+        let (pu, pv) = (phong_pin(0.16), phong_pin(0.32));
+        assert!((pin(&a, "roughness").unwrap() - pv).abs() < 1e-5, "{a}");
+        assert!((pin(&a, "anisotropyTexture").unwrap() - (1.0 - pu / pv)).abs() < 1e-5, "{a}");
         assert_eq!(pin(&a, "rotation"), Some(0.875));
         assert_eq!(brdf(&a).as_deref(), Some(BRDF_GGX_EP));
-        // Anisotropy 1: v past Iray's cap — `fitted_ggx_pin`, roughness
-        // 1, plain GGX.
+        // Anisotropy 1: v = r / 0.0001, its pin → 1, u at its own; the
+        // dielectric gloss stays on energy-preserving GGX, a metal takes
+        // plain GGX (Phong at n → 0 is GGX at α 1, `aniso_brdf_pin`).
         let full = ball(json!([{"channel": {"id": "Glossy Anisotropy", "current_value": 1.0}}]));
-        assert_eq!(pin(&full, "roughness"), Some(1.0));
+        assert!(pin(&full, "roughness").unwrap() > 0.9999, "{full}");
+        assert!((pin(&full, "anisotropyTexture").unwrap() - (1.0 - phong_pin(0.16))).abs() < 1e-4, "{full}");
         assert_eq!(pin(&full, "rotation"), None);
-        assert_eq!(brdf(&full).as_deref(), Some(BRDF_GGX));
+        assert_eq!(brdf(&full).as_deref(), Some(BRDF_GGX_EP));
+        let metal = ball(json!([
+            {"channel": {"id": "Glossy Anisotropy", "current_value": 1.0}},
+            {"channel": {"id": "Metallic Weight", "current_value": 1.0}},
+        ]));
+        assert_eq!(brdf(&metal).as_deref(), Some(BRDF_GGX));
+        let metal_half = ball(json!([
+            {"channel": {"id": "Glossy Anisotropy", "current_value": 0.5}},
+            {"channel": {"id": "Metallic Weight", "current_value": 1.0}},
+        ]));
+        assert_eq!(brdf(&metal_half).as_deref(), Some(BRDF_BECKMANN));
         assert_eq!(brdf(&iso).as_deref(), Some(BRDF_BECKMANN));
         // Backscattering Anisotropy alone doesn't turn the gloss.
         let back = ball(json!([{"channel": {"id": "Backscattering Anisotropy", "current_value": 0.8}}]));
@@ -7164,14 +7174,14 @@ mod tests {
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;
         // u 0.22, v 0.5125 at mid-grey: roughness √α of v (Beckmann α =
-        // r / √(1 + r²)), anisotropy (α_v − α_u) / (α_v + α_u), Beckmann.
+        // r / √(1 + r²)), anisotropy 1 − √α_u / √α_v, Beckmann.
         let al = |r: f32| r / (1.0 + r * r).sqrt();
         let (u, v) = (al(0.22), al(0.5125));
         let rough = &x[x.find("<pin name='roughness'>").unwrap()..];
         assert!(rough.contains(&format!("type='6'>{}<", num(v.sqrt()))), "{x}");
         let a = &x[x.find("<pin name='anisotropyTexture'>").unwrap()..];
         let a: f32 = a.split("type='6'>").nth(1).unwrap().split('<').next().unwrap().parse().unwrap();
-        assert!((a - (v - u) / (v + u)).abs() < 1e-5, "{a}");
+        assert!((a - (1.0 - (u / v).sqrt())).abs() < 1e-5, "{a}");
         assert!(x.contains("<pin name='brdf'>") && x.contains("type='2'>1<"), "{x}");
         assert!(x.contains("<pin name='edgeTint'>"), "{x}");
     }

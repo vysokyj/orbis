@@ -978,7 +978,7 @@ leaves out, #15):
   **0.25** — Octane's limit for a dielectric Beckmann (below). Metals take
   Beckmann at any roughness, rough glass too (Refraction). Exceptions:
   architectural keeps the pins its rules were fitted on (NVIDIA MDL
-  examples), a saturated anisotropy the GGX curve (Anisotropy), the flakes
+  examples), a saturated anisotropic metal lobe plain GGX (Anisotropy), the flakes
   GGX energy preserving (their roughness stands for the flakes' normals).
 
   Why (#95; the 2026-10-31 GGX curve min(r + 1.85 r², √r) it replaces was
@@ -1014,20 +1014,49 @@ leaves out, #15):
   coat; #23). Iray (`base::anisotropy_conversion`, MDL SDK's `base.mdl`):
   roughness_u = r, roughness_v = r / (1 − a) (r / 0.0001 at a = 1), the
   tangent turned by 2π · rotation. Octane: each axis at the Phong pin
-  above (v capped at 1), **`roughness` = v** (the long axis),
-  **`anisotropyTexture` = (α_v − α_u) / (α_v + α_u)** of the axes' α (1
-  stretches along the texture's v, like Iray; on the pins, their ratio's
-  root, the NVIDIA metal's streak broadened, #92), **`rotation` = 1 −
-  Iray's rotation** (both in turns; Octane's slider 0 – 1, it turns the
-  other way). A roughness map bakes v per texel. Where Iray's long axis
-  runs past 1 (r / (1 − a) > 1) the lobe keeps #23's rule: each axis on
-  the GGX curve min(r + 1.85 r², √r), (v − u) / (v + u) of those pins,
-  **plain GGX** (`brdf` 2; `fitted_ggx_pin`). Iray's lobe at r / 0.0001
-  is degenerate; at the Phong pins under Beckmann Calib-Aniso2's sharp
-  metal K3 went 1.13 → 1.73 × Iray, the weighted coat K4 0.97 → 1.41,
-  Calib-Aniso's A3 detail 1.97 → 2.35, where the unsaturated lobes
-  improved (A2 detail / correlation 1.56 / 0.87 → 0.98 / 0.97, K7 2.70 /
-  0.86 → 1.24 / 0.98; the metal at v 0.8, A6, 1.12 → 1.16 × Iray, #96).
+  above (not capped: r / 0.0001 gives pin → 1), **`roughness` = v** (the
+  long axis), **`anisotropyTexture` = 1 − pin_u / pin_v** (1 stretches
+  along the texture's v, like Iray; negative when u is the longer),
+  **`rotation` = 1 − Iray's rotation** (both in turns; Octane's slider 0 –
+  1, it turns the other way). A roughness map bakes v per texel.
+  Octane's lobe at roughness p and anisotropy a is α = p² along its long
+  axis and **p² (1 − |a|)²** across (#96, measured): an orthographic probe
+  of white metal spheres lit from the camera by one small spot in a black
+  environment, the highlight fitted per sphere with an anisotropic
+  Beckmann (or GGX) lobe, Smith masking, against a Lambert sphere (scale
+  0.98 – 1.00 on every resolved lobe): isotropic α = p² (0.361 at p 0.6,
+  1.00 at 1); short / long α at a 0.25 / 0.5 / 0.75 = 0.571 / 0.259 /
+  0.064 ((1 − a)² 0.5625 / 0.25 / 0.0625), the same at p 0.3 – 1 and
+  under GGX, the long axis staying p². The rules before — (α_v − α_u) /
+  (α_v + α_u) (#92), (v − u) / (v + u) of the pins (#23) — made the short
+  axis narrower than Iray's (Metal Brushed's mid texel α_u 0.066 for
+  Iray's 0.10).
+  Where Iray's long axis runs past 1 (r / (1 − a) > 1, Phong's exponent
+  below 2) a lobe that would be Beckmann (a metal) takes **plain GGX**
+  (`brdf` 2) at the same pins: Phong of exponent n = 2 / r² goes flat as n
+  → 0 (D = 1 / π along v at anisotropy 1), and GGX at α 1 is that flat
+  distribution exactly — Beckmann at α 1 (Walter's √(2 / (n + 2))) isn't.
+  Single scatter, as Iray's lobe. A dielectric node keeps GGX energy
+  preserving (its long axis is past the Beckmann limit above). Why:
+  Calib-Aniso2's sharp metal K3 (r 0.04, a 1) 1.53 × Iray under
+  Beckmann, 1.14 under GGX; the weighted coat K4 1.32 / 1.05 (the
+  scene's other spheres 1.09 – 1.12); analytically, under the scene's
+  HDRI, Beckmann / GGX 1.37, Octane's two renders 1.34. Plain GGX on the
+  saturated dielectric spheres too blurred their streaks (Calib-Aniso A3
+  / A7 / A8 detail 1.09 / 1.35 / 1.59 → 1.54 / 2.16 / 2.37 × Iray).
+  **Albedo (#96).** Iray's `simple_glossy_bsdf` has v-cavities masking
+  and no multiple scattering, Octane's Beckmann Smith masking: Octane's
+  lobe keeps more light, computed (single scatter, F = 1, the lobes at the
+  same α) as **not applied** — "Octane over Iray": Iray's extra loss is
+  the v-cavities model's, not the surface's. Beckmann / Iray, cosine-
+  averaged over the hemisphere / head-on / a sphere under Calib-NVIDIA's
+  HDRI: isotropic r 0.2 1.00 / 1.00, 0.4 1.01 / 1.04 / 1.02 (0.36), 0.7
+  1.06 / 1.18, 1 1.10 / 1.23 / 1.17; anisotropic Metal Brushed (u 0.04 –
+  0.18, v 0.36 – 0.48) 1.00 – 1.01 / 1.01 – 1.03 / 1.01, Calib-Aniso's
+  metal A6 (u 0.16, v 0.8) 1.03 / 1.08 / 1.05 (rendered: A6 / the
+  isotropic A1 1.064), saturated (u 0.04, v r / 0.0001) 1.07 / 1.09 /
+  1.11. Resin's loss (`resin_lobe_albedo`, 16 % at r 0.25) isn't this
+  effect: its reflection's share at r 0.25 is ≤ 1 %.
   Why: at the axes' geometric mean Calib-Aniso's streaks came out short
   and bright — highlight elongation (major / minor axis of the highlight)
   1.96 against Iray's 9.9 on roughness 0.1, anisotropy 1, mean 1.52 ×
@@ -1057,7 +1086,10 @@ leaves out, #15):
   across it, and Octane's curves take theirs along it. Why: Morgan Hair
   (Rotations 0.25, anisotropy 0.74 / 0.92) streaked across its strands as
   exported; Iray streaks along them. Turned, its highlights 0.69 – 0.77 →
-  1.07 – 1.13 × Iray, the crown 2.98 → 2.24 (#52).
+  1.07 – 1.13 × Iray, the crown 2.98 → 2.24 (#52). On the measured
+  anisotropy (#96) its lengths rose 1.00 – 1.17 → 1.11 – 1.31 × Iray: the
+  lobes as wide across the strand as Iray's show more of the strands'
+  too-strong gloss (#99).
   Backscattering Anisotropy reaches Iray only from a channel saved
   shown; DAZ's default material (our generated scenes) hides it, so
   Calib-Backscatter B8 and Calib-Aniso2 K6 stayed isotropic
@@ -1658,8 +1690,8 @@ leaves out, #15):
     2 / r² per axis = Beckmann at α = r / √(1 + r²), Octane's pin √α: the
     rough-glass rule, **Beckmann** (`brdf` 1) at **√(r / √(1 + r²))**
     (`phong_pin`) — no constant. Octane's roughness = the longer
-    axis per texel, anisotropy = **(α_v − α_u) / (α_v + α_u)** of the two
-    axes' α **per texel** (a derived map when one map drives both axes, as
+    axis per texel, anisotropy = **1 − pin_u / pin_v** of the two axes'
+    pins **per texel** (Octane's semantics, Anisotropy above) (a derived map when one map drives both axes, as
     in both presets; else at a mid-grey texel), the bump baked into a
     normal map (below), the shader's tiles (`mdl_metal`).
     Why (#92): on the Uber gloss's GGX curve (min(r + 1.85 r², √r), ≈ r
@@ -1674,11 +1706,13 @@ leaves out, #15):
     (its long tail isn't Phong's). Metal Brushed (u 0.04 – 0.18, v 0.36 –
     0.48 on its map; its darkest texels draw Iray's thin vertical streak,
     which a mid-grey ratio blurred into one broad highlight): detail /
-    correlation 1.10 / 0.95 → 0.95 / 0.99; the anisotropy on the pins
-    (their ratio's root) broadened the streak, 0.63 / 0.87. Its disk is
-    1.12 × Iray (floor 1.04; 1.00 on the GGX curve, which had been tuned
-    there): Beckmann keeps more of a rough lobe than Iray's v-cavities
-    Phong without multiple scattering — not fitted (#96).
+    correlation 1.10 / 0.95 → 0.95 / 0.99 (#92, then with (α_v − α_u) /
+    (α_v + α_u); on Octane's own semantics (#96) 0.86 / 0.99). Its disk is
+    1.12 × Iray (#92; 1.16 on Octane's semantics, #96: the short axis now
+    as wide as Iray's; floor 1.04; 1.00 on the GGX curve, which had been
+    tuned there). Not the lobe: analytically, under the HDRI, Beckmann
+    keeps 1.01 × what Iray's v-cavities Phong does on this sphere; open
+    (#98).
   - Dielectrics (concrete, concrete polished, asphalt, ceramic tiles small,
     granite black, porcelain, resin polyurethane matte, architectural):
     `df::fresnel_layer(ior, weight, glossy, diffuse)` → Universal albedo,
@@ -1730,8 +1764,10 @@ leaves out, #15):
     (`anisotropy_conversion` with `mia_anisotropy_semantic`) on the MDL
     roughness — above 1 u = r · √a, v = r / √a, below v = r / a^¼, u = r ·
     a^¼ — then √(· r₀) and the GGX curve **per axis**, Octane's roughness
-    the longer, `anisotropyTexture` (v − u) / (v + u) (negative: stretched
-    along u), `rotation` 1 − Iray's. Applying √(· r₀) before the
+    the longer, `anisotropyTexture` 1 − short / long of the two pins
+    (negative: stretched along u; #96's semantics, Anisotropy above — it
+    was (v − u) / (v + u) when the √(· r₀) rule was found), `rotation` 1 −
+    Iray's. Applying √(· r₀) before the
     anisotropy stretched Calib-NVIDIA2's anisotropy-4 sphere far beyond
     Iray's (centre 1.69 ×); per axis 1.06 with Iray's look.
     Transparency t (`weighted_layer(t, transmit lobe, diffuse)`): diffuse
