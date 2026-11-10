@@ -27,6 +27,9 @@ a plane under an HDRI) that each change one thing, written beside it.
   here. Calib-NVIDIA-BumpG1: Calib-NVIDIA's bump maps at `map_gamma` 1.
   Calib-NVIDIA-CastFlat / -NoComp (#92); Calib-NVIDIA-Brushed (#98): Metal
   Brushed on all eight spheres, its maps flat or its bump off one at a time.
+- Calib-Furnace-Metal / -Brushed (#98), -MetalBump / -CoatTint (#111): white
+  Uber metals, Metal Brushed, flat-bumped metals, tinted Weighted coats
+  under a uniform dome, the floor hidden - each lobe's directional albedo.
 - Calib-Mi-ImageGamma (#91, .mi only): maps the image_library doesn't
   list - which channel's default_image_gamma DAZ gives the image.
 - Calib-Mi-ImageMod, -ImageMod2: per-map image modifications (#77) - tiles, tiling
@@ -1599,5 +1602,54 @@ if os.path.exists(nvb):
     d['image_library'] = [i for i in d['image_library'] if 'RuinsB' not in i['map'][0]['url']] + [
         {'id': 'calib-furnace.hdr', 'name': 'calib-furnace.hdr', 'map_gamma': 1, 'map_type': 'LatLong', 'map': [{'url': FURNACE, 'label': 'calib-furnace.hdr'}]}]
     made.append((save(d, 'Calib-Furnace-Brushed'), None))
+# Calib-Furnace-MetalBump (#111): Calib-Furnace-Metal's white Uber metals,
+# F5 - F8 with a flat grey bump map at Bump Strength 1 - a zero gradient, so
+# the normal is unchanged, but the layers' normal becomes a
+# `base::file_bump_texture` call, as in NVIDIA's `metal_generic` (which
+# darkens towards the rim in Iray; the Uber metal, `state::normal()`, doesn't).
+uber_spheres('Calib-Furnace-MetalBump', [1.0, 1.0, 1.0], {'Metallic Weight': 1.0}, [
+    (f'F{k + 1} metal r {r}{" flat bump" if bump else ""}', {'Glossy Roughness': round(r ** 0.5, 4),
+     **({('Bump Strength', 'image'): G, 'Bump Strength': 1.0} if bump else {})})
+    for k, (bump, r) in enumerate([(b, r) for b in (False, True) for r in (0.05, 0.1, 0.2, 0.4)])])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for n in d['scene']['nodes']:
+        if n.get('label') == 'Plane':
+            n.setdefault('extra', [{'type': 'studio_node_channels', 'version': 5}])
+            ext = next(e for e in n['extra'] if e.get('type') == 'studio_node_channels')
+            ext.setdefault('channels', []).append({'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}})
+        for e in n.get('extra', []):
+            for c in e.get('channels') or []:
+                if c['channel']['id'] == 'Environment Map':
+                    c['channel']['image_file'] = FURNACE
+                    c['channel']['current_value'] = 1
+    d['image_library'] = [i for i in d['image_library'] if 'RuinsB' not in i['map'][0]['url']] + [
+        {'id': 'calib-furnace.hdr', 'name': 'calib-furnace.hdr', 'map_gamma': 1, 'map_type': 'LatLong', 'map': [{'url': FURNACE, 'label': 'calib-furnace.hdr'}]}]
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+# Calib-Furnace-CoatTint (#111): the same lobe's tint against its weight -
+# NVIDIA's metals tint `simple_glossy_bsdf` (0.65, 0.543), the Uber metals
+# don't (white lobe, colour through the curve). The Uber's Weighted top coat
+# is `weighted_layer(weight, simple_glossy_bsdf(tint: Top Coat Color))`,
+# here over a black base (diffuse 0, no gloss): colour 1 / 0.65 / 0.4 at
+# weight 1 and colour 1 at weight 0.65, at Iray r 0.1 and 0.4.
+uber_spheres('Calib-Furnace-CoatTint', [0.0, 0.0, 0.0],
+             {'Glossy Layered Weight': 0.0, 'Top Coat Layering Mode': 1, 'Top Coat Color Effect': 0}, [
+    (f'C{k + 1} coat {c} w {w} r {r}', {'Top Coat Weight': w, 'Top Coat Color': [c, c, c], 'Top Coat Roughness': round(r ** 0.5, 4)})
+    for k, (r, (c, w)) in enumerate([(r, cw) for r in (0.1, 0.4) for cw in ((1.0, 1.0), (0.65, 1.0), (1.0, 0.65), (0.4, 1.0))])])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for n in d['scene']['nodes']:
+        if n.get('label') == 'Plane':
+            n.setdefault('extra', [{'type': 'studio_node_channels', 'version': 5}])
+            ext = next(e for e in n['extra'] if e.get('type') == 'studio_node_channels')
+            ext.setdefault('channels', []).append({'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}})
+        for e in n.get('extra', []):
+            for c in e.get('channels') or []:
+                if c['channel']['id'] == 'Environment Map':
+                    c['channel']['image_file'] = FURNACE
+                    c['channel']['current_value'] = 1
+    d['image_library'] = [i for i in d['image_library'] if 'RuinsB' not in i['map'][0]['url']] + [
+        {'id': 'calib-furnace.hdr', 'name': 'calib-furnace.hdr', 'map_gamma': 1, 'map_type': 'LatLong', 'map': [{'url': FURNACE, 'label': 'calib-furnace.hdr'}]}]
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
 
 # Scene dumps: scripts/dev/daz-dump.sh (DAZ evaluates each scene headless).

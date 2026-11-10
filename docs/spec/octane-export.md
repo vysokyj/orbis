@@ -1720,7 +1720,14 @@ leaves out, #15):
     Octane. The same rim makes Cast Iron's 1.07. No Octane switch moves
     the disk (bump off, weight or lobe flat: 1.16 – 1.18). Both are left
     as Octane over Iray: the lobe's loss as for the Uber lobes (#95, #96),
-    the rim because it isn't in the MDL (#111).
+    the rim because it isn't in the MDL (#111): the chain DAZ hands Iray
+    (`pass_material` → preset → `metal_generic`) has no Fresnel, curve,
+    directional factor or normalisation, and the differences from the
+    flat Uber metal reachable through DAZ's channels don't darken the
+    rim — a `file_bump_texture` layer normal (Calib-Furnace-MetalBump)
+    nor the lobe's tint (Calib-Furnace-CoatTint). Left: the glossy's
+    default `tangent_u`, the nested empty base (a hand-written MDL
+    module, #112).
   - Dielectrics (concrete, concrete polished, asphalt, ceramic tiles small,
     granite black, porcelain, resin polyurethane matte, architectural):
     `df::fresnel_layer(ior, weight, glossy, diffuse)` → Universal albedo,
