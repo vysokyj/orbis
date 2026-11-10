@@ -709,10 +709,13 @@ fn mdl_metal(mat: &Material) -> Option<MdlMetal> {
 }
 
 /// Octane's `anisotropyTexture` for an MDL lobe of roughness `u` along
-/// the tangent and `v` across, both on the GGX curve (`anisotropic_roughness`).
+/// the tangent and `v` across: (α_v − α_u) / (α_v + α_u) of the two axes'
+/// Beckmann α (`openpbr_roughness` squared, ≈ r). On the pins (√α) the
+/// ratio is its root: Metal Brushed's streak came out broad (correlation
+/// of its band-passed detail with Iray's 0.87; on α 0.99, #92).
 fn mdl_anisotropy(u: f32, v: f32) -> f32 {
-    let (u, v) = (ggx_roughness(u.clamp(0.0, 1.0)), ggx_roughness(v.clamp(0.0, 1.0)));
-    if (u - v).abs() < 1e-3 || u + v <= 0.0 {
+    let (u, v) = (openpbr_roughness(u).powi(2), openpbr_roughness(v).powi(2));
+    if (u - v).abs() < 1e-6 || u + v <= 0.0 {
         return 0.0;
     }
     ((v - u) / (v + u)).clamp(-1.0, 1.0)
@@ -1635,16 +1638,20 @@ impl Ocs<'_> {
         self.float_pin(i, "metallic", 1.0);
         let ((umap, uoff, uscale), (vmap, voff, vscale)) = (&m.rough_u, &m.rough_v);
         let (ru, rv) = (uoff + uscale * 0.5, voff + vscale * 0.5);
-        // Plain GGX: `metal_generic`'s lobe has no multiple-scattering
-        // compensation (MDL spec 21.1.3), and Metal Brushed's broad long
-        // axis (0.6 – 0.7 on the curve) came out 1.16 × Iray under the
-        // energy-preserving GGX, 1.03 × under plain GGX (the scene's matte
-        // level 1.04); Cast Iron 1.11 either way.
-        self.value_pin(i, "brdf", 57, 2, "2");
+        // `metal_generic`'s lobe is `simple_glossy_bsdf`: Phong of exponent
+        // 2 / r², which is Beckmann at α = r / √(1 + r²), and Octane's pin
+        // is √α (`openpbr_roughness`) — the rough-glass rule, no constant.
+        // Under the Uber gloss's GGX curve (≈ r for a sharp lobe, α ≈ r²)
+        // Cast Iron (r ≈ 0.11) reflected the sky 2.4 × too sharply: its
+        // band-passed detail 1.30 × Iray with the bump, 1.52 × without
+        // (Iray's own bump moves it 9 %); Beckmann on the derived pin 1.04 /
+        // 1.00 ×, correlation 0.76 → 0.997 (#92). GGX on the same pin
+        // blurred it (0.79 ×): its long tail isn't Phong's.
+        self.value_pin(i, "brdf", 57, 2, "1");
         // Octane's roughness is the long axis, its anisotropy narrows the
-        // other (`anisotropic_roughness`, #23).
-        let rough = |l: f32| ggx_roughness((uoff + uscale * l).max(voff + vscale * l).clamp(0.0, 1.0));
-        let key = format!("mdl-metal-rough-ggx|{umap}|{uoff}|{uscale}|{voff}|{vscale}");
+        // other (#23).
+        let rough = |l: f32| openpbr_roughness((uoff + uscale * l).max(voff + vscale * l));
+        let key = format!("mdl-metal-rough-beckmann|{umap}|{uoff}|{uscale}|{voff}|{vscale}");
         let derived = if umap.is_empty() { None } else { self.textures.derived(self.dirs, umap, &key, 1.0, |l| [rough(l); 3]) };
         match derived {
             Some(asset) => self.image_pin(i, "roughness", &asset, true, 1.0, 1.0),
@@ -7043,15 +7050,16 @@ mod tests {
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.02, 0.4), rough_v: (String::new(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;
-        // u 0.22, v 0.5125 at mid-grey, each on the GGX curve: roughness v,
-        // anisotropy (v − u) / (v + u).
-        let (u, v) = (ggx_roughness(0.22), ggx_roughness(0.5125));
+        // u 0.22, v 0.5125 at mid-grey: roughness √α of v (Beckmann α =
+        // r / √(1 + r²)), anisotropy (α_v − α_u) / (α_v + α_u), Beckmann.
+        let al = |r: f32| r / (1.0 + r * r).sqrt();
+        let (u, v) = (al(0.22), al(0.5125));
         let rough = &x[x.find("<pin name='roughness'>").unwrap()..];
-        assert!(rough.contains(&format!("type='6'>{}<", num(v))), "{x}");
+        assert!(rough.contains(&format!("type='6'>{}<", num(v.sqrt()))), "{x}");
         let a = &x[x.find("<pin name='anisotropyTexture'>").unwrap()..];
         let a: f32 = a.split("type='6'>").nth(1).unwrap().split('<').next().unwrap().parse().unwrap();
         assert!((a - (v - u) / (v + u)).abs() < 1e-5, "{a}");
-        assert!(x.contains("<pin name='brdf'>") && x.contains("type='2'>2<"), "{x}");
+        assert!(x.contains("<pin name='brdf'>") && x.contains("type='2'>1<"), "{x}");
         assert!(x.contains("<pin name='edgeTint'>"), "{x}");
     }
 

@@ -1603,19 +1603,31 @@ leaves out, #15):
     albedo and edge tint = Metal Color (`diffuse`) × (offset + scale ·
     reflection map) clamped to 0 – 1 (`weighted_layer` clamps its weight;
     Cast Iron's 0.5 + 3 · map is mostly 1; the tinted `simple_glossy_bsdf`
-    has no Fresnel). The MDL roughness is what the Uber's is after its
-    squaring (the same Phong lobe), so each axis takes the Uber gloss's
-    GGX curve: Octane's roughness = the longer axis per texel, anisotropy
-    = (v − u) / (v + u) **per texel** (a derived map when one map drives
-    both axes, as in both presets; else at a mid-grey texel), **plain GGX**
-    (`brdf` 2), the bump baked into a normal map (below), the shader's
-    tiles (`mdl_metal`). Why: Metal Brushed's map runs u 0.04 – 0.18 against v
-    0.36 – 0.48; its darkest texels draw Iray's thin vertical streak and
-    brush bands, which a mid-grey ratio blurred into one broad highlight.
-    Plain GGX because `metal_generic`'s lobe has no multiple-scattering
-    compensation: at its broad long axis (0.6 – 0.7 on the curve) the
-    energy-preserving GGX rendered it 1.16 × Iray, plain GGX 1.02 (the
-    scene's floor 1.04) — measured, the MDL doesn't settle it.
+    has no Fresnel). The lobe is `simple_glossy_bsdf`, Phong of exponent
+    2 / r² per axis = Beckmann at α = r / √(1 + r²), Octane's pin √α: the
+    rough-glass rule, **Beckmann** (`brdf` 1) at **√(r / √(1 + r²))**
+    (`openpbr_roughness`) — no constant. Octane's roughness = the longer
+    axis per texel, anisotropy = **(α_v − α_u) / (α_v + α_u)** of the two
+    axes' α **per texel** (a derived map when one map drives both axes, as
+    in both presets; else at a mid-grey texel), the bump baked into a
+    normal map (below), the shader's tiles (`mdl_metal`).
+    Why (#92): on the Uber gloss's GGX curve (min(r + 1.85 r², √r), ≈ r
+    for a sharp lobe, so α ≈ r²) Cast Iron (r ≈ 0.11) reflected the sky
+    about 2.4 × too sharply. Calib-NVIDIA-CastFlat (Iray with Cast Iron's
+    bump off) decomposed it: Iray's own bump moves the band-passed detail
+    by 9 % (correlation 0.97 between the two references), while Octane
+    without the bump was 1.52 × Iray's bump-off detail — the lobe, not the
+    bump. Cast Iron's detail / correlation / disk, Octane / Iray: GGX curve
+    1.30 / 0.76 / 0.95, Beckmann at the derived pin 1.04 / 0.997 / 1.07
+    (bump off 1.00 / 0.996), plain GGX at the same pin 0.79 / 0.98 / 1.11
+    (its long tail isn't Phong's). Metal Brushed (u 0.04 – 0.18, v 0.36 –
+    0.48 on its map; its darkest texels draw Iray's thin vertical streak,
+    which a mid-grey ratio blurred into one broad highlight): detail /
+    correlation 1.10 / 0.95 → 0.95 / 0.99; the anisotropy on the pins
+    (their ratio's root) broadened the streak, 0.63 / 0.87. Its disk is
+    1.12 × Iray (floor 1.04; 1.00 on the GGX curve, which had been tuned
+    there): Beckmann keeps more of a rough lobe than Iray's v-cavities
+    Phong without multiple scattering — not fitted (#96).
   - Dielectrics (concrete, concrete polished, asphalt, ceramic tiles small,
     granite black, porcelain, resin polyurethane matte, architectural):
     `df::fresnel_layer(ior, weight, glossy, diffuse)` → Universal albedo,
@@ -1731,7 +1743,15 @@ leaves out, #15):
     1.02, polished 1.03 → 1.07). That measure doesn't decide the decode:
     in Iray the decode moves Cast Iron's detail by 6 %
     (Calib-NVIDIA-BumpG1, the maps at `map_gamma` 1: 0.94 ×, correlation
-    0.98), while Octane's exceeds Iray's at either decode — open (#92).
+    0.98), while Octane's exceeded Iray's at either decode: the metal's
+    lobe was too sharp, not the bump (#92, Metals above) — with the
+    derived lobe Cast Iron's detail is 1.04 ×, correlation 0.997 at 2.2.
+    A bake prefiltered to the sphere's footprint (512 – 128 px) renders
+    as the bump off: the bump's whole effect is sub-pixel (7 – 14 texels
+    a pixel) and Octane doesn't mip-filter the normal map (Info kernel:
+    tilt RMS per pixel 0.0586 = the full-resolution bake at each pixel's
+    UV), nor does Iray differ at texel scale (Calib-BumpGamma-Uber's step
+    band: same tilt profile, integral 1.169 / 1.171), so no prefilter.
     Polished concrete's gloss on the coating: detail 1.58 ×, correlation
     0.84.
 - **Layered images** are flattened into one PNG per stack.
