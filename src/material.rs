@@ -87,6 +87,12 @@ pub struct Textures {
     pub generated: Vec<(String, Vec<u8>)>,
     /// Mean colours of hair maps by DAZ path (`None`: not found).
     means: HashMap<String, Option<[f32; 3]>>,
+    /// Images' own gamma by DAZ path, as DAZ hands it Iray
+    /// (`Channel::gamma`; "auto" ones aren't listed): one per file.
+    pub own_gammas: HashMap<String, f32>,
+    /// Package path → its gamma where it isn't "auto" by its pixel type: a
+    /// file's own gamma, or the gamma a generated image is written at.
+    gammas: HashMap<String, f32>,
 }
 
 impl Textures {
@@ -110,6 +116,9 @@ impl Textures {
         let asset = format!("assets/tex/{:04}_{safe}", self.files.len());
         self.files.push((asset.clone(), file));
         self.by_source.insert(daz_path.to_string(), asset.clone());
+        if let Some(g) = self.own_gammas.get(daz_path) {
+            self.gammas.insert(asset.clone(), *g);
+        }
         Some(asset)
     }
 }
@@ -124,20 +133,90 @@ struct Bump<'a> {
 }
 
 impl Textures {
-    /// The gamma Iray reads a packed map with: the image's own `map_gamma`,
-    /// else gamma "auto" by the file's pixel type (`detail_normal::auto_gamma`:
-    /// 8 bits 2.2, deeper 1.0; #91). An unreadable header counts as 8 bits.
+    /// The gamma Iray reads a packed map with — the one rule for every map
+    /// (#93): `own` (the channel image's `map_gamma`), else the asset's
+    /// recorded gamma (a file's own, or what a generated image is written
+    /// at), else gamma "auto" by the file's pixel type
+    /// ([`crate::daz_material::auto_gamma`]: 2.2 for 8 bits and 16-bit
+    /// colour, 1.0 for 16-bit grey or float). An unreadable header counts as
+    /// 8 bits. The float channels' maps too, though the Uber declares their
+    /// `default_image_gamma` 1: Calib-Disp-Map's 8-bit grey 128 moved the
+    /// sphere by 22 % of its range (L or RGB PNG, JPEG alike), grey 64 by
+    /// 6 %, at `map_gamma` 1 by 50 %; Calib-DataGamma's grey opacity,
+    /// metallic and roughness maps rendered as 0.22, at `map_gamma` 1 as the
+    /// plain 0.5 (#49).
     fn map_gamma(&self, asset: &str, own: Option<f32>) -> f32 {
-        if let Some(g) = own {
+        if let Some(g) = own.or_else(|| self.gammas.get(asset).copied()) {
             return g;
         }
-        let colour = if let Some((_, file)) = self.files.iter().find(|(a, _)| a == asset) {
-            image::ImageReader::open(file).ok().and_then(|r| r.with_guessed_format().ok()).and_then(|r| r.into_decoder().ok()).map(|d| image::ImageDecoder::color_type(&d))
-        } else {
-            self.generated.iter().find(|(a, _)| a == asset).and_then(|(_, png)| image::load_from_memory(png).ok()).map(|i| i.color())
-        };
-        colour.map_or(2.2, crate::detail_normal::auto_gamma)
+        if let Some((_, file)) = self.files.iter().find(|(a, _)| a == asset) {
+            return file_gamma(file);
+        }
+        let colour = self.generated.iter().find(|(a, _)| a == asset).and_then(|(_, png)| image::load_from_memory(png).ok()).map(|i| i.color());
+        colour.map_or(crate::iray::COLOUR_GAMMA, crate::daz_material::auto_gamma)
     }
+
+    /// [`map_gamma`](Self::map_gamma) without a channel's own gamma.
+    fn gamma(&self, asset: &str) -> f32 {
+        self.map_gamma(asset, None)
+    }
+
+    /// The gamma Iray reads the DAZ image `daz_path` with, `colour` its
+    /// decoded pixel type (`map_gamma` for a file not packed yet).
+    fn source_gamma(&self, daz_path: &str, colour: image::ColorType) -> f32 {
+        self.own_gammas.get(daz_path).copied().unwrap_or_else(|| crate::daz_material::auto_gamma(colour))
+    }
+
+    /// A colour map's texels as Iray reads them, as 8 bits at gamma 2.2
+    /// (what the colour bakes decode): the file as it is when Iray reads it
+    /// at 2.2, else decoded at its gamma and re-encoded.
+    fn open_colour(&self, dirs: &[PathBuf], daz_path: &str) -> Option<image::RgbImage> {
+        let rel = daz_path.trim_start_matches('/');
+        let img = dirs.iter().map(|d| d.join(rel)).find(|p| p.is_file()).and_then(|f| image::open(f).ok())?;
+        let g = self.source_gamma(daz_path, img.color());
+        if g == crate::iray::COLOUR_GAMMA {
+            return Some(img.to_rgb8());
+        }
+        let (lin, enc) = (img.to_rgb32f(), crate::bake::Encoder::srgb());
+        Some(image::RgbImage::from_fn(lin.width(), lin.height(), |x, y| image::Rgb(lin.get_pixel(x, y).0.map(|c| enc.encode(c.max(0.0).powf(g))))))
+    }
+}
+
+/// An image file's gamma "auto" by its pixel type, from its header. The
+/// export reads no OpenEXR or Radiance HDR (the `image` crate is built
+/// without them) nor a one-channel float TIFF: those hold half or float
+/// texels, 1.0. Any other file it can't read counts as 8 bits.
+fn file_gamma(file: &Path) -> f32 {
+    let colour = image::ImageReader::open(file).ok().and_then(|r| r.with_guessed_format().ok()).and_then(|r| r.into_decoder().ok()).map(|d| image::ImageDecoder::color_type(&d));
+    match colour {
+        Some(c) => crate::daz_material::auto_gamma(c),
+        None if file.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("exr") || e.eq_ignore_ascii_case("hdr")) => 1.0,
+        None if tiff_float(file).unwrap_or(false) => 1.0,
+        None => crate::iray::COLOUR_GAMMA,
+    }
+}
+
+/// Whether a TIFF's first image holds floats (SampleFormat 3): its first
+/// IFD's tags, little or big endian.
+fn tiff_float(file: &Path) -> Option<bool> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(file).ok()?;
+    let mut head = [0u8; 8];
+    f.read_exact(&mut head).ok()?;
+    let le = match &head[..4] {
+        b"II*\0" => true,
+        b"MM\0*" => false,
+        _ => return None,
+    };
+    let u16_at = |b: &[u8]| if le { u16::from_le_bytes([b[0], b[1]]) } else { u16::from_be_bytes([b[0], b[1]]) };
+    let u32_at = |b: &[u8]| if le { u32::from_le_bytes([b[0], b[1], b[2], b[3]]) } else { u32::from_be_bytes([b[0], b[1], b[2], b[3]]) };
+    f.seek(SeekFrom::Start(u64::from(u32_at(&head[4..])))).ok()?;
+    let mut n = [0u8; 2];
+    f.read_exact(&mut n).ok()?;
+    let mut tags = vec![0u8; 12 * usize::from(u16_at(&n))];
+    f.read_exact(&mut tags).ok()?;
+    // SampleFormat (339), one value inline: 3 = IEEE float.
+    Some(tags.chunks_exact(12).any(|t| u16_at(t) == 339 && u16_at(&t[8..]) == 3))
 }
 
 impl Textures {
@@ -244,6 +323,10 @@ impl Textures {
         let asset = format!("assets/tex/{:04}_{safe}.png", self.files.len() + self.generated.len());
         self.generated.push((asset.clone(), png));
         self.by_source.insert(key.to_string(), asset.clone());
+        // An 8-bit canvas, as DAZ's composite: "auto" is 2.2.
+        if let Some(g) = self.own_gammas.get(key) {
+            self.gammas.insert(asset.clone(), *g);
+        }
         Some(asset)
     }
 }
@@ -274,7 +357,7 @@ impl Textures {
             None => None,
         };
         fn src<'a>(img: &'a image::DynamicImage, b: &Bump) -> crate::detail_normal::Source<'a> {
-            let gamma = b.gamma.unwrap_or_else(|| crate::detail_normal::auto_gamma(img.color()));
+            let gamma = b.gamma.unwrap_or_else(|| crate::daz_material::auto_gamma(img.color()));
             match b.factor {
                 Some(factor) => crate::detail_normal::Source::Height { image: img, factor, gamma },
                 None => crate::detail_normal::Source::Normal { image: img, gamma },
@@ -288,6 +371,7 @@ impl Textures {
         let stem = Path::new(detail.as_ref().map_or(base.asset, |d| d.asset)).file_stem().and_then(|n| n.to_str()).unwrap_or("map");
         let asset = format!("assets/tex/{:04}_{stem}_n.png", self.files.len() + self.generated.len());
         self.generated.push((asset.clone(), png));
+        self.gammas.insert(asset.clone(), 1.0);
         self.by_source.insert(key, asset.clone());
         Some(asset)
     }
@@ -299,8 +383,7 @@ impl Textures {
         if let Some(asset) = self.by_source.get(&key) {
             return Some(asset.clone());
         }
-        let open = |src: &str| dirs.iter().map(|d| d.join(src.trim_start_matches('/'))).find(|p| p.is_file()).and_then(|f| image::open(f).ok()).map(|i| i.to_rgb8());
-        let (ia, ib) = (open(a)?, open(b)?);
+        let (ia, ib) = (self.open_colour(dirs, a)?, self.open_colour(dirs, b)?);
         let ib = if ib.dimensions() == ia.dimensions() { ib } else { image::imageops::resize(&ib, ia.width(), ia.height(), image::imageops::FilterType::Triangle) };
         let (lin, enc) = (crate::bake::decode_lut(), crate::bake::Encoder::srgb());
         let stride = ia.width() as usize * 3;
@@ -330,28 +413,32 @@ impl Textures {
         if let Some(a) = self.by_source.get(&key) {
             return Some(a.clone());
         }
-        let img = if let Some((_, file)) = self.files.iter().find(|(a, _)| a == asset) {
-            image::open(file).ok()?
-        } else {
-            image::load_from_memory(&self.generated.iter().find(|(a, _)| a == asset)?.1).ok()?
-        };
-        let img = img.to_rgba8();
-        let out = image::GrayImage::from_fn(img.width(), img.height(), |x, y| {
-            let p = img.get_pixel(x, y).0;
-            image::Luma([pick_channel(p, mono)])
-        });
+        let img = self.load(asset)?;
         let mut png = Vec::new();
-        out.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+        // The same depth too: a 16-bit map stays 16 bits.
+        if deep(img.color()) {
+            let img = img.to_rgba16();
+            let out: image::ImageBuffer<image::Luma<u16>, Vec<u16>> = image::ImageBuffer::from_fn(img.width(), img.height(), |x, y| image::Luma([pick_index(img.get_pixel(x, y).0, mono) as u16]));
+            out.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+        } else {
+            let img = img.to_rgba8();
+            let out = image::GrayImage::from_fn(img.width(), img.height(), |x, y| image::Luma([pick_channel(img.get_pixel(x, y).0, mono)]));
+            out.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+        }
+        // Read as its source is (a 16-bit RGB map's grey copy at 2.2).
+        let gamma = self.gamma(asset);
         let stem = Path::new(asset).file_stem().and_then(|n| n.to_str()).unwrap_or("map");
         let new = format!("assets/tex/{:04}_{stem}_{}.png", self.files.len() + self.generated.len(), format!("{mono:?}").to_lowercase());
         self.generated.push((new.clone(), png));
+        self.gammas.insert(new.clone(), gamma);
         self.by_source.insert(key, new.clone());
         Some(new)
     }
 
     /// An image derived from a map's luminance: each texel's luminance `l`
-    /// (decoded at gamma 2.2) → `f(l)` (linear RGB), written as a PNG
-    /// encoded at `gamma` — MDL's `file_texture` offsets and scales baked in.
+    /// (decoded as Iray reads the map: at its gamma, `source_gamma`) →
+    /// `f(l)` (linear RGB), written as a PNG encoded at `gamma` — MDL's
+    /// `file_texture` offsets and scales baked in.
     fn derived(&mut self, dirs: &[PathBuf], src: &str, key: &str, gamma: f32, f: impl Fn(f32) -> [f32; 3] + Sync) -> Option<String> {
         self.derived_mono(dirs, src, key, gamma, Mono::Average, f)
     }
@@ -369,41 +456,28 @@ impl Textures {
             }
             return None;
         };
-        let img = image::open(&file).ok()?.to_rgba8();
-        let (decode, enc) = (crate::bake::decode_lut(), crate::bake::Encoder::for_gamma(gamma));
-        let luminance = |p: [u8; 4]| 0.2126 * decode[p[0] as usize] + 0.7152 * decode[p[1] as usize] + 0.0722 * decode[p[2] as usize];
-        let texel = |l: f32| f(l).map(|v| enc.encode(v));
-        // A channel takes 256 values, and so does a grey texel's luminance:
-        // `f` once per byte (#78). A coloured texel under Average goes
-        // through `f` itself.
-        let table: [[u8; 3]; 256] = std::array::from_fn(|c| {
-            let c = c as u8;
-            texel(match mono {
-                Mono::Average => luminance([c, c, c, 255]),
-                // Alpha is linear coverage, not gamma-encoded.
-                Mono::Alpha => f32::from(c) / 255.0,
-                _ => decode[c as usize],
-            })
-        });
-        let stride = img.width() as usize * 4;
-        let out = crate::bake::par_rgb(img.width(), img.height(), |y, px| {
-            let row = &img.as_raw()[y as usize * stride..][..stride];
-            for (p, o) in row.chunks_exact(4).zip(px.chunks_exact_mut(3)) {
-                let p = [p[0], p[1], p[2], p[3]];
-                o.copy_from_slice(&match mono {
-                    Mono::Average if p[0] != p[1] || p[1] != p[2] => texel(luminance(p)),
-                    Mono::Average => table[p[0] as usize],
-                    Mono::Alpha => table[p[3] as usize],
-                    _ => table[pick_channel(p, mono) as usize],
-                });
-            }
-        });
+        let img = image::open(&file).ok()?;
+        let g = self.source_gamma(src, img.color());
+        let enc = crate::bake::Encoder::for_gamma(gamma);
+        let out = if deep(img.color()) {
+            let decode: Vec<f32> = (0..=u16::MAX).map(|c| (f32::from(c) / 65535.0).powf(g)).collect();
+            let img = img.to_rgba16();
+            bake_mono(img.dimensions(), img.as_raw(), &decode, mono, &f, &enc)
+        } else if g == crate::iray::COLOUR_GAMMA {
+            let img = img.to_rgba8();
+            bake_mono(img.dimensions(), img.as_raw(), crate::bake::decode_lut(), mono, &f, &enc)
+        } else {
+            let decode: Vec<f32> = (0..=u8::MAX).map(|c| (f32::from(c) / 255.0).powf(g)).collect();
+            let img = img.to_rgba8();
+            bake_mono(img.dimensions(), img.as_raw(), &decode, mono, &f, &enc)
+        };
         let mut png = Vec::new();
         out.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
         let base = Path::new(rel).file_stem().and_then(|n| n.to_str()).unwrap_or("map");
         let safe: String = base.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect();
         let asset = format!("assets/tex/{:04}_{safe}_derived.png", self.files.len() + self.generated.len());
         self.generated.push((asset.clone(), png));
+        self.gammas.insert(asset.clone(), gamma);
         self.by_source.insert(key.to_string(), asset.clone());
         Some(asset)
     }
@@ -425,10 +499,7 @@ impl Textures {
         if let Some(asset) = self.by_source.get(key) {
             return Some(SkinBake { colour: asset.clone(), subsurface: self.by_source.get(&format!("{key}#sss")).cloned(), detail: self.by_source.get(&format!("{key}#detail")).cloned() });
         }
-        let open = |src: &str| {
-            let rel = src.trim_start_matches('/');
-            dirs.iter().map(|dir| dir.join(rel)).find(|p| p.is_file()).and_then(|f| image::open(f).ok()).map(|i| i.to_rgb8())
-        };
+        let open = |src: &str| self.open_colour(dirs, src);
         // The two maps decode, and later low-pass, side by side (#78).
         let (d_img, tc_img) = std::thread::scope(|s| {
             let t = s.spawn(|| tc.and_then(open));
@@ -654,8 +725,8 @@ fn mdl_anisotropy(u: f32, v: f32) -> f32 {
 /// 5) — Octane by height × (map − mid). Only with a map (Iray needs one).
 pub(crate) struct Displacement {
     pub map: String,
-    /// The map's gamma: its own `map_gamma`, else DAZ's automatic 2.2.
-    pub gamma: f32,
+    /// The map's own `map_gamma` (None: "auto", `Textures::map_gamma`).
+    pub gamma: Option<f32>,
     pub height_m: f32,
     pub mid: f32,
     pub subd: u32,
@@ -674,7 +745,7 @@ pub(crate) fn displacement(mat: &Material) -> Option<Displacement> {
     // a prop's hard edges. Capped: a figure at level 3+ ran to millions of
     // faces per surface.
     let subd = if mat.prop { 0 } else { (mat.float("SubD Displacement Level").unwrap_or(0.0).max(0.0) as u32).min(DISPLACEMENT_SUBD_MAX) };
-    let gamma = data_gamma(mat, "Displacement Strength");
+    let gamma = mat.image_gamma("Displacement Strength");
     Some(Displacement { map, gamma, height_m: strength * range * 0.01, mid: (-lo / range).clamp(0.0, 1.0), subd })
 }
 
@@ -683,15 +754,6 @@ pub(crate) fn displacement(mat: &Material) -> Option<Displacement> {
 /// Level, usually 2): 3 in all, as when the export refined once and this
 /// was 2.
 const DISPLACEMENT_SUBD_MAX: u32 = 1;
-
-/// DAZ reads a float channel's 8-bit map without an image gamma of its own
-/// (`map_gamma` 0, as every map in the user's scenes) at 2.2, though the
-/// Uber channels declare `default_image_gamma` 1. Calib-Disp-Map's grey 128
-/// moved the sphere by 22 % of its range (L or RGB PNG, JPEG alike), grey
-/// 64 by 6 %, the same grey at `map_gamma` 1 by 50 %; Calib-DataGamma's
-/// grey opacity, metallic and roughness maps rendered as 0.22, the same
-/// map at `map_gamma` 1 as the plain 0.5 (#49). An image's own gamma wins.
-const DATA_MAP_GAMMA: f32 = 2.2;
 
 /// Octane bump `power` per unit of Iray's `file_bump_texture` factor
 /// (Bump Strength, Top Coat Bump) for a map [`BUMP_REF_WIDTH`] wide, untiled,
@@ -708,7 +770,6 @@ const BUMP_REF_WIDTH: f32 = 512.0;
 /// fits.
 const BUMP_REF_UV_SCALE: f64 = 0.542;
 
-/// The gamma Iray reads a float channel's map at ([`DATA_MAP_GAMMA`]).
 /// The colour space an image node reads its map in at `gamma`: linear at
 /// 1, else linear sRGB + legacy gamma, the only one where Octane applies
 /// the `gamma` pin — a pure power, as Iray reads an 8-bit map (and a
@@ -723,10 +784,6 @@ fn image_colour_space(gamma: f32) -> u32 {
     } else {
         COLOUR_SPACE_LEGACY_GAMMA
     }
-}
-
-fn data_gamma(mat: &Material, channel: &str) -> f32 {
-    mat.image_gamma(channel).unwrap_or(DATA_MAP_GAMMA)
 }
 
 /// The own `map_gamma` of an NVIDIA MDL preset's bump map (see `bump_map`).
@@ -1016,17 +1073,69 @@ fn uv_transform(tiling: Option<[f32; 4]>, m: ImageMod) -> Option<([f32; 2], (f32
     (tiles != [1.0, 1.0] || offsets != [0.0, 0.0]).then(|| ([1.0 / tiles[0], 1.0 / tiles[1]], uv_translation(tiles, offsets)))
 }
 
+/// `Textures::derived_mono`'s per-texel bake of an RGBA image of 8 or 16
+/// bits a channel: `decode` maps a channel value to linear (one entry per
+/// value), `f` the luminance (or the picked channel) to linear RGB, `enc`
+/// writes it.
+fn bake_mono<T>((w, h): (u32, u32), raw: &[T], decode: &[f32], mono: Mono, f: &(impl Fn(f32) -> [f32; 3] + Sync), enc: &crate::bake::Encoder) -> image::RgbImage
+where
+    T: Copy + Into<u32> + TryFrom<usize> + PartialEq + Sync,
+{
+    let max = (decode.len() - 1) as f32;
+    let d = |c: T| decode[Into::<u32>::into(c) as usize];
+    let luminance = |p: [T; 4]| 0.2126 * d(p[0]) + 0.7152 * d(p[1]) + 0.0722 * d(p[2]);
+    let texel = |l: f32| f(l).map(|v| enc.encode(v));
+    // A channel takes `decode.len()` values, and so does a grey texel's
+    // luminance: `f` once per value (#78). A coloured texel under Average
+    // goes through `f` itself.
+    let table: Vec<[u8; 3]> = (0..decode.len())
+        .map(|c| {
+            let Ok(v) = T::try_from(c) else { unreachable!("a channel value") };
+            texel(match mono {
+                Mono::Average => luminance([v, v, v, v]),
+                // Alpha is linear coverage, not gamma-encoded.
+                Mono::Alpha => c as f32 / max,
+                _ => decode[c],
+            })
+        })
+        .collect();
+    let stride = w as usize * 4;
+    crate::bake::par_rgb(w, h, |y, px| {
+        let row = &raw[y as usize * stride..][..stride];
+        for (p, o) in row.chunks_exact(4).zip(px.chunks_exact_mut(3)) {
+            let p = [p[0], p[1], p[2], p[3]];
+            o.copy_from_slice(&match mono {
+                Mono::Average if p[0] != p[1] || p[1] != p[2] => texel(luminance(p)),
+                Mono::Average => table[Into::<u32>::into(p[0]) as usize],
+                Mono::Alpha => table[Into::<u32>::into(p[3]) as usize],
+                _ => table[pick_index(p, mono) as usize],
+            });
+        }
+    })
+}
+
 /// A texel's byte for DAZ's `grayscale_mode` (#77): one channel, the
 /// largest (`mono_maximum`), or alpha; the average for `Average`.
 fn pick_channel(p: [u8; 4], mono: Mono) -> u8 {
+    pick_index(p, mono) as u8
+}
+
+/// [`pick_channel`] at any depth (8 or 16 bits): the picked texel value.
+fn pick_index<T: Copy + Into<u32>>(p: [T; 4], mono: Mono) -> u32 {
+    let p = p.map(Into::into);
     match mono {
         Mono::Red => p[0],
         Mono::Green => p[1],
         Mono::Blue => p[2],
         Mono::Maximum => p[0].max(p[1]).max(p[2]),
         Mono::Alpha => p[3],
-        Mono::Average => ((u16::from(p[0]) + u16::from(p[1]) + u16::from(p[2])) / 3) as u8,
+        Mono::Average => (p[0] + p[1] + p[2]) / 3,
     }
+}
+
+/// More than 8 bits a channel (16-bit or float).
+fn deep(colour: image::ColorType) -> bool {
+    colour.bytes_per_pixel() > colour.channel_count()
 }
 
 /// Builds node XML with unique ids.
@@ -1418,7 +1527,7 @@ impl Ocs<'_> {
         let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
         let (colour, coat) = color_effect(mat, "Top Coat Color Effect", mat.color("Top Coat Color").unwrap_or([1.0; 3]), coat);
         match self.channel_map(mat, "Top Coat Weight") {
-            Some((asset, m)) => self.with_map(m, |w| w.image_pin(j + 1, "specular", &asset, true, 1.0, coat)),
+            Some((asset, m)) => self.with_map(m, |w| w.image_pin(j + 1, "specular", &asset, true, w.textures.map_gamma(&asset, mat.image_gamma("Top Coat Weight")), coat)),
             None => self.rgb_pin(j + 1, "specular", colour.map(|c| c * coat)),
         }
         self.gloss_ggx = true;
@@ -1450,7 +1559,7 @@ impl Ocs<'_> {
         let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
         let (colour, coat) = color_effect(mat, "Top Coat Color Effect", mat.color("Top Coat Color").unwrap_or([1.0; 3]), coat);
         match self.channel_map(mat, "Top Coat Weight") {
-            Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "amount", &asset, true, 1.0, coat)),
+            Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "amount", &asset, true, w.textures.map_gamma(&asset, mat.image_gamma("Top Coat Weight")), coat)),
             None => self.float_pin(i, "amount", coat),
         }
         // The coat is over the base's film, under its own.
@@ -1513,8 +1622,9 @@ impl Ocs<'_> {
         let derived = if wmap.is_empty() { None } else { self.textures.derived(self.dirs, wmap, &key, 2.2, |l| colour.map(|c| c * (woff + wscale * l).clamp(0.0, 1.0))) };
         match derived {
             Some(asset) => {
-                self.image_pin(i, "albedo", &asset, false, 2.2, 1.0);
-                self.image_pin(i, "edgeTint", &asset, false, 2.2, 1.0);
+                let g = self.textures.gamma(&asset);
+                self.image_pin(i, "albedo", &asset, false, g, 1.0);
+                self.image_pin(i, "edgeTint", &asset, false, g, 1.0);
             }
             // No texture: Iray's lookup reads 0 and the metal comes out black.
             None => {
@@ -1573,7 +1683,7 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:i$}<attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
         match &m.albedo {
             MdlAlbedo::Map(map, scale) => match self.textures.asset(self.dirs, map) {
-                Some(asset) => self.image_pin(i, "albedo", &asset, false, 2.2, *scale),
+                Some(asset) => self.image_pin(i, "albedo", &asset, false, self.textures.gamma(&asset), *scale),
                 None => self.rgb_pin(i, "albedo", [0.0; 3]),
             },
             MdlAlbedo::Colour(c) => self.rgb_pin(i, "albedo", *c),
@@ -1585,7 +1695,7 @@ impl Ocs<'_> {
         match &m.gloss {
             MdlGloss::Weight(w) => self.rgb_pin(i, gloss_pin, m.tint.map(|c| c * w)),
             MdlGloss::Map(map, w) => match self.textures.asset(self.dirs, map) {
-                Some(asset) => self.image_pin(i, gloss_pin, &asset, true, 2.2, *w),
+                Some(asset) => self.image_pin(i, gloss_pin, &asset, true, self.textures.gamma(&asset), *w),
                 None => self.rgb_pin(i, gloss_pin, [0.0; 3]),
             },
             MdlGloss::Luma(map, w) => {
@@ -1708,7 +1818,7 @@ impl Ocs<'_> {
         // parts, #19). A weight map is a float channel's map: at 2.2
         // (`data_gamma`).
         match (self.channel_map(mat, "Top Coat Weight"), self.channel_map(mat, "Top Coat Color")) {
-            (Some((asset, m)), _) => self.with_map(m, |w| w.image_pin(i, "coating", &asset, true, data_gamma(mat, "Top Coat Weight"), coat)),
+            (Some((asset, m)), _) => self.with_map(m, |w| w.image_pin(i, "coating", &asset, true, w.textures.map_gamma(&asset, mat.image_gamma("Top Coat Weight")), coat)),
             (None, Some((asset, m))) => self.with_map(m, |w| w.tinted_image_pin(i, "coating", &asset, coat, colour)),
             (None, None) => self.rgb_pin(i, "coating", colour.map(|c| c * coat)),
         }
@@ -2034,7 +2144,8 @@ impl Ocs<'_> {
         self.pin_open(indent, "displacement");
         let i = indent + 1;
         let _ = writeln!(self.out, "{:i$}<node id='{id}' type='97'>", "");
-        self.image_pin(i + 1, "texture", &asset, true, d.gamma, 1.0);
+        let g = self.textures.map_gamma(&asset, d.gamma);
+        self.image_pin(i + 1, "texture", &asset, true, g, 1.0);
         self.value_pin(i + 1, "amount", 6, 9, &format!("{} 0 0 0", num(d.height_m)));
         self.value_pin(i + 1, "black_level", 6, 9, &format!("{} 0 0 0", num(d.mid)));
         self.value_pin(i + 1, "subdLevel", 9, 5, &format!("{} 0 0 0", d.subd));
@@ -2107,8 +2218,11 @@ impl Ocs<'_> {
     /// isn't found leaves the base alone; a colour map, the tint.
     fn diffuse_overlay_pin(&mut self, i: usize, ov: &DiffuseOverlay, colour: [f32; 3], base: impl FnOnce(&mut Self, usize)) {
         let weight_map = match &ov.weight_map {
-            Some((t, gamma)) => match self.textures.asset(self.dirs, t) {
-                Some(asset) => Some((asset, *gamma)),
+            Some((t, own, power)) => match self.textures.asset(self.dirs, t) {
+                Some(asset) => {
+                    let gamma = self.textures.map_gamma(&asset, *own) * power;
+                    Some((asset, gamma))
+                }
                 None => {
                     let id = self.id();
                     self.pin_open(i, "albedo");
@@ -2174,7 +2288,7 @@ impl Ocs<'_> {
             let j = indent + 1;
             let _ = writeln!(w.out, "{:j$}<node id='{id}' type='38'>", "");
             let tiling = w.tiling.take();
-            w.image_pin(j + 1, "amount", damp, true, 2.2, 1.0);
+            w.image_pin(j + 1, "amount", damp, true, w.textures.gamma(damp), 1.0);
             w.tiling = tiling;
             w.rgb_pin(j + 1, "texture1", [1.0; 3]);
             w.rgb_pin(j + 1, "texture2", damp_colour);
@@ -2187,11 +2301,11 @@ impl Ocs<'_> {
         match (&ao, &damp) {
             (Some(ao), Some(damp)) => {
                 open_multiply(self, j, "texture2");
-                self.image_pin(j + 2, "texture1", ao, false, 2.2, 1.0);
+                self.image_pin(j + 2, "texture1", ao, false, self.textures.gamma(ao), 1.0);
                 damp_pin(self, j + 2, "texture2", damp);
                 close(self, j);
             }
-            (Some(ao), None) => self.image_pin(j, "texture2", ao, false, 2.2, 1.0),
+            (Some(ao), None) => self.image_pin(j, "texture2", ao, false, self.textures.gamma(ao), 1.0),
             (None, Some(damp)) => damp_pin(self, j, "texture2", damp),
             (None, None) => self.rgb_pin(j, "texture2", [1.0; 3]),
         }
@@ -2239,13 +2353,13 @@ impl Ocs<'_> {
     fn tinted_image_pin(&mut self, indent: usize, pin: &str, asset: &str, power: f32, tint: [f32; 3]) {
         let (lo, hi) = tint.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &c| (lo.min(c), hi.max(c)));
         if hi - lo < 0.01 {
-            return self.image_pin(indent, pin, asset, false, 2.2, power * map_tint(tint));
+            return self.image_pin(indent, pin, asset, false, self.textures.gamma(asset), power * map_tint(tint));
         }
         let id = self.id();
         self.pin_open(indent, pin);
         let i = indent + 1;
         let _ = writeln!(self.out, "{:i$}<node id='{id}' type='39'>", "");
-        self.image_pin(i + 1, "texture1", asset, false, 2.2, power);
+        self.image_pin(i + 1, "texture1", asset, false, self.textures.gamma(asset), power);
         self.rgb_pin(i + 1, "texture2", tint.map(|c| c.clamp(0.0, 1.0)));
         let _ = writeln!(self.out, "{:i$}</node>", "");
         self.pin_close(indent);
@@ -2255,7 +2369,7 @@ impl Ocs<'_> {
     /// `value`), else the constant `value`.
     fn float_or_map(&mut self, indent: usize, pin: &str, mat: &Material, channel: Option<&str>, value: f32) {
         match channel.and_then(|c| self.channel_map(mat, c)) {
-            Some((asset, m)) => self.with_map(m, |w| w.image_pin(indent, pin, &asset, true, data_gamma(mat, channel.unwrap_or_default()), value)),
+            Some((asset, m)) => self.with_map(m, |w| w.image_pin(indent, pin, &asset, true, w.textures.map_gamma(&asset, mat.image_gamma(channel.unwrap_or_default())), value)),
             None => self.float_pin(indent, pin, value),
         }
     }
@@ -2279,17 +2393,15 @@ impl Ocs<'_> {
         let inverted = ch.ends_with("Glossiness");
         let v = mat.float(ch).unwrap_or(1.0);
         let squared = mat.float(if inverted { "Glossiness Squared" } else { "Roughness Squared" }).unwrap_or(1.0) > 0.0;
-        // `derived` decodes at 2.2; the map's own gamma rescales that.
-        let g = data_gamma(mat, ch) / crate::iray::COLOUR_GAMMA;
+        // `derived` decodes the map at its gamma (`Textures::source_gamma`).
         let c = curve.key();
-        let key = if stretch == 1.0 { format!("roughness|{map}|{v}|{inverted}|{squared}|{c}|{g}") } else { format!("roughness|{map}|{v}|{inverted}|{squared}|{c}|{g}|{stretch}") };
+        let key = if stretch == 1.0 { format!("roughness|{map}|{v}|{inverted}|{squared}|{c}") } else { format!("roughness|{map}|{v}|{inverted}|{squared}|{c}|{stretch}") };
         // The map's own scale / offset / invert and grey channel (#77)
         // go into the bake; its placement stays the image node's.
         let im = mat.image_mod(ch);
         let key = if im == ImageMod::default() { key } else { format!("{key}|{im:?}") };
-        let picked_gamma = if im.mono == Mono::Alpha { 1.0 } else { g };
         let asset = self.textures.derived_mono(self.dirs, &map, &key, 1.0, im.mono, |l| {
-            let m = im.apply(l.max(0.0).powf(picked_gamma)) * v;
+            let m = im.apply(l.max(0.0)) * v;
             let r = (if inverted { 1.0 - m } else { m }).clamp(0.0, 1.0);
             let r = if squared { r * r } else { r };
             [anisotropic_roughness(r, stretch, curve).0; 3]
@@ -2420,7 +2532,7 @@ impl Ocs<'_> {
             Some(dl) => {
                 let w_map = self.channel_map(mat, "Dual Lobe Specular Weight");
                 let weight_pin = |w: &mut Self, pin: &str, share: f32| match &w_map {
-                    Some((asset, m)) => w.with_map(*m, |w| w.image_pin(i, pin, asset, true, data_gamma(mat, "Dual Lobe Specular Weight"), share)),
+                    Some((asset, m)) => w.with_map(*m, |w| w.image_pin(i, pin, asset, true, w.textures.map_gamma(asset, mat.image_gamma("Dual Lobe Specular Weight")), share)),
                     None => w.float_pin(i, pin, share),
                 };
                 weight_pin(self, "specular", dl.weight * lobe1);
@@ -2443,7 +2555,7 @@ impl Ocs<'_> {
                 // Iray's skin (Calib-Skin-Base-hdri, Calib-Eye; #19).
                 let wch = if mat.image("Glossy Layered Weight").is_some() || mat.float("Glossy Weight").unwrap_or(0.0) <= 0.0 { "Glossy Layered Weight" } else { "Glossy Weight" };
                 match self.channel_map(mat, wch) {
-                    Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "specular", &asset, true, data_gamma(mat, wch), glossy.min(1.0))),
+                    Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, "specular", &asset, true, w.textures.map_gamma(&asset, mat.image_gamma(wch)), glossy.min(1.0))),
                     None => self.float_pin(i, "specular", glossy.min(1.0)),
                 }
                 let f0 = crate::iray::REFLECTIVITY_SCALE * glossy_reflectivity(mat).unwrap_or(0.5);
@@ -2463,12 +2575,10 @@ impl Ocs<'_> {
         let Some(map) = mat.image(ch).map(str::to_string) else {
             return self.float_pin(indent, pin, ior_from_f0(f0));
         };
-        // `derived` decodes at 2.2; the map's own gamma rescales that.
-        let g = data_gamma(mat, ch) / crate::iray::COLOUR_GAMMA;
+        // `derived` decodes the map at its gamma (`Textures::source_gamma`).
         let im = mat.image_mod(ch);
-        let picked_gamma = if im.mono == Mono::Alpha { 1.0 } else { g };
-        let key = format!("ior|{map}|{f0}|{g}|{im:?}");
-        let asset = self.textures.derived_mono(self.dirs, &map, &key, 1.0, im.mono, |l| [ior_from_f0(f0 * im.apply(l.max(0.0).powf(picked_gamma))) / 2.0; 3]);
+        let key = format!("ior|{map}|{f0}|{im:?}");
+        let asset = self.textures.derived_mono(self.dirs, &map, &key, 1.0, im.mono, |l| [ior_from_f0(f0 * im.apply(l.max(0.0))) / 2.0; 3]);
         match asset {
             Some(asset) => self.with_map(im.placement(), |w| w.image_pin(indent, pin, &asset, true, 1.0, 2.0)),
             None => self.float_pin(indent, pin, ior_from_f0(f0)),
@@ -2535,7 +2645,7 @@ impl Ocs<'_> {
         let colour_pin = |w: &mut Self, pin: &str| match (&baked, &diffuse) {
             (Some(bake), _) => {
                 let asset = if pin == "subsurfaceColor" { bake.subsurface.as_ref().unwrap_or(&bake.colour) } else { &bake.colour };
-                w.with_map(dm.placement(), |w| w.image_pin(i, pin, asset, false, 2.2, 1.0))
+                w.with_map(dm.placement(), |w| w.image_pin(i, pin, asset, false, w.textures.gamma(asset), 1.0))
             }
             (None, Some(asset)) => w.with_map(dm, |w| w.tinted_image_pin(i, pin, asset, 1.0, colour(pin == "subsurfaceColor"))),
             (None, None) => w.rgb_pin(i, pin, colour(pin == "subsurfaceColor")),
@@ -2550,7 +2660,7 @@ impl Ocs<'_> {
             // map's detail mask: marked detail (brows, liner) out of the
             // random walk — under it they bled into blue-grey smudges, as a
             // diffuse they stay dark like Iray's.
-            Some(SkinBake { detail: Some(detail), .. }) => self.with_map(dm.placement(), |w| w.image_pin(i, "subsurface", detail, true, 2.2, split.unwrap_or(1.0))),
+            Some(SkinBake { detail: Some(detail), .. }) => self.with_map(dm.placement(), |w| w.image_pin(i, "subsurface", detail, true, w.textures.gamma(detail), split.unwrap_or(1.0))),
             Some(_) => self.float_pin(i, "subsurface", split.unwrap_or(1.0)),
             None => self.float_pin(i, "subsurface", split.unwrap_or(translucency)),
         }
@@ -2898,7 +3008,7 @@ impl Ocs<'_> {
         } else if let Some(asset) = eye_albedo {
             // The diffuse's share of the colour map and the translucency's of
             // its map, mixed per pixel (sRGB-encoded, as the maps are).
-            self.image_pin(i, "albedo", &asset, false, 2.2, 1.0);
+            self.image_pin(i, "albedo", &asset, false, self.textures.gamma(&asset), 1.0);
         } else {
             // Iray Uber's Diffuse Overlay over the base: flat over a flat
             // base folded into one colour, else a Mix texture (#71).
@@ -2914,7 +3024,7 @@ impl Ocs<'_> {
                 let id = self.id();
                 self.pin_open(i, "albedo");
                 let _ = writeln!(self.out, "{:j$}<node id='{id}' type='39'>", "", j = i + 1);
-                self.with_map(mat.image_mod("Diffuse Strength"), |w| w.image_pin(i + 2, "texture1", &map, true, data_gamma(mat, "Diffuse Strength"), 1.0));
+                self.with_map(mat.image_mod("Diffuse Strength"), |w| w.image_pin(i + 2, "texture1", &map, true, w.textures.map_gamma(&map, mat.image_gamma("Diffuse Strength")), 1.0));
                 match &diffuse_asset {
                     Some(asset) => self.with_map(dm, |w| w.tinted_image_pin(i + 2, "texture2", asset, diffuse_weight * mix * base_flat, tint)),
                     None => self.rgb_pin(i + 2, "texture2", [0, 1, 2].map(|k| mat.base_color()[k] * diffuse_weight * share[k] * base_flat)),
@@ -3010,7 +3120,7 @@ impl Ocs<'_> {
                 // The glossy layer's weight map (data) × its weight: the
                 // GSOV4 leather's 0.33 gloss with a seam mask rendered 3.4×
                 // Iray's sheen with Universal's full white one (Fetroom).
-                self.with_map(m, |w| w.image_pin(i, "specular", &asset, true, data_gamma(mat, "Glossy Layered Weight"), weight));
+                self.with_map(m, |w| w.image_pin(i, "specular", &asset, true, w.textures.map_gamma(&asset, mat.image_gamma("Glossy Layered Weight")), weight));
             } else if weight < 1.0 || gloss_color != [1.0; 3] || self.film.is_some() {
                 // (Universal's default is white; a film tints it.)
                 self.rgb_pin(i, "specular", gloss_color.map(|c| c * weight));
@@ -3040,7 +3150,7 @@ impl Ocs<'_> {
             // PBRSkin's is read as is.
             let squared = !crate::iray::is_pbrskin(mat);
             match (mirror, self.channel_map(mat, "Metallic Weight")) {
-                (false, Some((asset, im))) => self.with_map(im, |w| w.image_pin(i, "metallic", &asset, true, if squared { 2.0 } else { 1.0 } * data_gamma(mat, "Metallic Weight"), m)),
+                (false, Some((asset, im))) => self.with_map(im, |w| w.image_pin(i, "metallic", &asset, true, if squared { 2.0 } else { 1.0 } * w.textures.map_gamma(&asset, mat.image_gamma("Metallic Weight")), m)),
                 (false, None) => self.float_pin(i, "metallic", m),
                 (true, _) => self.float_pin(i, "metallic", metallic.max(0.0)),
             }
@@ -3482,10 +3592,11 @@ struct DiffuseOverlay {
     /// The weight, or a weight map's factor (`power`), squared as DAZ
     /// squares it.
     weight: f32,
-    /// The weight map and the gamma to read it at: DAZ squares the map ×
-    /// the weight (`square_float` over the map, Calib-Overlay V3), so
-    /// twice the map's gamma at the weight² (#71).
-    weight_map: Option<(String, f32)>,
+    /// The weight map, its image's own gamma (None: "auto") and the power
+    /// on that gamma: DAZ squares the map × the weight (`square_float` over
+    /// the map, Calib-Overlay V3), so twice the map's gamma at the weight²
+    /// (#71).
+    weight_map: Option<(String, Option<f32>, f32)>,
     /// The weight and colour maps' per-map settings (#77).
     weight_mod: ImageMod,
     colour_mod: ImageMod,
@@ -3502,8 +3613,8 @@ fn diffuse_overlay(mat: &Material) -> Option<DiffuseOverlay> {
         Some(u) if u.bool("diffuse_overlay_enable") == Some(true) => {
             let (weight, weight_map) = match u.map("diffuse_overlay_weight") {
                 Some(m) => {
-                    let gamma = data_gamma(mat, "Diffuse Overlay Weight") * if m.squared { 2.0 } else { 1.0 };
-                    (if m.squared { m.value[0] * m.value[0] } else { m.value[0] }, Some((m.image, gamma)))
+                    let power = if m.squared { 2.0 } else { 1.0 };
+                    (if m.squared { m.value[0] * m.value[0] } else { m.value[0] }, Some((m.image, mat.image_gamma("Diffuse Overlay Weight"), power)))
                 }
                 None => (u.float("diffuse_overlay_weight").unwrap_or(0.0), None),
             };
@@ -5162,7 +5273,10 @@ pub fn material_inputs_scaled(
     shading: impl Into<Shading>,
 ) -> (String, Textures) {
     let Shading { skin, thin_glass_ior_one, max_transmission } = shading.into();
-    let mut textures = Textures { layered, ..Default::default() };
+    // DAZ has one gamma per image file (`scene_image_gammas`): the
+    // materials' channels give each its own, "auto" ones aren't listed.
+    let own_gammas = materials.iter().flat_map(|(_, m, _)| m.channels.values()).filter_map(|c| Some((c.image.clone()?, c.gamma?))).collect();
+    let mut textures = Textures { layered, own_gammas, ..Default::default() };
     let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None, map_mod: ImageMod::default() };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
@@ -5418,6 +5532,95 @@ mod tests {
     }
 
     #[test]
+    fn auto_gamma_follows_irays_loader() {
+        use crate::daz_material::auto_gamma;
+        use image::ColorType::*;
+        // 8 bits 2.2 whatever the channels; 16 bits linear only alone.
+        for c in [L8, La8, Rgb8, Rgba8, La16, Rgb16, Rgba16] {
+            assert_eq!(auto_gamma(c), 2.2, "{c:?}");
+        }
+        for c in [L16, Rgb32F, Rgba32F] {
+            assert_eq!(auto_gamma(c), 1.0, "{c:?}");
+        }
+    }
+
+    /// A tempdir with `t/<name>` grey maps: `g8.png` (8-bit 128), `g16.png`
+    /// (16-bit 32768), `c16.png` (16-bit RGB 32768), `f32.tif` (float 0.5)
+    /// and `h.exr` (an OpenEXR the export can't read).
+    fn gamma_maps() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let t = dir.path().join("t");
+        std::fs::create_dir_all(&t).unwrap();
+        image::GrayImage::from_pixel(4, 4, image::Luma([128])).save(t.join("g8.png")).unwrap();
+        image::ImageBuffer::<image::Luma<u16>, _>::from_pixel(4, 4, image::Luma([32768])).save(t.join("g16.png")).unwrap();
+        image::ImageBuffer::<image::Rgb<u16>, _>::from_pixel(4, 4, image::Rgb([32768; 3])).save(t.join("c16.png")).unwrap();
+        image::DynamicImage::ImageRgb32F(image::Rgb32FImage::from_pixel(4, 4, image::Rgb([0.5; 3]))).save(t.join("f32.tif")).unwrap();
+        // A one-channel float TIFF (SampleFormat 3), which `image` can't read.
+        let le = |v: u32, n: usize| v.to_le_bytes()[..n].to_vec();
+        let entry = |tag: u32, typ: u32, val: u32| [le(tag, 2), le(typ, 2), le(1, 4), le(val, 4)].concat();
+        let ifd = [le(5, 2), entry(256, 3, 1), entry(257, 3, 1), entry(258, 3, 32), entry(273, 4, 8), entry(339, 3, 3), le(0, 4)].concat();
+        std::fs::write(t.join("gf32.tif"), [b"II*\0".to_vec(), le(12, 4), le(0x3f00_0000, 4), ifd].concat()).unwrap();
+        std::fs::write(t.join("h.exr"), b"x").unwrap();
+        dir
+    }
+
+    #[test]
+    fn map_gamma_resolves_auto_by_the_files_pixel_type() {
+        let dir = gamma_maps();
+        let dirs = vec![dir.path().to_path_buf()];
+        let mut tex = Textures::default();
+        tex.own_gammas.insert("/t/c16.png".into(), 1.0);
+        let [g8, g16, c16, f32, exr] = ["/t/g8.png", "/t/g16.png", "/t/c16.png", "/t/f32.tif", "/t/h.exr"].map(|p| tex.asset(&dirs, p).unwrap());
+        let gf32 = tex.asset(&dirs, "/t/gf32.tif").unwrap();
+        assert_eq!([&g8, &g16, &f32, &exr, &gf32].map(|a| tex.gamma(a)), [2.2, 1.0, 1.0, 1.0, 1.0]);
+        let c16_auto = Textures { files: tex.files.clone(), ..Default::default() };
+        assert_eq!(c16_auto.gamma(&c16), 2.2);
+        // The image's own gamma wins, from the scene or the channel.
+        assert_eq!(tex.gamma(&c16), 1.0);
+        assert_eq!(tex.map_gamma(&g16, Some(2.2)), 2.2);
+        // A grey pick of a 16-bit map stays 16 bits and keeps its gamma.
+        let picked = tex.channel(&g16, Mono::Red).unwrap();
+        assert_eq!(tex.load(&picked).unwrap().color(), image::ColorType::L16);
+        assert_eq!(tex.gamma(&picked), 1.0);
+        // A bake reads its source as Iray does: 16-bit grey linear, 8 bits
+        // at 2.2; what it writes reads back at its own gamma.
+        let value = |tex: &mut Textures, src: &str| {
+            let a = tex.derived(&dirs, src, &format!("v|{src}"), 1.0, |l| [l; 3]).unwrap();
+            assert_eq!(tex.gamma(&a), 1.0);
+            f32::from(tex.load(&a).unwrap().to_rgb8().get_pixel(0, 0)[0]) / 255.0
+        };
+        assert!((value(&mut tex, "/t/g16.png") - 0.5).abs() < 0.003);
+        assert!((value(&mut tex, "/t/f32.tif") - 0.5).abs() < 0.003);
+        assert!((value(&mut tex, "/t/g8.png") - (128.0f32 / 255.0).powf(2.2)).abs() < 0.003);
+    }
+
+    #[test]
+    fn data_and_colour_maps_take_the_files_auto_gamma() {
+        let dir = gamma_maps();
+        let dirs = vec![dir.path().to_path_buf()];
+        let export = |file: &str, gamma: Option<f32>| {
+            let mut m = Material::from_dson(&json!({"extra": [{"channels": [
+                {"channel": {"id": "Cutout Opacity", "current_value": 1, "image_file": file}},
+                {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": file}},
+            ]}]}), &HashMap::new());
+            m.channels.values_mut().for_each(|c| c.gamma = gamma);
+            material_inputs(&[("M".into(), Rc::new(m), 1.0)], &dirs, HashMap::new(), 9500, SkinShader::None).0
+        };
+        let gammas = |x: &str| x.matches("<pin name='gamma'>").count();
+        let pins = |x: &str, g: &str| x.matches(&format!("<attr name='value' type='8'>{g} 0 0</attr>")).count();
+        // 16-bit grey: both maps linear; 8-bit and 16-bit RGB at 2.2.
+        let x = export("/t/g16.png", None);
+        assert!(gammas(&x) >= 2 && pins(&x, "1") == gammas(&x) && pins(&x, "2.2") == 0, "{x}");
+        for f in ["/t/g8.png", "/t/c16.png"] {
+            let x = export(f, None);
+            assert!(gammas(&x) >= 2 && pins(&x, "2.2") == gammas(&x), "{f}: {x}");
+        }
+        // The image's own gamma on the colour map too (Calib-Mi-ImageGamma).
+        let x = export("/t/g8.png", Some(1.0));
+        assert!(pins(&x, "1") == gammas(&x), "{x}");
+    }
+
+    #[test]
     fn displacement_moves_by_strength_between_min_and_max() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("t")).unwrap();
@@ -5436,7 +5639,7 @@ mod tests {
         // 0.5 × (−5 … 5 cm): 5 cm of height about a mid level of 0.5; the
         // subdivision capped.
         let d = displacement(&disp(0.5, -5.0, 5.0, 3.0)).unwrap();
-        assert!((d.height_m - 0.05).abs() < 1e-6 && (d.mid - 0.5).abs() < 1e-6 && d.subd == DISPLACEMENT_SUBD_MAX && d.gamma == 2.2);
+        assert!((d.height_m - 0.05).abs() < 1e-6 && (d.mid - 0.5).abs() < 1e-6 && d.subd == DISPLACEMENT_SUBD_MAX && d.gamma.is_none());
         // 0 … 10: all outward; a prop isn't subdivided.
         let mut p = disp(1.0, 0.0, 10.0, 1.0);
         p.prop = true;
@@ -5445,7 +5648,7 @@ mod tests {
         // The image's own gamma wins.
         let mut g = disp(1.0, 0.0, 10.0, 0.0);
         g.channels.get_mut("Displacement Strength").unwrap().gamma = Some(1.0);
-        assert_eq!(displacement(&g).unwrap().gamma, 1.0);
+        assert_eq!(displacement(&g).unwrap().gamma, Some(1.0));
         // No strength, no range, no map: nothing.
         assert!(displacement(&disp(0.0, -5.0, 5.0, 0.0)).is_none() && displacement(&disp(1.0, 2.0, 2.0, 0.0)).is_none());
         assert!(displacement(&mat(json!([{"channel": {"id": "Displacement Strength", "current_value": 1}}]))).is_none());
@@ -5613,7 +5816,7 @@ mod tests {
             {"channel": {"id": "Diffuse Overlay Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/colour.png"}},
         ]));
         let ov = diffuse_overlay(&both).unwrap();
-        assert!((ov.weight - 0.25).abs() < 1e-6 && (ov.weight_map.as_ref().unwrap().1 - 4.4).abs() < 1e-5, "{ov:?}");
+        assert!((ov.weight - 0.25).abs() < 1e-6 && ov.weight_map.as_ref().is_some_and(|w| w.1.is_none() && w.2 == 2.0), "{ov:?}");
         let (x, _) = material_inputs(&[("Both".into(), both, 1.0)], &dirs, HashMap::new(), 9100, SkinShader::None);
         let a = albedo(&x);
         assert!(a.contains("type='38'") && a.contains("weight.png") && a.contains("colour.png"), "{a}");

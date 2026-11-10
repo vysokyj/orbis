@@ -14,6 +14,10 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-Disp: displacement (#24) by uniform maps, measured on the
   spheres' silhouettes.
 - Calib-Overlay: Diffuse Overlay with weight / colour maps (#71).
+- Calib-MapDepth: one grey as an 8-bit, 16-bit grey and 16-bit RGB map
+  on displacement, roughness and opacity (#93): gamma "auto" by the
+  file's pixel type; -2 the same on colour maps (8-bit, 16-bit grey and
+  RGB, float TIFF, `map_gamma` 1) and the top coat's weight map.
 - Calib-BumpRes: one height map at 256 / 1024 / 4096 px, bump factors,
   UV tiles and a half-size sphere (#75): Iray's bump vs the map's size.
 - Calib-BumpGamma-Uber, -Uber2, -NVIDIA (#91): Calib-Leaf's cards lit in
@@ -784,6 +788,69 @@ if made[-1][0]:
     d = load(made[-1][0])
     for i in d['image_library']:
         if i['id'] == GREY1:
+            i['map_gamma'] = 1
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+# Map depth (#93): gamma "auto" by the file's pixel type. Iray's loader
+# reads an 8-bit map at 2.2, a 16-bit single channel at 1.0, 16-bit RGB at
+# 2.2 (MDL SDK `get_pixel_type_and_gamma`). The same grey 128 (8 bits) /
+# 32896 (16 bits, the same 0.502) as displacement over 0..10 cm (the
+# silhouette: 2.2 cm at 2.2, 5 cm linear), roughness and opacity; a 16-bit
+# grey at `map_gamma` 2.2 (Octane's gamma pin on a 16-bit PNG).
+def png16(path, a):
+    """A 16-bit PNG of a uint16 array (h, w) grey or (h, w, 3) RGB."""
+    import struct, zlib
+    h, w = a.shape[:2]
+    rows = b''.join(b'\0' + a[y].astype('>u2').tobytes() for y in range(h))
+    chunk = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+    ihdr = struct.pack('>IIBBBBB', w, h, 16, 2 if a.ndim == 3 else 0, 0, 0, 0)
+    open(path, 'wb').write(b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', ihdr) + chunk(b'IDAT', zlib.compress(rows, 9)) + chunk(b'IEND', b''))
+MD = {name: f'/Runtime/Textures/ORBIS/calib-mapdepth-{name}.png' for name in ('16', '16-rgb', '16-g22')}
+for name, path in MD.items():
+    p = os.path.join(os.path.dirname(out_dir), path.lstrip('/'))
+    if not os.path.exists(p):
+        import numpy as np
+        png16(p, np.full((64, 64, 3) if name == '16-rgb' else (64, 64), 128 * 257, np.uint16))
+MD_GLOSS = {'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.5, 'Glossy Roughness': 1.0}
+uber_spheres('Calib-MapDepth', GREY_SPHERE, {}, [
+    ('D1 disp 8-bit', {('Displacement Strength', 'image'): DISP['grey'], **R10}),
+    ('D2 disp 16-bit', {('Displacement Strength', 'image'): MD['16'], **R10}),
+    ('D3 disp 16-bit rgb', {('Displacement Strength', 'image'): MD['16-rgb'], **R10}),
+    ('D4 disp 16-bit gamma 2.2', {('Displacement Strength', 'image'): MD['16-g22'], **R10}),
+    ('R1 rough 8-bit', {('Glossy Roughness', 'image'): DISP['grey'], **MD_GLOSS}),
+    ('R2 rough 16-bit', {('Glossy Roughness', 'image'): MD['16'], **MD_GLOSS}),
+    ('O1 opacity 8-bit', {('Cutout Opacity', 'image'): DISP['grey'], 'Cutout Opacity': 1.0}),
+    ('O2 opacity 16-bit', {('Cutout Opacity', 'image'): MD['16'], 'Cutout Opacity': 1.0}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for i in d['image_library']:
+        if i['id'] == MD['16-g22']:
+            i['map_gamma'] = 2.2
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+# Calib-MapDepth2: the same rule on colour maps (diffuse: 8-bit, 16-bit grey
+# and RGB, a float TIFF, the 8-bit map at `map_gamma` 1) and on the top
+# coat's weight map in the weighted and the anisotropic (layered) coat.
+MD['f32'] = '/Runtime/Textures/ORBIS/calib-mapdepth-f32.tif'
+p = os.path.join(os.path.dirname(out_dir), MD['f32'].lstrip('/'))
+if not os.path.exists(p):
+    from PIL import Image
+    import numpy as np
+    Image.fromarray(np.full((64, 64), 128 / 255, np.float32), 'F').save(p)
+MD_COAT = {'Glossy Layered Weight': 0.0, 'Top Coat Weight': 1.0, 'Top Coat Roughness': 0.3}
+uber_spheres('Calib-MapDepth2', GREY_SPHERE, {}, [
+    ('C1 colour 8-bit', {('diffuse', 'image'): DISP['grey']}),
+    ('C2 colour 16-bit', {('diffuse', 'image'): MD['16']}),
+    ('C3 colour 16-bit rgb', {('diffuse', 'image'): MD['16-rgb']}),
+    ('C4 colour float', {('diffuse', 'image'): MD['f32']}),
+    ('C5 colour gamma 1', {('diffuse', 'image'): DISP['grey-g1']}),
+    ('T1 weighted coat map 8-bit', {('Top Coat Weight', 'image'): DISP['grey'], **MD_COAT, 'Top Coat Layering Mode': 1}),
+    ('T2 weighted coat map 16-bit', {('Top Coat Weight', 'image'): MD['16'], **MD_COAT, 'Top Coat Layering Mode': 1}),
+    ('T3 aniso coat map 8-bit', {('Top Coat Weight', 'image'): DISP['grey'], **MD_COAT, 'Top Coat Anisotropy': 0.5}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for i in d['image_library']:
+        if i['id'] == DISP['grey-g1']:
             i['map_gamma'] = 1
     open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
 uber_spheres('Calib-Disp', GREY_SPHERE, {}, [

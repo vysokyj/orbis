@@ -1099,9 +1099,8 @@ leaves out, #15):
   the bump as Iray's does (below, Gloss).
 - **Height and normal maps are decoded at the gamma Iray reads them
   with** (#91): the image's own gamma (Textures, image gamma below),
-  else gamma "auto" by the file's pixel type — 2.2 for 8 bits a
-  channel, 1.0 for 16 bits or float (`detail_normal::auto_gamma`, the
-  loader's rule from #90). The bake decodes each texel at that gamma
+  else gamma "auto" by the file's pixel type (Map gamma, below: 2.2 for
+  8 bits and 16-bit colour, 1.0 for 16-bit grey or float). The bake decodes each texel at that gamma
   before the central difference (a normal map before 2c − 1). A normal
   map Octane takes as it is (on `normal`, unbaked) goes in re-baked
   linear when its gamma isn't 1: Octane reads a normal texture linear
@@ -1466,8 +1465,8 @@ leaves out, #15):
   glossiness maps on a roughness channel), per-map tiles in 38, scale 29,
   grey mode 18 (overlay and make-up weights by alpha), tiling offsets 13
   (Calib-Skin's normal maps at 1: a whole period), offset 2.
-- **Colour space.** Colour and data maps are read at a pure gamma 2.2;
-  bump and normal maps at theirs (Height and normal maps, #91). Every gamma above 1 (2.2, an image's
+- **Colour space.** Every map is read at the gamma Iray reads it with (Map
+  gamma, below): 2.2 for an 8-bit map at "auto". Every gamma above 1 (2.2, an image's
   own `map_gamma`, a squared overlay weight map at 4.4) goes in "linear
   sRGB + legacy gamma" (6) with that gamma: Octane applies the `gamma` pin
   only there and ignores it in sRGB (Calib-Overlay's squared belts, #71).
@@ -1491,12 +1490,53 @@ leaves out, #15):
   colour map would be 6 × brighter (Octane disk 5.4 × Iray), its gloss
   weight map at 1.0 put the disk at 1.17 × and the rim 1.26 × (at 2.2
   0.99 / 1.00; diffuse alone 0.83).
-- **Float channels' maps are read at gamma 2.2.** This covers roughness,
-  opacity, metallic, translucency, glossy weight and reflectivity, and
-  displacement. DAZ reads a map with no gamma of its own (`map_gamma` 0,
-  "automatic", which is every map in the user's scenes) at 2.2, though
-  the Uber channels declare `default_image_gamma` 1. An image's own
-  gamma wins:
+- **Map gamma: one rule for every map** (`Textures::map_gamma`, #93) —
+  colour, float channel (roughness, opacity, metallic, translucency,
+  glossy and top coat weight, reflectivity, displacement), bump and normal
+  maps, the image pins and the bakes alike: the image's own gamma (below),
+  else gamma "auto" by the file's pixel type
+  (`daz_material::auto_gamma`), the rule of Iray's image loader (the MDL
+  SDK's OpenImageIO plugin, `get_pixel_type_and_gamma`, 2025.0.3 as in
+  DAZ Studio 6 and unchanged in 2026.0.2):
+
+  | pixel type | "auto" |
+  |---|---|
+  | 8 bits a channel, any channels | 2.2 |
+  | 16 bits, one channel | 1.0 |
+  | 16 bits, grey + alpha, RGB, RGBA | 2.2 |
+  | half / float (EXR, HDR, float TIFF) | 1.0 |
+
+  The 16-bit grey's 1.0 is a loader debug option
+  (`linear_gamma_for_single_uint16_channel`, default on). DAZ hands
+  every image with `map_gamma` 0 to Iray as "auto", 16-bit and float
+  files too (Calib-MapDepth, -MapDepth2 .mi: `g_Auto`; a 16-bit grey at
+  `map_gamma` 2.2 goes at 2.2). The export reads the pixel type from the
+  file's header; OpenEXR, Radiance HDR and a one-channel float TIFF,
+  which the `image` crate doesn't decode, count as float. Octane gets the
+  file as it is with that gamma (Colour space): it applies the legacy
+  gamma pin to 16-bit PNGs as to 8-bit ones (Calib-MapDepth: a 16-bit
+  grey at pin 2.2 displaced as the 8-bit map, within 0.4 px).
+  Why (Calib-MapDepth, -MapDepth2 against Iray, 2026-11-10 note): a
+  16-bit grey displacement map's edge at 500.2 px against Iray's 500.1
+  (read at 2.2 before: 508.8); 16-bit RGB and 16-bit at `map_gamma` 2.2
+  at Iray's edge (2.2). Diffuse maps Iray reads linear (16-bit grey,
+  float TIFF, an 8-bit map at `map_gamma` 1) 0.45 → 1.03 – 1.04 × Iray;
+  a weighted top coat's 8-bit weight map (a literal 1.0 before) 1.43 →
+  1.04; 16-bit opacity 0.97 → 1.04.
+  - Images the export writes carry the gamma they are written at (a
+    derived roughness or IOR map 1, a skin or blend bake 2.2, a baked
+    normal map 1); a grey channel pick (#77) keeps its source's depth
+    and gamma.
+  - The bakes decode their sources at the source's gamma: `derived`
+    (roughness, IOR, the NVIDIA metals' maps) per channel value from a
+    table at 8 or 16 bits; the colour bakes (skin, blends) take an 8-bit
+    2.2 copy of a source Iray reads otherwise.
+  - Layered images flatten to an 8-bit canvas (DAZ's composite): "auto"
+    is 2.2 there.
+
+  The float channels' maps follow it though the Uber channels declare
+  `default_image_gamma` 1: DAZ hands an image with `map_gamma` 0 as "auto"
+  (an image's own gamma wins):
 - **An image's gamma** is what DAZ hands Iray for it
   (`daz_material::scene_image_gammas`, #91): its `image_library` entry's
   `map_gamma` (0 = "auto"); a file the scene doesn't list takes the
@@ -2200,15 +2240,18 @@ In a weighted mix the mix material (19) carries it. Notes:
   pixel. White over 0..5 cm grew by 5 cm, at strength 0.5 by 2.5 cm and at
   strength 2 by 10 cm. Black over −5..5 cm shrank by 5 cm, and white over
   −5..5 cm grew by 5 cm.
-- **Map gamma 2.2.** DAZ reads a map without a gamma of its own
-  (`map_gamma` 0, as every displacement map in the user's scenes) at 2.2,
-  though the channel declares `default_image_gamma` 1. The image's own
-  `map_gamma` wins.
+- **Map gamma** as every map's (Textures, map gamma, #93): an 8-bit map
+  without a gamma of its own (`map_gamma` 0, as every displacement map in
+  the user's scenes) at 2.2, though the channel declares
+  `default_image_gamma` 1; a 16-bit greyscale map (common for
+  displacement) linear. The image's own `map_gamma` wins.
 
   Why: on Calib-Disp-Map, grey 128 moved the sphere by 22 % of its range
   and grey 64 by 6 %, for an L PNG, an RGB PNG and a JPEG alike. With
-  `map_gamma` 1 the same grey 128 moved it by 50 %. The other float
-  channels share this (Textures, colour space).
+  `map_gamma` 1 the same grey 128 moved it by 50 %. Calib-MapDepth: the
+  same grey as a 16-bit greyscale PNG moved it by 50 % in Iray and the
+  export (the top edge 500.1 / 500.2 px), 16-bit RGB and 16-bit at
+  `map_gamma` 2.2 by 22 %.
 - **Subdivision.** `subdLevel` = SubD Displacement Level, on figures only
   and capped at 1 — on top of the export's own levels (usually 2; it was 2
   over one level before). Iray subdivides a SubD figure further for displacement

@@ -21,8 +21,8 @@
 //!
 //! Each map is decoded at the gamma Iray reads it with (#91): the image's
 //! own `map_gamma`, else gamma "auto" — Iray's loader gives the canvas its
-//! pixel type's gamma, 2.2 for 8 bits, 1.0 for 16 bits or float
-//! ([`auto_gamma`]). Calib-BumpGamma: an 8-bit sawtooth at `map_gamma` 0
+//! pixel type's gamma ([`crate::daz_material::auto_gamma`]: 2.2 for 8 bits
+//! and 16-bit colour, 1.0 for 16-bit grey or float). Calib-BumpGamma: an 8-bit sawtooth at `map_gamma` 0
 //! tilted the normal as its 2.2-decoded heights' slope, at `map_gamma` 1
 //! and as a 16-bit PNG as the linear slope.
 
@@ -40,15 +40,6 @@ impl Source<'_> {
             Source::Height { image, .. } | Source::Normal { image, .. } => (image.width(), image.height()),
         }
     }
-}
-
-/// The gamma Iray's image loader gives a canvas under gamma "auto" (MDL
-/// `gamma_default`) by its pixel type, ignoring the file's colour
-/// metadata (#90): 8 bits a channel 2.2, deeper 1.0. Calib-BumpGamma's
-/// 16-bit greyscale height map rendered linear (#91); a 16-bit RGB map is
-/// taken the same way (the loader's type rule), unverified.
-pub fn auto_gamma(color: image::ColorType) -> f32 {
-    if color.bytes_per_pixel() as u16 / color.channel_count() as u16 <= 1 { 2.2 } else { 1.0 }
 }
 
 /// A tangent-space normal field at `w` × `h` texels, row by row from the
@@ -198,9 +189,9 @@ mod tests {
         // Calib-BumpGamma's sawtooth, 8 levels a texel: at gamma 2.2 the
         // slope at texel j is (8 (j + 1) / 255)^2.2 − (8 (j − 1) / 255)^2.2.
         let img = image::DynamicImage::ImageLuma8(image::ImageBuffer::from_fn(4, 32, |_, y| image::Luma([(8 * (31 - y)) as u8])));
-        assert_eq!(auto_gamma(img.color()), 2.2);
-        assert_eq!(auto_gamma(image::ColorType::L16), 1.0);
-        assert_eq!(auto_gamma(image::ColorType::Rgb32F), 1.0);
+        assert_eq!(crate::daz_material::auto_gamma(img.color()), 2.2);
+        assert_eq!(crate::daz_material::auto_gamma(image::ColorType::L16), 1.0);
+        assert_eq!(crate::daz_material::auto_gamma(image::ColorType::Rgb32F), 1.0);
         let out = bake(&Source::Height { image: &img, factor: 4.0, gamma: 2.2 }, None);
         for j in [5u32, 25] {
             let d = |k: u32| (8.0 * k as f32 / 255.0).powf(2.2);

@@ -496,6 +496,28 @@ pub fn scene_image_gammas(doc: &Value, images: &HashMap<String, String>, mut def
     gammas
 }
 
+/// The gamma Iray's image loader gives a canvas under gamma "auto" (MDL
+/// `gamma_default`, an image with `map_gamma` 0) by its pixel type,
+/// ignoring the file's colour metadata (#90, #93). The rule of the MDL SDK's
+/// OpenImageIO plugin (`get_pixel_type_and_gamma`, 2025.0.3 as in DAZ
+/// Studio 6's Iray, the same in 2026.0.2):
+/// - 8 bits a channel, any channel count: 2.2;
+/// - 16 bits: 1.0 for a single channel (debug option
+///   `linear_gamma_for_single_uint16_channel`, default on), 2.2 with
+///   colour or alpha (grey + alpha, RGB, RGBA);
+/// - half or float: 1.0.
+///
+/// Calib-BumpGamma's 16-bit greyscale height map rendered linear (#91).
+/// Every map's "auto" resolves here — colour, data, bump and normal maps
+/// and the bakes that read them.
+pub fn auto_gamma(color: image::ColorType) -> f32 {
+    use image::ColorType::*;
+    match color {
+        L16 | Rgb32F | Rgba32F => 1.0,
+        _ => 2.2,
+    }
+}
+
 impl Material {
     /// Each channel image's gamma as DAZ hands it Iray, from
     /// `scene_image_gammas`: None for "auto" (0) or an image it doesn't know.

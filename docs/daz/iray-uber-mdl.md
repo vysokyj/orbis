@@ -83,9 +83,10 @@ Found beyond it:
   `top_coat_bump` — Mode 0 a `file_bump_texture`, 1 a
   `tangent_space_normal_texture`, the value as the factor (Calib-CoatBump); UV transform Horizontal / Vertical
   Tiles and Offset, the vertical offset negated; gamma the image's own, else
-  "auto" (Iray decides: its loader gives 8 bits a channel 2.2, 16 bits and
-  float 1.0, ignoring the file's metadata; bump and normal maps alike,
-  Calib-BumpGamma). The image's own gamma is its `image_library` entry's
+  "auto" (Iray decides: its loader gives 8 bits a channel 2.2, 16 bits
+  2.2 with colour or alpha and 1.0 as one channel, half / float 1.0,
+  ignoring the file's metadata; bump and normal maps alike,
+  Calib-BumpGamma; every map, Calib-MapDepth). The image's own gamma is its `image_library` entry's
   `map_gamma` (0 = "auto"); DAZ keeps one image per file, and a file the
   scene doesn't list takes the `default_image_gamma` of the first channel
   that loads it — Uber: 1 for bump, normal and the float channels, 0 for
