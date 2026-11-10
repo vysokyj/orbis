@@ -1483,5 +1483,31 @@ if os.path.exists(nv):
                                   '/resources/concrete_fine_polished_bump.png'):
             i['map_gamma'] = 1
     made.append((save(d, 'Calib-NVIDIA-BumpG1'), None))
+# Cast Iron's detail (#92): Octane's band-passed detail falls as its bump
+# grows (the sub-pixel normal spread blurs the reflection: bump off 1.66 x
+# Iray, on 1.30 x, twice the slope 1.07 x), so Iray's spread looks about
+# twice the bake's, though Iray's slope matches it on a magnified card
+# (Calib-BumpGamma's step). Calib-NVIDIA-CastFlat: Cast Iron's bump off
+# (Bump Strength 0, the map kept) - is Iray's gap in the bump or the base
+# lobe? Calib-NVIDIA-NoComp: texture compression off (both thresholds
+# above every map; DAZ hands 2048 px maps such as grunge_d at "high") -
+# does Iray's lossy compression add the spread?
+if os.path.exists(nv):
+    d = load(nv)
+    for m in d['scene']['materials']:
+        if 'Cast%20Iron' in m.get('url', ''):
+            for e in m.get('extra', []):
+                for c in e.get('channels', []):
+                    if c['channel']['id'] == 'Bump Strength':
+                        c['channel']['current_value'] = 0
+    made.append((save(d, 'Calib-NVIDIA-CastFlat'), None))
+    d = load(nv)
+    for e in d['scene'].get('extra', []):
+        for el in e.get('render_options', {}).get('render_elements', []):
+            for ch in el.get('children', []):
+                for c in ch.get('channels', []):
+                    if c['channel']['id'] in ('Texture Compression Medium Threshold', 'Texture Compression High Threshold'):
+                        c['channel']['current_value'] = 16384
+    made.append((save(d, 'Calib-NVIDIA-NoComp'), None))
 
 # Scene dumps: scripts/dev/daz-dump.sh (DAZ evaluates each scene headless).
