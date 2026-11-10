@@ -156,6 +156,10 @@ Examples that ship with DAZ Studio and are in `calib/scenes`.
    `scripts/dev/iray-queue.sh [-s samples] [-o out dir] <scene.duf>…`
    queues capped copies (Max Time 0, as Boost asks) and collects the
    renders into the Iray references; `iray-queue.sh --stop` ends the queue.
+   DAZ renders through the viewport's camera: a scene saved without
+   `current_camera` renders DAZ's Perspective View, not the camera `orbis`
+   exports (#97). `iray-queue.sh` and `keep-refs.py` refuse such scenes,
+   a test checks `calib/scenes`; `scripts/dev/duf_camera.py --fix` sets it.
    Worth it for small scenes; a figure's textures take long to upload.
 3. **Dump and export** — `scripts/dev/daz-dump.sh <out dir> <scene.duf>…`
    writes the scene dump (the posed geometry) and the `.orbx`.

@@ -12,6 +12,8 @@ DAZ's 2: too big for a calibration render) and copies them into calib/scenes and
 base scene's, and Genesis 9 (free with DAZ Studio), referenced only.
 """
 import gzip, json, os, shutil, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import duf_camera
 
 if len(sys.argv) < 2 or sys.argv[1] in ('-h', '--help'):
     print(__doc__)
@@ -42,6 +44,7 @@ for name in SCENES:
                         if c['channel']['id'] == 'SubDRenderLevel':
                             c['channel']['current_value'] = 1
     d['asset_info']['id'] = f'/Scenes/{name}.duf'
+    duf_camera.ensure(d)  # DAZ saved them through its Perspective View (#97)
     dst = os.path.join(calib, name + '.duf')
     open(dst, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
     if os.path.isdir(lib):

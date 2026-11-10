@@ -49,6 +49,12 @@ if tail -n 300 "$HOME/Library/Application Support/DAZ 3D/Studio6/log.txt" 2>/dev
     echo "the Iray Server rejects the session (it reset its password): tell the user, they fix it and restart the queue script" >&2
     exit 1
 fi
+# A scene without current_camera renders DAZ's Perspective View, not the
+# camera orbis exports (#97): refuse the whole batch, nothing queued.
+if ! python3 "$(dirname "$0")/duf_camera.py" "$@" >&2; then
+    echo "fix the scenes first (python3 scripts/dev/duf_camera.py --fix, or the generator), then queue" >&2
+    exit 1
+fi
 for scene in "$@"; do
     name=$(basename "$scene" .duf)
     rm -f "$queue/$name.png" "$queue/done/$name.duf"

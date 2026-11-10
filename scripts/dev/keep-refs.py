@@ -16,7 +16,9 @@ Samples and the time cap come from the capped copy of the scene the render
 was made from (beside the png, or in the queue's done/ folder); the render
 time from the queue log or the <png>.run.txt that daz-render.sh leaves.
 A render whose scene load logged an MDL import error in DAZ's log (a preset
-module already imported in that DAZ session, #94; daz_log.py) is skipped.
+module already imported in that DAZ session, #94; daz_log.py) is skipped, and
+so is one made from a copy without current_camera (DAZ rendered its
+Perspective View, not the scene's camera, #97; duf_camera.py).
 """
 import sys as _sys
 if any(a in ('-h', '--help') for a in _sys.argv[1:]):
@@ -24,7 +26,7 @@ if any(a in ('-h', '--help') for a in _sys.argv[1:]):
     _sys.exit(0)
 import csv, datetime, filecmp, gzip, json, os, re, shutil, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import daz_log
+import daz_log, duf_camera
 
 repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 scenes = os.path.join(repo, 'calib', 'scenes')
@@ -112,6 +114,10 @@ for png in pngs:
     copy = max(before or copies, key=os.path.getmtime, default=None)
     if not copy:
         print(f'skip {name}: no capped scene copy to read the samples from')
+        continue
+    if duf_camera.missing(load(copy)):
+        print(f'skip {name}: rendered from a copy without current_camera, so through DAZ\'s Perspective View, '
+              'not the scene\'s camera (#97). Fix the scene (duf_camera.py --fix) and re-render it.')
         continue
     c = caps(copy)
     samples = int(c.get('Max Samples', 0))

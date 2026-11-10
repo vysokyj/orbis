@@ -30,6 +30,8 @@ if any(a in ('-h', '--help') for a in _sys.argv[1:]):
     print(__doc__)
     _sys.exit(0)
 import gzip, json, os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import duf_camera
 
 scenes = sys.argv[1] if len(sys.argv) > 1 else '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes'
 
@@ -245,6 +247,7 @@ for name, (src, variants) in VARIANTS.items():
             c['current_value'] = v
             if image:
                 c['image_file'] = image
+    duf_camera.ensure(d)  # else Iray renders DAZ's Perspective View (#97)
     out = os.path.join(scenes, name + '.duf')
     open(out, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
     print(out)

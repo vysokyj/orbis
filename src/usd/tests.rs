@@ -396,6 +396,28 @@ fn without_a_current_camera_the_first_camera_node_is_used() {
     assert!((scene_camera(&mut lib).unwrap().pos[2] + 3.391).abs() < 0.01);
 }
 
+/// Every generated calibration scene saves its camera as current: without
+/// `current_camera` DAZ renders the Iray reference through its own
+/// Perspective View while `orbis` exports the camera node, so the two can't
+/// be compared (#97; `scripts/dev/duf_camera.py --fix`).
+#[test]
+fn calibration_scenes_render_through_their_camera() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("calib/scenes");
+    let mut missing = Vec::new();
+    for e in std::fs::read_dir(&dir).unwrap() {
+        let p = e.unwrap().path();
+        if p.extension().and_then(|x| x.to_str()) != Some("duf") {
+            continue;
+        }
+        let duf: Value = serde_json::from_str(&crate::dson::decompress_scene(&std::fs::read(&p).unwrap()).unwrap()).unwrap();
+        let cameras = duf["node_library"].as_array().into_iter().flatten().filter(|n| n["type"] == "camera").count();
+        if cameras > 0 && duf.pointer("/scene/current_camera").and_then(Value::as_str).is_none() {
+            missing.push(p.file_name().unwrap().to_string_lossy().into_owned());
+        }
+    }
+    assert!(missing.is_empty(), "no current_camera: {missing:?}");
+}
+
 #[test]
 fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     let ch = |id: &str, v: Value| json!({"channel": {"id": id, "current_value": v}});

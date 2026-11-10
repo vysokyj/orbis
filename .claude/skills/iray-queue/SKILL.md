@@ -18,6 +18,9 @@ description: Prepare and run Iray Server renders through the ORBIS render queue 
 ## One NVIDIA preset per DAZ session
 DAZ imports an MDL module into Iray once per session. A later scene in the same queue session using the same NVIDIA preset (concrete, porcelain, granite, ...) logs `MDL Import Error (4004)` and Iray renders that material as an untextured fallback (#94). Before a batch: list the presets each scene uses; a repeat (within the batch, or of a scene the running queue DAZ already rendered) needs the user to restart the queue-side DAZ in between - ask for it in the one call. `keep-refs.py` refuses such renders, `status.py` flags them (`scripts/dev/daz_log.py`).
 
+## The scene's camera
+DAZ renders through the viewport's camera. A scene saved through the Perspective View has no `current_camera`, and the queue then renders DAZ's own view, not the camera `orbis` exports (#97: four references were unusable). `iray-queue.sh` refuses such a batch, `keep-refs.py` such a render; `python3 scripts/dev/duf_camera.py --fix <scene.duf>` (or `duf_camera.ensure` in a generator) sets it.
+
 ## Stalls
 - `progress` shows `STALLED` or the DAZ log (`~/Library/Application Support/DAZ 3D/Studio6/log.txt`) shows "Server refused connection: session handler rejected the session" = the server reset its password. **Tell the user**; they fix it and restart the queue script in DAZ (it retries every 30 s). We never start the queue-side DAZ.
 - `iray-queue.sh` refuses (exit 1, nothing queued) when no queue script was started, when DAZ Studio is not running, or when the DAZ log shows the rejected session - the moment to tell the user, not to retry.

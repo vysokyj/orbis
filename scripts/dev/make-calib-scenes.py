@@ -56,6 +56,8 @@ if any(a in ('-h', '--help') for a in _sys.argv[1:]):
     print(__doc__)
     _sys.exit(0)
 import copy, glob, gzip, json, os, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import duf_camera
 
 src = next((a for a in sys.argv[1:] if a.endswith('.duf')), None) or '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes/Calib-Materials.duf'
 out_dir = os.path.dirname(src)
@@ -75,6 +77,7 @@ def save(d, name):
     p = os.path.join(out_dir, name + '.duf')
     if os.path.exists(p) and not FORCE:
         return None
+    duf_camera.ensure(d)  # else Iray renders DAZ's Perspective View (#97)
     open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
     print(p)
     return p
@@ -1473,6 +1476,7 @@ if os.path.exists(bgn):
         bump_gamma_cards(d, [('N1 height 8-bit auto', BG[''], None, BG_F, 0),
                              ('N2 height 8-bit gamma 1', BG['-g1'], None, BG_F, 1),
                              ('N3 height 16-bit auto', BG['-16'], None, BG_F, 0)], True)
+        duf_camera.ensure(d)  # DAZ saved it through its Perspective View (#97)
         open(bgn, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
         print(bgn, '(cards tuned)')
 # Calib-NVIDIA-BumpG1: Calib-NVIDIA with its bump maps at `map_gamma` 1, so
