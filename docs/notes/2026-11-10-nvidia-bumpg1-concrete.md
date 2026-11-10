@@ -96,10 +96,22 @@ render ("re-render it in a fresh DAZ session"), `status.py` flags one in
 the queue's log of the last three days. Run on BumpG1's render it skips
 it; Calib-NVIDIA's passes.
 
-Iray batch: Calib-NVIDIA-BumpG1 again, 5000 samples, in a queue-side DAZ
-started fresh (the running one has the concrete module from 11-09), to
-replace the reference and check concrete at gamma 1 (expected within a
-few percent of Calib-NVIDIA's).
+## The re-render
+
+Calib-NVIDIA-BumpG1 again on the Iray Server, 5000 samples (207 s), in a
+queue-side DAZ started after 11-09 that had loaded only Uber scenes: no
+MDL import error (`daz_log.py`), reference replaced via `keep-refs.py`.
+
+| | brushed | cast iron | concrete | polished | porcelain | granite | resin | arch |
+|---|---|---|---|---|---|---|---|---|
+| Iray BumpG1 (new) / Calib-NVIDIA | 1.00 | 1.03 | 1.01 | 0.99 | 1.00 | 1.00 | 1.00 | 1.00 |
+| Octane BumpG1 / Iray BumpG1 (new) | 0.96 | 0.94 | **1.04** | 0.99 | 1.11 | 1.07 | 0.95 | 1.06 |
+
+Concrete's band-passed detail: Iray 0.030 (2.2 decode) / 0.029 (gamma
+1), Octane 0.031 (1.07 ×), correlation with Iray's 0.94 (Iray's two
+decodes 0.99 with each other). As predicted: the bump's decode and the
+gloss tint at gamma 1 move concrete's disk by 1 %. The other spheres
+unchanged except cast iron's detail (0.223 → 0.209, #91's 0.94 ×).
 
 ## Process
 
