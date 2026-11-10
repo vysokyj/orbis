@@ -15,12 +15,16 @@ fewer samples than the one already kept is skipped too.
 Samples and the time cap come from the capped copy of the scene the render
 was made from (beside the png, or in the queue's done/ folder); the render
 time from the queue log or the <png>.run.txt that daz-render.sh leaves.
+A render whose scene load logged an MDL import error in DAZ's log (a preset
+module already imported in that DAZ session, #94; daz_log.py) is skipped.
 """
 import sys as _sys
 if any(a in ('-h', '--help') for a in _sys.argv[1:]):
     print(__doc__)
     _sys.exit(0)
 import csv, datetime, filecmp, gzip, json, os, re, shutil, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import daz_log
 
 repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 scenes = os.path.join(repo, 'calib', 'scenes')
@@ -35,7 +39,6 @@ if demo:
     args.remove('--demo')
     refs = os.path.join(repo, 'demo', 'references', 'iray')
     FIELDS = FIELDS + ['scene_sha256']
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import demo as demo_lib
 tsv = os.path.join(refs, 'renders.tsv')
 renderer = 'DAZ Studio Iray (CPU)'
@@ -95,6 +98,11 @@ for png in pngs:
             continue
     elif not os.path.exists(os.path.join(scenes, name + '.duf')):
         print(f'skip {name}: not a generated scene in calib/scenes')
+        continue
+    failed = daz_log.errors_before(name, datetime.datetime.fromtimestamp(os.path.getmtime(png)))
+    if failed:
+        print(f'skip {name}: DAZ failed to import {", ".join(failed)} for this render (MDL Import Error in the DAZ log): '
+              'a material rendered as a fallback. Re-render it in a fresh DAZ session.')
         continue
     # The copy the render was made from: the latest one saved before the png
     # (a CPU run's copy beside the png outlives a later queue render).

@@ -99,6 +99,11 @@ else:
         tail = open(DAZ_LOG, errors="replace").read().splitlines()[-300:]
         if any("session handler rejected the session" in l for l in tail):
             print("!! DAZ log: 'session handler rejected the session' = the Iray Server reset its password. Tell the user; they fix it and restart the queue script (retries every 30 s).")
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import daz_log
+    recent = [f for f in daz_log.failed_loads([DAZ_LOG]) if f[0] and time.time() - f[0].timestamp() < 3 * 86400]
+    for when, _, scene, mods in recent:
+        print(f"!! {when} {scene}: MDL import failed ({', '.join(mods)}) - a module already imported in that DAZ session; its material renders as a fallback, no reference (#94). Restart the queue-side DAZ before re-rendering it.")
     black = [f for f in os.listdir(QUEUE) if f.endswith(".png") and os.path.getsize(f"{QUEUE}/{f}") < 2000]
     if black:
         print("!! suspiciously small renders:", ", ".join(black[:5]))
