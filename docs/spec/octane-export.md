@@ -1755,7 +1755,9 @@ leaves out, #15):
     Beckmann at √r); the albedo 0.84 brings the grey resin (A7) to 1.02 ×
     and Calib-NVIDIA's red one to 1.05 × with g/r 0.25 v 0.22 (floors
     1.04 – 1.05). The two roughnesses are measured; the line between them
-    is assumed.
+    is assumed. Calib-NVIDIA2's numbers came from a view fitted to a
+    mis-framed reference (#97); on its true reference A7 is 1.28 × and A8
+    1.01 × — the r 0.25 point is open (#113).
     Architectural (mental ray's mia_material) keeps the pins its rules
     below were found on — the reflection on the GGX curve min(r + 1.85 r²,
     √r) under energy-preserving GGX, the glass and the coat over it at √r

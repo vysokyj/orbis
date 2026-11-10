@@ -904,7 +904,8 @@ fn arch_absorption(mat: &Material) -> Option<[f32; 3]> {
 /// Iray (Calib-NVIDIA2 A8: 0.91 ×, g/r 0.14 v 0.12; × 0.8 gave 0.71 and
 /// g/r 0.19); at r 0.25 the full tint was 1.23 – 1.36 × Iray whatever the
 /// BSDF, and 0.84 brings the grey (A7) and the red (Calib-NVIDIA) resin to
-/// 1.02 / 1.05 × (floors 1.04 – 1.05). Measured at those two roughnesses.
+/// 1.02 / 1.05 × (floors 1.04 – 1.05). Measured at those two roughnesses,
+/// Calib-NVIDIA2 on a fitted view; its true reference reads A7 1.28 × (#113).
 fn resin_lobe_albedo(r: f32) -> f32 {
     (1.0 - RESIN_LOSS * r.clamp(0.0, 1.0)).max(0.0)
 }
