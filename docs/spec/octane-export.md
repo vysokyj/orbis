@@ -1710,9 +1710,17 @@ leaves out, #15):
     (α_v + α_u); on Octane's own semantics (#96) 0.86 / 0.99). Its disk is
     1.12 × Iray (#92; 1.16 on Octane's semantics, #96: the short axis now
     as wide as Iray's; floor 1.04; 1.00 on the GGX curve, which had been
-    tuned there). Not the lobe: analytically, under the HDRI, Beckmann
-    keeps 1.01 × what Iray's v-cavities Phong does on this sphere; open
-    (#98).
+    tuned there). Its disk decomposes (#98) into 1.056, the rough lobe's
+    energy (Iray's Phong with v-cavities keeps less than Smith-Beckmann at
+    v ≈ 0.42, as on the white Uber metal at r 0.4, 1.063 head-on), and
+    1.10, Iray darkening `metal_generic` towards the rim as about √cos θ_v
+    (the disk mean of 1 / √cos over r < 0.75 is 1.095) — with every map
+    flat and the bump off, under a uniform dome (Calib-Furnace-Brushed /
+    -Metal); the Uber metal with the same lobe stays flat, and so does
+    Octane. The same rim makes Cast Iron's 1.07. No Octane switch moves
+    the disk (bump off, weight or lobe flat: 1.16 – 1.18). Both are left
+    as Octane over Iray: the lobe's loss as for the Uber lobes (#95, #96),
+    the rim because it isn't in the MDL (#111).
   - Dielectrics (concrete, concrete polished, asphalt, ceramic tiles small,
     granite black, porcelain, resin polyurethane matte, architectural):
     `df::fresnel_layer(ior, weight, glossy, diffuse)` → Universal albedo,

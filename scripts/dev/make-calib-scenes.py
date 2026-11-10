@@ -25,6 +25,8 @@ a plane under an HDRI) that each change one thing, written beside it.
   `map_gamma` 0 / 1 / 16 bit - the heights' decode gamma (bump-gamma.py);
   -NVIDIA built headless by daz-build-leaf-scene.dsa (Concrete), tuned
   here. Calib-NVIDIA-BumpG1: Calib-NVIDIA's bump maps at `map_gamma` 1.
+  Calib-NVIDIA-CastFlat / -NoComp (#92); Calib-NVIDIA-Brushed (#98): Metal
+  Brushed on all eight spheres, its maps flat or its bump off one at a time.
 - Calib-Mi-ImageGamma (#91, .mi only): maps the image_library doesn't
   list - which channel's default_image_gamma DAZ gives the image.
 - Calib-Mi-ImageMod, -ImageMod2: per-map image modifications (#77) - tiles, tiling
@@ -1509,5 +1511,93 @@ if os.path.exists(nv):
                     if c['channel']['id'] in ('Texture Compression Medium Threshold', 'Texture Compression High Threshold'):
                         c['channel']['current_value'] = 16384
     made.append((save(d, 'Calib-NVIDIA-NoComp'), None))
+# Metal Brushed's disk (#98): Octane 1.16 x Iray, and none of Octane's own
+# switches (bump off, weight or lobe flat) moves it. So the Iray side, one
+# part at a time: Calib-NVIDIA-Brushed puts Metal Brushed on all eight
+# spheres (one MDL module: one DAZ session, #94), N<k> in Calib-NVIDIA's
+# order, with flat maps from calib-disp-* (grey 128 = 0.218 linear: weight
+# 0.609, lobe u 0.107 / v 0.421). The geometry is Calib-NVIDIA's: its dump
+# serves this scene with the scene path changed.
+if os.path.exists(nv):
+    d = load(nv)
+    mats = d['scene']['materials']
+    brushed = next(m for m in mats if 'Metal%20Brushed' in m.get('url', ''))
+    geo_label = {g['id']: n['label'] for n in d['scene']['nodes'] for g in n.get('geometries', [])}
+    WG, WW, WB = (MAPS + f'calib-disp-{c}.png' for c in ('grey', 'white', 'black'))
+    BR = [('B1 brushed', {}),
+          ('B2 bump 0', {'Bump Strength': 0.0}),
+          ('B3 weight flat', {'brush_texture': WG}),
+          ('B4 lobe flat', {'roughness_texture_u': WG, 'roughness_texture_v': WG}),
+          ('B5 all flat bump 0', {'brush_texture': WG, 'roughness_texture_u': WG, 'roughness_texture_v': WG, 'Bump Strength': 0.0}),
+          ('B6 near iso flat bump 0', {'brush_texture': WG, 'roughness_texture_u': WW, 'roughness_texture_v': WB, 'Bump Strength': 0.0}),
+          ('B7 weight black', {'brush_texture': WB}),
+          ('B8 weight white', {'brush_texture': WW})]
+    for i, m in enumerate(mats):
+        label = geo_label.get(m['geometry'].lstrip('#'))
+        if not label or not label.startswith('N'):
+            continue
+        k = int(label[1]) - 1
+        new = copy.deepcopy(brushed)
+        new.update(id=m['id'], geometry=m['geometry'], uv_set=m.get('uv_set', brushed.get('uv_set')))
+        ch = next(e for e in new['extra'] if e['type'] == 'studio_material_channels')['channels']
+        for cid, v in BR[k][1].items():
+            c = next(c for c in ch if c['channel']['id'] == cid)['channel']
+            if isinstance(v, str):
+                c['image_file'] = v
+                if not any(im['id'] == v for im in d['image_library']):
+                    d['image_library'].append({'id': v, 'name': os.path.basename(v), 'map_gamma': 0, 'map': [{'url': v, 'label': os.path.basename(v)}]})
+            else:
+                c['current_value'] = v
+        mats[i] = new
+        for n in d['scene']['nodes']:
+            if n.get('label') == label:
+                n['label'] = BR[k][0]
+    made.append((save(d, 'Calib-NVIDIA-Brushed'), None))
+# Iray's Phong lobe in a furnace (#98): white Uber metals (Metallic Weight 1,
+# base white: the metal's curve is 1 head-on and grazing, so the reflection
+# is `simple_glossy_bsdf` alone) at Iray roughness r (DAZ squares Glossy
+# Roughness: 0.2236 -> 0.05), under a uniform dome (our own constant HDR,
+# 0.5) with the floor hidden: each sphere over the background is the lobe's
+# directional albedo at that view angle. Octane's is measured (#95).
+FURNACE = '/Runtime/Textures/ORBIS/calib-furnace.hdr'
+p = os.path.join(os.path.dirname(out_dir), FURNACE.lstrip('/'))
+if not os.path.exists(p):
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    # Radiance RGBE, flat scanlines: every texel (128, 128, 128, 128) = 0.5.
+    open(p, 'wb').write(b'#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 32 +X 64\n' + bytes([128] * 4 * 64 * 32))
+uber_spheres('Calib-Furnace-Metal', [1.0, 1.0, 1.0], {'Metallic Weight': 1.0}, [
+    (f'F{k + 1} metal r {r}', {'Glossy Roughness': round(r ** 0.5, 4)}) for k, r in enumerate((0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 1.0))])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for n in d['scene']['nodes']:
+        if n.get('label') == 'Plane':
+            n.setdefault('extra', [{'type': 'studio_node_channels', 'version': 5}])
+            ext = next(e for e in n['extra'] if e.get('type') == 'studio_node_channels')
+            ext.setdefault('channels', []).append({'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}})
+        for e in n.get('extra', []):
+            for c in e.get('channels') or []:
+                if c['channel']['id'] == 'Environment Map':
+                    c['channel']['image_file'] = FURNACE
+                    c['channel']['current_value'] = 1
+    d['image_library'] = [i for i in d['image_library'] if 'RuinsB' not in i['map'][0]['url']] + [
+        {'id': 'calib-furnace.hdr', 'name': 'calib-furnace.hdr', 'map_gamma': 1, 'map_type': 'LatLong', 'map': [{'url': FURNACE, 'label': 'calib-furnace.hdr'}]}]
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+# Calib-Furnace-Brushed: Calib-NVIDIA-Brushed under the same dome, the floor
+# hidden - NVIDIA's `metal_generic` against the Uber's lobe, ring by ring.
+nvb = os.path.join(out_dir, 'Calib-NVIDIA-Brushed.duf')
+if os.path.exists(nvb):
+    d = load(nvb)
+    for n in d['scene']['nodes']:
+        if n.get('label') == 'Plane':
+            ext = next(e for e in n.setdefault('extra', [{'type': 'studio_node_channels', 'version': 5}]) if e.get('type') == 'studio_node_channels')
+            ext.setdefault('channels', []).append({'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}})
+        for e in n.get('extra', []):
+            for c in e.get('channels') or []:
+                if c['channel']['id'] == 'Environment Map':
+                    c['channel']['image_file'] = FURNACE
+                    c['channel']['current_value'] = 1
+    d['image_library'] = [i for i in d['image_library'] if 'RuinsB' not in i['map'][0]['url']] + [
+        {'id': 'calib-furnace.hdr', 'name': 'calib-furnace.hdr', 'map_gamma': 1, 'map_type': 'LatLong', 'map': [{'url': FURNACE, 'label': 'calib-furnace.hdr'}]}]
+    made.append((save(d, 'Calib-Furnace-Brushed'), None))
 
 # Scene dumps: scripts/dev/daz-dump.sh (DAZ evaluates each scene headless).
