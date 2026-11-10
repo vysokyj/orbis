@@ -710,11 +710,11 @@ fn mdl_metal(mat: &Material) -> Option<MdlMetal> {
 
 /// Octane's `anisotropyTexture` for an MDL lobe of roughness `u` along
 /// the tangent and `v` across: (α_v − α_u) / (α_v + α_u) of the two axes'
-/// Beckmann α (`openpbr_roughness` squared, ≈ r). On the pins (√α) the
+/// Beckmann α (`phong_pin` squared, ≈ r). On the pins (√α) the
 /// ratio is its root: Metal Brushed's streak came out broad (correlation
 /// of its band-passed detail with Iray's 0.87; on α 0.99, #92).
 fn mdl_anisotropy(u: f32, v: f32) -> f32 {
-    let (u, v) = (openpbr_roughness(u).powi(2), openpbr_roughness(v).powi(2));
+    let (u, v) = (phong_pin(u).powi(2), phong_pin(v).powi(2));
     if (u - v).abs() < 1e-6 || u + v <= 0.0 {
         return 0.0;
     }
@@ -849,6 +849,14 @@ struct MdlDielectric {
     absorption: Option<[f32; 3]>,
     metallic: bool,
     opacity: f32,
+    /// Architectural: its roughness rules (`arch_reflection_rough`,
+    /// `arch_glass_rough`) were found by sweeping Octane's pins before #95
+    /// — the reflection on `fitted_ggx_pin` under energy-preserving GGX, the
+    /// glass and the coating over it at √r under Beckmann — and keep those
+    /// pins. At `phong_pin` Calib-NVIDIA3's glossiness 0.15 – 0.7 spheres
+    /// went from detail / correlation 1.35 – 0.97 / 0.92 – 0.999 to 0.46 –
+    /// 1.08 / 0.85 – 0.95, disk up to 1.26 × Iray.
+    fitted_pins: bool,
 }
 
 /// Architectural's absorption (`refr_falloff_on`) as the MDL computes it
@@ -932,6 +940,7 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
         absorption: None,
         metallic: false,
         opacity: 1.0,
+        fitted_pins: module == "architectural",
     };
     match module {
         // The bump map tints the gloss.
@@ -1171,8 +1180,9 @@ struct Ocs<'a> {
     film: Option<Film>,
     /// Per open pin, whether `pin_open` wrapped it in the film's Multiply.
     pin_wraps: Vec<bool>,
-    /// Writing an Uber gloss as GGX (`gloss_roughness`).
-    gloss_ggx: bool,
+    /// Writing an Uber gloss (`phong_pin`): Universal's `brdf` for its
+    /// node (`phong_brdf`).
+    gloss_brdf: Option<&'static str>,
     /// The current material's UV scale (m per UV unit, `UvScales`).
     uv_scale: Option<f64>,
     /// DAZ's per-map settings (`ImageMod`, #77) of the channel whose image
@@ -1225,48 +1235,33 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:indent$}</pin>", "");
     }
 
-    /// Iray's (MDL) roughness `r` as Universal's under GGX: r + 1.85 r²,
-    /// at most √r (they cross at r 0.36; above, the curve made Calib-Map-
-    /// SpecMode's Glossiness 0.3 sphere, r 0.49 → 0.93, 0.53 × Iray, √r
-    /// 0.7 0.86 with Iray's spread; Calib-DualLobe2's unsquared 0.6 lobe
-    /// 0.77 → 1.03).
-    /// Iray's Uber lobes are Phong with exponent 2 / r² (MDL
-    /// `simple_glossy_bsdf`), Octane's default BSDF ("Octane") kept a sharp
-    /// peak on rough highlights: Calib-DualLobe2's lobes at r 0.36 / 0.81
-    /// had p99 / median 2.6 / 2.6 against Iray's 1.3 / 1.5 and rendered
-    /// 1.58 / 1.99 × Iray. GGX at r is right for sharp highlights (r 0.09:
-    /// Calib-Glossy's 2.5 against Iray's 2.6) but stays sharp above; GGX at
-    /// √r matches the rough ones (1.4 / 1.5) but spreads and brightens the
-    /// sharp (Calib-Glossy's Reflectivity 1 sphere 1.21 → 1.62). The curve
-    /// passes both: 0.09 → 0.105, 0.36 → 0.6, 0.81 → 1. Calib-Glossy's
-    /// spheres 1.02 – 1.16 × Iray (were 1.06 – 1.21), roughness 0.6 1.47 →
-    /// 1.17; DualLobe2's rough lobes 1.02 – 1.25 (were 1.47 – 1.99), lobe 2
-    /// at 0.81 0.83; SpecMode 0.95 – 1.10. Off: Roughness Squared off at 0.6
-    /// (clamped at 1: 0.69) and Calib-ColorEffect's C8 (Base Mixing 1, red
-    /// Glossy Specular: 1.35 → 1.77, #27). Beckmann stayed sharp (#56).
+    /// Iray's (MDL) roughness `r` as the pin of the gloss being written
+    /// (`phong_pin` while `gloss_brdf`, else as is).
     fn gloss_roughness(&self, r: f32) -> f32 {
-        if self.gloss_ggx { ggx_roughness(r) } else { r }
+        if self.gloss_brdf.is_some() { phong_pin(r) } else { r }
     }
 
-    /// Universal's `brdf` GGX energy preserving (6; probe 104: 0 Octane,
-    /// the default, 1 Beckmann, 2 GGX, 7 STD) while `gloss_ggx`. Plain GGX
-    /// lost light on rough lobes, which Iray's Phong keeps: Calib-Glossy's
-    /// roughness 0.6 1.17 → 1.01 × Iray, Calib-DualLobe2's r 0.36 lobe 1.25
-    /// → 1.08, Calib-Map-SpecMode's Glossiness 0.3 0.41 → 0.53 (#56).
+    /// The Top Coat's long-axis roughness when `top_coat` writes it on the
+    /// node being written (not inside a coat Mix / Layered material).
+    fn node_coat_roughness(&self, mat: &Material) -> Option<f32> {
+        top_coat_long_roughness(mat).filter(|_| !self.in_coat_mix && !self.in_layered_coat)
+    }
+
+    /// Universal's `brdf` while writing a gloss (`gloss_brdf`).
     fn brdf_pin(&mut self, i: usize) {
         self.aniso_brdf_pin(i, false);
     }
 
     /// `brdf_pin` for a lobe whose anisotropy may saturate: plain GGX (2)
-    /// when Iray's long axis runs past roughness 1 (`Anisotropy::saturates`).
-    /// Octane's energy-preserving GGX at roughness 1 adds the light of
-    /// multiple scattering that Iray's lobe at r / 0.0001 doesn't have:
-    /// Calib-Aniso2's sharp anisotropic metal K3 1.52 → 1.08 × Iray, the
-    /// weighted coat K4 1.31 → 0.96; not below the cap (Calib-Aniso's
+    /// when Iray's long axis runs past roughness 1 (`Anisotropy::saturates`,
+    /// `fitted_ggx_pin`): energy-preserving GGX at roughness 1 adds the
+    /// light of multiple scattering that Iray's lobe at r / 0.0001 doesn't
+    /// have — Calib-Aniso2's sharp anisotropic metal K3 1.52 → 1.08 × Iray,
+    /// the weighted coat K4 1.31 → 0.96; not below the cap (Calib-Aniso's
     /// metal at v 0.8 1.12 → 0.86, #23).
     fn aniso_brdf_pin(&mut self, i: usize, saturated: bool) {
-        if self.gloss_ggx {
-            self.value_pin(i, "brdf", 57, 2, if saturated { "2" } else { "6" });
+        if let Some(b) = self.gloss_brdf {
+            self.value_pin(i, "brdf", 57, 2, if saturated { BRDF_GGX } else { b });
         }
     }
 
@@ -1351,19 +1346,20 @@ impl Ocs<'_> {
         // Iray's weighted gloss has no Fresnel either: its colour to the edge.
         self.rgb_pin(j + 1, "edgeTint", gloss_color);
         self.float_pin(j + 1, "metallic", 1.0);
-        self.gloss_ggx = true;
+        // A metal (`phong_brdf`), with the Top Coat's dielectric lobe.
+        self.gloss_brdf = Some(phong_brdf(&self.node_coat_roughness(mat).into_iter().collect::<Vec<_>>()));
         let (rough_ch, rough, inverted) = mat.roughness_source();
         let rough = iray_gloss_roughness(mat).unwrap_or_else(|| iray_roughness(mat, rough, inverted));
         let aniso = Anisotropy::glossy(mat);
         self.aniso_brdf_pin(j + 1, aniso.saturates(rough));
-        self.gloss_roughness_pins(j + 1, mat, rough_ch, rough, RoughCurve::Ggx, aniso);
+        self.gloss_roughness_pins(j + 1, mat, rough_ch, rough, RoughCurve::Phong, aniso);
         self.base_detail_pins(j + 1, mat, "normal", "bump");
         self.round_edges_pin(j + 1, mat);
         // Iray's top coat lies over both parts: on the base alone a dark
         // weighted surface under a 0.8 coat lost half its sheen (Calib-Mixing
         // jamb 0.55 × Iray).
-        self.top_coat(j + 1, mat, 0.0);
-        self.gloss_ggx = false;
+        self.top_coat(j + 1, mat);
+        self.gloss_brdf = None;
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
             self.float_or_map(j + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
@@ -1404,11 +1400,13 @@ impl Ocs<'_> {
         self.rgb_pin(j + 1, "albedo", colour);
         self.rgb_pin(j + 1, "edgeTint", colour);
         self.float_pin(j + 1, "metallic", 1.0);
-        self.gloss_ggx = true;
+        // GGX energy preserving: `FLAKE_ROUGHNESS` stands for the flakes'
+        // scattered normals, fitted under it — not a Phong lobe of Iray's.
+        self.gloss_brdf = Some(BRDF_GGX_EP);
         self.brdf_pin(j + 1);
         self.float_pin(j + 1, "roughness", FLAKE_ROUGHNESS);
-        self.top_coat(j + 1, mat, 0.0);
-        self.gloss_ggx = false;
+        self.top_coat(j + 1, mat);
+        self.gloss_brdf = None;
         self.round_edges_pin(j + 1, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
@@ -1457,15 +1455,15 @@ impl Ocs<'_> {
         self.rgb_pin(j + 1, "albedo", colour);
         self.rgb_pin(j + 1, "edgeTint", colour);
         self.float_pin(j + 1, "metallic", 1.0);
-        self.gloss_ggx = true;
         // Beckmann: Phong-like tails, single scattering (DAZ leaves the
         // lobe's `multiscatter_tint` at 0).
-        self.value_pin(j + 1, "brdf", 57, 2, "1");
+        self.gloss_brdf = Some(BRDF_BECKMANN);
+        self.value_pin(j + 1, "brdf", 57, 2, BRDF_BECKMANN);
         self.retro_normal_pin(j + 1);
         let rough = retro_roughness(r);
         self.float_pin(j + 1, "roughness", rough.clamp(0.0, 1.0));
-        self.top_coat(j + 1, mat, 0.0);
-        self.gloss_ggx = false;
+        self.top_coat(j + 1, mat);
+        self.gloss_brdf = None;
         self.round_edges_pin(j + 1, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
@@ -1533,11 +1531,11 @@ impl Ocs<'_> {
             Some((asset, m)) => self.with_map(m, |w| w.image_pin(j + 1, "specular", &asset, true, w.textures.map_gamma(&asset, mat.image_gamma("Top Coat Weight")), coat)),
             None => self.rgb_pin(j + 1, "specular", colour.map(|c| c * coat)),
         }
-        self.gloss_ggx = true;
         let (rough, aniso) = (top_coat_roughness(mat), Anisotropy::top_coat(mat));
+        self.gloss_brdf = Some(phong_brdf(&[(rough * aniso.stretch()).min(1.0)]));
         self.aniso_brdf_pin(j + 1, aniso.saturates(rough));
-        self.gloss_ggx = false;
-        self.gloss_roughness_pins(j + 1, mat, None, rough, RoughCurve::Ggx, aniso);
+        self.gloss_brdf = None;
+        self.gloss_roughness_pins(j + 1, mat, None, rough, RoughCurve::Phong, aniso);
         self.float_pin(j + 1, "ior", top_coat_ior(mat));
         self.coat_bump_pins(j + 1, mat, "bump", "normal");
         self.round_edges_pin(j + 1, mat);
@@ -1582,11 +1580,12 @@ impl Ocs<'_> {
         // G / B 1.57 / 4.29 × Iray).
         self.rgb_pin(j + 1, "edgeTint", colour);
         self.float_pin(j + 1, "metallic", 1.0);
-        self.gloss_ggx = true;
+        // A metal: Beckmann (`phong_brdf`).
+        self.gloss_brdf = Some(phong_brdf(&[]));
         let (rough, aniso) = (top_coat_roughness(mat), Anisotropy::top_coat(mat));
         self.aniso_brdf_pin(j + 1, aniso.saturates(rough));
-        self.gloss_ggx = false;
-        self.gloss_roughness_pins(j + 1, mat, None, rough, RoughCurve::Ggx, aniso);
+        self.gloss_brdf = None;
+        self.gloss_roughness_pins(j + 1, mat, None, rough, RoughCurve::Phong, aniso);
         self.coat_bump_pins(j + 1, mat, "bump", "normal");
         self.round_edges_pin(j + 1, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
@@ -1640,7 +1639,7 @@ impl Ocs<'_> {
         let (ru, rv) = (uoff + uscale * 0.5, voff + vscale * 0.5);
         // `metal_generic`'s lobe is `simple_glossy_bsdf`: Phong of exponent
         // 2 / r², which is Beckmann at α = r / √(1 + r²), and Octane's pin
-        // is √α (`openpbr_roughness`) — the rough-glass rule, no constant.
+        // is √α (`phong_pin`) — the rough-glass rule, no constant.
         // Under the Uber gloss's GGX curve (≈ r for a sharp lobe, α ≈ r²)
         // Cast Iron (r ≈ 0.11) reflected the sky 2.4 × too sharply: its
         // band-passed detail 1.30 × Iray with the bump, 1.52 × without
@@ -1650,7 +1649,7 @@ impl Ocs<'_> {
         self.value_pin(i, "brdf", 57, 2, "1");
         // Octane's roughness is the long axis, its anisotropy narrows the
         // other (#23).
-        let rough = |l: f32| openpbr_roughness((uoff + uscale * l).max(voff + vscale * l));
+        let rough = |l: f32| phong_pin((uoff + uscale * l).max(voff + vscale * l));
         let key = format!("mdl-metal-rough-beckmann|{umap}|{uoff}|{uscale}|{voff}|{vscale}");
         let derived = if umap.is_empty() { None } else { self.textures.derived(self.dirs, umap, &key, 1.0, |l| [rough(l); 3]) };
         match derived {
@@ -1713,40 +1712,60 @@ impl Ocs<'_> {
                 }
             }
         }
-        // The MDL's `simple_glossy_bsdf` is the Uber's Phong lobe: GGX
-        // energy preserving on the gloss's curve (the Uber's rule). A lobe
-        // that transmits (resin's base, architectural's glass) takes the
-        // rough-glass rule (Beckmann at √r), and the reflection on the
-        // coating over it √r under the same model (Phong ≈ Beckmann α = r).
-        // At resin's level (`resin_lobe_albedo`) every BSDF tried came out
-        // alike (Calib-NVIDIA2 A7 1.32 – 1.46 at the full tint).
-        let curve = if m.transmission.is_some() { RoughCurve::Beckmann } else { RoughCurve::Ggx };
+        // The MDL's `simple_glossy_bsdf` is the Uber's Phong lobe: the
+        // derived pin (`phong_pin`) under `phong_brdf` (Beckmann, GGX energy
+        // preserving past Octane's dielectric limit). A lobe that transmits
+        // (resin's base, architectural's glass) and the reflection on the
+        // coating over it take the rough-glass rule (`GLASS_BRDF`, Beckmann
+        // at any roughness). At resin's level (`resin_lobe_albedo`) every
+        // BSDF tried came out alike (Calib-NVIDIA2 A7 1.32 – 1.46 at the full
+        // tint). Porcelain's band-passed detail 0.75 → 0.88 × Iray,
+        // correlation 0.93 → 0.99 (#95).
+        // Architectural keeps the pins its rules were fitted on
+        // (`MdlDielectric::fitted_pins`).
+        let pin = |r: f32| match (m.fitted_pins, m.transmission.is_some()) {
+            (true, true) => r.clamp(0.0, 1.0).sqrt(),
+            (true, false) => fitted_ggx_pin(r),
+            (false, _) => phong_pin(r),
+        };
         if let Some((u, v, rotation)) = m.aniso.filter(|_| m.transmission.is_none()) {
-            // Each axis on the GGX curve, Octane's roughness the long one,
-            // as for the Uber's anisotropy (#23); plain GGX past 1.
+            // Octane's roughness the long axis, the anisotropy of the α's
+            // (`mdl_anisotropy`, as the metals'); past 1 (or fitted) each
+            // axis on `fitted_ggx_pin`, their pins' ratio (#23), plain GGX
+            // past 1 (`aniso_brdf_pin`).
             let (u, v) = (u.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
             let saturated = u.max(v) >= 1.0;
-            self.value_pin(i, "brdf", 57, 2, if saturated { "2" } else { "6" });
-            self.float_pin(i, roughness_pin, ggx_roughness(u.max(v)));
-            let (cu, cv) = (ggx_roughness(u), ggx_roughness(v));
-            if cu + cv > 0.0 {
-                self.float_pin(i, "anisotropyTexture", ((cv - cu) / (cv + cu)).clamp(-1.0, 1.0));
+            let brdf = if saturated { BRDF_GGX } else if m.fitted_pins { BRDF_GGX_EP } else { phong_brdf(&[u.max(v)]) };
+            self.value_pin(i, "brdf", 57, 2, brdf);
+            let a = if saturated || m.fitted_pins {
+                let (cu, cv) = (fitted_ggx_pin(u), fitted_ggx_pin(v));
+                self.float_pin(i, roughness_pin, cu.max(cv));
+                if cu + cv > 0.0 { ((cv - cu) / (cv + cu)).clamp(-1.0, 1.0) } else { 0.0 }
+            } else {
+                self.float_pin(i, roughness_pin, phong_pin(u.max(v)));
+                mdl_anisotropy(u, v)
+            };
+            if a != 0.0 {
+                self.float_pin(i, "anisotropyTexture", a);
             }
             if rotation.rem_euclid(1.0) != 0.0 {
                 self.float_pin(i, "rotation", (1.0 - rotation).rem_euclid(1.0));
             }
         } else {
-            match curve {
-                RoughCurve::Ggx => self.value_pin(i, "brdf", 57, 2, "6"),
-                RoughCurve::Beckmann => self.value_pin(i, "brdf", 57, 2, GLASS_BRDF),
-                RoughCurve::Linear | RoughCurve::OpenPbr => {}
-            }
-            self.float_pin(i, roughness_pin, curve.apply(m.roughness.clamp(0.0, 1.0)));
+            let brdf = if m.transmission.is_some() {
+                GLASS_BRDF
+            } else if m.fitted_pins {
+                BRDF_GGX_EP
+            } else {
+                phong_brdf(&[m.roughness])
+            };
+            self.value_pin(i, "brdf", 57, 2, brdf);
+            self.float_pin(i, roughness_pin, pin(m.roughness));
         }
         if let (Some(t), Some((refr_rough, refr_ior))) = (m.transmission, m.refraction) {
             // A transmit-only lobe: no reflection of its own.
             self.rgb_pin(i, "specular", [0.0; 3]);
-            self.float_pin(i, "roughness", curve.apply(refr_rough.clamp(0.0, 1.0)));
+            self.float_pin(i, "roughness", pin(refr_rough));
             self.rgb_pin(i, "transmission", t);
             self.float_pin(i, "coatingIor", m.ior);
             self.float_pin(i, "ior", refr_ior);
@@ -1755,7 +1774,7 @@ impl Ocs<'_> {
             }
         } else if let Some(t) = m.transmission {
             // The base reflects its tint and lets it through (rough glass).
-            let rough = curve.apply(m.roughness.clamp(0.0, 1.0));
+            let rough = pin(m.roughness);
             self.rgb_pin(i, "specular", t);
             self.float_pin(i, "roughness", rough);
             self.rgb_pin(i, "transmission", t);
@@ -1806,13 +1825,13 @@ impl Ocs<'_> {
 
     /// Iray's Top Coat: a clear dielectric layer over everything, as
     /// Universal's coating.
-    fn top_coat(&mut self, i: usize, mat: &Material, min_roughness: f32) {
-        self.top_coat_curve(i, mat, min_roughness, None)
+    fn top_coat(&mut self, i: usize, mat: &Material) {
+        self.top_coat_curve(i, mat, None)
     }
 
     /// [`top_coat`] at a roughness curve of its own (OpenPBR's skin:
-    /// `RoughCurve::OpenPbr`), else Universal's.
-    fn top_coat_curve(&mut self, i: usize, mat: &Material, min_roughness: f32, curve: Option<RoughCurve>) {
+    /// `RoughCurve::Phong`), else Universal's.
+    fn top_coat_curve(&mut self, i: usize, mat: &Material, curve: Option<RoughCurve>) {
         let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
         if coat <= 0.0 || self.in_coat_mix || self.in_layered_coat {
             return;
@@ -1829,14 +1848,14 @@ impl Ocs<'_> {
             (None, Some((asset, m))) => self.with_map(m, |w| w.tinted_image_pin(i, "coating", &asset, coat, colour)),
             (None, None) => self.rgb_pin(i, "coating", colour.map(|c| c * coat)),
         }
-        let curve = curve.unwrap_or(if self.gloss_ggx { RoughCurve::Ggx } else { RoughCurve::Linear });
+        let curve = curve.unwrap_or(if self.gloss_brdf.is_some() { RoughCurve::Phong } else { RoughCurve::Linear });
         let rough = curve.apply(top_coat_roughness(mat));
         // A roughness map (Twosret 8's face: its gloss map at Roughness 1,
         // sharp where it is dark) per texel, as the gloss's (#19).
         let glossiness = matches!(mat.float("Base Mixing").unwrap_or(0.0) as i32, 1 | 2) && mat.float("Top Coat Glossiness").is_some();
-        match Some("Top Coat Roughness").filter(|c| !glossiness && min_roughness <= 0.0 && mat.image(c).is_some()) {
+        match Some("Top Coat Roughness").filter(|c| !glossiness && mat.image(c).is_some()) {
             Some(ch) => self.roughness_pin_named(i, "coatingRoughness", mat, Some(ch), rough.clamp(0.0, 1.0), curve, 1.0),
-            None => self.float_pin(i, "coatingRoughness", rough.max(min_roughness).clamp(0.0, 1.0)),
+            None => self.float_pin(i, "coatingRoughness", rough.clamp(0.0, 1.0)),
         }
         self.float_pin(i, "coatingIor", top_coat_ior(mat));
         self.coat_bump_pins(i, mat, "coatingBump", "coatingNormal");
@@ -2428,6 +2447,7 @@ impl Ocs<'_> {
     /// coating at the gloss's roughness.
     fn gloss_roughness_pins(&mut self, indent: usize, mat: &Material, channel: Option<&str>, r: f32, curve: RoughCurve, aniso: Anisotropy) -> f32 {
         let stretch = aniso.stretch();
+        let curve = if curve == RoughCurve::Phong && aniso.saturates(r) { RoughCurve::FittedGgx } else { curve };
         let (rough, a) = anisotropic_roughness(r.clamp(0.0, 1.0), stretch, curve);
         self.roughness_pin(indent, mat, channel, rough, curve, stretch);
         if a == 0.0 {
@@ -2437,8 +2457,10 @@ impl Ocs<'_> {
         if let Some(rot) = aniso.octane_rotation() {
             self.float_pin(indent, "rotation", rot);
         }
-        // u = v (1 − a) / (1 + a).
-        rough * ((1.0 - a) / (1.0 + a)).sqrt()
+        // The short axis u from a (`anisotropic_roughness`), then √(u v).
+        let ratio = (1.0 - a) / (1.0 + a);
+        let u = if curve == RoughCurve::Phong { rough * ratio.sqrt() } else { rough * ratio };
+        (u * rough).sqrt()
     }
 
     /// Iray emission → an Octane emission: blackbody at the Iray temperature,
@@ -2521,11 +2543,11 @@ impl Ocs<'_> {
         // Under a Top Coat both lobes in one, at their blend of Iray's
         // roughnesses (lobe 2's as Iray has it, not Universal's coating).
         if let Some(dl) = dual_lobe.filter(|_| coat && rough_ch.and_then(|c| mat.image(c)).is_none()) {
-            rough = dl.lobe1 * rough + (1.0 - dl.lobe1) * dl.lobe2_roughness / DUAL_LOBE_2_ROUGHNESS;
+            rough = dl.blended_roughness(rough);
         }
         // Iray's lobes are Phong (`simple_glossy_bsdf`), OpenPBR's GGX with
-        // α = roughness²: `openpbr_roughness` (lobe 2 and the Top Coat too).
-        self.roughness_pin(i, mat, rough_ch, RoughCurve::OpenPbr.apply(rough.clamp(0.0, 1.0)), RoughCurve::OpenPbr, 1.0);
+        // α = roughness²: `phong_pin` (lobe 2 and the Top Coat too).
+        self.roughness_pin(i, mat, rough_ch, RoughCurve::Phong.apply(rough.clamp(0.0, 1.0)), RoughCurve::Phong, 1.0);
         let lobe1 = dual_lobe.filter(|_| !coat).map_or(1.0, |dl| dl.lobe1);
         match dual_lobe {
             // Iray's dual lobe (`add_dual_lobe_specular`): both white lobes
@@ -2546,7 +2568,7 @@ impl Ocs<'_> {
                 self.ior_pin(i, "ior", mat, "Dual Lobe Specular Reflectivity", dl.f0);
                 if !coat && dl.lobe1 < 1.0 {
                     weight_pin(self, "coating", dl.weight * (1.0 - dl.lobe1));
-                    self.float_pin(i, "coatingRoughness", openpbr_roughness(dl.lobe2_roughness / DUAL_LOBE_2_ROUGHNESS));
+                    self.float_pin(i, "coatingRoughness", phong_pin(dl.lobe2_roughness));
                     self.ior_pin(i, "coatingIor", mat, "Dual Lobe Specular Reflectivity", dl.f0);
                     self.float_pin(i, "coatingDarkening", 0.0);
                     return;
@@ -2570,7 +2592,7 @@ impl Ocs<'_> {
             }
         }
         if coat {
-            self.top_coat_curve(i, mat, 0.0, Some(RoughCurve::OpenPbr));
+            self.top_coat_curve(i, mat, Some(RoughCurve::Phong));
             self.float_pin(i, "coatingDarkening", 0.0);
         }
     }
@@ -3203,20 +3225,35 @@ impl Ocs<'_> {
             rough = dl.blended_roughness(rough);
         }
         // A mostly refractive body (not thin-walled: its transmission
-        // doesn't blur) refracts through Beckmann at √r, shared roughness or
-        // its own (`GLASS_BRDF`); other glosses GGX energy preserving
-        // (`gloss_roughness`), a Top Coat over the glass too.
+        // doesn't blur) refracts through Beckmann (`GLASS_BRDF`), shared
+        // roughness or its own; other glosses by `phong_brdf` — Beckmann,
+        // or GGX energy preserving when a dielectric lobe on the node (the
+        // gloss unless the surface is all metal, lobe 2 of a dual lobe, a
+        // Top Coat) is past Octane's limit —, all at `phong_pin`.
         let glass = !thin && !mirror && refraction >= 0.5 && weighted.is_none();
-        self.gloss_ggx = !refraction_rough;
         // Iray's anisotropy on the gloss (and the metal: both take the
         // glossy layer's); a refraction's roughness keeps it isotropic.
         let aniso = if refraction_rough || dispersive { Anisotropy::default() } else { Anisotropy::glossy(mat) };
+        let all_metal = mirror || (metallic >= 1.0 && mat.image("Metallic Weight").is_none());
+        let dielectric: Vec<f32> = [
+            (!all_metal).then(|| (rough * aniso.stretch()).min(1.0)),
+            active_dual_lobe.filter(|dl| coat <= 0.0 && dl.share * (1.0 - dl.lobe1) > 0.0).map(|dl| dl.lobe2_roughness),
+            self.node_coat_roughness(mat),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        self.gloss_brdf = if glass {
+            Some(GLASS_BRDF)
+        } else {
+            (!refraction_rough).then(|| phong_brdf(&dielectric))
+        };
         let curve = if glass {
             self.value_pin(i, "brdf", 57, 2, GLASS_BRDF);
-            RoughCurve::Beckmann
+            RoughCurve::Phong
         } else {
             self.aniso_brdf_pin(i, !oren_nayar && aniso.saturates(rough));
-            if self.gloss_ggx { RoughCurve::Ggx } else { RoughCurve::Linear }
+            if self.gloss_brdf.is_some() { RoughCurve::Phong } else { RoughCurve::Linear }
         };
         let rough = if oren_nayar {
             // No gloss to share it with: the diffuse's σ (see `base_flat`).
@@ -3258,13 +3295,15 @@ impl Ocs<'_> {
             self.rgb_pin(i, "coating", gloss_color.map(|c| c * excess));
             self.float_pin(i, "coatingRoughness", rough.clamp(0.0, 1.0));
         }
-        // On a thin-walled refractive surface at least the glossy layer's
-        // roughness: the cornea's sharp coat (0.0016) mirrored the room over
-        // the iris even at its own reflectivity (IOR 1.37), and left out the
-        // pupil came out 0.43 × Iray; blurred like its gloss it is Iray's
-        // veil over the iris (pupil 0.89, iris 0.77 – 0.83; Calib-Eye, #20).
-        self.top_coat(i, mat, if thin && refraction >= 0.5 { rough } else { 0.0 });
-        self.gloss_ggx = false;
+        // The coat at its own roughness, a thin-walled refractive surface's
+        // too: Iray's cornea is a sharp coat (0.0016) over its glossy veil
+        // (r 0.07). Until #95 the coat took at least the gloss's pin — the
+        // veil, when the GGX curve made the gloss itself sharp (#20); at the
+        // Phong pin the gloss is the veil, and the coat over it at the
+        // gloss's pin drew one broad glow where Iray has a sharp highlight
+        // inside its halo (Calib-Eye).
+        self.top_coat(i, mat);
+        self.gloss_brdf = None;
 
         // Base Mixing 1 reflects Glossy Specular head-on (F0), as an IOR on
         // the dielectric layer — unless the surface is mostly refraction.
@@ -3377,7 +3416,8 @@ struct DualLobe {
     share: f32,
     /// Lobe 1's part of it.
     lobe1: f32,
-    /// Lobe 2's roughness as Octane's `coatingRoughness`.
+    /// Lobe 2's roughness as Iray has it (squared), a Phong lobe as lobe
+    /// 1 (`phong_pin` makes the `coatingRoughness`).
     lobe2_roughness: f32,
     /// Above reflectivity 0.5: the IOR that reflects Iray's F0 = 0.08 r,
     /// for both lobes.
@@ -3417,7 +3457,7 @@ impl DualLobe {
         Some(DualLobe {
             share: weight * reflectivity_share(r),
             lobe1: lobe1.clamp(0.0, 1.0),
-            lobe2_roughness: (DUAL_LOBE_2_ROUGHNESS * r2_squared).clamp(0.0, 1.0),
+            lobe2_roughness: r2_squared.clamp(0.0, 1.0),
             ior: r.filter(|r| *r > 0.5).map(|r| ior_from_f0(crate::iray::REFLECTIVITY_SCALE * r)),
             weight,
             f0: crate::iray::REFLECTIVITY_SCALE * r.unwrap_or(0.5),
@@ -3425,22 +3465,11 @@ impl DualLobe {
     }
 
     /// Without a coating to spare (a Top Coat takes it), one lobe at the
-    /// ratio's blend of both roughnesses (`lobe1_roughness` as Octane's).
+    /// ratio's blend of both (Iray's) roughnesses.
     fn blended_roughness(&self, lobe1_roughness: f32) -> f32 {
         self.lobe1 * lobe1_roughness + (1.0 - self.lobe1) * self.lobe2_roughness
     }
 }
-
-/// Octane's `coatingRoughness` for Iray's lobe 2 roughness r2: 2 · r2².
-/// Octane's coating is sharper than Iray's lobe at the same squared value:
-/// Calib-DualLobe's lobe-2-only sphere (r2 0.6) has Iray's p99 / median 5.0,
-/// Octane's coating 9.5 at 0.36, 6.9 at 0.6, 5.7 at 1 (its broadest); r2
-/// 0.3 Iray 16, Octane ~0.12 – 0.18. At 2 · r2² Calib-DualLobe's spheres
-/// (ratio 0.5 / 0.15 / 0.5 at reflectivity 0.25 / weight 0.5, r2 0.6) came
-/// out 6.4 / 5.2 / 7.6 / 9.3 against Iray's 8.1 / 5.5 / 8.1 / 9.0, r2 0.1
-/// 9.8 against 10.8. Beyond Octane's reach: r2 0.9 (Iray 3.3, Octane 6.6 at
-/// the coating's roughness 1) (#26).
-const DUAL_LOBE_2_ROUGHNESS: f32 = 2.0;
 
 /// Iray Base Mixing 1 (specular / glossiness): Glossy Specular is the gloss's
 /// head-on reflectance F0, Fresnel to white at grazing, and the diffuse
@@ -3898,6 +3927,12 @@ fn top_coat_roughness(mat: &Material) -> f32 {
         _ => (mat.float("Top Coat Roughness").unwrap_or(0.0), false),
     };
     iray_roughness(mat, r, inv).clamp(0.0, 1.0)
+}
+
+/// The Top Coat's roughness along its long axis (`Anisotropy::top_coat`,
+/// capped at 1), when it has one: what `phong_brdf` judges it by.
+fn top_coat_long_roughness(mat: &Material) -> Option<f32> {
+    (mat.float("Top Coat Weight").unwrap_or(0.0) > 0.0).then(|| (top_coat_roughness(mat) * Anisotropy::top_coat(mat).stretch()).min(1.0))
 }
 
 /// Universal's `coatingIor` for Iray's Top Coat. Layering Mode 0
@@ -4397,58 +4432,111 @@ fn metallic(mat: &Material) -> f32 {
     iray(mat).and_then(|u| u.float("metallic_weight")).unwrap_or_else(|| mat.metallic())
 }
 
-/// Iray's roughness on Octane's GGX gloss (`Ocs::gloss_roughness`).
-fn ggx_roughness(r: f32) -> f32 {
-    (r + GGX_ROUGHNESS_CURVE * r * r).min(r.max(0.0).sqrt()).clamp(0.0, 1.0)
+/// Octane's roughness pin for Iray's (MDL, squared) roughness `r` of a
+/// `simple_glossy_bsdf` — every Uber lobe (gloss, dual lobe, Top Coat,
+/// refraction; DAZ never sets `choose_bsdf`'s `df_mode`, no `.mi` has it)
+/// and the NVIDIA presets' gloss: a Phong microfacet lobe of exponent
+/// n = 2 / r² (MDL spec 21.1.3), as Beckmann α = √(2 / (n + 2)) =
+/// r / √(1 + r²) (Walter et al. 2007); Octane's pin is √α — under Beckmann
+/// (furnace probe: Octane's `brdf` 1 renders single-scatter Smith-Beckmann
+/// at α = pin², 0.966 / 0.807 at pin 0.6 / 0.8 against 0.964 / 0.823) as
+/// under GGX and OpenPBR (whose α is its roughness²; GGX at that α has
+/// Phong's peak, D(0) = 1 / (π α²)). Derived, not fitted (#92, #95). The
+/// GGX curve min(r + 1.85 r², √r) it replaces had been fitted to highlight
+/// peaks (≈ r for a sharp lobe, α ≈ r²): Calib-Glossy's r 0.09 spheres had
+/// 1.31 / 1.75 × Iray's band-passed detail at correlation 0.93 / 0.91
+/// (Beckmann here 0.98 / 0.99 at 0.999 / 0.994), Calib-Aniso's isotropic
+/// r 0.16 3.34 at 0.69 (1.02 at 0.996). The skin's lobes (#19): its
+/// face's highlight 0.82 – 0.91 × Iray.
+fn phong_pin(r: f32) -> f32 {
+    let r = r.clamp(0.0, 1.0);
+    (r / (1.0 + r * r).sqrt()).sqrt()
 }
 
-/// `Ocs::gloss_roughness`'s curve.
-const GGX_ROUGHNESS_CURVE: f32 = 1.85;
+/// The largest Beckmann α (`phong_pin`²) Octane renders a *dielectric*
+/// Beckmann lobe faithfully at: Universal's `brdf` 1 at a black albedo,
+/// specular 1, IOR 1.5, lit by Calib-Glossy's HDRI, against the analytic
+/// Smith-Beckmann lobe (Fresnel per microfacet) integrated over the same
+/// HDRI: 1.03 – 1.08 up to pin 0.5 (the discretised HDRI), then 1.14 /
+/// 1.18 / 1.62 / 2.25 at pin 0.6 / 0.7 / 0.8 / 1 (#95). Not in a uniform
+/// furnace (there it matches the analytic lobe at every pin), and not for
+/// a metal (0.91 – 1.04 at pin 0.6 – 1 under the same HDRI): Octane's
+/// rough dielectric Beckmann is off under directional light. Calib-
+/// DualLobe2's rough lobes rendered their gloss 1.36 – 2.08 × Iray as
+/// Beckmann (r 0.36 – 1), 1.03 – 1.10 as GGX energy preserving at the same
+/// pin. A measured limit of Octane's model, not a fit to Iray.
+const BECKMANN_DIELECTRIC_MAX_ALPHA: f32 = 0.25;
 
-/// How Iray's (MDL, squared) roughness `r` becomes Universal's `roughness`
-/// pin, for the BSDF model the pin goes with.
+/// Universal's `brdf` model 1, Beckmann (probe 104: 0 Octane, the default,
+/// 1 Beckmann, 2 GGX, 6 GGX energy preserving, 7 STD).
+const BRDF_BECKMANN: &str = "1";
+/// `brdf` 6, GGX energy preserving.
+const BRDF_GGX_EP: &str = "6";
+/// `brdf` 2, plain GGX.
+const BRDF_GGX: &str = "2";
+
+/// Universal's `brdf` for a node whose Phong lobes (`phong_pin`) are
+/// metal and dielectric lobes of Iray's roughness `dielectric` (the gloss,
+/// a coat, the dual lobe's second; one `brdf` serves them all): Beckmann,
+/// Phong's own distribution — the sharp lobes' tails and detail (see
+/// `phong_pin`), a metal at any roughness (Cast Iron's detail 1.30 → 1.04 ×
+/// Iray, #92). A dielectric lobe past `BECKMANN_DIELECTRIC_MAX_ALPHA` takes
+/// GGX energy preserving at the same pin (its gloss 1.03 – 1.10 × Iray from
+/// r 0.09 to 1 on Calib-DualLobe2; Calib-Glossy's r 0.36 sphere 1.09, the
+/// matte one 1.08). Plain GGX lost light on rough dielectric lobes (#56).
+fn phong_brdf(dielectric: &[f32]) -> &'static str {
+    if dielectric.iter().any(|r| phong_pin(*r).powi(2) > BECKMANN_DIELECTRIC_MAX_ALPHA + 1e-6) {
+        BRDF_GGX_EP
+    } else {
+        BRDF_BECKMANN
+    }
+}
+
+/// The GGX curve min(r + 1.85 r², √r) every Uber gloss had before #95,
+/// fitted to highlight peaks (#56) — kept where a rule was fitted on it:
+/// architectural's reflection (`MdlDielectric::fitted_pins`), and an
+/// anisotropic Phong lobe whose long axis runs past 1
+/// (`Anisotropy::saturates`), per axis, under plain GGX (`aniso_brdf_pin`).
+/// Iray's lobe at r / 0.0001 is flat along v, which no Octane distribution
+/// is; #23 matched it so (Calib-Aniso2's sharp metal K3 1.08 × Iray, the
+/// weighted coat K4 0.96). At `phong_pin` (the α's ratio) under Beckmann K3
+/// went to 1.73, K4 to 1.41, Calib-Aniso's streaks broader (A3's detail
+/// 1.97 → 2.35 × Iray's), where the unsaturated lobes improved (A2 1.56 →
+/// 0.98, K7 2.70 → 1.24). Octane's anisotropy itself is #96.
+fn fitted_ggx_pin(r: f32) -> f32 {
+    (r + FITTED_GGX_CURVE * r * r).min(r.max(0.0).sqrt()).clamp(0.0, 1.0)
+}
+
+/// `fitted_ggx_pin`'s curve (fitted on Calib-DualLobe2 / -Glossy
+/// highlight peaks, #56).
+const FITTED_GGX_CURVE: f32 = 1.85;
+
+/// How Iray's (MDL, squared) roughness `r` becomes an Octane roughness pin.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum RoughCurve {
     /// As is (Octane's default BSDF, the skins' shaders).
     Linear,
-    /// `ggx_roughness`: an Uber gloss under GGX energy preserving.
-    Ggx,
-    /// √r under Beckmann (`brdf` 1): rough glass (`GLASS_BRDF`).
-    Beckmann,
-    /// `openpbr_roughness`: an Uber lobe on OpenPBR (the skin).
-    OpenPbr,
-}
-
-/// OpenPBR's roughness for Iray's (MDL) roughness `r` of a
-/// `simple_glossy_bsdf`: a Phong microfacet lobe of exponent n = 2 / r²,
-/// as Beckmann α = √(2 / (n + 2)) = r / √(1 + r²); GGX at that α has the
-/// same peak (D(0) = 1 / (π α²)), and OpenPBR squares its roughness into
-/// α. Calib-Skin's dlflat variants without bump (Iray: neither bump nor
-/// normal map moved its highlight), the face's highlight against Iray's:
-/// as is 1.3 – 2.6 ×, at Universal's GGX curve (`ggx_roughness`) 1.09 –
-/// 2.16, at its root 0.58 – 0.81, at this 0.82 – 0.91 (#19).
-fn openpbr_roughness(r: f32) -> f32 {
-    let r = r.clamp(0.0, 1.0);
-    (r / (1.0 + r * r).sqrt()).sqrt()
+    /// `phong_pin`: a `simple_glossy_bsdf` lobe.
+    Phong,
+    /// `fitted_ggx_pin`: a Phong lobe whose anisotropy saturates.
+    FittedGgx,
 }
 
 impl RoughCurve {
     fn apply(self, r: f32) -> f32 {
         match self {
             RoughCurve::Linear => r.clamp(0.0, 1.0),
-            RoughCurve::Ggx => ggx_roughness(r),
-            RoughCurve::Beckmann => r.clamp(0.0, 1.0).sqrt(),
-            RoughCurve::OpenPbr => openpbr_roughness(r),
+            RoughCurve::Phong => phong_pin(r),
+            RoughCurve::FittedGgx => fitted_ggx_pin(r),
         }
     }
 
-    /// Its part of a derived roughness map's cache key (the bool it was).
+    /// Its part of a derived roughness map's cache key.
     fn key(self) -> &'static str {
         match self {
             RoughCurve::Linear => "false",
-            RoughCurve::Ggx => "true",
-            RoughCurve::Beckmann => "beckmann",
-            RoughCurve::OpenPbr => "openpbr",
+            RoughCurve::Phong => "phong",
+            RoughCurve::FittedGgx => "true",
         }
     }
 }
@@ -4459,12 +4547,15 @@ impl RoughCurve {
 /// with no multiple-scattering compensation (`multiscatter_tint` left at
 /// 0, MDL spec 21.1.3: rough lobes lose albedo). Phong of exponent n is
 /// Beckmann at α = √(2 / (n + 2)) ≈ r (Walter et al. 2007), and Octane's
-/// roughness pin is √α. Calib-Dispersion-Rough's rough spheres (#72):
+/// roughness pin is √α (`phong_pin`; until #95 √r, 0.6 against 0.58 at
+/// r 0.36). Beckmann at any roughness: the transmission isn't the
+/// dielectric reflection `BECKMANN_DIELECTRIC_MAX_ALPHA` limits, and the
+/// rough spheres matched. Calib-Dispersion-Rough's rough spheres (#72):
 /// GGX energy preserving 1.19 / 1.19 × Iray at r 0.36 (the energy
 /// Iray's lobe loses comes back), plain GGX 0.86 / 0.85 (its long tail
 /// loses more), Beckmann at √r 1.09 / 1.07 with Iray's blur (detail 1.4 /
 /// 1.6 vs 1.2 / 1.5; at r 0.09 8.3 / 5.4 vs 8.3 / 5.4).
-const GLASS_BRDF: &str = "1";
+const GLASS_BRDF: &str = BRDF_BECKMANN;
 
 /// Iray Uber's anisotropy of a glossy lobe (`base::anisotropy_conversion`,
 /// MDL SDK's `base.mdl`): roughness_u = r, roughness_v = r / (1 − a)
@@ -4538,23 +4629,26 @@ impl Anisotropy {
 }
 
 /// Octane's roughness and anisotropy for Iray's roughness r along u and
-/// r · `stretch` along v (capped at 1), each axis through the GGX curve when
-/// `ggx`: the long axis v and (v − u) / (v + u) — Octane's anisotropy 1
+/// r · `stretch` along v (capped at 1), each axis through `curve`: the long
+/// axis v and (v − u) / (v + u) — of the axes' Beckmann α for a Phong lobe
+/// (`mdl_anisotropy`: on the pins, the α's ratio's root, Metal Brushed's
+/// streak came out broad, #92), else of the pins. Octane's anisotropy 1
 /// stretches the highlight along v ("vertical"). Octane's roughness is the
 /// long axis, its anisotropy narrows the other: at the axes' geometric mean
 /// Calib-Aniso's streaks came out short and bright (rough 0.1, aniso 1:
 /// highlight elongation 1.96 against Iray's 9.9, mean 1.52 × Iray), at v
 /// 9.85 and 1.15 × (#23).
 fn anisotropic_roughness(r: f32, stretch: f32, curve: RoughCurve) -> (f32, f32) {
-    let curve = |x: f32| curve.apply(x);
+    let pin = |x: f32| curve.apply(x);
     if stretch == 1.0 {
-        return (curve(r), 0.0);
+        return (pin(r), 0.0);
     }
-    let (u, v) = (curve(r), curve((r * stretch).min(1.0)));
-    if u + v <= 0.0 {
+    let (u, v) = (pin(r), pin((r * stretch).min(1.0)));
+    let (au, av) = if curve == RoughCurve::Phong { (u * u, v * v) } else { (u, v) };
+    if au + av <= 0.0 {
         return (0.0, 0.0);
     }
-    (v, ((v - u) / (v + u)).clamp(-1.0, 1.0))
+    (v, ((av - au) / (av + au)).clamp(-1.0, 1.0))
 }
 
 /// Iray's metal at Metallic Weight w (DAZ's MDL, `metallic_layered_base`):
@@ -4717,7 +4811,7 @@ fn ies_projection_rotation(frame: &[[f64; 3]; 3]) -> [f64; 3] {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -4941,7 +5035,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, dome_groun
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -5165,7 +5259,7 @@ fn environment_texture_at(
     first_id: u32,
     origin: Option<[f64; 3]>,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -5284,7 +5378,7 @@ pub fn material_inputs_scaled(
     // materials' channels give each its own, "auto" ones aren't listed.
     let own_gammas = materials.iter().flat_map(|(_, m, _)| m.channels.values()).filter_map(|c| Some((c.image.clone()?, c.gamma?))).collect();
     let mut textures = Textures { layered, own_gammas, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -5690,8 +5784,9 @@ mod tests {
         let (x, _) = material_inputs(&[("Concrete".into(), concrete, 1.0)], &dirs, HashMap::new(), 9300, SkinShader::None);
         let specular = &x[x.find("<pin name='specular'>").unwrap()..];
         assert!(specular[..specular.find("<pin name='roughness'>").unwrap()].contains("concrete_plain_bump"), "{x}");
-        // The roughness on the Uber gloss's GGX curve, energy-preserving GGX.
-        assert!(x.contains("0.141") && x.contains("1.46") && x.contains(&format!(">{}<", num(ggx_roughness(0.4356)))) && x.contains("<pin name='bump'>"), "{x}");
+        // The Phong lobe's pin; α 0.40, past Octane's dielectric Beckmann:
+        // energy-preserving GGX.
+        assert!(x.contains("0.141") && x.contains("1.46") && x.contains(&format!(">{}<", num(phong_pin(0.4356)))) && x.contains("<pin name='bump'>"), "{x}");
         assert!(x.contains("<pin name='brdf'>") && x.contains("type='2'>6<"), "{x}");
         // Porcelain: its colour, a full gloss; resin: its colour let through.
         let porcelain = nvidia("porcelain", json!([{"channel": {"id": "diffuse", "current_value": [1, 1, 1]}}]));
@@ -5700,9 +5795,9 @@ mod tests {
         let resin = nvidia("resin_polyurethane_matte", json!([{"channel": {"id": "diffuse", "current_value": [1, 1, 1]}}]));
         let (z, _) = material_inputs(&[("Resin".into(), resin, 1.0)], &dirs, HashMap::new(), 9500, SkinShader::None);
         assert!(z.contains("<pin name='transmission'>") && z.contains("<pin name='coating'>"), "{z}");
-        // Resin's base: the rough-glass rule (Beckmann at √0.25), its white
-        // tint × the lobe's albedo at r 0.25 (0.84).
-        assert!(z.contains(&format!("type='2'>{GLASS_BRDF}<")) && z.contains(">0.5<") && z.contains(">0.84 0.84 0.84<"), "{z}");
+        // Resin's base: the rough-glass rule (Beckmann at the Phong pin of
+        // 0.25), its white tint × the lobe's albedo at r 0.25 (0.84).
+        assert!(z.contains(&format!("type='2'>{GLASS_BRDF}<")) && z.contains(&format!(">{}<", num(phong_pin(0.25)))) && z.contains(">0.84 0.84 0.84<"), "{z}");
     }
 
     /// Arch+Design glass: a transmit-only lobe (specular 0) at refr_gloss
@@ -5728,8 +5823,8 @@ mod tests {
         };
         assert_eq!(pin(&x, "brdf"), GLASS_BRDF, "{x}");
         assert_eq!(pin(&x, "specular"), "0 0 0", "{x}");
-        // Iray's glass roughness (3.7 × the MDL's), Beckmann at √r; the
-        // transmission × the lobe's albedo.
+        // Iray's glass roughness (3.7 × the MDL's), Beckmann at √r (the pin
+        // it was fitted on); the transmission × the lobe's albedo.
         let rr = architectural_gloss_to_rough(0.2) * ARCH_GLASS_ROUGH;
         assert_eq!(pin(&x, "roughness"), num(rr.sqrt()), "{x}");
         let t = 1.0 - ARCH_GLASS_LOSS * rr;
@@ -5741,9 +5836,10 @@ mod tests {
             {"channel": {"id": "anisotropy", "current_value": 4}},
         ]));
         let (y, _) = material_inputs(&[("Aniso".into(), aniso, 1.0)], &[], HashMap::new(), 9700, SkinShader::None);
-        // mia's anisotropy on the MDL roughness, then Iray's curve per axis.
+        // mia's anisotropy on the MDL roughness, then the fitted GGX curve
+        // per axis (`MdlDielectric::fitted_pins`).
         let r = architectural_gloss_to_rough(0.3);
-        let (u, v) = (ggx_roughness(arch_reflection_rough(r * 2.0)), ggx_roughness(arch_reflection_rough(r / 2.0)));
+        let (u, v) = (fitted_ggx_pin(arch_reflection_rough(r * 2.0)), fitted_ggx_pin(arch_reflection_rough(r / 2.0)));
         assert_eq!(pin(&y, "roughness"), num(u), "{y}");
         let a: f32 = pin(&y, "anisotropyTexture").parse().unwrap();
         assert!((a - (v - u) / (v + u)).abs() < 1e-5 && a < 0.0, "{a}");
@@ -5946,10 +6042,10 @@ mod tests {
         ]));
         let dl = DualLobe::of(&uber).unwrap();
         assert_eq!((dl.share, dl.lobe1, dl.ior), (1.0, 0.25, None));
-        assert!((dl.lobe2_roughness - 0.72).abs() < 1e-6, "{dl:?}");
+        assert!((dl.lobe2_roughness - 0.36).abs() < 1e-6, "{dl:?}");
         let (x, _) = material_inputs(&[("Uber".into(), uber.clone(), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
         assert!(x.contains("<pin name='specular'>") && x.contains(">0.25 0.25 0.25<"), "lobe 1's share: {x}");
-        assert!(x.contains(">0.75 0.75 0.75<") && x[x.find("<pin name='coatingRoughness'>").unwrap()..][..200].contains("type='6'>0.848528</attr>"), "lobe 2 as the coating (√0.72 below the GGX curve): {x}");
+        assert!(x.contains(">0.75 0.75 0.75<") && x[x.find("<pin name='coatingRoughness'>").unwrap()..][..200].contains(&format!("type='6'>{}</attr>", num(phong_pin(0.36)))), "lobe 2 as the coating at its Phong pin: {x}");
 
         // PBRSkin: the ratio weighs lobe 2, its roughness lobe 1's × the mult.
         let pbr = mat(json!([
@@ -5960,7 +6056,7 @@ mod tests {
             {"channel": {"id": "Dual Lobe Specular Reflectivity", "current_value": 1}},
         ]));
         let dl = DualLobe::of(&pbr).unwrap();
-        assert!((dl.lobe1 - 0.85).abs() < 1e-6 && (dl.lobe2_roughness - 0.08).abs() < 1e-6, "{dl:?}");
+        assert!((dl.lobe1 - 0.85).abs() < 1e-6 && (dl.lobe2_roughness - 0.04).abs() < 1e-6, "{dl:?}");
         assert!((dl.ior.unwrap() - ior_from_f0(0.08)).abs() < 1e-6, "reflectivity 1: F0 0.08");
 
         // Under a Top Coat the coating is the coat's; one blended lobe.
@@ -5973,9 +6069,8 @@ mod tests {
         ]));
         let (x, _) = material_inputs(&[("Coated".into(), coated, 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
         assert!(!x.contains(">0.75 0.75 0.75<") && !x.contains("<pin name='specular'>"), "full lobe share: {x}");
-        let ggx = |r: f32| (r + GGX_ROUGHNESS_CURVE * r * r).min(r.sqrt()).min(1.0);
-        let blended = ggx(0.25 * 0.09 + 0.75 * 0.72);
-        assert!(x.contains(&format!(">{}<", num(blended))), "blended roughness {blended} (GGX curve): {x}");
+        let blended = phong_pin(0.25 * 0.09 + 0.75 * 0.36);
+        assert!(x.contains(&format!(">{}<", num(blended))), "blended roughness {blended} (Phong pin): {x}");
         assert!(DualLobe::of(&mat(json!([]))).is_none());
     }
 
@@ -6256,9 +6351,10 @@ mod tests {
         let (bx, _) = material_inputs(&[("Bottle".into(), bottle, 1.0)], &dirs, HashMap::new(), 8980, SkinShader::None);
         let tr = &bx[bx.find("<pin name='transmission'>").unwrap()..];
         assert!(tr[..200].contains("1 0.217638 1"), "refraction colour, linear: {tr}");
-        // Its own roughness 0.3 (0.09 squared) as Beckmann's √r (#72).
+        // Its own roughness 0.3 (0.09 squared) as Beckmann at the Phong pin
+        // (#72, #95).
         let pin = |x: &str, p: &str| x[x.find(&format!("<pin name='{p}'>")).unwrap()..].split("</attr>").next().unwrap().rsplit('>').next().unwrap().to_string();
-        assert_eq!((pin(&bx, "brdf"), pin(&bx, "roughness")), (GLASS_BRDF.to_string(), num(0.3)), "{bx}");
+        assert_eq!((pin(&bx, "brdf"), pin(&bx, "roughness")), (GLASS_BRDF.to_string(), num(phong_pin(0.09))), "{bx}");
         // Shared with a rough glossy layer: the same rule on the glossy
         // roughness, the reflection included.
         let frosted = mat(json!([
@@ -6267,7 +6363,7 @@ mod tests {
             {"channel": {"id": "Glossy Roughness", "current_value": 0.6}},
         ]));
         let (fx, _) = material_inputs(&[("Frosted".into(), frosted, 1.0)], &dirs, HashMap::new(), 8985, SkinShader::None);
-        assert_eq!((pin(&fx, "brdf"), pin(&fx, "roughness")), (GLASS_BRDF.to_string(), num(0.6)), "{fx}");
+        assert_eq!((pin(&fx, "brdf"), pin(&fx, "roughness")), (GLASS_BRDF.to_string(), num(phong_pin(0.36))), "{fx}");
         // −ln(0.5^2.2) / 0.05 m = 30.5 per m in R and G, none in B.
         let medium = &bx[bx.find("<pin name='medium'>").expect("absorption medium")..];
         assert!(medium.contains("type='58'") && medium.contains("30.49") && medium.contains("1 1 0"), "{medium}");
@@ -6280,8 +6376,9 @@ mod tests {
         let (px, _) = material_inputs(&[("Pane".into(), pane, 1.0)], &dirs, HashMap::new(), 8990, SkinShader::None);
         assert!(px.contains("<pin name='transmissionType'>") && !px.contains("<pin name='medium'>"), "{px}");
         // A cornea: thin-walled, its own sharp refraction, a rough gloss and
-        // a sharp Top Coat at Reflectivity 0.3 — the gloss's roughness for
-        // both, the coat's IOR from its reflectivity.
+        // a sharp Top Coat at Reflectivity 0.3 — each at its own Phong pin
+        // (the coat's sharp highlight inside the gloss's veil, #95), the
+        // coat's IOR from its reflectivity.
         let thin_cornea = mat(json!([
             {"channel": {"id": "Refraction Weight", "current_value": 1}},
             {"channel": {"id": "Thin Walled", "current_value": true}},
@@ -6294,8 +6391,7 @@ mod tests {
         ]));
         let (cx, _) = material_inputs(&[("Cornea".into(), thin_cornea, 1.0)], &dirs, HashMap::new(), 8995, SkinShader::None);
         let pin = |p: &str| cx[cx.find(&format!("<pin name='{p}'>")).unwrap()..].split("</attr>").next().unwrap().rsplit('>').next().unwrap().to_string();
-        let r = num(0.09 + GGX_ROUGHNESS_CURVE * 0.0081);
-        assert_eq!((pin("roughness"), pin("coatingRoughness")), (r.clone(), r), "{cx}");
+        assert_eq!((pin("roughness"), pin("coatingRoughness")), (num(phong_pin(0.09)), num(phong_pin(0.0016))), "{cx}");
         assert!(pin("coatingIor").starts_with("1.36"), "{cx}");
         // On an open card it passes twice the share.
         let leaf = mat(json!([
@@ -6556,11 +6652,11 @@ mod tests {
         assert!(x.contains("type='19' name='Ball'"), "{x}");
         let amount = &x[x.find("<pin name='amount'>").unwrap()..];
         assert!(amount[..200].contains("type='6'>0.4</attr>"), "{amount}");
-        // The coat: a GGX metal in the top coat colour (linear), Iray's
-        // roughness 0.1² on the GGX curve.
+        // The coat: a Beckmann metal in the top coat colour (linear), Iray's
+        // roughness 0.1² at the Phong pin.
         let coat = &x[x.find("name='Ball top coat'").unwrap()..];
         let coat = &coat[..coat.find("name='Ball base'").unwrap()];
-        assert!(coat.contains("<pin name='metallic'>") && coat.contains(&format!("type='6'>{}</attr>", num(0.01 + GGX_ROUGHNESS_CURVE * 1e-4))) && coat.contains("<pin name='brdf'>"), "{coat}");
+        assert!(coat.contains("<pin name='metallic'>") && coat.contains(&format!("type='6'>{}</attr>", num(phong_pin(0.01)))) && coat.contains("<pin name='brdf'>") && coat.contains(&format!("type='2'>{BRDF_BECKMANN}<")), "{coat}");
         // The base keeps no coating of its own.
         let base = &x[x.find("name='Ball base'").unwrap()..];
         assert!(!base.contains("<pin name='coating'>"), "{base}");
@@ -6795,6 +6891,20 @@ mod tests {
     }
 
     #[test]
+    fn phong_lobes_take_the_derived_pin_and_beckmann_within_octanes_limit() {
+        // Phong of exponent 2 / r² = Beckmann α = r / √(1 + r²), pin √α.
+        for r in [0.0f32, 0.01, 0.09, 0.36, 1.0] {
+            let a = r / (1.0 + r * r).sqrt();
+            assert!((phong_pin(r) - a.sqrt()).abs() < 1e-6, "{r}");
+        }
+        // A metal at any roughness, dielectric lobes up to α 0.25 (r ≈ 0.258).
+        assert_eq!(phong_brdf(&[]), BRDF_BECKMANN);
+        assert_eq!(phong_brdf(&[0.09, 0.25]), BRDF_BECKMANN);
+        assert_eq!(phong_brdf(&[0.09, 0.27]), BRDF_GGX_EP);
+        assert_eq!(phong_brdf(&[1.0]), BRDF_GGX_EP);
+    }
+
+    #[test]
     fn glossy_anisotropy_is_octanes_long_axis_and_rotation() {
         let ball = |extra: serde_json::Value| {
             let mut chs = vec![
@@ -6811,29 +6921,32 @@ mod tests {
             let v = &v[v.find("type='6'>").unwrap() + 9..];
             v[..v.find('<').unwrap()].parse::<f32>().unwrap()
         });
-        // Isotropic: no anisotropy pins, GGX's 0.16 + 1.85 · 0.16².
+        // Isotropic: no anisotropy pins, the Phong pin of 0.16 under
+        // Beckmann (α 0.16, below Octane's dielectric limit).
         let iso = ball(json!([]));
         assert_eq!(pin(&iso, "anisotropyTexture"), None, "{iso}");
-        assert!((pin(&iso, "roughness").unwrap() - 0.20736).abs() < 1e-5, "{iso}");
+        assert!((pin(&iso, "roughness").unwrap() - phong_pin(0.16)).abs() < 1e-5, "{iso}");
         let brdf = |x: &str| x.find("<pin name='brdf'>").map(|at| x[at..].split("type='2'>").nth(1).unwrap().split('<').next().unwrap().to_string());
-        // Anisotropy 0.5: v = 0.16 / 0.5 = 0.32 → 0.50944 the roughness,
-        // (0.50944 − 0.20736) / (0.50944 + 0.20736) the anisotropy; Iray's
-        // rotation 0.125 the other way round, 0.875; energy-preserving GGX
-        // below the cap.
+        // Anisotropy 0.5: v = 0.16 / 0.5 = 0.32 the long axis, the
+        // anisotropy of the axes' α (the pins squared); Iray's rotation 0.125
+        // the other way round, 0.875; v's α 0.31 past the dielectric limit:
+        // energy-preserving GGX below the cap.
         let a = ball(json!([
             {"channel": {"id": "Glossy Anisotropy", "current_value": 0.5}},
             {"channel": {"id": "Glossy Anisotropy Rotations", "current_value": 0.125}},
         ]));
-        assert!((pin(&a, "roughness").unwrap() - 0.50944).abs() < 1e-5, "{a}");
-        assert!((pin(&a, "anisotropyTexture").unwrap() - 0.421429).abs() < 1e-5, "{a}");
+        let (au, av) = (phong_pin(0.16).powi(2), phong_pin(0.32).powi(2));
+        assert!((pin(&a, "roughness").unwrap() - phong_pin(0.32)).abs() < 1e-5, "{a}");
+        assert!((pin(&a, "anisotropyTexture").unwrap() - (av - au) / (av + au)).abs() < 1e-5, "{a}");
         assert_eq!(pin(&a, "rotation"), Some(0.875));
-        assert_eq!(brdf(&a).as_deref(), Some("6"));
-        // Anisotropy 1: v past Iray's cap, roughness 1, plain GGX.
+        assert_eq!(brdf(&a).as_deref(), Some(BRDF_GGX_EP));
+        // Anisotropy 1: v past Iray's cap — `fitted_ggx_pin`, roughness
+        // 1, plain GGX.
         let full = ball(json!([{"channel": {"id": "Glossy Anisotropy", "current_value": 1.0}}]));
         assert_eq!(pin(&full, "roughness"), Some(1.0));
         assert_eq!(pin(&full, "rotation"), None);
-        assert_eq!(brdf(&full).as_deref(), Some("2"));
-        assert_eq!(brdf(&iso).as_deref(), Some("6"));
+        assert_eq!(brdf(&full).as_deref(), Some(BRDF_GGX));
+        assert_eq!(brdf(&iso).as_deref(), Some(BRDF_BECKMANN));
         // Backscattering Anisotropy alone doesn't turn the gloss.
         let back = ball(json!([{"channel": {"id": "Backscattering Anisotropy", "current_value": 0.8}}]));
         assert_eq!(pin(&back, "anisotropyTexture"), None);
@@ -7046,7 +7159,7 @@ mod tests {
     #[test]
     fn mdl_metal_roughness_is_the_long_axis() {
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.02, 0.4), rough_v: (String::new(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;
@@ -7071,7 +7184,7 @@ mod tests {
         image::GrayImage::from_fn(16, 16, |x, _| image::Luma([(x * 8) as u8])).save(dir.path().join("b.png")).unwrap();
         let dirs = [dir.path().to_path_buf()];
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_ggx: false, uv_scale: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.06, 0.4), rough_v: (String::new(), 0.06, 0.4), bump: ("b.png".into(), 1.5), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         assert!(w.out.contains("<pin name='normal'>") && !w.out.contains("<pin name='bump'>"), "{}", w.out);
@@ -7214,7 +7327,7 @@ mod tests {
         assert!(xml.contains(name.as_str()), "{xml}");
         let px = image::load_from_memory(png).unwrap().to_luma8().get_pixel(0, 0).0[0];
         let l = crate::daz_material::colour_to_linear(128.0 / 255.0);
-        let want = ggx_roughness((1.0 - l * 0.6).powi(2));
+        let want = phong_pin((1.0 - l * 0.6).powi(2));
         assert!((f32::from(px) / 255.0 - want).abs() < 1.5 / 255.0, "{px} vs {want}");
     }
 

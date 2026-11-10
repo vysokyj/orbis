@@ -915,17 +915,21 @@ leaves out, #15):
   mirror); on PBRSkin it weighs lobe 2 (default 0.15), whose roughness is
   lobe 1's × `Specular Lobe 2 Roughness Mult` (0.4) (DAZ's MDL). Lobe 1 is
   `specular` at the layer's share (weight × min(2r, 1)) × its part; lobe 2
-  the `coating` at the rest, `coatingRoughness` **2 · r2²**, IOR 1.5. A
+  the `coating` at the rest, `coatingRoughness` the **Phong pin of r2²**
+  (both lobes are `simple_glossy_bsdf`; 2 · r2² until #95, a fit that made
+  up for the GGX curve's sharpness — Calib-DualLobe2's lobe-2-only sphere
+  then 0.42 × Iray's detail at the Phong pin), IOR 1.5. A
   reflectivity r above 0.5 sets the IOR from F0 = 0.08 r on both. Under a
   Top Coat (which takes the coating) one lobe at the full share and the
   ratio's blend of both roughnesses. The same on OpenPBR skin (without the
   IOR). Why: Calib-DualLobe rendered one sharp highlight whatever the ratio
   (p99 / median of the sphere 9 – 13, Iray 5.0 – 8.1 for lobe 2 at 0.6);
   now 6.4 / 5.2 / 7.6 / 9.3 against 8.1 / 5.5 / 8.1 / 9.0, lobe 2 at 0.1
-  9.8 vs 10.8; r 1 0.79 → 1.17 × Iray. Octane's coating is sharper than
-  Iray's lobe at the same squared roughness (r2 0.6: 9.5 at 0.36, 5.7 at
-  1). Not reached: lobe 2 at 0.9 (Iray 3.3, Octane 6.6 at 1), and lobe 1
-  above ~0.3 (#56). On a skin the ratio moves little: Victoria's forehead
+  9.8 vs 10.8; r 1 0.79 → 1.17 × Iray. At the Phong pins (#95) its eight
+  spheres 13.5 / 6.8 / 4.8 / 11.5 / 4.9 / 8.3 / 13.0 / 6.1 against Iray's
+  13.4 / 8.4 / 5.6 / 11.1 / 5.0 / 9.2 / 14.0 / 5.7, detail 0.8 – 1.06 ×
+  Iray's at correlation 0.93 – 0.999 (on 2 · r2² and the GGX curve 1.1 –
+  2.4, 0.55 – 0.99). On a skin the ratio moves little: Victoria's forehead
   0.92 × with all of it on lobe 2, 1.00 on lobe 1 (Iray).
 - **Roughness** by Base Mixing: 0 and 2 → `Glossy Roughness`, 1 →
   1 − `Glossiness` (both channels are always saved; Calib-Materials:
@@ -959,33 +963,71 @@ leaves out, #15):
   over a matte grey): the head-on tint at IOR 1.91 is 0.77 – 0.83, the
   diffuse Iray leaves 0.77 – 0.81; 1.09 – 1.20 × Iray with the earlier
   fitted albedo dimming, 0.96 – 1.14 now (#31).
-- **BSDF model and roughness.** Uber Universal materials (not rough glass
-  — Beckmann, see Refraction — nor the skins' OpenPBR) use GGX energy
-  preserving (`brdf` 6; plain GGX lost light on rough lobes: Calib-Glossy
-  roughness 0.6 1.17 → 1.01 × Iray, DualLobe2's r 0.36 1.25 → 1.08) at
-  roughness min(r + 1.85 r², √r), r = Iray's roughness after its squaring; the
-  coating too. Iray's lobes are Phong (2 / r², MDL `simple_glossy_bsdf`);
-  Octane's default BSDF kept rough highlights sharp and bright.
+- **BSDF model and roughness.** Every Uber lobe is `simple_glossy_bsdf`
+  (`choose_bsdf` at `dfm_glossy`; DAZ never sets `df_mode`): the gloss,
+  the dual lobe's two, the Top Coat, the refraction — and the NVIDIA
+  dielectrics' gloss. Phong of exponent 2 / r² (r = Iray's roughness after
+  its squaring) = Beckmann at α = r / √(1 + r²); Octane's roughness pin is
+  √α. So every Phong lobe's pin is **√(r / √(1 + r²))** (`phong_pin`;
+  derived, no constant) — on Universal's roughness and coating, the
+  Layered material's Specular Layer, the weighted gloss and coat, the
+  skins' OpenPBR. Universal's **`brdf`** (one per node, `phong_brdf`):
+  **Beckmann** (1), Phong's own distribution; **GGX energy preserving**
+  (6) at the same pin when a dielectric lobe on the node (the gloss unless
+  the surface is all metal, lobe 2 of a dual lobe, a Top Coat) has α >
+  **0.25** — Octane's limit for a dielectric Beckmann (below). Metals take
+  Beckmann at any roughness, rough glass too (Refraction). Exceptions:
+  architectural keeps the pins its rules were fitted on (NVIDIA MDL
+  examples), a saturated anisotropy the GGX curve (Anisotropy), the flakes
+  GGX energy preserving (their roughness stands for the flakes' normals).
 
-  Why: Calib-DualLobe2's rough lobes went from 1.47 – 1.99 to 1.02 – 1.25
-  × Iray with Iray's highlight spread, Calib-Glossy's spheres 1.06 – 1.21
-  → 1.02 – 1.16 (roughness 0.6: 1.47 → 1.17); GGX at r stays sharp above
-  r ≈ 0.3, at √r too broad below it; Beckmann stays sharp (#56). Above
-  r 0.36 the curve passes √r, which caps it: Calib-Map-SpecMode's
-  Glossiness 0.3 sphere (r 0.49) 0.53 → 0.86 × Iray (#52). A specular-
-  mode IOR is at least 1.1: Iray's curve still rises to 1 at grazing over
-  a black Glossy Specular (that sphere 0.91 → 1.00).
+  Why (#95; the 2026-10-31 GGX curve min(r + 1.85 r², √r) it replaces was
+  fitted to highlight peaks, ≈ r for a sharp lobe, so α ≈ r²): shape —
+  Octane / Iray band-passed detail and its correlation with Iray's, curve
+  → Beckmann at the pin: Calib-Glossy's r 0.09 spheres 1.31 / 1.75 → 0.98
+  / 0.99 at correlation 0.93 / 0.91 → 0.999 / 0.994; Calib-Aniso's
+  isotropic r 0.16 3.34 / 0.69 → 1.02 / 0.996; Calib-DualLobe 1.6 – 2.4 /
+  0.81 – 0.91 → 0.8 – 1.06 / 0.93 – 0.999 with Iray's p99 / median
+  (13.5 vs 13.4); Calib-SpecMode, -Map-SpecMode, -Mixing, -Map-Metal,
+  -Map-TopCoat to correlation 0.995 – 1.00 (the specular-mode sphere
+  0.59 → 0.80). GGX at the same α has the same peak but its long tail
+  blurs (detail 0.75 – 0.78). Brightness — furnace probes (a uniform white
+  dome, a white Lambert sphere at 1.000): Octane's Beckmann is
+  single-scatter Smith-Beckmann at α = pin² (pin 0.6 / 0.8: 0.966 / 0.807
+  against 0.964 / 0.823 computed), plain GGX single-scatter Smith-GGX, GGX
+  energy preserving 0.998 at every pin. Iray's v-cavities masking loses
+  more than Smith: Beckmann / Iray albedo 1.00 to r 0.2, 1.03 at 0.4, 1.06
+  at 0.5, 1.11 at 0.7, 1.17 at 1 — what is left over Iray on a rough metal.
+  The limit: a black dielectric (specular 1, IOR 1.5) under the scene's
+  HDRI renders its analytic Smith-Beckmann lobe (integrated over the same
+  HDRI) at 1.03 – 1.08 up to pin 0.5 (α 0.25), 1.14 / 1.18 / 1.62 / 2.25
+  at pin 0.6 / 0.7 / 0.8 / 1 — in a uniform furnace it matches at every
+  pin, a white metal under the HDRI too (0.91 – 1.04): Octane's rough
+  dielectric Beckmann is off under directional light. Calib-DualLobe2's
+  rough lobes as Beckmann 1.24 – 1.54 × Iray (their gloss alone 1.36 –
+  2.08), as GGX energy preserving at the same pin 1.06 – 1.09 (gloss 1.03
+  – 1.10 on all eight spheres; the matte level 1.08). A specular-mode IOR
+  is at least 1.1: Iray's curve still rises to 1 at grazing over a black
+  Glossy Specular (that sphere 0.91 → 1.00).
 - **Anisotropy** (Glossy Anisotropy + Glossy Anisotropy Rotations on the
   gloss and the metal, Top Coat Anisotropy + Top Coat Rotations on the top
   coat; #23). Iray (`base::anisotropy_conversion`, MDL SDK's `base.mdl`):
   roughness_u = r, roughness_v = r / (1 − a) (r / 0.0001 at a = 1), the
-  tangent turned by 2π · rotation. Octane: each axis on the GGX curve above
-  (v capped at 1), **`roughness` = v** (the long axis),
-  **`anisotropyTexture` = (v − u) / (v + u)** (1 stretches along the
-  texture's v, like Iray), **`rotation` = 1 − Iray's rotation** (both in
-  turns; Octane's slider 0 – 1, it turns the other way). A roughness map
-  bakes v per texel. Where Iray's long axis runs past 1 (r / (1 − a) > 1)
-  the lobe is **plain GGX** (`brdf` 2), not the energy-preserving one.
+  tangent turned by 2π · rotation. Octane: each axis at the Phong pin
+  above (v capped at 1), **`roughness` = v** (the long axis),
+  **`anisotropyTexture` = (α_v − α_u) / (α_v + α_u)** of the axes' α (1
+  stretches along the texture's v, like Iray; on the pins, their ratio's
+  root, the NVIDIA metal's streak broadened, #92), **`rotation` = 1 −
+  Iray's rotation** (both in turns; Octane's slider 0 – 1, it turns the
+  other way). A roughness map bakes v per texel. Where Iray's long axis
+  runs past 1 (r / (1 − a) > 1) the lobe keeps #23's rule: each axis on
+  the GGX curve min(r + 1.85 r², √r), (v − u) / (v + u) of those pins,
+  **plain GGX** (`brdf` 2; `fitted_ggx_pin`). Iray's lobe at r / 0.0001
+  is degenerate; at the Phong pins under Beckmann Calib-Aniso2's sharp
+  metal K3 went 1.13 → 1.73 × Iray, the weighted coat K4 0.97 → 1.41,
+  Calib-Aniso's A3 detail 1.97 → 2.35, where the unsaturated lobes
+  improved (A2 detail / correlation 1.56 / 0.87 → 0.98 / 0.97, K7 2.70 /
+  0.86 → 1.24 / 0.98; the metal at v 0.8, A6, 1.12 → 1.16 × Iray, #96).
   Why: at the axes' geometric mean Calib-Aniso's streaks came out short
   and bright — highlight elongation (major / minor axis of the highlight)
   1.96 against Iray's 9.9 on roughness 0.1, anisotropy 1, mean 1.52 ×
@@ -1165,11 +1207,19 @@ leaves out, #15):
 - **Thin-walled refraction with its own inputs** (Share Glossy Inputs off:
   the cornea, the tear film) takes the glossy layer's roughness, not the
   refraction's — a thin wall's straight-through transmission doesn't blur
-  — and its Top Coat at least that roughness. Why: at the refraction's 0
-  and the coat's 0.0016 the cornea mirrored the room over the iris (a dark
-  band across it, a hard highlight); at the gloss's 0.07 the iris shows
-  Iray's veil and soft highlight — Calib-Eye pupil 0.43 → 0.89, iris
-  0.57 – 0.74 → 0.79 – 0.83 × Iray, sclera 0.97 / 1.13 (#20).
+  —, its Top Coat its own. Why: at the refraction's 0 the cornea mirrored
+  the room over the iris (a dark band across it, a hard highlight); at the
+  gloss's 0.07 the iris shows Iray's veil — Calib-Eye pupil 0.43 → 0.89,
+  iris 0.57 – 0.74 → 0.79 – 0.83 × Iray, sclera 0.97 / 1.13 (#20). Until
+  #95 the coat took at least the gloss's roughness too: on the GGX curve
+  the gloss itself was sharp (pin 0.079) and the blurred coat drew the
+  veil. At the Phong pins (BSDF model and roughness) the gloss (pin 0.26)
+  is the veil and the coat (0.0016, pin 0.04) Iray's sharp highlight inside
+  its halo; the coat at the gloss's pin drew one broad glow instead. The
+  eye's medians, Octane / Iray, pupil / iris / sclera (a disk r 40 px, a
+  ring 70 – 115 px, a box): GGX curve 0.63 / 0.85 / 0.87, both at the
+  gloss's pin 0.97 / 0.91 / 0.88 (the glow over the pupil), each its own
+  0.83 / 0.88 / 0.92.
 - **Weighted mixing** (Base Mixing 2) without translucency → a **Mix
   material** (19): `material1` a metal (metallic 1) in the Glossy Color (or
   its map) at the surface's roughness, `material2` the surface without its
@@ -1372,13 +1422,14 @@ leaves out, #15):
   nothing in Iray. A mostly refractive surface (weight ≥ 0.5) with its own
   roughness gets it on Universal's one `roughness`, squared as usual.
   **Rough glass** (refraction ≥ 0.5, not thin-walled; shared or own
-  roughness) → `brdf` 1 (Beckmann) at roughness √r, r = Iray's roughness
-  after its squaring. Why (DAZ's MDL, #72): Uber refracts through
+  roughness) → `brdf` 1 (Beckmann) at the **Phong pin √(r / √(1 + r²))**
+  (`phong_pin`, r = Iray's roughness after its squaring; √r until #95,
+  0.6 against 0.58 at r 0.36), at any roughness. Why (DAZ's MDL, #72): Uber refracts through
   `simple_glossy_bsdf` — Phong of exponent 2 / r², v-cavities shadowing —
   with no multiple-scattering compensation (`multiscatter_tint` 0, so its
   rough lobes lose light, MDL spec 21.1.3). Phong of exponent n is
-  Beckmann at α = √(2 / (n + 2)) ≈ r, and Octane's roughness is √α: no
-  fitted constant. GGX energy preserving (the gloss rule above) gives
+  Beckmann at α = √(2 / (n + 2)) = r / √(1 + r²), and Octane's roughness
+  is √α: no fitted constant. GGX energy preserving (the gloss rule above) gives
   back the light Iray's lobe loses: Calib-Dispersion-Rough's spheres at
   r 0.36 1.19 (shared) / 1.14 (own, then at Octane's default BSDF × 0.3,
   a Calib-Glass R6 fit, too sharp) × Iray; plain GGX loses more than Iray
@@ -1606,7 +1657,7 @@ leaves out, #15):
     has no Fresnel). The lobe is `simple_glossy_bsdf`, Phong of exponent
     2 / r² per axis = Beckmann at α = r / √(1 + r²), Octane's pin √α: the
     rough-glass rule, **Beckmann** (`brdf` 1) at **√(r / √(1 + r²))**
-    (`openpbr_roughness`) — no constant. Octane's roughness = the longer
+    (`phong_pin`) — no constant. Octane's roughness = the longer
     axis per texel, anisotropy = **(α_v − α_u) / (α_v + α_u)** of the two
     axes' α **per texel** (a derived map when one map drives both axes, as
     in both presets; else at a mid-grey texel), the bump baked into a
@@ -1635,13 +1686,17 @@ leaves out, #15):
     with one: concrete's bump map tints it, asphalt's and the tiles' bump
     map weights it — read at 2.2 like any 8-bit map, #90 —, polished concrete's colour map does — its diffuse is
     that map × the weight too), `ior` = the layer's IOR, the MDL roughness
-    on the Uber gloss's GGX curve under energy-preserving GGX (`brdf` 6),
-    the bump baked into a normal map (below; `mdl_dielectric`). Granite's varnish is a
+    at the Phong pin under the Uber gloss's `brdf` rule (Beckmann, energy-
+    preserving GGX past α 0.25; see BSDF model and roughness), the bump
+    baked into a normal map (below; `mdl_dielectric`). Porcelain (r 0.1):
+    band-passed detail 0.75 → 0.88 × Iray's, correlation 0.93 → 0.99 (on
+    the GGX curve before #95). Granite's varnish is a
     mirror (roughness 0). Resin's base is a tinted glossy reflect +
     transmit (`simple_glossy_bsdf`, `scatter_reflect_transmit`): specular
     and transmission its colour, which Octane, like Iray, applies at every
     crossing — that keeps the hue — under the rough-glass rule (Beckmann at
-    √r; the clear gloss as the coating at √r), both × the lobe's albedo
+    the Phong pin; the clear gloss as the coating at its Phong pin), both ×
+    the lobe's albedo
     **1 − 0.64 r** (`resin_lobe_albedo`). Why: Iray's lobe has no
     multiple-scattering compensation (MDL spec 21.1.3) and loses light
     with roughness. On Calib-NVIDIA2, at r 0.02 the full colour matched
@@ -1652,7 +1707,13 @@ leaves out, #15):
     and Calib-NVIDIA's red one to 1.05 × with g/r 0.25 v 0.22 (floors
     1.04 – 1.05). The two roughnesses are measured; the line between them
     is assumed.
-    Architectural (mental ray's mia_material): diffuse × weight,
+    Architectural (mental ray's mia_material) keeps the pins its rules
+    below were found on — the reflection on the GGX curve min(r + 1.85 r²,
+    √r) under energy-preserving GGX, the glass and the coat over it at √r
+    under Beckmann (`MdlDielectric::fitted_pins`): at the Phong pins (#95)
+    Calib-NVIDIA3's glossiness 0.15 – 0.7 spheres went from detail /
+    correlation 0.90 – 1.35 / 0.92 – 0.999 to 0.46 – 1.08 / 0.85 – 0.95 ×
+    Iray, disk up to 1.26. Diffuse × weight,
     reflectivity × the reflection colour's maximum tinted by it, without
     "Use Fresnel Term" Schlick's curve from the 0° reflectivity as the IOR
     with that F0 (0.2 → 2.62), metal, transparency and cutout opacity;
@@ -1827,7 +1888,7 @@ rule is Enhanced's, with no fitted hue in either.
   Twosret 0.91 / 0.97 / 0.90, Monique 0.89 / 0.96 / 0.89; HDRI Monique
   1.00 / 1.00 / 1.00, Twosret 1.00 / 1.00 / 1.07, Zurie 1.00 / 1.03 /
   1.03, Victoria 1.00 / 1.04 / 1.07. With lobe 1 at the GGX curve (now
-  derived, `openpbr_roughness`: within 0.04 of this):
+  derived, `phong_pin`: within 0.04 of this):
   Angel 0.98 / 1.06 / 1.07, Victoria 0.90 / 1.00 / 0.98, Kayo 0.90 / 1.00
   / 0.95, Gabriela 0.92 / 1.00 / 0.97, Nishi 0.93 / 1.00 / 0.97, Zurie
   0.95 / 0.98 / 0.97, Twosret 0.91 / 1.00 / 0.95, Monique 0.89 / 0.96 /
@@ -2034,12 +2095,12 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   (w · Tc of the texel) — the walk enters at one texel and leaves at
   another, so a varying S passes mean(S_in · S_out) < mean(S²): Monique's
   front 0.97 / 1.00 / 1.08 → 0.89 / 0.83 / 0.93. S stays one per material.
-- **Gloss** (`skin_gloss`): **roughness derived, `openpbr_roughness`** —
+- **Gloss** (`skin_gloss`): **roughness derived, `phong_pin`** —
   Iray's lobes (and Top Coat) are `simple_glossy_bsdf`, a Phong microfacet
   lobe of exponent 2 / r² (r the MDL roughness, the slider squared), as
   Beckmann α = r / √(1 + r²); GGX has the same peak at that α, and OpenPBR's
   roughness is √α (α = roughness²). Lobe 1, lobe 2 (the coating, from
-  Iray's r2², not Universal's 2 · r2²) and the Top Coat; under a Top Coat
+  Iray's r2², as Universal's since #95) and the Top Coat; under a Top Coat
   the lobes blend in Iray's roughness. Why: Calib-Skin's Iray variants
   without bump or normal map (dlflatnb / gloss0nb, dlflatnn / gloss0nn)
   showed neither map widens Iray's highlight (no bump 0.120 → 0.136
