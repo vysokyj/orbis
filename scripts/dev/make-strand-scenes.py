@@ -44,6 +44,24 @@ and follows their width (rows C / D are several strands deep: alpha 0.93 -
 Each width is twice the one before: the export's curves at k x the width
 on one patch are what 1 x would draw on the next.
 
+The -Hair scenes carry DAZ's Blended Dual Lobe Hair shader (the free dForce
+Starter Essentials; the scene only references it) one part at a time. Its
+MDL (`dual_lobe_hair.mdl`) is a highlight glossy (Highlight Weight) over a
+hair-coloured glossy (Glossy Layer Weight) over a diffuse *transmission*
+in the Transmission Color - no hair BSDF. Rows: G one thick strand (Line
+Width 20), H 300 sparse strands of 0.2 (single scattering), I 3000 of 0.15
+(many strands deep), J row H's vertical. Columns, set `blond` (Calib-Hair's
+dForce Corporate Hair values): 1 the whole shader, 2 its hair gloss alone
+(transmission black, no highlight), 3 its transmission alone, 4 the
+highlight lobe alone (weight 1). Set `white` (-HairW): 1 white transmission
+alone, 2 transmission 0.5 (linear) alone, 3 a white gloss alone (weight 1,
+black transmission), 4 white gloss 0.5 over white transmission.
+The -UberT scenes hold the same rows with Iray Uber standing in for the
+shader's parts (materials 6 - 9: Translucency Weight 1 white / 0.5 / blond,
+and a glossy layer 0.25 over the blond): the export already writes Uber on
+strands as a Universal material, so they show what a Universal on curves
+does with a diffuse transmission.
+
 How DAZ hands a polyline to Iray depends on the hair's Line Tessellation
 modifier (its .mi export reads the Viewport sides, the render the Render
 sides; both are set alike here): none -> Iray `hair` (cubic B-spline fibres,
@@ -58,7 +76,11 @@ sun turned 60 degrees about y: the strands' cone), Calib-Strand-Dome (no
 sun, the HDRI dome of Calib-Aniso, not drawn), Calib-Strand-T2 / -T3 (the
 sun, ribbons / prisms), Calib-Strand-T2-Dome (ribbons under the dome, as
 Morgan's hair in Calib-Hair-Teens), Calib-Strand-Sparse / -Sparse-T2 /
--Sparse-T3 (rows E / F as fibres / ribbons / prisms). Existing scenes are kept (--force
+-Sparse-T3 (rows E / F as fibres / ribbons / prisms), Calib-Strand-Hair /
+-HairW (the hair shader's sets as fibres), -Hair-T3 / -HairW-T3 (as prisms,
+dForce Corporate Hair's shape), -Hair-Back / -Hair-T3-Back (set `blond`,
+the sun turned behind the strands: what comes through them), -UberT /
+-UberT-T3 (Uber's translucency on the same rows). Existing scenes are kept (--force
 rewrites them); written to "My Library/Scenes" and copied into
 calib/scenes. --tess-probe <dir> writes row A at several sides into <dir>
 (scratch, for the .mi). --mohawk <DAZ library> writes Calib-Mi-Mohawk-T2
@@ -130,6 +152,14 @@ MATERIALS = {
     3: ('gloss aniso', BLACK, {**GLOSS, **ANISO}),
     4: ('Morgan gloss', BLACK, MORGAN_GLOSS),
     5: ('Morgan nocoat', [0.854902, 0.8117647, 0.7294118], {**MORGAN_GLOSS, **MORGAN_BASE}),
+    # Uber as the hair shader's parts (-UberT): a diffuse transmission alone
+    # (Translucency Weight 1), and a glossy layer over it.
+    6: ('translucent white', [1.0, 1.0, 1.0], {'Translucency Weight': 1.0, 'Translucency Color': [1.0, 1.0, 1.0]}),
+    7: ('translucent half', [1.0, 1.0, 1.0], {'Translucency Weight': 1.0, 'Translucency Color': [0.7353570, 0.7353570, 0.7353570]}),
+    8: ('translucent blond', [1.0, 1.0, 1.0], {'Translucency Weight': 1.0, 'Translucency Color': [0.8862745, 0.7960784, 0.7254902]}),
+    9: ('gloss over translucent blond', [1.0, 1.0, 1.0],
+        {'Translucency Weight': 1.0, 'Translucency Color': [0.8862745, 0.7960784, 0.7254902], 'Glossy Layered Weight': 0.25,
+         'Glossy Color': [0.8235294, 0.7882353, 0.7176471], 'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.298913}),
 }
 THICK = 20.0                     # Line Start / End Width of rows A
 THIN = (0.2, 0.1)                # Morgan's
@@ -252,6 +282,47 @@ for col, (w_e, (n_f, w_f)) in enumerate(zip((0.1, 0.2, 0.4, 0.8), ((40, 0.75), (
     OBJECTS.append((f'F{col + 1}', f'F{col + 1} sparse vertical {n_f} x {w_f}', -25.0, X[col], 1, 'patch-y'))
 
 
+# Blended Dual Lobe Hair (rows G - J): Calib-Hair's dForce Corporate Hair.
+HAIR_URL = '/data/Daz%203D/dForce%20Starter%20Essentials/Blended%20Dual%20Lobe%20Hair%20Shader/Blended%20Dual%20Lobe%20Hair.dsf#Blended%20Dual%20Lobe%20Hair'
+BLOND = {'Hair Root Color': [0.8235294, 0.7882353, 0.7176471], 'Root Transmission Color': [0.8862745, 0.7960784, 0.7254902],
+         'Highlight Root Color': [0.827451, 0.8156863, 0.6901961], 'Glossy Layer Weight': 0.25, 'base_roughness': 0.298913,
+         'Highlight Weight': 0.04891304, 'highlight_roughness': 0.8206522, 'separation': 0.0,
+         'Anisotropy': 1.0, 'Anisotropy Rotations': 0.0, 'Bump Strength': 0.0, 'Cutout Opacity': 1.0, 'strength': 1.0}
+WHITE, HALF = [1.0, 1.0, 1.0], [0.7353570, 0.7353570, 0.7353570]   # 0.5 linear
+HAIR_SETS = {
+    'blond': [('whole', {}),
+              ('gloss', {'Root Transmission Color': BLACK, 'Highlight Weight': 0.0}),
+              ('transmission', {'Glossy Layer Weight': 0.0, 'Highlight Weight': 0.0}),
+              ('highlight', {'Highlight Weight': 1.0})],
+    'white': [('transmission white', {'Root Transmission Color': WHITE, 'Glossy Layer Weight': 0.0, 'Highlight Weight': 0.0}),
+              ('transmission half', {'Root Transmission Color': HALF, 'Glossy Layer Weight': 0.0, 'Highlight Weight': 0.0}),
+              ('gloss white', {'Hair Root Color': WHITE, 'Root Transmission Color': BLACK, 'Glossy Layer Weight': 1.0, 'Highlight Weight': 0.0}),
+              ('gloss half over white', {'Hair Root Color': WHITE, 'Root Transmission Color': WHITE, 'Glossy Layer Weight': 0.5, 'Highlight Weight': 0.0})],
+}
+TIP = {'Hair Root Color': 'Hair Tip Color', 'Root Transmission Color': 'Tip Transmission Color', 'Highlight Root Color': 'Tip Highlight Color'}
+for col in range(4):
+    k = col + 1
+    OBJECTS.append((f'G{k}', f'G{k} thick', 105.0, X[col], k, 'thick'))
+    OBJECTS.append((f'H{k}', f'H{k} sparse', 75.0, X[col], k, 'patch-x'))
+    OBJECTS.append((f'I{k}', f'I{k} dense', 36.0, X[col], k, 'patch-x'))
+    OBJECTS.append((f'J{k}', f'J{k} sparse vertical', -25.0, X[col], k, 'patch-y'))
+    SPARSE[f'H{k}'], SPARSE[f'I{k}'], SPARSE[f'J{k}'] = (300, 0.2), (3000, 0.15), (300, 0.2)
+
+
+def hair_material(mid, gid, k, widths, hair):
+    """A scene material on the Blended Dual Lobe Hair shader: root and tip
+    alike, the set's column `k` over Calib-Hair's values."""
+    values = {**BLOND, **HAIR_SETS[hair][k - 1][1]}
+    values.update({TIP[c]: values[c] for c in TIP})
+    values.update({'Line Start Width': widths[0], 'Line End Width': widths[1]})
+    chans = [{'channel': {'id': c, 'type': 'float_color' if isinstance(v, list) else 'float', 'current_value': v, 'image': None}}
+             for c, v in values.items()]
+    return {'id': mid + '-i', 'url': HAIR_URL, 'geometry': '#' + gid + '-i', 'groups': ['Default'],
+            'diffuse': {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': values['Hair Root Color']}},
+            'uv_set': '#uv-' + gid,
+            'extra': [{'type': 'studio/material/daz_brick'}, {'type': 'studio_material_channels', 'channels': chans}]}
+
+
 def tessellation(d, oid, sides):
     """DAZ's Line Tessellation modifier on a strand node (as dForce hair and
     Morgan Hair carry it): without it DAZ hands Iray the polylines as Iray
@@ -271,7 +342,7 @@ def tessellation(d, oid, sides):
                   {'type': 'studio_modifier_channels', 'channels': [{'channel': {'id': c['channel']['id'], 'type': 'int', 'current_value': c['channel']['current_value']}} for c in chans(sides)]}]})
 
 
-def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None):
+def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None, hair=None, mats=None):
     d = copy.deepcopy(base)
     d['asset_info']['id'] = f'/Scenes/{name}.duf'
     d['asset_info']['contributor'] = {'author': '', 'email': '', 'website': ''}
@@ -297,6 +368,8 @@ def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None):
         if oid[0] not in rows:
             continue
         gid = 'geom-' + oid
+        if mats:
+            k = mats[k - 1]
         if kind == 'thick':
             g, uv = strands_geometry(gid, [line_strand(-30, 30, 0, 0)])
             widths = (THICK, THICK)
@@ -325,6 +398,9 @@ def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None):
             'extra': [{'type': 'studio_node_channels', 'version': 5}]})
         if tess is not None and kind != 'tube':
             tessellation(d, oid, tess)
+        if hair:
+            d['scene']['materials'].append(hair_material('Mat-' + oid, gid, k, widths, hair))
+            continue
         m, colour = material('Mat-' + oid, k, widths)
         d['material_library'].append(m)
         d['scene']['materials'].append({
@@ -388,3 +464,8 @@ build('Calib-Strand-T2-Dome', dome=True, tess=2)
 build('Calib-Strand-Sparse', rows='EF')
 build('Calib-Strand-Sparse-T2', tess=2, rows='EF')
 build('Calib-Strand-Sparse-T3', tess=3, rows='EF')
+for _name, _kw in (('', {}), ('-T3', {'tess': 3})):
+    build('Calib-Strand-Hair' + _name, rows='GHIJ', hair='blond', **_kw)
+    build('Calib-Strand-HairW' + _name, rows='GHIJ', hair='white', **_kw)
+    build('Calib-Strand-Hair' + _name + '-Back', rows='GHIJ', hair='blond', sun_y=180.0, **_kw)
+    build('Calib-Strand-UberT' + _name, rows='GHIJ', mats=(6, 7, 8, 9), **_kw)

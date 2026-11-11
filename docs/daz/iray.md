@@ -53,8 +53,13 @@ Measured: Zelie ~1.73 cm, Noemi ~1.3 mm (max channel).
 
 Recognised by `Hair Root Color`. Root / tip colour (each × its map), base
 roughness, `Glossy Layer Weight`, strand width `Line Start Width` →
-`Line End Width`. Each lobe is tinted by the colour; no transmission through
-the fibres.
+`Line End Width`. In MDL (`dual_lobe_hair.mdl`): a highlight glossy (Highlight
+Weight) over a hair-coloured glossy (Glossy Layer Weight) over a
+`diffuse_transmission_bsdf` in the Transmission Color, by plain weights. On
+untessellated fibres (Iray `hair`) the transmission is lost (black, also
+Uber's translucency); on tessellated strands (ribbons, prisms) it passes
+(Calib-Strand-UberT / -T3, #79). DAZ sometimes fails to re-import the
+module for a later scene of a session: the material renders black (#94).
 
 ### Strand geometry as Iray gets it
 

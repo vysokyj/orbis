@@ -136,7 +136,11 @@ pure power (Calib-Skin, 2026-11-07).
 - Universal's default `specular` is a full white one: with roughness 0 it
   mirrors every bump of a normal map (velvet glitters).
 - Octane's hair `albedo` is the colour after many bounces; it transmits
-  light through fibres (TT lobe) — backlit strands glow.
+  light through fibres (TT lobe) — backlit strands glow. Its `specular`
+  scales every lobe: at 0 the hair is black whatever the albedo (probe on
+  Calib-Strand-HairW, #79).
+- Curves take a Universal material too; its diffuse transmission passes
+  through the strand (Calib-Strand-UberT: 0.85 – 1.25 × Iray's prisms).
 - Standard Surface keeps the diffuse texture as base colour with its
   built-in random walk; a hand-wired random-walk medium (type 146) on a
   Universal rendered grey and grainy.
