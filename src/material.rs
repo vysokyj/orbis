@@ -1935,8 +1935,9 @@ impl Ocs<'_> {
         let curve = curve.unwrap_or(if self.gloss_brdf.is_some() { RoughCurve::Phong } else { RoughCurve::Linear });
         let rough = curve.apply(top_coat_roughness(mat));
         // A roughness map (Twosret 8's face: its gloss map at Roughness 1,
-        // sharp where it is dark) per texel, as the gloss's (#19).
-        let glossiness = matches!(mat.float("Base Mixing").unwrap_or(0.0) as i32, 1 | 2) && mat.float("Top Coat Glossiness").is_some();
+        // sharp where it is dark) per texel, as the gloss's (#19). Weighted
+        // (Base Mixing 2) takes the Roughness channel and its map (#110).
+        let glossiness = top_coat_glossiness_mode(mat) && mat.float("Top Coat Glossiness").is_some();
         match Some("Top Coat Roughness").filter(|c| !glossiness && mat.image(c).is_some()) {
             Some(ch) => self.roughness_pin_named(i, "coatingRoughness", mat, Some(ch), rough.clamp(0.0, 1.0), curve, 1.0),
             None => self.float_pin(i, "coatingRoughness", rough.clamp(0.0, 1.0)),
@@ -4162,14 +4163,28 @@ fn weighted_top_coat(mat: &Material) -> bool {
     mat.float("Top Coat Layering Mode").unwrap_or(0.0) as i32 == 1 && (mat.float("Top Coat Weight").unwrap_or(0.0) > 0.0 || mat.image("Top Coat Weight").is_some())
 }
 
-/// The top coat's roughness as Octane takes it: Top Coat Glossiness under
-/// Base Mixing 1 and 2, else Top Coat Roughness, as Iray squares it.
+/// Whether the Top Coat reads Top Coat Glossiness rather than Roughness:
+/// Base Mixing 1 only. Weighted (2) takes Roughness, as the glossy layer
+/// does (DAZ's .mi export: Calib-Mi-Mix2's coat at Roughness 0.3,
+/// Glossiness 0.2 gets 0.3², #110) — except on a brick graph, which keeps
+/// Glossiness as `Material::roughness_source` does (unverified there).
+fn top_coat_glossiness_mode(mat: &Material) -> bool {
+    match mat.float("Base Mixing").unwrap_or(0.0) as i32 {
+        1 => true,
+        2 => mat.brick,
+        _ => false,
+    }
+}
+
+/// The top coat's roughness as Octane takes it: 1 − Top Coat Glossiness in
+/// glossiness mode (`top_coat_glossiness_mode`), else Top Coat Roughness,
+/// as Iray squares it.
 fn top_coat_roughness(mat: &Material) -> f32 {
     if let Some(r) = iray(mat).and_then(|u| u.float("top_coat_roughness")) {
         return r.clamp(0.0, 1.0);
     }
-    let (r, inv) = match (mat.float("Base Mixing").unwrap_or(0.0) as i32, mat.float("Top Coat Glossiness")) {
-        (1 | 2, Some(g)) => (1.0 - g, true),
+    let (r, inv) = match (top_coat_glossiness_mode(mat), mat.float("Top Coat Glossiness")) {
+        (true, Some(g)) => (1.0 - g, true),
         _ => (mat.float("Top Coat Roughness").unwrap_or(0.0), false),
     };
     iray_roughness(mat, r, inv).clamp(0.0, 1.0)
@@ -7086,6 +7101,34 @@ mod tests {
         ]));
         assert!(w.contains("type='19'"), "{w}");
         assert_eq!(w.matches("<pin name='roundEdges'>").count(), 2, "{w}");
+    }
+
+    #[test]
+    fn weighted_mixing_coat_takes_its_roughness_map() {
+        // Base Mixing 2 reads Top Coat Roughness (and its map), only Base
+        // Mixing 1 Top Coat Glossiness (Calib-Mi-Mix2's coat: 0.3², #110).
+        let dir = tempfile::tempdir().unwrap();
+        image::GrayImage::from_fn(2, 2, |x, _| image::Luma([(x * 200) as u8])).save(dir.path().join("coat-rough.png")).unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let coat = |mixing: i32| {
+            mat(json!([
+                {"channel": {"id": "Base Mixing", "current_value": mixing}},
+                {"channel": {"id": "Top Coat Weight", "current_value": 1}},
+                {"channel": {"id": "Top Coat Roughness", "current_value": 0.3, "image_file": "/coat-rough.png"}},
+                {"channel": {"id": "Top Coat Glossiness", "current_value": 0.2}},
+            ]))
+        };
+        let pin = |x: &str| {
+            let p = &x[x.find("<pin name='coatingRoughness'>").expect("coatingRoughness")..];
+            p[..p.find("</pin>").unwrap()].to_string()
+        };
+        // A map: an image node, not the plain value.
+        let (two, _) = material_inputs(&[("Ball".into(), coat(2), 1.0)], &dirs, HashMap::new(), 5000, SkinShader::None);
+        assert!(!pin(&two).contains("type='31'"), "{two}");
+        assert!((top_coat_roughness(&coat(2)) - 0.09).abs() < 1e-6);
+        let (one, _) = material_inputs(&[("Ball".into(), coat(1), 1.0)], &dirs, HashMap::new(), 5000, SkinShader::None);
+        assert!(pin(&one).contains("type='31'"), "{one}");
+        assert!((top_coat_roughness(&coat(1)) - 0.64).abs() < 1e-6);
     }
 
     #[test]

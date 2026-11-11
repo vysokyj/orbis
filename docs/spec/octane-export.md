@@ -1135,9 +1135,10 @@ leaves out, #15):
   Octane side keeps the backscatter isotropic either way.
 - **Top Coat** → Universal `coating` = Top Coat Color (× its map) ×
   weight (× its map; both maps multiplied as the glossy layer's, #107),
-  `coatingRoughness` (Top Coat Roughness, or 1 − Top Coat Glossiness in
-  mode 1 — verified; mode 2 not yet, it keeps Glossiness — squared
-  likewise), `coatingIor`: the top-coated sphere's
+  `coatingRoughness` (Top Coat Roughness and its map, or 1 − Top Coat
+  Glossiness in Base Mixing 1 — verified; Weighted (2) reads Roughness,
+  Calib-Mi-Mix2's coat 0.3², #110; a brick graph's keeps Glossiness, as
+  its gloss does — squared likewise), `coatingIor`: the top-coated sphere's
   highlight 0 → 19 px (Iray 17). `coatingIor` by Top Coat Layering Mode:
   0 Reflectivity (the cornea; 2128 materials in My Library) reflects F0 =
   0.08 × Reflectivity head-on (0.5 → 0.04, IOR 1.5) — Calib-TopCoat's
