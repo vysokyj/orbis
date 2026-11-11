@@ -15,6 +15,9 @@ description: Prepare and run Iray Server renders through the ORBIS render queue 
 5. Never reorder (no backdated mtimes). The next batch goes after the running one, or ask. `--stop` only on request.
 6. Finished renders -> `iray-refs` skill.
 
+## Parked batches (2026-11-11)
+In the `issue-loop` skill step 2 is not a call: the batch is written into the issue as a `## Iray batch` comment under the label `needs-iray`, and work goes on with the next issue. The user's "server runs" then covers every batch parked at that moment; collecting and queueing them is described there.
+
 ## One NVIDIA preset per DAZ session
 DAZ imports an MDL module into Iray once per session. A later scene in the same queue session using the same NVIDIA preset (concrete, porcelain, granite, ...) logs `MDL Import Error (4004)` and Iray renders that material as an untextured fallback (#94). Before a batch: list the presets each scene uses; a repeat (within the batch, or of a scene the running queue DAZ already rendered) needs the user to restart the queue-side DAZ in between - ask for it in the one call. `keep-refs.py` refuses such renders, `status.py` flags them (`scripts/dev/daz_log.py`).
 

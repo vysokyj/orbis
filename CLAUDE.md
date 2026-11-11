@@ -19,7 +19,7 @@ Everything else (calibration, DAZ/Octane runs, Iray queue, `.mi` fixtures,
 references, lab notes) is a **project skill** in `.claude/skills/` - use it
 instead of remembering the commands: `calib-loop`, `ship-fix`, `lab-note`,
 `iray-refs`, `demo-scene`, `iray-queue`, `mi-fixture`, `octane-probe`, `daz-script-dev`,
-`docs-first`, `progress`. Subagents in `.claude/agents/` (`calib-analyst`,
+`docs-first`, `progress`, `issue-loop`. Subagents in `.claude/agents/` (`calib-analyst`,
 `spec-guard`, `doc-researcher`); the
 ask-first rules below are kept by Claude itself (no hooks). The scripts are in `scripts/dev/` (each has its usage
 in its header). The repo is location-independent: scripts find each other
@@ -90,6 +90,14 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   Studio freely; when the user says they work in an app, hands off.
 - **No local CPU Iray** (`daz-render.sh`) without asking — it takes the whole
   CPU. Octane may never render alongside it.
+- **The issue loop doesn't ask** (skill `issue-loop`, decided 2026-11-11):
+  working through issues unattended, headless DAZ and Octane renders /
+  probes start without the question above (the render lock, "hands off
+  when the user works in an app" and "leave a failed Octane open" still
+  hold). An issue that needs Iray is not a call to the user: prepare its
+  scenes, write the batch into the issue (`## Iray batch`), label it
+  `needs-iray` and take the next issue. The user's "server runs" queues
+  every parked batch at once.
 - **Iray only on the Iray Server, in big batches** (skill `iray-queue`):
   prepare the whole batch first, then one call to the user to start the
   server; queue the announced batch after their "server runs", never reorder,
