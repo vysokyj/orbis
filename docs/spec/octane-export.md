@@ -998,8 +998,14 @@ leaves out, #15):
   materials without it (one also with a Top Coat). Against Iray
   (Calib-DualLobeGlossy) both layers together come out 1.17 – 1.27 ×
   (Top Coat 1.39, dual lobe W 0.5 1.48) where each alone is 1.12; Octane's
-  coating takes only 2 % of the layers under it. Open until the per-sphere
-  Iray decomposition (-dl / -gloss / -bare) says what Iray's stack takes.
+  coating takes only 2 % of the layers under it. Split per sphere (-dl /
+  -gloss / -bare, layer = scene − bare): Iray's stack takes 3 - 6 % of
+  the two layers, Octane's 1 - 2.5 % (Top Coat: 26 / 24 %), so the
+  stacking holds; the excess is each layer alone at that sphere's light
+  (the same gloss 1.21 / 1.33 / 1.66 at spheres 1 / 3 / 8, the diffuse
+  1.08 everywhere; #137). On the OpenPBR skin the coat over the dual lobe
+  rises as Iray's (dual lobe added: face 1.37 vs 1.34); with a Top Coat
+  the fallback loses the dual lobe (face 0.79 × Iray; #138).
 - **Roughness** by Base Mixing: 0 and 2 → `Glossy Roughness`, 1 →
   1 − `Glossiness` (both channels are always saved; Calib-Materials:
   Glossiness 0.8 beside Glossy Roughness 0.5 rendered Iray's sharp
