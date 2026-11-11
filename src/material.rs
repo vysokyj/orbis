@@ -1460,7 +1460,9 @@ impl Ocs<'_> {
     /// material (19) of a metal in the flakes' colour at a broad roughness
     /// (the flakes' scattered normals; their own roughness barely shows),
     /// under the same top coat, at `flake_share` (`material1`), and the
-    /// surface without them (`material2`) (#30).
+    /// surface without them (`material2`) (#30). `add_metal_flakes` wraps
+    /// the whole base material, so a backscattering Mix lies inside
+    /// `material2`, not around this one (#122).
     fn flake_mix_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
@@ -3074,11 +3076,14 @@ impl Ocs<'_> {
         if !self.in_layered_coat && !self.in_backscatter_mix && !self.in_flake_mix && !self.in_coat_mix && layered_top_coat(mat) {
             return self.layered_coat_material(indent, name, mat, area_m2, skin);
         }
-        if !self.in_backscatter_mix && !self.in_flake_mix && !self.in_coat_mix && backscatter_shares(backscatter_metal(mat), backscatter_weight(mat)).0 > 0.0 {
-            return self.backscatter_mix_material(indent, name, mat, area_m2, skin);
-        }
-        if !self.in_flake_mix && !self.in_coat_mix && flake_share(mat) > 0.0 {
+        // Flakes outside the backscattering: DAZ's `add_metal_flakes` wraps
+        // the whole base material (metal, backscattering, diffuse), so the
+        // flakes hide the backscattering as they hide the rest (#122).
+        if !self.in_flake_mix && !self.in_backscatter_mix && !self.in_coat_mix && flake_share(mat) > 0.0 {
             return self.flake_mix_material(indent, name, mat, area_m2, skin);
+        }
+        if !self.in_backscatter_mix && !self.in_coat_mix && backscatter_shares(backscatter_metal(mat), backscatter_weight(mat)).0 > 0.0 {
+            return self.backscatter_mix_material(indent, name, mat, area_m2, skin);
         }
         if !self.in_coat_mix && weighted_top_coat(mat) {
             return self.weighted_coat_material(indent, name, mat, area_m2, skin);
@@ -7598,6 +7603,36 @@ mod tests {
         let got: f32 = v[v.find("type='6'>").unwrap() + 9..].split('<').next().unwrap().parse().unwrap();
         assert!((got - m).abs() < 1e-5, "{got} {m}");
         assert!((m - metal_shares(0.6).0).abs() > 0.01);
+    }
+
+    #[test]
+    fn flakes_hide_the_backscattering_under_them() {
+        // DAZ's `add_metal_flakes` wraps the whole base material: the flake
+        // Mix is the outer node and the backscattering Mix lies in its
+        // `material2`, so the backscatter's total share is (1 - f) b (#122).
+        let chs = json!([
+            {"channel": {"id": "diffuse", "current_value": [0.8, 0.6, 0.2]}},
+            {"channel": {"id": "Metallic Flakes Weight", "current_value": 1.0}},
+            {"channel": {"id": "Backscattering Weight", "current_value": 0.5}},
+        ]);
+        let m = mat(chs);
+        let f = flake_share(&m);
+        assert!(f > 0.0 && f < 1.0);
+        let x = material_inputs(&[("Ball".into(), m, 1.0)], &[], HashMap::new(), 5000, SkinShader::None).0;
+        let amounts: Vec<f32> = x
+            .match_indices("<pin name='amount'>")
+            .map(|(p, _)| {
+                let v = &x[p..];
+                v[v.find("type='6'>").unwrap() + 9..].split('<').next().unwrap().parse().unwrap()
+            })
+            .collect();
+        assert_eq!(amounts.len(), 2, "{x}");
+        assert!((amounts[0] - f).abs() < 1e-6, "{x}");
+        assert!((amounts[1] - 0.5).abs() < 1e-6, "{x}");
+        let flakes = x.find("Ball flakes'>").expect(&x);
+        let backscatter = x.find("Ball base backscatter'>").expect(&x);
+        assert!(flakes < backscatter);
+        assert!(x.matches("type='19'").count() == 2);
     }
 
     #[test]

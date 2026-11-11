@@ -1475,7 +1475,15 @@ leaves out, #15):
   (`edgeTint` the same, roughness 0.5: the flakes' scattered normals) at
   Flakes Weight × 0.4 × density^1.3 over the surface; the top coat lies
   over both. Size, strength, the flakes' roughness and thin film aren't
-  mapped.
+  mapped. The flake Mix is the outermost of the Mixes under the coat: a
+  backscattering Mix lies in its surface (`material2`), so the
+  backscatter takes (1 − flake share) of its amount.
+
+  Why (backscattering): DAZ's `add_metal_flakes` wraps the whole base
+  material (metal, backscattering, diffuse and gloss); a backscattering
+  Mix outside the flake Mix kept its full share where flakes cover the
+  surface (#122). Derived from the layer stack, not rendered: no
+  calibration scene combines the two.
 
   Why: Iray's flakes (DAZ's MDL: a weighted glossy layer at weight × a
   flake noise, each flake with its own normal) take Calib-Flakes' spheres
