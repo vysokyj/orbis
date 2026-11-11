@@ -110,7 +110,7 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   or half resolution.
 - **Clean up the cache**: `.orbx` exports in `~/Library/Caches/orbis` filled
   107 GB. After each export → render → compare loop,
-  `find ~/Library/Caches/orbis -name '*.orbx' -delete`; keep Iray
+  `scripts/dev/clean-cache.sh` (or `clean-cache.sh calib/<set>`, `-n` = dry run; never an inline `rm` on `.orbx`); keep Iray
   references, dumps, PNG renders and reports (re-export from cached dumps).
 - **Reinstall after an export fix**: the DAZ script exports with
   `~/Library/Application Support/ORBIS/bin/orbis`, not `target/release`.
