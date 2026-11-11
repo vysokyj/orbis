@@ -1498,6 +1498,18 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
+    /// Universal's (metallic, base scale) for a material's metal Metallic
+    /// Weight w: `metal_mix`, or under a backscattering Mix the shares that
+    /// leave the Mix's sum at Iray's (`backscatter_shares`).
+    fn metal_mix(&self, mat: &Material, w: f32) -> (f32, f32) {
+        if self.in_backscatter_mix && !crate::iray::is_pbrskin(mat) {
+            let (_, m, k) = backscatter_shares(w, backscatter_weight(mat));
+            (m, k)
+        } else {
+            metal_mix(mat, w)
+        }
+    }
+
     /// Iray's backscattering (DAZ's MDL): a `weighted_layer` at
     /// Backscattering Weight of `backscattering_glossy_reflection_bsdf` —
     /// light sent back toward where it came from — over diffuse and gloss
@@ -1512,13 +1524,16 @@ impl Ocs<'_> {
     /// the direction to the viewer (`retro_normal_pin`) — a mirror about it
     /// sends light back where it came from, its lobe around that
     /// direction (Beckmann, `retro_roughness`, `retro_albedo`) —, and the
-    /// surface, by the weight as MDL's `weighted_layer` (#29, #73).
+    /// surface, by the weight as MDL's `weighted_layer` (#29, #73). The
+    /// metal lies over the backscattering (`bsdf_w_metal`'s base is
+    /// `bsdf_w_backscattering`), so the Mix takes only the base's share
+    /// of it and the surface's metal is rescaled (`backscatter_shares`, #108).
     fn backscatter_mix_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
         let i = indent + 1;
         let r = iray(mat).and_then(|u| u.float("backscattering_roughness")).unwrap_or_else(|| iray_roughness(mat, mat.float("Backscattering Roughness").unwrap_or(0.0), false));
-        self.float_pin(i, "amount", backscatter_weight(mat));
+        self.float_pin(i, "amount", backscatter_shares(backscatter_metal(mat), backscatter_weight(mat)).0);
         self.pin_open(i, "material1");
         let bid = self.id();
         let j = i + 1;
@@ -3056,7 +3071,7 @@ impl Ocs<'_> {
         if !self.in_layered_coat && !self.in_backscatter_mix && !self.in_flake_mix && !self.in_coat_mix && layered_top_coat(mat) {
             return self.layered_coat_material(indent, name, mat, area_m2, skin);
         }
-        if !self.in_backscatter_mix && !self.in_flake_mix && !self.in_coat_mix && backscatter_weight(mat) > 0.0 {
+        if !self.in_backscatter_mix && !self.in_flake_mix && !self.in_coat_mix && backscatter_shares(backscatter_metal(mat), backscatter_weight(mat)).0 > 0.0 {
             return self.backscatter_mix_material(indent, name, mat, area_m2, skin);
         }
         if !self.in_flake_mix && !self.in_coat_mix && flake_share(mat) > 0.0 {
@@ -3161,7 +3176,7 @@ impl Ocs<'_> {
         } else {
             metallic(mat)
         };
-        let base_keep = metal_mix(mat, metal_w).1;
+        let base_keep = self.metal_mix(mat, metal_w).1;
         let share = share.map(|s| s * base_keep);
         let tint = [0, 1, 2].map(|k| tint[k] * share[k]);
         // The weighted blend scales the diffuse map (not a translucency
@@ -3337,7 +3352,7 @@ impl Ocs<'_> {
         } else if mirror || (!specular_mode && (metallic >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some())) {
             // Iray's metal reflects at w² (`metal_shares`); a map squared
             // too, by twice its gamma (its 1 / k at the channel's value).
-            let m = metal_mix(mat, metallic).0;
+            let m = self.metal_mix(mat, metallic).0;
             // Iray Uber's map is squared with its weight (twice its gamma);
             // PBRSkin's is read as is.
             let squared = !crate::iray::is_pbrskin(mat);
@@ -3693,6 +3708,39 @@ fn backscatter_weight(mat: &Material) -> f32 {
         return 0.0;
     }
     mat.float("Backscattering Weight").unwrap_or(0.0).clamp(0.0, 1.0)
+}
+
+/// The Metallic Weight Universal gives a backscattering surface's metal
+/// (`universal`: none below `NEGLIGIBLE_METALLIC` without a map; a map
+/// by its channel value, as the base's scale is). PBRSkin has no
+/// backscattering layer.
+fn backscatter_metal(mat: &Material) -> f32 {
+    if crate::iray::is_pbrskin(mat) || !(metallic(mat) >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some()) {
+        return 0.0;
+    }
+    metallic(mat).clamp(0.0, 1.0)
+}
+
+/// (Mix amount, Universal's metallic, base scale) for Metallic Weight w
+/// over Backscattering Weight b. Iray Uber (`irayubermaterial.mdl`):
+/// `weighted_layer(w, metal, weighted_layer(b, backscatter, base))`, the
+/// metal itself at w (`metal_shares`): w² metal + (1 − w) b backscatter +
+/// (1 − w)(1 − b) base. The Mix (amount a = b (1 − w)) holds the
+/// backscatter; the surface under it must hold the rest, metal M = w² /
+/// (1 − a) and base B = (1 − w)(1 − b) / (1 − a): k = M + B, m = M / k
+/// (`metal_shares`' blend). w 0 gives (b, 0, 1) as before; w 1 (0, 1, 1):
+/// a full metal hides the backscattering. An outer Mix at b showed it at
+/// full weight over a metal (#108).
+fn backscatter_shares(w: f32, b: f32) -> (f32, f32, f32) {
+    let (w, b) = (w.clamp(0.0, 1.0), b.clamp(0.0, 1.0));
+    let a = b * (1.0 - w);
+    if 1.0 - a < 1e-6 {
+        return (a, 0.0, 1.0);
+    }
+    let metal = w * w / (1.0 - a);
+    let base = (1.0 - w) * (1.0 - b) / (1.0 - a);
+    let k = metal + base;
+    (a, if k > 0.0 { metal / k } else { 0.0 }, k)
 }
 
 /// The share of light MDL's backscattering lobe returns: its
@@ -7332,6 +7380,47 @@ mod tests {
         let lobe = &x[x.find("Ball backscatter'>").expect(&x)..];
         assert!((value(lobe, "roughness", "6").parse::<f32>().unwrap() - 0.4878).abs() < 1e-3, "{lobe}");
         assert!((retro_albedo(0.49) - 0.9032).abs() < 1e-3);
+    }
+
+    #[test]
+    fn metal_hides_the_backscattering_under_it() {
+        // The shares sum to Iray's: w² metal + (1 - w) b backscatter +
+        // (1 - w)(1 - b) base, for any w and b.
+        for &(w, b) in &[(0.0, 0.5), (0.3, 0.5), (0.6, 1.0), (1.0, 0.5), (0.5, 0.0), (0.0, 1.0)] {
+            let (a, m, k) = backscatter_shares(w, b);
+            assert!((a - b * (1.0 - w)).abs() < 1e-6);
+            if a < 1.0 {
+                assert!(((1.0 - a) * m * k - w * w).abs() < 1e-5, "{w} {b}");
+                assert!(((1.0 - a) * (1.0 - m) * k - (1.0 - w) * (1.0 - b)).abs() < 1e-5, "{w} {b}");
+            }
+            if b == 0.0 {
+                assert_eq!((m, k), metal_shares(w));
+            }
+        }
+        assert_eq!(backscatter_shares(0.0, 0.5), (0.5, 0.0, 1.0));
+        assert_eq!(backscatter_shares(1.0, 0.5), (0.0, 1.0, 1.0));
+        let ball = |metal: f32| {
+            let chs = json!([
+                {"channel": {"id": "diffuse", "current_value": [0.8, 0.6, 0.2]}},
+                {"channel": {"id": "Metallic Weight", "current_value": metal}},
+                {"channel": {"id": "Backscattering Weight", "current_value": 0.5}},
+            ]);
+            material_inputs(&[("Ball".into(), mat(chs), 1.0)], &[], HashMap::new(), 5000, SkinShader::None).0
+        };
+        let amount = |x: &str| -> f32 {
+            let v = &x[x.find("<pin name='amount'>").expect(x)..];
+            v[v.find("type='6'>").unwrap() + 9..].split('<').next().unwrap().parse().unwrap()
+        };
+        assert_eq!(amount(&ball(0.0)), 0.5);
+        assert!((amount(&ball(0.6)) - 0.2).abs() < 1e-6);
+        // The surface's metallic: M / k at w 0.6, b 0.5.
+        let x = ball(0.6);
+        let base = &x[x.find("Ball base'>").expect(&x)..];
+        let (_, m, _) = backscatter_shares(0.6, 0.5);
+        let v = &base[base.find("<pin name='metallic'>").expect(base)..];
+        let got: f32 = v[v.find("type='6'>").unwrap() + 9..].split('<').next().unwrap().parse().unwrap();
+        assert!((got - m).abs() < 1e-5, "{got} {m}");
+        assert!((m - metal_shares(0.6).0).abs() > 0.01);
     }
 
     #[test]

@@ -1443,7 +1443,20 @@ leaves out, #15):
   OSL texture giving the direction to the viewer in tangent space (T =
   dP/du made perpendicular to N, B = N × T: the frame Octane reads normal
   maps in). A mirror about that normal sends every ray back where it came
-  from; the top coat lies over both.
+  from; the top coat lies over both. Under a metal (Metallic Weight w,
+  as Universal takes it) the amount is b (1 − w) for Backscattering
+  Weight b and the surface's metal is rescaled so that the sum stays
+  Iray's w² metal + (1 − w) b backscatter + (1 − w)(1 − b) base: the
+  surface holds M = w² / (1 − a) metal and B = (1 − w)(1 − b) / (1 − a)
+  base, i.e. `metallic` M / (M + B), albedo and specular × (M + B). A
+  full metal leaves no Mix. A metal map is taken at its channel value
+  for the amount.
+
+  Why (metal): DAZ's MDL lays the metal (`bsdf_w_metal`) over
+  `bsdf_w_backscattering`, so a metal hides the backscattering as it
+  hides the base; an outer Mix at b showed it at full weight over a
+  metal (#108). Derived from the layer stack, not rendered: no
+  calibration scene combines the two.
 
   Why: MDL's `backscattering_glossy_reflection_bsdf` is the
   retro-reflective part of a halfway-vector disk model, exponent 2 / r²,
