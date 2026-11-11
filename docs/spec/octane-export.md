@@ -834,12 +834,17 @@ leaves out, #15):
   (1 − refraction). A grey colour is the image's power; a coloured one goes
   through a Multiply texture (39, `texture1` map × `texture2` RGB) — as a
   scalar a brown-tinted grey strand map rendered grey hair (probe 62). No diffuse map → a translucency colour map (hair, caps).
-- **Weighted base mixing** (`Base Mixing` 2): a real diffuse map is scaled
-  to the blend of its diffuse and translucency shares (`weighted_mix`,
-  relative; 2.0 for a mesh hair, 2.8 while the gloss's share was counted
-  in it too, #128; the translucency term is open, #131) and
-  `Glossy Weight` is the gloss, the weighted Mix's share (below). Not applied to a translucency map standing
-  in as albedo (greyed a cap's crown, probe 60).
+- **Weighted base mixing** (`Base Mixing` 2): the diffuse part is
+  `diffuse_base`, as in Base Mixing 0 — the diffuse map unscaled at
+  1 − Translucency Weight, the translucency Universal's transmission
+  (below) — and `Glossy Weight` is the gloss, the weighted Mix's share
+  (below). Without a gloss DAZ's `normalized_base` takes the diffuse part
+  alone: Diffuse Weight is unread (Calib-WeightedTL: W2 / W1 and W4 / W3
+  0.97 in Iray, the step between neighbouring spheres in Octane too; #131).
+  The map used to be scaled to the blend of its diffuse and translucency
+  shares (`weighted_mix`, fitted ×3 by hand on a private mesh hair, probe
+  59): the translucency counted as reflected light where Iray's sphere
+  darkens and turns the translucency's colour (W3 – W5 2.1 – 2.5 × Iray).
 - **The glossy layer's weight follows Base Mixing** (#127): `Glossy Weight`
   (and its map) under weighted mixing (2), `Glossy Layered Weight` under 0
   and 1 — the other channel gives no gloss. DAZ's `normalized_base` has no
@@ -869,8 +874,11 @@ leaves out, #15):
   diffuse transmission: `albedo` × (1 − w), `transmission` = Translucency
   Color (map) × w, `transmissionType` 1 (Diffuse), 3 (Thin Wall (Diffuse))
   when thin-walled. Not on metal (a translucent metal's base transmits in
-  a Mix of its own, below), refraction or Base Mixing 2 (its weights
-  are shared out by the weighted mix). A closed, non-thin solid with Iray's
+  a Mix of its own, below) or refraction. Base Mixing 2 too: its
+  `normalized_base` takes the same `diffuse_base` and mixes it whole
+  against the gloss (#131) — Calib-WeightedTL (thin-walled, enhanced-final)
+  W1 – W8 0.92 – 1.06 × Iray, translucency 0.5 / 1 0.92 / 1.00, with the
+  gloss 1.01 / 1.02, the hair maps 1.05 (all 1.06 – 2.5 before). A closed, non-thin solid with Iray's
   volume under it (Transmitted Color set; ~313 installed materials) has its
   `transmission` × the skin's volume factor (`volume_factor`, Rd(α) /
   Rd(α₀))^0.5 per channel) × 0.7 (`PROP_VOLUME_LEVEL`). Both are fits
@@ -1356,13 +1364,11 @@ leaves out, #15):
   – 1.11 × Iray where it stands, highlight spread and colour Iray's (G / R
   ±0.04, translucency 1 0.07): gloss alone 1.03 (W1 1.05), both 1.05 (W3
   1.07), Diffuse 0.5 / Glossy 0.3 1.08 (W5 1.08), Top Coat 1.09 (W6 1.11),
-  Glossy Reflectivity 0 1.08 = both. A translucent diffuse map (mesh hair)
-  inside the Mix is brightened by `weighted_mix` from the diffuse and
-  translucency shares alone (relative, as without a gloss): the gloss is
-  the Mix's share, and counted in the map too it was there twice
-  (Calib-WeightedTL W6 / W7's highlights 0.38 / 0.35 → 1.05 / 1.00 × Iray).
-  The translucency share's brightening itself is open (#131: W3 – W5 2.4 –
-  2.9 × Iray). Base Mixing 1 with the wall
+  Glossy Reflectivity 0 1.08 = both. The diffuse part's translucency is
+  its transmission (Translucency, above), the map unscaled (#131);
+  counting the gloss in a map brightening too had put it there twice
+  (Calib-WeightedTL W6 / W7's highlights 0.38 / 0.35 → 1.05 / 1.00 × Iray,
+  #128). Base Mixing 1 with the wall
   map as Diffuse and Glossy Color renders like a flat one (1.12 – 1.14).
   **A dual lobe under weighted mixing** (#121) belongs to `material2`:
   DAZ's `normalized_base` mixes the diffuse with the dual lobe over it

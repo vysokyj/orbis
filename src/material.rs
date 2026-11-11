@@ -3167,47 +3167,6 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
-    /// Iray's "Weighted" base mixing (`Base Mixing` 2) blends diffuse,
-    /// translucency and glossy by their weights; Universal takes only the
-    /// diffuse map. The factor that scales it to the blend's brightness:
-    /// Σ wᵢ·Yᵢ / (max(Σ wᵢ, 1) · Y_diffuse), Y each layer's mean luminance
-    /// (map mean × colour). Mesh hair (HS CB, Octane1) has a dark diffuse map
-    /// under a 3× lighter translucency and glossy map — without it the braids
-    /// came out grey-brown; ×3 by hand matched Iray (probe 59), this gives
-    /// 2.8. With a gloss Iray's `normalized_mix` scales the weights down only
-    /// past 1: below it the rest is black, not shared out (#126). Without
-    /// one DAZ's MDL takes the diffuse part alone, its weight unread: the
-    /// shares stay relative. Inside the Mix (`weighted_mix_material`,
-    /// `in_gloss_mix`) the gloss is the Mix's own share: only the diffuse
-    /// and translucency shares are blended here, relative, as without a
-    /// gloss — `normalized_base` has no gloss in its diffuse part (#128;
-    /// the translucency term is #131's).
-    fn weighted_mix(&mut self, mat: &Material, in_gloss_mix: bool) -> f32 {
-        if mat.float("Base Mixing").unwrap_or(0.0) as i32 != 2 {
-            return 1.0;
-        }
-        let mut layer = |colour: &str, weight: f32| -> Option<(f32, f32)> {
-            let tint = mat.color(colour).unwrap_or([1.0; 3]);
-            let mean = match mat.image(colour).map(str::to_string) {
-                Some(t) => self.textures.mean_colour(self.dirs, &t)?,
-                None => [1.0; 3],
-            };
-            let y = 0.2126 * mean[0] * tint[0] + 0.7152 * mean[1] * tint[1] + 0.0722 * mean[2] * tint[2];
-            (weight > 0.0).then_some((weight, y))
-        };
-        let Some((wd, yd)) = layer("diffuse", mat.float("Diffuse Weight").unwrap_or(1.0)) else { return 1.0 };
-        let mut sum = (wd, wd * yd);
-        let shares: &[(&str, &str)] = if in_gloss_mix { &[("Translucency Color", "Translucency Weight")] } else { &[("Translucency Color", "Translucency Weight"), ("Glossy Color", "Glossy Weight")] };
-        for (colour, weight) in shares {
-            if let Some((w, y)) = layer(colour, mat.float(weight).unwrap_or(0.0)) {
-                sum = (sum.0 + w, sum.1 + w * y);
-            }
-        }
-        let gloss = !in_gloss_mix && mat.float("Glossy Weight").unwrap_or(0.0) > 0.0;
-        let norm = if gloss { sum.0.max(1.0) } else { sum.0 };
-        if yd <= 0.0 { 1.0 } else { sum.1 / (norm * yd) }
-    }
-
     fn universal(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
         if let Some(h) = omni_hair(mat) {
             return self.omni_hair(indent, name, &h);
@@ -3292,8 +3251,11 @@ impl Ocs<'_> {
         // 0.91 – 0.96 and 1.23 (like its neighbours). Not on metal (the
         // transmission swallowed P8's metallic 0.75: 0.23; a translucent
         // metal's base transmits as its own Mix material,
-        // `translucent_metal_material`) nor in weighted mixing, whose
-        // weights `weighted_mix` already shares out.
+        // `translucent_metal_material`). Weighted mixing (Base Mixing 2)
+        // too: DAZ's `normalized_base` takes the same `diffuse_base` (the
+        // diffuse at 1 − Translucency Weight over the diffuse transmission)
+        // and mixes it, whole, against the gloss; its old map brightening
+        // rendered Calib-WeightedTL's W3 – W5 2.1 – 2.5 × Iray (#131).
         // Genesis 9's eye (PBRSkin, a closed ball): Iray scatters its
         // translucency — the iris — just under the surface (scattering
         // distance 0.15 mm), so it shows as colour, not light through the
@@ -3304,7 +3266,7 @@ impl Ocs<'_> {
         // leaves the translucency its share, 1 − Refraction Weight
         // (`diffuse_weight` below). Universal has one transmission: the
         // translucency takes it while the surface is mostly diffuse.
-        let transmit = if metal || refraction >= 0.5 || eye_volume || weighted_mixing(mat) { 0.0 } else { translucency.min(self.max_transmission) };
+        let transmit = if metal || refraction >= 0.5 || eye_volume { 0.0 } else { translucency.min(self.max_transmission) };
         // Base Color Effect 1 / 2 on that diffuse: the diffuse thinned to
         // its colour's mono, the translucency the rest
         // (`base_color_effect_shares`). Calib-Thin's cards (thin-walled,
@@ -3357,16 +3319,13 @@ impl Ocs<'_> {
         // out, the pattern rendered washed-out white. See `tinted_image_pin`.
         // Iray's weighted mixing (Base Mixing 2) blends the diffuse part and
         // a full-strength glossy reflection by their weights — the Mix does
-        // that (`weighted_gloss`), with translucency too (#128). A
-        // translucent diffuse map (mesh hair) is brightened by its
-        // translucency share (`weighted_mix`), inside the Mix without the
-        // gloss's.
+        // that (`weighted_gloss`), with translucency too (#128). The diffuse
+        // part keeps its map as is: the translucency is its transmission
+        // (above), and without a gloss DAZ's MDL reads no Diffuse Weight
+        // (`normalized_base` takes the diffuse part alone; Calib-WeightedTL
+        // W2 = W1, W4 = W3 in Iray, #131).
         let weighted = weighted_gloss(mat);
-        let (tint, mix) = match (mat.image("diffuse").is_some(), weighted) {
-            (true, None) => (mat.base_color(), self.weighted_mix(mat, false)),
-            (true, Some(_)) => (mat.base_color(), self.weighted_mix(mat, true)),
-            (false, _) => ([1.0; 3], 1.0),
-        };
+        let tint = if mat.image("diffuse").is_some() { mat.base_color() } else { [1.0; 3] };
         // Iray's diffuse is Oren-Nayar at Diffuse Roughness σ (DAZ's MDL).
         // Universal's Oren-Nayar (`diffuseBrdf` 2) takes the one roughness
         // pin the gloss, metal and transmission use too: only where none
@@ -3455,17 +3414,17 @@ impl Ocs<'_> {
                 let _ = writeln!(self.out, "{:j$}<node id='{id}' type='39'>", "", j = i + 1);
                 self.with_map(mat.image_mod("Diffuse Strength"), |w| w.image_pin(i + 2, "texture1", &map, true, w.textures.map_gamma(&map, mat.image_gamma("Diffuse Strength")), 1.0));
                 match &diffuse_asset {
-                    Some(asset) => self.with_map(dm, |w| w.tinted_image_pin(i + 2, "texture2", asset, diffuse_weight * mix * base_flat, tint)),
+                    Some(asset) => self.with_map(dm, |w| w.tinted_image_pin(i + 2, "texture2", asset, diffuse_weight * base_flat, tint)),
                     None => self.rgb_pin(i + 2, "texture2", [0, 1, 2].map(|k| mat.base_color()[k] * diffuse_weight * share[k] * base_flat)),
                 }
                 let _ = writeln!(self.out, "{:j$}</node>", "", j = i + 1);
                 self.pin_close(i);
             } else {
             match diffuse_asset {
-                Some(asset) if self.has_damp_or_ao(mat) => self.damp_ao_albedo(i, mat, &asset, diffuse_weight * mix * base_flat, tint),
+                Some(asset) if self.has_damp_or_ao(mat) => self.damp_ao_albedo(i, mat, &asset, diffuse_weight * base_flat, tint),
                 Some(asset) => match overlay.filter(|_| mat.channel("Overlay Alpha Mask").is_none()) {
-                    Some(ov) => self.diffuse_overlay_pin(i, &ov, overlay_colour(&ov), |w, j| w.with_map(dm, |w| w.tinted_image_pin(j, "texture1", &asset, diffuse_weight * mix * base_flat, tint))),
-                    None => self.overlaid_pin(i, "albedo", mat, "diffuse", &asset, diffuse_weight * mix * base_flat, tint),
+                    Some(ov) => self.diffuse_overlay_pin(i, &ov, overlay_colour(&ov), |w, j| w.with_map(dm, |w| w.tinted_image_pin(j, "texture1", &asset, diffuse_weight * base_flat, tint))),
+                    None => self.overlaid_pin(i, "albedo", mat, "diffuse", &asset, diffuse_weight * base_flat, tint),
                 },
                 None => {
                     let base = [0, 1, 2].map(|k| mat.base_color()[k] * diffuse_weight * share[k] * base_flat);
@@ -7500,54 +7459,55 @@ mod tests {
     }
 
     #[test]
-    fn weighted_base_mixing_brightens_the_diffuse_map() {
+    fn weighted_base_mixing_transmits_its_translucency() {
+        // DAZ's `normalized_base` takes the same `diffuse_base` as Base
+        // Mixing 0 (the diffuse at 1 - Translucency Weight over the diffuse
+        // transmission) and mixes it whole against the gloss (#131): the
+        // diffuse part's map stays as is (the old brightening by a
+        // translucency share rendered Calib-WeightedTL 2.1 - 2.5 x Iray) and
+        // the translucency is Universal's transmission, as without weighted
+        // mixing.
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("Runtime/Textures")).unwrap();
-        // sRGB 188 ≈ linear 0.5, 99 ≈ 0.125.
         for (f, v) in [("dark.png", 99u8), ("light.png", 188)] {
             image::RgbImage::from_pixel(4, 4, image::Rgb([v, v, v])).save(dir.path().join("Runtime/Textures").join(f)).unwrap();
         }
-        let hair = mat(json!([
-            {"channel": {"id": "Base Mixing", "current_value": 2}},
-            {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/dark.png"}},
-            {"channel": {"id": "Translucency Weight", "current_value": 0.5}},
-            {"channel": {"id": "Translucency Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/light.png"}},
-            {"channel": {"id": "Glossy Weight", "current_value": 1}},
-            {"channel": {"id": "Glossy Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/light.png"}},
-            {"channel": {"id": "Cutout Opacity", "current_value": 1, "image_file": "/Runtime/Textures/dark.png"}},
-        ]));
-        let (x, _) = material_inputs(&[("Braids".into(), hair, 1.0)], &[dir.path().to_path_buf()], HashMap::new(), 3000, SkinShader::None);
-        // The Mix holds the gloss (#128), so the diffuse part's map takes the
-        // translucency share alone: (1·0.125 + 0.5·0.5) / (1.5 · 0.125) = 2.0
-        // (2.8 with the gloss's share counted in it too).
-        let base_power = |x: &str| -> f32 {
-            let base = &x[x.find("<pin name='material2'>").expect("the Mix")..];
-            let albedo = &base[base.find("<pin name='albedo'>").unwrap()..];
+        let hair = |extra: &[serde_json::Value]| {
+            let mut c = vec![
+                json!({"channel": {"id": "Base Mixing", "current_value": 2}}),
+                json!({"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/dark.png"}}),
+                json!({"channel": {"id": "Translucency Weight", "current_value": 0.5}}),
+                json!({"channel": {"id": "Translucency Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/light.png"}}),
+                json!({"channel": {"id": "Glossy Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/light.png"}}),
+                json!({"channel": {"id": "Thin Walled", "current_value": true}}),
+            ];
+            c.extend(extra.iter().cloned());
+            mat(json!(c))
+        };
+        let pin = |x: &str, p: &str| x[x.find(&format!("<pin name='{p}'>")).unwrap_or_else(|| panic!("{p}: {x}"))..].split("</pin>").next().unwrap().to_string();
+        let power = |albedo: &str| -> f32 {
             let power = &albedo[albedo.find("<pin name='power'>").unwrap()..];
             power[power.find("type='6'>").unwrap() + 9..].split('<').next().unwrap().parse().unwrap()
         };
-        let v = base_power(&x);
-        assert!((v - 2.0).abs() < 0.05, "{v}");
-        // Glossy Weight (not Glossy Layered Weight) keeps its gloss, the
-        // Mix's metal tinted by the glossy map.
+        let from = |x: &str, p: &str| x[x.find(&format!("<pin name='{p}'>")).unwrap_or_else(|| panic!("{p}: {x}"))..].to_string();
+        let dirs = [dir.path().to_path_buf()];
+        // With a gloss: the Mix (#128), its diffuse part the map at
+        // 1 - Translucency Weight, the translucency map transmitted.
+        let (x, _) = material_inputs(&[("Braids".into(), hair(&[json!({"channel": {"id": "Glossy Weight", "current_value": 1}})]), 1.0)], &dirs, HashMap::new(), 3000, SkinShader::None);
+        let base = &x[x.find("<pin name='material2'>").expect("the Mix")..];
+        assert!((power(&from(base, "albedo")) - 0.5).abs() < 1e-4, "{base}");
+        let t = &base[base.find("<pin name='transmission'>").expect("transmitted")..];
+        assert!(t[..t.find("</node>").unwrap()].contains("light.png") && (power(t) - 0.5).abs() < 1e-4, "{base}");
+        assert!(pin(base, "transmissionType").contains(">3<"), "{base}");
         let gloss = &x[x.find("<pin name='material1'>").unwrap()..x.find("<pin name='material2'>").unwrap()];
         assert!(gloss.contains("light.png"), "{gloss}");
-        // Weights summing below 1 leave the rest black (#126) in the Mix's
-        // shares (amount 0.6, the gloss × 0.2 / 0.6); the map's relative
-        // translucency share (0.4·0.125 + 0.2·0.5) / (0.6 · 0.125) = 2.0.
-        let hair = mat(json!([
-            {"channel": {"id": "Base Mixing", "current_value": 2}},
-            {"channel": {"id": "Diffuse Weight", "current_value": 0.4}},
-            {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/dark.png"}},
-            {"channel": {"id": "Translucency Weight", "current_value": 0.2}},
-            {"channel": {"id": "Translucency Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/light.png"}},
-            {"channel": {"id": "Glossy Weight", "current_value": 0.2}},
-            {"channel": {"id": "Glossy Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/light.png"}},
-        ]));
-        assert_eq!(weighted_gloss(&hair), Some(WeightedGloss::of(0.4, 0.2)));
-        let (x, _) = material_inputs(&[("Braids".into(), hair, 1.0)], &[dir.path().to_path_buf()], HashMap::new(), 3000, SkinShader::None);
-        let v = base_power(&x);
-        assert!((v - 2.0).abs() < 0.05, "{v}");
+        // Without a gloss the same diffuse part, Diffuse Weight unread
+        // (`normalized_base` takes the diffuse part alone).
+        let plain = |dw: f32| material_inputs(&[("Braids".into(), hair(&[json!({"channel": {"id": "Diffuse Weight", "current_value": dw}})]), 1.0)], &dirs, HashMap::new(), 3000, SkinShader::None).0;
+        let x = plain(0.5);
+        assert!(!x.contains("type='19'"), "{x}");
+        assert!((power(&from(&x, "albedo")) - 0.5).abs() < 1e-4 && x.contains("<pin name='transmission'>"), "{x}");
+        assert_eq!(x, plain(1.0));
     }
 
     #[test]
