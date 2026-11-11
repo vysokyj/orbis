@@ -3177,8 +3177,12 @@ impl Ocs<'_> {
     /// 2.8. With a gloss Iray's `normalized_mix` scales the weights down only
     /// past 1: below it the rest is black, not shared out (#126). Without
     /// one DAZ's MDL takes the diffuse part alone, its weight unread: the
-    /// shares stay relative.
-    fn weighted_mix(&mut self, mat: &Material) -> f32 {
+    /// shares stay relative. Inside the Mix (`weighted_mix_material`,
+    /// `in_gloss_mix`) the gloss is the Mix's own share: only the diffuse
+    /// and translucency shares are blended here, relative, as without a
+    /// gloss — `normalized_base` has no gloss in its diffuse part (#128;
+    /// the translucency term is #131's).
+    fn weighted_mix(&mut self, mat: &Material, in_gloss_mix: bool) -> f32 {
         if mat.float("Base Mixing").unwrap_or(0.0) as i32 != 2 {
             return 1.0;
         }
@@ -3193,12 +3197,13 @@ impl Ocs<'_> {
         };
         let Some((wd, yd)) = layer("diffuse", mat.float("Diffuse Weight").unwrap_or(1.0)) else { return 1.0 };
         let mut sum = (wd, wd * yd);
-        for (colour, weight) in [("Translucency Color", "Translucency Weight"), ("Glossy Color", "Glossy Weight")] {
+        let shares: &[(&str, &str)] = if in_gloss_mix { &[("Translucency Color", "Translucency Weight")] } else { &[("Translucency Color", "Translucency Weight"), ("Glossy Color", "Glossy Weight")] };
+        for (colour, weight) in shares {
             if let Some((w, y)) = layer(colour, mat.float(weight).unwrap_or(0.0)) {
                 sum = (sum.0 + w, sum.1 + w * y);
             }
         }
-        let gloss = mat.float("Glossy Weight").unwrap_or(0.0) > 0.0;
+        let gloss = !in_gloss_mix && mat.float("Glossy Weight").unwrap_or(0.0) > 0.0;
         let norm = if gloss { sum.0.max(1.0) } else { sum.0 };
         if yd <= 0.0 { 1.0 } else { sum.1 / (norm * yd) }
     }
@@ -3350,16 +3355,16 @@ impl Ocs<'_> {
         // Iray multiplies the diffuse map by the diffuse colour: a grey tint
         // (the vanity's drawers: a pattern map × 0.49) darkens it — left
         // out, the pattern rendered washed-out white. See `tinted_image_pin`.
-        // Iray's weighted mixing (Base Mixing 2) without translucency blends
-        // the diffuse and a full-strength glossy reflection by their weights
-        // — Octane's metallic share does that (`weighted_gloss`); with
-        // translucency (mesh hair) the diffuse map is brightened instead,
-        // the gloss on `specular` (with a dual lobe the `coating` over it,
-        // `gloss_over_dual_lobe`, #128).
+        // Iray's weighted mixing (Base Mixing 2) blends the diffuse part and
+        // a full-strength glossy reflection by their weights — the Mix does
+        // that (`weighted_gloss`), with translucency too (#128). A
+        // translucent diffuse map (mesh hair) is brightened by its
+        // translucency share (`weighted_mix`), inside the Mix without the
+        // gloss's.
         let weighted = weighted_gloss(mat);
         let (tint, mix) = match (mat.image("diffuse").is_some(), weighted) {
-            (true, None) => (mat.base_color(), self.weighted_mix(mat)),
-            (true, Some(_)) => (mat.base_color(), 1.0),
+            (true, None) => (mat.base_color(), self.weighted_mix(mat, false)),
+            (true, Some(_)) => (mat.base_color(), self.weighted_mix(mat, true)),
             (false, _) => ([1.0; 3], 1.0),
         };
         // Iray's diffuse is Oren-Nayar at Diffuse Roughness σ (DAZ's MDL).
@@ -4803,8 +4808,14 @@ fn diffusion_reflectance(alpha: f32) -> f32 {
 }
 
 
-/// Iray's weighted base mixing (2) without translucency: the Mix's glossy
-/// share and the gloss's scale (`WeightedGloss`). Iray blends a full-strength glossy
+/// Iray's weighted base mixing (2), translucent or not: the Mix's glossy
+/// share and the gloss's scale (`WeightedGloss`). DAZ's `normalized_base`
+/// mixes the same Fresnel-less glossy BSDF against the diffuse part with
+/// or without translucency (the translucency sits inside `diffuse_base`);
+/// with translucency the gloss on `specular` as a dielectric rendered
+/// 0.25 – 0.41 × Iray and red where Iray's sphere is near white
+/// (Calib-DualLobeWeightedTL T1, T3 – T6, T8; the Mix, T7, 1.10; #128).
+/// Iray blends a full-strength glossy
 /// reflection by it — a weighted sphere (diffuse 1, gloss 0.6) measured
 /// 0.625 · its matte twin + 0.375 · the gloss colour × the mirrored sky,
 /// where Universal's dielectric specular gave a tenth of its highlight
@@ -4813,7 +4824,7 @@ fn diffusion_reflectance(alpha: f32) -> f32 {
 /// white or gloss-coloured specular nor a larger share (0.6) closed that
 /// (probe 85).
 fn weighted_gloss(mat: &Material) -> Option<WeightedGloss> {
-    if mat.float("Base Mixing").unwrap_or(0.0) as i32 != 2 || mat.float("Translucency Weight").unwrap_or(0.0) > 0.0 {
+    if mat.float("Base Mixing").unwrap_or(0.0) as i32 != 2 {
         return None;
     }
     let gw = mat.float("Glossy Weight").unwrap_or(0.0).max(0.0);
@@ -4949,18 +4960,10 @@ fn gloss_weight(mat: &Material) -> f32 {
 /// — both at once. Kept both on a plain dielectric (no refraction, no
 /// metal): the gloss as the `coating`, the dual lobe as the `specular`
 /// under it (`Ocs::glossy_coating`). Elsewhere the gloss alone, as before.
-/// Under weighted mixing (2) with translucency too, which skips the Mix
-/// (`weighted_gloss`): `normalized_base` keeps the dual lobe in
-/// `dl_diffuse_bsdf` beside the gloss there as well, and the gloss alone
-/// on `specular` dropped it (#128). Without translucency the Mix's diffuse
-/// part holds the lobe (#121).
+/// Under weighted mixing (2), translucent or not, the Mix's diffuse part
+/// holds the lobe (`weighted_gloss`, #121, #128).
 fn gloss_over_dual_lobe(mat: &Material) -> bool {
-    let layered = match mat.float("Base Mixing").unwrap_or(0.0) as i32 {
-        0 => true,
-        2 => weighted_gloss(mat).is_none(),
-        _ => false,
-    };
-    layered
+    mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0
         && gloss_weight(mat) > 0.0
         && DualLobe::of(mat).is_some()
         && mat.float("Refraction Weight").unwrap_or(0.0) <= 0.0
@@ -6935,17 +6938,18 @@ mod tests {
     }
 
     #[test]
-    fn translucent_weighted_mix_keeps_the_dual_lobe() {
-        // With translucency weighted mixing skips the Mix (`weighted_gloss`),
-        // but `normalized_base` still has the dual lobe beside the gloss
-        // (#128): the dual lobe on `specular` (both lobes blended), the gloss
-        // at Glossy Weight the coating, as over a dual lobe in Base Mixing 0.
+    fn translucent_weighted_mix_takes_the_mix() {
+        // DAZ's `normalized_base` mixes the same Fresnel-less gloss against
+        // the diffuse part (its translucency and dual lobe inside it) with
+        // or without translucency: a translucent weighted material takes
+        // the Mix too (#128) - the gloss a metal at its share, the dual lobe
+        // in the diffuse part (#121), Glossy Layered Weight unread.
         let dirs: Vec<std::path::PathBuf> = vec![];
         let w = |extra: &[serde_json::Value]| {
             let mut c = vec![
                 json!({"channel": {"id": "Base Mixing", "current_value": 2}}),
                 json!({"channel": {"id": "Diffuse Weight", "current_value": 1}}),
-                json!({"channel": {"id": "Glossy Weight", "current_value": 0.4}}),
+                json!({"channel": {"id": "Glossy Weight", "current_value": 0.5}}),
                 json!({"channel": {"id": "Glossy Layered Weight", "current_value": 0.9}}),
                 json!({"channel": {"id": "Glossy Roughness", "current_value": 0.5}}),
                 json!({"channel": {"id": "Translucency Weight", "current_value": 0.5}}),
@@ -6959,39 +6963,23 @@ mod tests {
         };
         let pin = |x: &str, p: &str| x[x.find(&format!("<pin name='{p}'>")).unwrap_or_else(|| panic!("{p}: {x}"))..].split("</pin>").next().unwrap().to_string();
         let both = w(&[]);
-        assert!(weighted_gloss(&both).is_none() && gloss_over_dual_lobe(&both));
+        assert_eq!(weighted_gloss(&both), Some(WeightedGloss::of(1.0, 0.5)));
+        assert!(!gloss_over_dual_lobe(&both));
         let (x, _) = material_inputs(&[("Card".into(), both, 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
-        assert!(!x.contains("type='19'"), "no Mix: {x}");
-        // The dual lobe's full share (Universal's default 1, no pin), the
-        // lobes blended; the gloss at Glossy Weight 0.4 (not Glossy Layered
-        // Weight's 0.9), its own roughness 0.5² on the coating.
-        assert!(!x.contains("<pin name='specular'>"), "{x}");
-        assert!(pin(&x, "roughness").contains(&format!(">{}<", num(phong_pin(0.25 * 0.09 + 0.75 * 0.36)))), "{x}");
-        assert!(pin(&x, "coating").contains(">0.4 0.4 0.4<"), "{x}");
-        assert!(pin(&x, "coatingRoughness").contains(&format!(">{}<", num(phong_pin(0.25)))), "{x}");
+        assert!(x.contains("type='19' name='Card'"), "{x}");
+        assert!(pin(&x, "amount").contains(&format!(">{}<", num(1.0 / 3.0))), "the gloss's share 0.5 / 1.5: {x}");
+        let gloss = &x[x.find("<pin name='material1'>").unwrap()..x.find("<pin name='material2'>").unwrap()];
+        assert!(pin(gloss, "metallic").contains(">1<") && !gloss.contains("<pin name='coating'>"), "{gloss}");
+        let base = &x[x.find("<pin name='material2'>").unwrap()..];
+        assert!(pin(base, "specular").contains(">0.25 0.25 0.25<") && pin(base, "coating").contains(">0.75 0.75 0.75<"), "the dual lobe in the diffuse part: {base}");
 
-        // Without the dual lobe the gloss alone on `specular`, as before.
+        // Without the dual lobe the same Mix, the diffuse part matte.
         let (x, _) = material_inputs(&[("Card".into(), w(&[json!({"channel": {"id": "Dual Lobe Specular Weight", "current_value": 0}})]), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
-        assert!(pin(&x, "specular").contains(">0.4 0.4 0.4<") && !x.contains("<pin name='coating'>"), "{x}");
-        assert!(pin(&x, "roughness").contains(&format!(">{}<", num(phong_pin(0.25)))), "{x}");
-
-        // Glossy Reflectivity doesn't reach Iray under Base Mixing 2 (#132,
-        // Calib-DualLobeWeightedTL's .mi: T8 at 0 gets T3's arguments):
-        // neither the coating nor the gloss alone on `specular` scale by it,
-        // nor does 1 raise the coating's IOR.
-        let r = |v: f32| json!({"channel": {"id": "Glossy Reflectivity", "current_value": v}});
-        for v in [0.0, 1.0] {
-            let (x, _) = material_inputs(&[("Card".into(), w(&[r(v)]), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
-            assert!(pin(&x, "coating").contains(">0.4 0.4 0.4<"), "{v}: {x}");
-            assert!(pin(&x, "coatingIor").contains(&format!(">{}<", num(1.5))), "{v}: {x}");
-            let (x, _) = material_inputs(&[("Card".into(), w(&[r(v), json!({"channel": {"id": "Dual Lobe Specular Weight", "current_value": 0}})]), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
-            assert!(pin(&x, "specular").contains(">0.4 0.4 0.4<") && !x.contains("<pin name='coating'>"), "{v}: {x}");
-        }
-
-        // Without translucency the Mix holds both (#121), not this.
-        assert!(!gloss_over_dual_lobe(&w(&[json!({"channel": {"id": "Translucency Weight", "current_value": 0}})])));
-        // Glossy Weight 0: the dual lobe alone (#127).
-        assert!(!gloss_over_dual_lobe(&w(&[json!({"channel": {"id": "Glossy Weight", "current_value": 0}})])));
+        assert!(x.contains("type='19' name='Card'"), "{x}");
+        let base = &x[x.find("<pin name='material2'>").unwrap()..];
+        assert!(pin(base, "specular").contains(">0 0 0<"), "{base}");
+        // Glossy Weight 0: no Mix, the dual lobe alone (#127).
+        assert!(weighted_gloss(&w(&[json!({"channel": {"id": "Glossy Weight", "current_value": 0}})])).is_none());
     }
 
     #[test]
@@ -7467,15 +7455,15 @@ mod tests {
             {"channel": {"id": "Glossy Layered Weight", "current_value": 0.8}},
         ]));
         assert!(weighted_layered_only.contains(">0 0 0<"), "{weighted_layered_only}");
-        // Translucent (no Mix): the gloss on `specular` at Glossy Weight
-        // 0.3 (× min(2r, 1) = 1 at the default r 0.5), not the layered 1.
-        let translucent = specular(json!([
+        // Translucent: the Mix too (#128), its share from Glossy Weight 0.3
+        // (0.3 / 1.3), not the layered 1.
+        let translucent = mat(json!([
             {"channel": {"id": "Base Mixing", "current_value": 2}},
             {"channel": {"id": "Translucency Weight", "current_value": 0.5}},
             {"channel": {"id": "Glossy Weight", "current_value": 0.3}},
             {"channel": {"id": "Glossy Layered Weight", "current_value": 1.0}},
         ]));
-        assert!(translucent.contains(">0.3 0.3 0.3<"), "{translucent}");
+        assert_eq!(weighted_gloss(&translucent), Some(WeightedGloss::of(1.0, 0.3)));
         let layered_weight_only = specular(json!([
             {"channel": {"id": "Base Mixing", "current_value": 0}},
             {"channel": {"id": "Glossy Weight", "current_value": 0.5}},
@@ -7529,17 +7517,24 @@ mod tests {
             {"channel": {"id": "Cutout Opacity", "current_value": 1, "image_file": "/Runtime/Textures/dark.png"}},
         ]));
         let (x, _) = material_inputs(&[("Braids".into(), hair, 1.0)], &[dir.path().to_path_buf()], HashMap::new(), 3000, SkinShader::None);
-        // (1·0.125 + 0.5·0.5 + 1·0.5) / (2.5 · 0.125) ≈ 2.8: the diffuse map's power.
-        let albedo = &x[x.find("<pin name='albedo'>").unwrap()..];
-        let power = &albedo[albedo.find("<pin name='power'>").unwrap()..];
-        let v: f32 = power[power.find("type='6'>").unwrap() + 9..].split('<').next().unwrap().parse().unwrap();
-        assert!((v - 2.8).abs() < 0.05, "{v}");
-        // Glossy Weight (not Glossy Layered Weight) keeps its gloss, tinted
-        // by the glossy map.
-        let spec = &x[x.find("<pin name='specular'>").expect("tinted gloss")..];
-        assert!(spec[..200].contains("light.png"), "{spec}");
-        // Weights summing below 1 leave the rest black (#126): (0.4·0.125 +
-        // 0.2·0.5 + 0.2·0.5) / (1 · 0.125) = 2.0, not shared out (2.5).
+        // The Mix holds the gloss (#128), so the diffuse part's map takes the
+        // translucency share alone: (1·0.125 + 0.5·0.5) / (1.5 · 0.125) = 2.0
+        // (2.8 with the gloss's share counted in it too).
+        let base_power = |x: &str| -> f32 {
+            let base = &x[x.find("<pin name='material2'>").expect("the Mix")..];
+            let albedo = &base[base.find("<pin name='albedo'>").unwrap()..];
+            let power = &albedo[albedo.find("<pin name='power'>").unwrap()..];
+            power[power.find("type='6'>").unwrap() + 9..].split('<').next().unwrap().parse().unwrap()
+        };
+        let v = base_power(&x);
+        assert!((v - 2.0).abs() < 0.05, "{v}");
+        // Glossy Weight (not Glossy Layered Weight) keeps its gloss, the
+        // Mix's metal tinted by the glossy map.
+        let gloss = &x[x.find("<pin name='material1'>").unwrap()..x.find("<pin name='material2'>").unwrap()];
+        assert!(gloss.contains("light.png"), "{gloss}");
+        // Weights summing below 1 leave the rest black (#126) in the Mix's
+        // shares (amount 0.6, the gloss × 0.2 / 0.6); the map's relative
+        // translucency share (0.4·0.125 + 0.2·0.5) / (0.6 · 0.125) = 2.0.
         let hair = mat(json!([
             {"channel": {"id": "Base Mixing", "current_value": 2}},
             {"channel": {"id": "Diffuse Weight", "current_value": 0.4}},
@@ -7549,10 +7544,9 @@ mod tests {
             {"channel": {"id": "Glossy Weight", "current_value": 0.2}},
             {"channel": {"id": "Glossy Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/light.png"}},
         ]));
+        assert_eq!(weighted_gloss(&hair), Some(WeightedGloss::of(0.4, 0.2)));
         let (x, _) = material_inputs(&[("Braids".into(), hair, 1.0)], &[dir.path().to_path_buf()], HashMap::new(), 3000, SkinShader::None);
-        let albedo = &x[x.find("<pin name='albedo'>").unwrap()..];
-        let power = &albedo[albedo.find("<pin name='power'>").unwrap()..];
-        let v: f32 = power[power.find("type='6'>").unwrap() + 9..].split('<').next().unwrap().parse().unwrap();
+        let v = base_power(&x);
         assert!((v - 2.0).abs() < 0.05, "{v}");
     }
 
