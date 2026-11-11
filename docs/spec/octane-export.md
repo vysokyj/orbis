@@ -847,7 +847,8 @@ leaves out, #15):
 - **Translucency** off the skin path (props, cloth, cards) → Universal's
   diffuse transmission: `albedo` × (1 − w), `transmission` = Translucency
   Color (map) × w, `transmissionType` 1 (Diffuse), 3 (Thin Wall (Diffuse))
-  when thin-walled. Not on metal, refraction or Base Mixing 2 (its weights
+  when thin-walled. Not on metal (a translucent metal's base transmits in
+  a Mix of its own, below), refraction or Base Mixing 2 (its weights
   are shared out by the weighted mix). A closed, non-thin solid with Iray's
   volume under it (Transmitted Color set; ~313 installed materials) has its
   `transmission` × the skin's volume factor (`volume_factor`, Rd(α) /
@@ -1331,29 +1332,41 @@ leaves out, #15):
   S = M + B d: `metallic` M / S, albedo C d × S / d and the gloss × S / d,
   so Universal holds M C metal, B d C diffuse and B gloss, as Iray's
   layer stack (the metal over the diffuse). Scaling the albedo by d alone
-  dimmed the metal to d (0.78 at Diffuse Roughness 1). Not under a
-  metallic map: one albedo scale can't follow the map, and where it leaves
-  no metal the diffuse came out × S / d, so there the map's metal is
-  dimmed with the diffuse (provisional).
-- **Translucency on a metal** (not refractive; Universal's transmission
-  would swallow the metal, P8's 0.75 rendered 0.23): no transmission; the
-  diffuse × (1 − t). The base's diffuse is a `weighted_layer` at 1 − t
-  over the diffuse transmission (DAZ's MDL), whose light goes into the
-  volume under the metal and doesn't come back. Under a metallic map the
-  whole albedo × (1 − 0.35 t) instead (fitted on Calib-PBRSkin-MetalTL's
-  map spheres while the dimming hit the metal too: a grey map at 0.85
-  1.38 × Iray without it, 0.66 with all of t taken; with it 1.12 beside
-  the same map without translucency 1.07, a white map 1.01).
+  dimmed the metal to d (0.78 at Diffuse Roughness 1). **Under a
+  metallic map per texel** (#123): each texel's w(x) (the map at its
+  gamma, its value range, × the value) through the same rule, baked into
+  two maps — `metallic` M / S and S, which multiplies the albedo and the
+  gloss (`specular`) at power 1 / d (Multiply textures). Taken at the
+  channel's value, one albedo scale couldn't follow the map (its
+  unmetalled texels × S / d, 1.75 × at t 0.5), so until #123 the map's
+  metal was dimmed with the diffuse.
+- **Translucency on a metal** (not refractive, Base Mixing 0): a Mix
+  material (19) by the Metallic Weight (its map at its gamma × the
+  value) of the metal (the material at weight 1: `metallic` 1, its
+  colour) and the base (at weight 0: the translucency Universal's diffuse
+  transmission as on any non-metal); Iray Uber's metal side a second Mix
+  at w of the metal and a black Universal (its metal is a coat at w over
+  black, above), so w² metal + (1 − w) base. Iray's metal is a
+  `weighted_layer` over the diffuse and its translucency (DAZ's MDL), a
+  per-hit mix like Octane's. One Universal can't hold both: its
+  transmission swallowed the metal (P8's 0.75 rendered 0.23), and with
+  no transmission the translucency's light had to be taken as lost (the
+  diffuse × (1 − t), #109) - wrong where the base dominates: the light
+  it passes into the closed body comes back out. Under a backscattering
+  Mix or Base Mixing 1 the surface stays one node with that rule.
 
-  Why: Calib-PBRSkin-MetalTL (enhanced-final, sphere centres, Y), metal
-  0.75 at t 0.85 / 0.5 and metal 0.3 at 0.85: 1.02 / 1.03 / 1.13 × Iray
-  with the old 0.35 t dimming the metal too; with the metal kept and
-  0.35 t 1.11 / 1.08 / 1.17; with the metal kept and all of t taken
-  1.03 / 1.04 / 0.97 — the metal alone 1.05, so the fitted 0.35 had
-  stood in for the metal's missing light. Calib-PBRSkin's P8 (Gladio
-  armour, metal 0.75, t 0.85) 1.00 → 1.04 beside the opaque metal's 1.05. The Oren-Nayar part is derived
-  from the layer stack, not rendered (no calibration scene combines a
-  metal with Diffuse Roughness).
+  Why: Calib-PBRSkin-MetalTL (enhanced-final, 41 px boxes at nine
+  offsets around each sphere's centre, Y), metal 0.75 at t 0.85 / 0.5,
+  metal 0.3 at 0.85, a white and a grey map (w 0.16) at 0.85: with the
+  diffuse × (1 − t) (flat) and the fitted 0.35 t (maps) 1.04 / 1.04 /
+  0.83 / 0.93 / 1.42 × Iray; the same rule per texel under the maps
+  (d = 1 − t): white 1.01, grey 0.68 - the less metal, the more light
+  was missing; as the Mix 1.06 / 1.05 / 1.05 / 1.04 / 1.04, beside the
+  opaque metal 1.07, the translucent non-metal 1.04 and the grey map
+  without translucency 1.10. Calib-PBRSkin's P8 (Gladio armour, metal
+  0.75, t 0.85) 1.08 → 1.09 beside the opaque metal's. The Oren-Nayar
+  part is derived from the layer stack, not rendered (no calibration
+  scene combines a metal with Diffuse Roughness).
 
   Why: Calib-Map-Metal's red spheres at 0.25 / 0.5 / 0.75 went from 1.23
   / 1.38 / 1.39 to 1.12 / 1.16 / 1.22 × Iray (the full metal 1.19), the

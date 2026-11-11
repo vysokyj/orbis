@@ -1247,8 +1247,16 @@ struct Ocs<'a> {
     /// The current material's Iray thin films (`Film::of`): `pin_open`
     /// multiplies its colour pins by their tint.
     film: Option<Film>,
-    /// Per open pin, whether `pin_open` wrapped it in the film's Multiply.
-    pin_wraps: Vec<bool>,
+    /// Per open pin, how many Multiply textures `pin_open` wrapped it in
+    /// (the film's, a metallic map's scale).
+    pin_wraps: Vec<u8>,
+    /// The universal node's per-texel albedo and gloss scale under a
+    /// metallic map (`metal_map_bake`), while its pins are written.
+    metal_scale: Option<MetalScale>,
+    /// Writing one part of `translucent_metal_material`: the material's
+    /// Metallic Weight taken as this (1 its metal, 0 its base), its map
+    /// left to the Mix.
+    metal_override: Option<f32>,
     /// Writing an Uber gloss (`phong_pin`): Universal's `brdf` for its
     /// node (`phong_brdf`).
     gloss_brdf: Option<&'static str>,
@@ -1286,22 +1294,37 @@ impl Ocs<'_> {
     }
 
     /// Opens a pin; under a thin film (`Film`) a colour pin gets
-    /// Multiply(film tint, what follows), closed again by `pin_close`.
+    /// Multiply(film tint, what follows), and under a metallic map's
+    /// per-texel scale (`MetalScale`) the node's `albedo` and `specular`
+    /// Multiply(scale map, what follows), closed again by `pin_close`.
     fn pin_open(&mut self, indent: usize, name: &str) {
         let _ = writeln!(self.out, "{:indent$}<pin name='{name}'>", "");
-        let tint = if self.pin_wraps.contains(&true) { None } else { self.film.and_then(|f| f.tint(name)) };
-        self.pin_wraps.push(tint.is_some());
+        let tint = if self.pin_wraps.iter().any(|&n| n > 0) { None } else { self.film.and_then(|f| f.tint(name)) };
+        let scale = self.metal_scale.clone().filter(|s| s.depth == self.pin_wraps.len() && (name == "albedo" || name == "specular"));
+        self.pin_wraps.push(u8::from(tint.is_some()) + u8::from(scale.is_some()));
         if let Some(t) = tint {
             self.film_tint_open(indent + 1, t);
+        }
+        if let Some(s) = scale {
+            self.metal_scale_open(indent + 1, &s);
         }
     }
 
     fn pin_close(&mut self, indent: usize) {
-        if self.pin_wraps.pop() == Some(true) {
+        for _ in 0..self.pin_wraps.pop().unwrap_or(0) {
             let i = indent + 1;
             let _ = writeln!(self.out, "{:i$} </pin>\n{:i$}</node>", "", "");
         }
         let _ = writeln!(self.out, "{:indent$}</pin>", "");
+    }
+
+    /// A Multiply texture (39) of a metallic map's per-texel scale
+    /// (`MetalScale`) and the pin's own value, left open in `texture2`.
+    fn metal_scale_open(&mut self, i: usize, s: &MetalScale) {
+        let id = self.id();
+        let _ = writeln!(self.out, "{:i$}<node id='{id}' type='39'>", "");
+        self.with_map(s.placement, |w| w.image_pin(i + 1, "texture1", &s.asset, true, 1.0, s.power));
+        let _ = writeln!(self.out, "{:i$} <pin name='texture2'>", "");
     }
 
     /// Iray's (MDL) roughness `r` as the pin of the gloss being written
@@ -1505,13 +1528,42 @@ impl Ocs<'_> {
     /// leave the Mix's sum at Iray's (`backscatter_shares`), the diffuse
     /// at `diffuse_only` of the albedo (`metal_over_diffuse`).
     fn metal_mix(&self, mat: &Material, w: f32, diffuse_only: f32) -> (f32, f32) {
-        let (m, k) = if self.in_backscatter_mix && !crate::iray::is_pbrskin(mat) {
-            let (_, m, k) = backscatter_shares(w, backscatter_weight(mat));
-            (m, k)
-        } else {
-            metal_mix(mat, w)
-        };
+        let (m, k) = self.metal_law(mat).shares(w);
         metal_over_diffuse(m, k, diffuse_only)
+    }
+
+    /// Which (metallic, base scale) law `metal_mix` takes for `mat`.
+    fn metal_law(&self, mat: &Material) -> MetalLaw {
+        if crate::iray::is_pbrskin(mat) {
+            MetalLaw::PbrSkin
+        } else if self.in_backscatter_mix {
+            MetalLaw::Backscatter(backscatter_weight(mat))
+        } else {
+            MetalLaw::Uber
+        }
+    }
+
+    /// `metal_mix` per texel of a Metallic Weight map, for a diffuse-only
+    /// factor d < 1 (#123): each texel's weight w(x) (the map × the
+    /// channel's `w`, its value range applied) through the material's
+    /// metal law and `metal_over_diffuse`, baked into the `metallic` map
+    /// M / S and a scale S (returned) that the node's albedo and gloss
+    /// take at 1 / d — Iray's M C metal, B d C diffuse and B gloss at
+    /// every texel. Taken at the channel's value instead, the map's
+    /// unmetalled texels came out × S / d; the albedo dimmed as a whole
+    /// (by F(σ), and by a translucency loss fitted at 0.35 × t before the
+    /// translucent metal became a Mix) dimmed its metal. None when the
+    /// map can't be read.
+    fn metal_map_bake(&mut self, mat: &Material, w: f32, d: f32) -> Option<(String, MetalScale)> {
+        let map = mat.image("Metallic Weight")?.to_string();
+        let im = mat.image_mod("Metallic Weight");
+        let law = self.metal_law(mat);
+        let d = d.clamp(1e-3, 1.0);
+        let texel = move |l: f32| metal_texel(law, (im.apply(l.max(0.0)) * w).clamp(0.0, 1.0), d);
+        let key = format!("metal-over-diffuse|{map}|{w}|{d}|{law:?}|{im:?}");
+        let metallic = self.textures.derived_mono(self.dirs, &map, &format!("{key}|m"), 1.0, im.mono, move |l| [texel(l).0; 3])?;
+        let scale = self.textures.derived_mono(self.dirs, &map, &format!("{key}|s"), 1.0, im.mono, move |l| [texel(l).1; 3])?;
+        Some((metallic, MetalScale { asset: scale, placement: im.placement(), power: 1.0 / d, depth: self.pin_wraps.len() }))
     }
 
     /// Iray's backscattering (DAZ's MDL): a `weighted_layer` at
@@ -1572,6 +1624,78 @@ impl Ocs<'_> {
         self.pin_close(i);
         self.displacement_pin(i, mat);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
+    }
+
+    /// Iray's metal over a translucent base (DAZ's MDL: Uber's
+    /// `metallic_layered_base`, PBRSkin's `weighted_layer` at Metallicity,
+    /// both over the diffuse and its translucency) as a Mix material (19)
+    /// by the Metallic Weight (its map at its gamma × the value): the
+    /// metal (the material at weight 1) and the base (at 0, its
+    /// translucency Universal's diffuse transmission as on any
+    /// non-metal). Universal can't hold both: its transmission swallowed
+    /// the metal (P8's 0.75: 0.23), and with the translucency taken as
+    /// lost (the diffuse × 1 − t, #109) the light it passes back out was
+    /// missing - Calib-PBRSkin-MetalTL's grey map (w 0.16) at
+    /// translucency 0.85 rendered 0.69 × Iray, metal 0.3 0.87 (#123).
+    /// Uber's metal is itself a layer at w over black (`metal_shares`):
+    /// the metal side a second Mix at w of the metal and a black material,
+    /// w² metal + (1 − w) base as in Iray.
+    fn translucent_metal_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
+        let id = self.id();
+        let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
+        let i = indent + 1;
+        let uber = !crate::iray::is_pbrskin(mat);
+        self.metal_amount_pin(i, mat);
+        self.pin_open(i, "material1");
+        if uber {
+            let mid = self.id();
+            let j = i + 1;
+            let _ = writeln!(self.out, "{:j$}<node id='{mid}' type='19' name='{} metal layer'>", "", esc(name));
+            self.metal_amount_pin(j + 1, mat);
+            self.pin_open(j + 1, "material1");
+            self.metal_part(j + 2, &format!("{name} metal"), mat, area_m2, skin, 1.0);
+            self.pin_close(j + 1);
+            self.pin_open(j + 1, "material2");
+            let bid = self.id();
+            let k = j + 2;
+            let _ = writeln!(self.out, "{:k$}<node id='{bid}' type='130' name='{} black'>", "", esc(name));
+            let _ = writeln!(self.out, "{:k$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
+            self.rgb_pin(k + 1, "albedo", [0.0; 3]);
+            self.rgb_pin(k + 1, "specular", [0.0; 3]);
+            self.top_coat(k + 1, mat);
+            let opacity = mat.opacity().clamp(0.0, 1.0);
+            if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
+                self.float_or_map(k + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
+            }
+            let _ = writeln!(self.out, "{:k$}</node>", "");
+            self.pin_close(j + 1);
+            let _ = writeln!(self.out, "{:j$}</node>", "");
+        } else {
+            self.metal_part(i + 1, &format!("{name} metal"), mat, area_m2, skin, 1.0);
+        }
+        self.pin_close(i);
+        self.pin_open(i, "material2");
+        self.metal_part(i + 1, &format!("{name} base"), mat, area_m2, skin, 0.0);
+        self.pin_close(i);
+        self.displacement_pin(i, mat);
+        let _ = writeln!(self.out, "{:indent$}</node>", "");
+    }
+
+    /// The `amount` of `translucent_metal_material`'s Mix: Metallic Weight,
+    /// its map (at its gamma, its value range) × the value.
+    fn metal_amount_pin(&mut self, indent: usize, mat: &Material) {
+        let w = metallic(mat).clamp(0.0, 1.0);
+        match self.channel_map(mat, "Metallic Weight") {
+            Some((asset, im)) => self.with_map(im, |s| s.image_pin(indent, "amount", &asset, true, s.textures.map_gamma(&asset, mat.image_gamma("Metallic Weight")), w)),
+            None => self.float_pin(indent, "amount", w),
+        }
+    }
+
+    /// `universal` at Metallic Weight `w` (`metal_override`).
+    fn metal_part(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader, w: f32) {
+        self.metal_override = Some(w);
+        self.universal(indent, name, mat, area_m2, skin);
+        self.metal_override = None;
     }
 
     /// The shading normal turned toward the viewer, so that the mirror
@@ -3093,10 +3217,20 @@ impl Ocs<'_> {
                 return self.weighted_mix_material(indent, name, mat, area_m2, skin, share);
             }
         }
+        if self.metal_override.is_none() && !self.in_backscatter_mix && metal && translucency > 0.0 && !refractive && !(is_eye(name) && crate::iray::is_pbrskin(mat)) && mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0 {
+            return self.translucent_metal_material(indent, name, mat, area_m2, skin);
+        }
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='130' name='{}'>", "", esc(name));
         let i = indent + 1;
         let _ = writeln!(self.out, "{:i$}<attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
+        // One part of `translucent_metal_material`: its metal (1) or its
+        // base (0), the map left to the Mix.
+        let (metal_value, metal_map) = match self.metal_override {
+            Some(v) => (v, false),
+            None => (metallic(mat), mat.image("Metallic Weight").is_some()),
+        };
+        let metal = metal_value >= NEGLIGIBLE_METALLIC || metal_map;
 
         // Iray refraction replaces the diffuse base: a fully refractive
         // surface (cornea, eye moisture, glass) has no diffuse left — a white
@@ -3107,8 +3241,10 @@ impl Ocs<'_> {
         // out, Calib-SSS's translucent spheres rendered 1.6 – 3.2 × Iray
         // (Translucency Weight 0.5 / 1), the Gladio cloth sphere 1.72; with it
         // 0.91 – 0.96 and 1.23 (like its neighbours). Not on metal (the
-        // transmission swallowed P8's metallic 0.75: 0.23) nor in weighted
-        // mixing, whose weights `weighted_mix` already shares out.
+        // transmission swallowed P8's metallic 0.75: 0.23; a translucent
+        // metal's base transmits as its own Mix material,
+        // `translucent_metal_material`) nor in weighted mixing, whose
+        // weights `weighted_mix` already shares out.
         // Genesis 9's eye (PBRSkin, a closed ball): Iray scatters its
         // translucency — the iris — just under the surface (scattering
         // distance 0.15 mm), so it shows as colour, not light through the
@@ -3137,21 +3273,17 @@ impl Ocs<'_> {
         } else {
             (1.0, 1.0)
         };
-        // On metal the translucency isn't transmitted (above), yet Iray dims
-        // the surface's non-metal part by it: the base's diffuse is a
-        // `weighted_layer` at 1 − Translucency Weight over the diffuse
-        // transmission (DAZ's MDL), whose light goes into the volume under
-        // the metal and doesn't come back. A flat metal keeps its own
-        // colour (`metal_over_diffuse`): Calib-PBRSkin-MetalTL's metal
-        // 0.75 at translucency 0.85 / 0.5 and metal 0.3 at 0.85 render 1.03
-        // / 1.04 / 0.97 × Iray, the metal alone 1.05 (#109). A metallic
-        // map can't take a per-texel albedo, so its metal is dimmed with the
-        // diffuse, by `METAL_MAP_TRANSLUCENCY_LOSS` × the translucency
-        // (fitted on that scene's map spheres while the dimming hit the
-        // metal too: a grey map at 0.85 rendered 1.38 × Iray without it,
-        // 0.66 with all of the translucency's share taken).
-        let metal_map = mat.image("Metallic Weight").is_some();
-        let dimmed = if !metal || refractive { 0.0 } else if metal_map { METAL_MAP_TRANSLUCENCY_LOSS * translucency } else { translucency };
+        // A translucent metal is a Mix of its metal and its translucent
+        // base (`translucent_metal_material`, #123). Where it stays one node
+        // (under a backscattering Mix, Base Mixing 1, the metal part itself)
+        // the translucency isn't transmitted (above) and the base's diffuse
+        // (a `weighted_layer` at 1 − Translucency Weight over the diffuse
+        // transmission, DAZ's MDL) is dimmed by it as if its light were
+        // lost, the metal keeping its colour (`metal_over_diffuse`, #109;
+        // under a map per texel, `metal_map_bake`). (Short of 1: at a full
+        // translucency the albedo, which also carries the metal's colour,
+        // would be 0.)
+        let dimmed = if !metal || refractive { 0.0 } else { translucency.min(MAX_METAL_DIMMING) };
         let diffuse_weight = (1.0 - refraction) * (1.0 - transmit) * (1.0 - dimmed) * diffuse_share;
 
         // Iray "Base Mixing" 1 (specular/glossiness) ignores Metallic Weight;
@@ -3213,22 +3345,23 @@ impl Ocs<'_> {
         // Base Mixing 1 with a coloured gloss: see `specular_diffuse_share`.
         let share = if specular_mode && !mirror && weighted.is_none() { specular_diffuse_share(mat, gloss.min(1.0), gloss_color) } else { [1.0; 3] };
         // Under a partial metal albedo and gloss scale (`metal_shares`).
-        let metal_w = if mirror || specular_mode || weighted.is_some() || !(metallic(mat) >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some()) {
-            0.0
-        } else {
-            metallic(mat)
-        };
+        let metal_w = if mirror || specular_mode || weighted.is_some() || !metal { 0.0 } else { metal_value };
         // Universal's metal takes its colour from the albedo, which also
         // carries what only Iray's diffuse loses: the head-on Oren-Nayar
         // factor and the translucent metal's dimming. Iray's metal sits
         // over them (`metallic_layered_base`, `pbr_skin.mdl`), so the
         // shares are taken with the diffuse at that factor
-        // (`metal_over_diffuse`, #109). Not under a metallic map: one
-        // albedo scale can't follow it, and where the map leaves no metal
-        // the diffuse came out × S / d (a black texel 1.75 × at
-        // translucency 0.5), so the map's metal is dimmed with it.
-        let diffuse_only = if metal_map { 1.0 } else { base_flat * (1.0 - dimmed) };
-        let (metal_m, base_keep) = self.metal_mix(mat, metal_w, diffuse_only);
+        // (`metal_over_diffuse`, #109). Under a metallic map one albedo
+        // scale can't follow it (where the map leaves no metal the diffuse
+        // came out × S / d, a black texel 1.75 × at translucency 0.5): the
+        // same shares per texel, baked (`metal_map_bake`, #123).
+        let diffuse_only = base_flat * (1.0 - dimmed);
+        let baked = if metal_map && metal_w > 0.0 && diffuse_only < 1.0 { self.metal_map_bake(mat, metal_w, diffuse_only) } else { None };
+        let (metal_m, base_keep) = if baked.is_some() { (1.0, 1.0) } else { self.metal_mix(mat, metal_w, diffuse_only) };
+        let metal_baked = baked.map(|(m, s)| {
+            self.metal_scale = Some(s);
+            m
+        });
         let share = share.map(|s| s * base_keep);
         let tint = [0, 1, 2].map(|k| tint[k] * share[k]);
         // The weighted blend scales the diffuse map (not a translucency
@@ -3360,7 +3493,7 @@ impl Ocs<'_> {
             // colour (its map, the Base Mixing 1 hue) as Iray tints the
             // layer's BSDF: a weight map kept only the weight (#107).
             let mapped = self.layer_colour_pin(i, "specular", mat, "Glossy Layered Weight", "Glossy Color", weight, gloss_color, true);
-            if !mapped && (weight < 1.0 || gloss_color != [1.0; 3] || self.film.is_some()) {
+            if !mapped && (weight < 1.0 || gloss_color != [1.0; 3] || self.film.is_some() || self.metal_scale.is_some()) {
                 // (Universal's default is white; a film tints it.)
                 self.rgb_pin(i, "specular", gloss_color.map(|c| c * weight));
             }
@@ -3372,30 +3505,38 @@ impl Ocs<'_> {
             // layer takes that). Under a metal × its base share as the
             // glossy layer's (`metal_over_diffuse`).
             let weight = (if coat > 0.0 || glossy_coat { dl.share } else { dl.share * dl.lobe1 }) * base_keep;
-            if weight != 1.0 || self.film.is_some() {
+            if weight != 1.0 || self.film.is_some() || self.metal_scale.is_some() {
                 self.rgb_pin(i, "specular", [weight; 3]);
             }
         }
 
-        let metallic = if mirror { 1.0 } else if specular_mode { 0.0 } else { metallic(mat) };
+        let metallic = if mirror { 1.0 } else if specular_mode { 0.0 } else { metal_value };
         // A trace of metallicity (the GSOV4 jacket's 0.0107) turned Octane's
         // gloss off — black velvet where Iray shows leather (Fetroom).
         if weighted.is_some() {
             // The diffuse part of a weighted mix: its gloss is the mix's
             // other material.
-        } else if mirror || (!specular_mode && (metallic >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some())) {
+        } else if mirror || (!specular_mode && metal) {
             // Iray's metal reflects at w² (`metal_shares`); a map squared
             // too, by twice its gamma (its 1 / k at the channel's value).
             let m = if mirror { 0.0 } else { metal_m };
             // Iray Uber's map is squared with its weight (twice its gamma);
             // PBRSkin's is read as is.
             let squared = !crate::iray::is_pbrskin(mat);
-            match (mirror, self.channel_map(mat, "Metallic Weight")) {
+            let map = if metal_map { self.channel_map(mat, "Metallic Weight") } else { None };
+            match (mirror, map) {
+                // Baked per texel (`metal_map_bake`): its value range in it.
+                (false, Some((_, im))) if metal_baked.is_some() => {
+                    let baked = metal_baked.clone().unwrap_or_default();
+                    self.with_map(im.placement(), |w| w.image_pin(i, "metallic", &baked, true, 1.0, 1.0))
+                }
                 (false, Some((asset, im))) => self.with_map(im, |w| w.image_pin(i, "metallic", &asset, true, if squared { 2.0 } else { 1.0 } * w.textures.map_gamma(&asset, mat.image_gamma("Metallic Weight")), m)),
                 (false, None) => self.float_pin(i, "metallic", m),
                 (true, _) => self.float_pin(i, "metallic", metallic.max(0.0)),
             }
         }
+        // The albedo and gloss are written: the scale ends with them.
+        self.metal_scale = None;
 
         // Iray refraction takes the glossy layer's colour and roughness unless
         // "Share Glossy Inputs" is off, then its own (Calib-Glass: Refraction
@@ -3454,7 +3595,7 @@ impl Ocs<'_> {
         // mix's diffuse part: Iray's lobes are isotropic, and Universal's
         // coating has no anisotropy.)
         let aniso = if refraction_rough || dispersive || glossy_coat || weighted_lobe.is_some() { Anisotropy::default() } else { Anisotropy::glossy(mat) };
-        let all_metal = mirror || (metallic >= 1.0 && mat.image("Metallic Weight").is_none());
+        let all_metal = mirror || (metallic >= 1.0 && !metal_map);
         let gloss_coat_rough = glossy_coat.then(|| glossy_layer_roughness(mat));
         let dielectric: Vec<f32> = [
             (!all_metal).then(|| (rough * aniso.stretch()).min(1.0)),
@@ -4961,14 +5102,6 @@ fn anisotropic_roughness(r: f32, stretch: f32, curve: RoughCurve) -> (f32, f32) 
 /// metals 0.9 / 0.75 went from 1.01 / 1.24 to 0.55 / 0.74 × Iray. At m = w
 /// Calib-Map-Metal's red spheres at 0.25 / 0.5 / 0.75 rendered 1.23 / 1.38
 /// / 1.39 × Iray (#59). Returns (m, k).
-/// Universal's (metallic, base scale) for a material's metal: Iray Uber's
-/// `metal_shares`; PBRSkin's metal is one `weighted_layer` at Metallicity
-/// (`pbr_skin.mdl`: the base colour's tint over the dual lobe specular, the
-/// rest at 1 − w), so Universal's own blend at w, the base unscaled.
-fn metal_mix(mat: &Material, w: f32) -> (f32, f32) {
-    if crate::iray::is_pbrskin(mat) { (w.clamp(0.0, 1.0), 1.0) } else { metal_shares(w) }
-}
-
 fn metal_shares(w: f32) -> (f32, f32) {
     let w = w.clamp(0.0, 1.0);
     let k = 1.0 - w + w * w;
@@ -4998,10 +5131,59 @@ fn metal_over_diffuse(m: f32, k: f32, d: f32) -> (f32, f32) {
     (metal / s, s / d)
 }
 
-/// The share of a translucent metal's albedo its translucency takes, per
-/// unit of Translucency Weight, under a metallic map (whose metal it dims
-/// too): see `universal`.
-const METAL_MAP_TRANSLUCENCY_LOSS: f32 = 0.35;
+/// A translucent metal's diffuse-only dimming at most (`universal`): at a
+/// full translucency the albedo, which carries the metal's colour too,
+/// would be 0 and no scale could bring the metal back.
+const MAX_METAL_DIMMING: f32 = 0.999;
+
+/// Universal's (metallic, base scale) law for a material's metal
+/// (`metal_mix`): Iray Uber's `metal_shares`; PBRSkin's metal is one
+/// `weighted_layer` at Metallicity (`pbr_skin.mdl`: the base colour's tint
+/// over the dual lobe specular, the rest at 1 − w), so Universal's own
+/// blend at w, the base unscaled; under a backscattering Mix the shares at
+/// its Backscattering Weight (`backscatter_shares`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum MetalLaw {
+    Uber,
+    PbrSkin,
+    Backscatter(f32),
+}
+
+impl MetalLaw {
+    fn shares(self, w: f32) -> (f32, f32) {
+        match self {
+            MetalLaw::Uber => metal_shares(w),
+            MetalLaw::PbrSkin => (w.clamp(0.0, 1.0), 1.0),
+            MetalLaw::Backscatter(b) => {
+                let (_, m, k) = backscatter_shares(w, b);
+                (m, k)
+            }
+        }
+    }
+}
+
+/// One texel of `metal_map_bake` at metal weight `w` and diffuse-only
+/// factor `d`: (Universal's metallic M / S, the scale S = M + B d), Iray's
+/// metal M = m k and base B = (1 − m) k by `law`. S × 1 / d is
+/// `metal_over_diffuse`'s albedo and gloss scale.
+fn metal_texel(law: MetalLaw, w: f32, d: f32) -> (f32, f32) {
+    let (m, k) = law.shares(w);
+    let (metal, base) = (m * k, (1.0 - m) * k);
+    let s = metal + base * d;
+    (if s > 0.0 { metal / s } else { 0.0 }, s.clamp(0.0, 1.0))
+}
+
+/// A metallic map's per-texel albedo and gloss scale (`metal_map_bake`):
+/// `pin_open` multiplies the universal node's `albedo` and `specular` (its
+/// own pins, at `depth` open pins) by `asset` (placed by `placement`) at
+/// `power`.
+#[derive(Debug, Clone)]
+struct MetalScale {
+    asset: String,
+    placement: ImageMod,
+    power: f32,
+    depth: usize,
+}
 
 /// Metallic Weight below this (without a map) is left out: see `universal`.
 const NEGLIGIBLE_METALLIC: f32 = 0.05;
@@ -5131,7 +5313,7 @@ fn ies_projection_rotation(frame: &[[f64; 3]; 3]) -> [f64; 3] {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -5355,7 +5537,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, dome_groun
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -5579,7 +5761,7 @@ fn environment_texture_at(
     first_id: u32,
     origin: Option<[f64; 3]>,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -5698,7 +5880,7 @@ pub fn material_inputs_scaled(
     // materials' channels give each its own, "auto" ones aren't listed.
     let own_gammas = materials.iter().flat_map(|(_, m, _)| m.channels.values()).filter_map(|c| Some((c.image.clone()?, c.gamma?))).collect();
     let mut textures = Textures { layered, own_gammas, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -6361,6 +6543,97 @@ mod tests {
         let s = 0.25 + 0.5 * oren_nayar_flat(1.0);
         assert!(value("albedo").iter().all(|v| (v - s).abs() < 1e-4), "{x}");
         assert!((value("metallic")[0] - 0.25 / s).abs() < 1e-4, "{x}");
+    }
+
+    #[test]
+    fn metallic_map_takes_the_diffuse_only_factor_per_texel() {
+        // Per texel it is `metal_over_diffuse`: M / S, and S at 1 / d.
+        for law in [MetalLaw::Uber, MetalLaw::PbrSkin, MetalLaw::Backscatter(0.4)] {
+            for w in [0.0, 0.2, 0.75, 1.0] {
+                for d in [0.15, oren_nayar_flat(1.0), 1.0] {
+                    let (m, k) = law.shares(w);
+                    let (m2, s) = metal_over_diffuse(m, k, d);
+                    let (tm, ts) = metal_texel(law, w, d);
+                    assert!((tm - m2).abs() < 1e-5 && (ts / d - s).abs() < 1e-4, "{law:?} w {w} d {d}: ({tm}, {ts}) vs ({m2}, {s})");
+                }
+            }
+        }
+        // A rough Uber metal under a uniform map (8-bit 128 at gamma 2.2:
+        // w 0.22): `metallic` the baked M / S, albedo and gloss × the baked
+        // S at 1 / d — no longer the albedo × d with the map's own metal.
+        let dir = tempfile::tempdir().unwrap();
+        image::GrayImage::from_pixel(4, 4, image::Luma([128])).save(dir.path().join("m.png")).unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let rough = mat(json!([
+            {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},
+            {"channel": {"id": "Diffuse Roughness", "current_value": 1.0}},
+            {"channel": {"id": "Metallic Weight", "current_value": 1.0, "image_file": "/m.png"}},
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 1.0}},
+        ]));
+        let (x, tex) = material_inputs(&[("MapMetal".into(), rough, 1.0)], &dirs, HashMap::new(), 9450, SkinShader::None);
+        let section = |name: &str| {
+            let p = &x[x.find(&format!("<pin name='{name}'>")).unwrap()..];
+            p[..p.find("\n <pin name=").unwrap_or(p.len())].to_string()
+        };
+        let image = |s: &str| {
+            let f = &s[s.find("<attr name='filename' type='11'>").unwrap() + 32..];
+            let f = &f[..f.find('<').unwrap()];
+            let png = &tex.generated.iter().find(|(a, _)| a == f).unwrap_or_else(|| panic!("{f} not baked")).1;
+            f32::from(image::load_from_memory(png).unwrap().to_luma8().get_pixel(0, 0)[0]) / 255.0
+        };
+        let (d, w) = (oren_nayar_flat(1.0), (128.0f32 / 255.0).powf(2.2));
+        let (tm, ts) = metal_texel(MetalLaw::Uber, w, d);
+        let metallic = section("metallic");
+        assert!((image(&metallic) - tm).abs() < 0.003, "{metallic}");
+        for pin in ["albedo", "specular"] {
+            let s = section(pin);
+            assert!(s.contains("type='39'") && s.contains(&format!(">{}<", num(1.0 / d))), "{pin}: {s}");
+            assert!((image(&s) - ts).abs() < 0.003, "{pin}: {s}");
+        }
+        // The albedo's own value carries d: d × S / d = S.
+        let albedo = section("albedo");
+        assert!(albedo.contains(&format!(">{} {} {}<", num(d), num(d), num(d))), "{albedo}");
+        // Only the node's albedo and gloss: no scale on the coating.
+        assert_eq!(x.matches("type='39'").count(), 2, "{x}");
+    }
+
+    #[test]
+    fn translucent_metal_is_a_mix_of_metal_and_translucent_base() {
+        let dirs: Vec<PathBuf> = Vec::new();
+        let export = |extra: serde_json::Value| {
+            let mut chs = vec![
+                json!({"channel": {"id": "diffuse", "current_value": [0.5, 0.5, 0.5]}}),
+                json!({"channel": {"id": "Metallic Weight", "current_value": 0.3}}),
+                json!({"channel": {"id": "Translucency Weight", "current_value": 0.85}}),
+                json!({"channel": {"id": "Glossy Layered Weight", "current_value": 1.0}}),
+            ];
+            chs.extend(extra.as_array().unwrap().iter().cloned());
+            material_inputs(&[("TM".into(), mat(json!(chs)), 1.0)], &dirs, HashMap::new(), 9460, SkinShader::None).0
+        };
+        let node = |x: &str, name: &str| {
+            let p = &x[x.find(&format!("name='{name}'>")).unwrap()..];
+            // Up to the next material node.
+            p[..p[1..].find("type='130'").map_or(p.len(), |e| e + 1)].to_string()
+        };
+        // PBRSkin: Mix(w, metal, base), w² nowhere.
+        let pbr = export(json!([
+            {"channel": {"id": "Dual Lobe Specular Enable", "current_value": true}},
+            {"channel": {"id": "Specular Lobe 2 Roughness Mult", "current_value": 1.0}},
+        ]));
+        assert!(pbr.contains("type='19' name='TM'") && !pbr.contains("TM metal layer"), "{pbr}");
+        let amount = &pbr[pbr.find("<pin name='amount'>").unwrap()..];
+        assert!(amount[..amount.find("</pin>").unwrap()].contains(">0.3<"), "{pbr}");
+        let metal = node(&pbr, "TM metal");
+        assert!(metal.contains("<pin name='metallic'>") && !metal.contains("<pin name='transmission'>"), "{metal}");
+        let base = node(&pbr, "TM base");
+        assert!(base.contains("<pin name='transmission'>") && !base.contains("<pin name='metallic'>"), "{base}");
+        // Uber: the metal a Mix at w over black, w² metal + (1 − w) base.
+        let uber = export(json!([]));
+        assert!(uber.contains("type='19' name='TM'") && uber.contains("type='19' name='TM metal layer'") && uber.contains("name='TM black'"), "{uber}");
+        assert_eq!(uber.matches(">0.3<").count(), 2, "{uber}");
+        // Opaque: one Universal node as before.
+        let opaque = material_inputs(&[("O".into(), mat(json!([{"channel": {"id": "Metallic Weight", "current_value": 0.3}}])), 1.0)], &dirs, HashMap::new(), 9470, SkinShader::None).0;
+        assert!(!opaque.contains("type='19'"), "{opaque}");
     }
 
     #[test]
@@ -7798,7 +8071,7 @@ mod tests {
     #[test]
     fn mdl_metal_roughness_is_the_long_axis() {
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.02, 0.4), rough_v: (String::new(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;
@@ -7823,7 +8096,7 @@ mod tests {
         image::GrayImage::from_fn(16, 16, |x, _| image::Luma([(x * 8) as u8])).save(dir.path().join("b.png")).unwrap();
         let dirs = [dir.path().to_path_buf()];
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.06, 0.4), rough_v: (String::new(), 0.06, 0.4), bump: ("b.png".into(), 1.5), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         assert!(w.out.contains("<pin name='normal'>") && !w.out.contains("<pin name='bump'>"), "{}", w.out);
