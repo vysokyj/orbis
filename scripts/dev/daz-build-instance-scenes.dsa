@@ -1,0 +1,109 @@
+// ORBIS calibration: instance targets DAZ doesn't render (#130), built in a
+// headless DAZ Studio by scripts/dev/daz-script.sh with
+// DONE_FILE=<out dir>/instance-scenes.done.
+// Arguments: base scene (calib/scenes/Calib-Tone-Default.duf), out dir, "--",
+// then the content directories. Each scene puts copies of the sphere
+// "M1 tinted" 60 cm in front of the row (z +60, x -40 / +40):
+// - Calib-Mi-InstGroup: a DzInstanceGroupNode (UltraScatter's kind) with
+//   two items over the sphere, the sphere shown.
+// - Calib-Mi-InstGroup-Hidden: the same, the sphere Visible off.
+// - Calib-Mi-InstGroup-NoRender: the same, the sphere Visible in Render off.
+// - Calib-Mi-Instance-NoRender: one DzInstanceNode at x -40, the sphere
+//   Visible in Render off (-InstanceHidden in make-option-scenes.py is the
+//   Visible-off twin).
+// Every scene is also exported to <out dir>/<name>.live.mi while it is
+// still built (DzMIExporter); the saved scenes' own .mi (daz-export-mi.dsa)
+// came out the same - a group's items survive a save and a reload. The
+// saved .mi are the fixtures (calib/references/mi). Afterwards:
+// python3 scripts/dev/duf_camera.py --fix on the saved scenes, copy them
+// into calib/scenes and My Library/Scenes.
+// ECMAScript 3 (QtScript): var only, ASCII only.
+(function () {
+    var a = App.scriptArgs;
+    var sBase = a[0], sOut = a[1];
+    var oContent = App.getContentMgr();
+    for (var i = 3; i < a.length; i++) oContent.addContentDirectory(a[i], false);
+    var sLog = "";
+    function log(s) { sLog += s + "\n"; }
+    var oMgr = App.getExportMgr();
+    var oMi = null;
+    for (var e = 0; e < oMgr.getNumExporters(); e++) {
+        if (oMgr.getExporter(e).className() == "DzMIExporter") oMi = oMgr.getExporter(e);
+    }
+    function node(sLabel) {
+        for (var n = 0; n < Scene.getNumNodes(); n++) {
+            if (Scene.getNode(n).getLabel() == sLabel) return Scene.getNode(n);
+        }
+        return null;
+    }
+    function open() {
+        Scene.clear();
+        return oContent.openFile(sBase, false);
+    }
+    function save(sName) {
+        if (oMi) log(sName + " live mi: " + oMi.writeFile(sOut + "/" + sName + ".live.mi"));
+        log(sName + ": " + Scene.saveScene(sOut + "/" + sName + ".duf"));
+    }
+    // DzInstanceGroupItem.setPosition's signature isn't documented; the
+    // log says which form took.
+    function place(oItem, v) {
+        var aTry = [
+            function () { oItem.setPosition(v, false); },
+            function () { oItem.setPosition(v.x, v.y, v.z); },
+            function () { oItem.setPosition(v.x, v.y, v.z, false); }
+        ];
+        for (var t = 0; t < aTry.length; t++) {
+            try { aTry[t](); log("  setPosition form " + t); return; } catch (e) { log("  setPosition form " + t + ": " + e); }
+        }
+    }
+    function group(oSphere) {
+        var oGroup = new DzInstanceGroupNode();
+        oGroup.setName("SphereGroup");
+        oGroup.setLabel("SphereGroup");
+        Scene.addNode(oGroup);
+        oGroup.getTargetControl().setValue(oSphere);
+        var p = oSphere.getWSPos();
+        var aX = [-40, 40];
+        oGroup.beginItemEdit();
+        for (var k = 0; k < aX.length; k++) {
+            var oItem = oGroup.createItem();
+            oItem.setLabel("SphereGroup item " + k);
+            place(oItem, new DzVec3(p.x + aX[k], p.y, p.z + 60));
+        }
+        oGroup.finishItemEdit();
+        oGroup.update();
+        log("  group items " + oGroup.getNumberOfGroupItems() + ", target " + oGroup.getTarget());
+        for (var m = 0; m < oGroup.getNumberOfGroupItems(); m++) log("  item " + m + " at " + oGroup.getGroupItem(m).getWSPos());
+    }
+    function instance(oSphere) {
+        var oInst = new DzInstanceNode();
+        oInst.setName("SphereInstance");
+        oInst.setLabel("SphereInstance");
+        Scene.addNode(oInst);
+        oInst.getTargetControl().setValue(oSphere);
+        var p = oSphere.getWSPos();
+        oInst.setWSPos(new DzVec3(p.x - 40, p.y, p.z + 60));
+    }
+    var aScenes = [
+        ["Calib-Mi-InstGroup", "group", ""],
+        ["Calib-Mi-InstGroup-Hidden", "group", "Visible"],
+        ["Calib-Mi-InstGroup-NoRender", "group", "Visible in Render"],
+        ["Calib-Mi-Instance-NoRender", "instance", "Visible in Render"]
+    ];
+    for (var s = 0; s < aScenes.length; s++) {
+        if (!open()) { log(aScenes[s][0] + ": base not opened"); continue; }
+        var oSphere = node("M1 tinted");
+        if (!oSphere) { log("no sphere"); break; }
+        log(aScenes[s][0] + " sphere at " + oSphere.getWSPos());
+        if (aScenes[s][1] == "group") group(oSphere); else instance(oSphere);
+        if (aScenes[s][2] == "Visible") oSphere.setVisible(false);
+        if (aScenes[s][2] == "Visible in Render") oSphere.setVisibleInRender(false);
+        log("  sphere visible " + oSphere.isVisible() + ", in render " + oSphere.isVisibleInRender());
+        save(aScenes[s][0]);
+    }
+    var oDone = new DzFile(sOut + "/instance-scenes.done");
+    oDone.open(DzFile.WriteOnly | DzFile.Truncate);
+    oDone.write(sLog);
+    oDone.close();
+    App.delayedExit();
+})();

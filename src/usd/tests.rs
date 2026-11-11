@@ -470,13 +470,10 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     assert!((ground_height(&e, &[low]) + 0.03).abs() < 1e-6);
     assert_eq!(ground_height(&e, &[]), 0.0);
     // Instances (#125): a copy 0.6 m down doesn't lower DAZ's ground
-    // (Calib-Env-Mi-GroundAuto-Instance), a hidden prototype at -0.6 m
-    // doesn't count (-InstanceHidden).
+    // (Calib-Env-Mi-GroundAuto-Instance).
     let floor = || Mesh { points: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 1.0]], ..Default::default() };
     let copied = Mesh { points: vec![[0.75, 0.15, 0.0]], instances: Some(vec![IDENTITY, [1.0, 0.0, 0.0, 0.45, 0.0, 1.0, 0.0, -0.75, 0.0, 0.0, 1.0, 0.0]]), ..Default::default() };
     assert_eq!(ground_height(&e, &[floor(), copied]), 0.0);
-    let prototype = Mesh { points: vec![[0.75, -0.6, 0.0]], instances: Some(vec![[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.75, 0.0, 0.0, 1.0, 0.0]]), prototype_only: true, ..Default::default() };
-    assert_eq!(ground_height(&e, &[floor(), prototype]), 0.0);
     e.ground_origin_y = Some(12.0);
     assert!((ground_height(&e, &[]) - 0.12).abs() < 1e-6);
     let (lifted, _) = crate::material::scene_lights(&[], Some((0.8, 0.12)), None, &[], 500, 1439);
@@ -919,12 +916,8 @@ fn instance_math() {
 }
 
 #[test]
-fn instances_of_a_hidden_source() {
-    // UltraScatter hides the source tree; its copies render. The source sits
-    // at x = 100 cm, a copy at x = 300 cm turned 180° about Y.
-    let mut duf = scene();
-    let hidden = json!([{"type": "studio_node_channels", "channels": [{"channel": {"id": "Visible", "current_value": false}}]}]);
-    duf["scene"]["nodes"][0]["extra"] = hidden;
+fn instances_of_a_source() {
+    // The source sits at x = 100 cm, a copy at x = 300 cm turned 180° about Y.
     let mut d = dump();
     d.nodes[0].transform = Some([1.0, 0.0, 0.0, 100.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
     d.instances = vec![DumpInstance {
@@ -932,21 +925,46 @@ fn instances_of_a_hidden_source() {
         transforms: vec![[-1.0, 0.0, 0.0, 300.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0]],
         ..Default::default()
     }];
-    let mut lib = Library::new(vec![], duf);
+    let mut lib = Library::new(vec![], scene());
     let (meshes, report) = build_meshes(&mut lib, &d).unwrap();
     assert_eq!(report.instances, 1);
     let body = meshes.iter().find(|m| m.name == "Body").unwrap();
     let copies = body.instances.as_ref().unwrap();
-    assert_eq!(copies.len(), 1, "the hidden source itself isn't drawn");
+    assert_eq!(copies.len(), 2, "the source itself, then its copy");
+    assert_eq!(copies[0], IDENTITY);
     // copy · source⁻¹: a world point p of the source lands at R·(p − 1 m) + 3 m.
-    assert_eq!(copies[0], [-1.0, 0.0, 0.0, 4.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0]);
+    assert_eq!(copies[1], [-1.0, 0.0, 0.0, 4.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, -1.0, 0.0]);
     let (usda, _) = write_usda(&meshes, &[]);
     assert!(usda.contains("def PointInstancer \"Body_copies\""), "{}", &usda[..400]);
     assert!(usda.contains("rel prototypes = [</Scene/Body_copies/Prototypes/Body>]"));
-    assert!(usda.contains("point3f[] positions = [(4, 0, 0)]"));
-    assert!(usda.contains("quath[] orientations = [(0, 0, 1, 0)]"));
+    assert!(usda.contains("point3f[] positions = [(0, 0, 0), (4, 0, 0)]"), "{usda}");
+    assert!(usda.contains("(0, 0, 1, 0)]"));
     // Balanced braces: the prototype is closed inside its instancer.
     assert_eq!(usda.matches('{').count(), usda.matches('}').count());
+
+    // A hidden source takes its copies with it: DAZ's .mi has neither the
+    // target nor its instances when the target is Visible or Visible in
+    // Render off, for an instance node and an instance group alike (#130).
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let objects = |scene: &str| -> Vec<String> {
+        let mi: Value = serde_json::from_str(&std::fs::read_to_string(root.join(format!("calib/references/mi/{scene}.json"))).unwrap()).unwrap();
+        mi["objects"].as_object().unwrap().keys().cloned().collect()
+    };
+    let shown = objects("Calib-Mi-InstGroup");
+    assert!(shown.contains(&"M1 tinted".to_string()) && shown.contains(&"SphereGroup".to_string()), "{shown:?}");
+    for scene in ["Calib-Mi-InstGroup-Hidden", "Calib-Mi-InstGroup-NoRender", "Calib-Mi-Instance-NoRender", "Calib-Env-Mi-GroundAuto-InstanceHidden"] {
+        let o = objects(scene);
+        assert!(!o.iter().any(|k| k == "M1 tinted" || k.starts_with("Sphere")), "{scene}: {o:?}");
+    }
+    for flag in ["Visible", "Renderable"] {
+        let mut duf = scene();
+        duf["scene"]["nodes"][0]["extra"] = json!([{"type": "studio_node_channels", "channels": [{"channel": {"id": flag, "current_value": false}}]}]);
+        let mut lib = Library::new(vec![], duf);
+        let (meshes, report) = build_meshes(&mut lib, &d).unwrap();
+        assert!(!meshes.iter().any(|m| m.name == "Body"), "{flag}");
+        assert_eq!(report.instances, 0, "{flag}");
+        assert!(report.skipped.contains(&"Body: hidden in the scene".to_string()), "{flag}: {:?}", report.skipped);
+    }
 }
 
 #[test]

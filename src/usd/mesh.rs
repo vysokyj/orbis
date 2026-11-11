@@ -302,12 +302,9 @@ pub(super) struct Mesh {
     /// run strand by strand, one subset (its material group) — written as
     /// `BasisCurves` with these per-vertex widths (meters).
     pub(super) curve_widths: Option<Vec<f32>>,
-    /// Instanced: where its copies go (the mesh itself, when drawn, is one at
+    /// Instanced: where its copies go (the mesh itself is the first, at
     /// `IDENTITY`) — written as a `PointInstancer` with it as the prototype.
     pub(super) instances: Option<Vec<Placement>>,
-    /// A hidden node kept only as its instances' prototype (not drawn at
-    /// `IDENTITY`): it doesn't count for the auto ground (#125).
-    pub(super) prototype_only: bool,
 }
 
 /// Meters per unit of DAZ's hair line widths (`Line Start Width` /
@@ -411,13 +408,15 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
     // Polygon meshes: (index in `meshes`, node id, conform target, refined).
     let mut surfaces: Vec<(usize, String, Option<String>, bool)> = Vec::new();
     for n in &nodes {
-        // A hidden node's instances still render (UltraScatter hides its
-        // sources); the node is then only their prototype.
-        let copies = dump.node(&n.label, &n.name).and_then(|f| placements(dump, &n.label, &n.name, f, n.visible));
-        if !n.visible && copies.is_none() {
+        // A hidden node takes its instances with it: DAZ hands Iray neither
+        // a target that is Visible or Visible in Render off nor its copies,
+        // instance node or instance group alike (Calib-Mi-InstGroup-Hidden,
+        // -NoRender, Calib-Mi-Instance-NoRender, #130).
+        if !n.visible {
             report.skipped.push(format!("{}: hidden in the scene", n.label));
             continue;
         }
+        let copies = dump.node(&n.label, &n.name).and_then(|f| placements(dump, &n.label, &n.name, f));
         if merged.contains(n.id.as_str()) {
             continue; // part of its host's mesh
         }
@@ -427,7 +426,7 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
         if scene_materials(lib, &n.instance_id).values().any(|m| super::volume::is_volume(m)) {
             continue;
         }
-        let instances = copies.as_ref().map_or(0, |c| c.len() - usize::from(n.visible));
+        let instances = copies.as_ref().map_or(0, |c| c.len() - 1);
         let Some(fig) = dump.node(&n.label, &n.name) else {
             report.skipped.push(format!("{}: not in the scene dump", n.label));
             continue;
@@ -437,7 +436,6 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
             // mesh is only their guide.
             for mut mesh in hair_curves(lib, n, fig, &mut names) {
                 mesh.instances = copies.clone();
-                mesh.prototype_only = !n.visible;
                 report.instances += instances;
                 report.meshes += 1;
                 report.points += mesh.points.len();
@@ -612,7 +610,6 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
             }
         }
         mesh.instances = copies;
-        mesh.prototype_only = !n.visible;
         report.instances += instances;
         report.meshes += 1;
         report.points += mesh.points.len();
@@ -749,7 +746,6 @@ fn mesh_part(m: &Mesh, subsets: &[usize], name: String) -> Mesh {
         normal_indices: m.normal_indices.as_ref().map(|_| normal_idx),
         curve_widths: None,
         instances: m.instances.clone(),
-        prototype_only: m.prototype_only,
     }
 }
 

@@ -342,9 +342,17 @@ in the `.duf` and rebuilds the groups on load — so they come from the dump.
   ground −17 cm); on top of the target's transform it would be 1.9 m under it.
 - The source mesh is written once, as the prototype of a `PointInstancer`
   `<mesh>_copies` (positions in m, orientations `quath`, per-axis scales;
-  a mirror goes into a negative x scale, shear is lost). A visible source
-  is one more copy at identity; a **hidden** one still serves its instances
-  (UltraScatter hides its sources), else it is left out as before.
+  a mirror goes into a negative x scale, shear is lost); the source itself
+  is the first copy, at identity.
+- A **hidden** target (Visible or Visible in Render off; under a hidden
+  group too, as for any node, unchecked in a .mi) is left out **with its
+  copies**. Why: DAZ's .mi has neither the
+  target nor any copy of it, for an instance node and an instance group
+  alike (Calib-Mi-InstGroup-Hidden, -InstGroup-NoRender,
+  Calib-Mi-Instance-NoRender, Calib-Env-Mi-GroundAuto-InstanceHidden; with
+  the target shown, Calib-Mi-InstGroup has the sphere and both group
+  items). UltraScatter doesn't hide its sources: Gladiator's are shown and
+  in its .mi (the grass sources sit 2 m under the terrain) (#130).
 - Copy mode "target + children" isn't followed: only the target's mesh.
 
 ### VDB volumes
@@ -2999,9 +3007,9 @@ a shadow catcher (145) in a placement 1 mm below Iray's ground height
 (`GROUND_DROP`; Manual: `Ground Origin Y`; Auto: the lowest point of the
 visible geometry, strands included, which DAZ hands Iray 0.001 cm lower -
 `iray::DomeSetup::ground_y`, Calib-Env-Mi-GroundAuto-Low / -LowHidden, #119;
-instances don't count, neither their copies nor a hidden node kept only as
-their prototype - Calib-Env-Mi-GroundAuto-Instance: a copy down to -60 cm,
-DAZ's ground at -0.001; -InstanceHidden, #125), in the geometry
+instances' copies don't count - Calib-Env-Mi-GroundAuto-Instance: a copy
+down to -60 cm, DAZ's ground at -0.001, #125; a hidden target is left out
+with its copies, -InstanceHidden, #130), in the geometry
 group. Why 1 mm under: exactly at a floor's height it z-fought (washed-out
 planks, hard shadows); 1 mm under the floor covers it and outdoors the
 shadow stays. Opacity = **0.89** × `Ground Shadow Intensity`

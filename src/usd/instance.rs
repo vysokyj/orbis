@@ -12,8 +12,10 @@ pub(super) const IDENTITY: Placement = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 
 /// Where the copies of a node go, relative to its world-space mesh — `None`
 /// when nothing instances it. An instance's transform replaces its target's
 /// (UltraScatter's trees stand on the terrain only so), so a copy is
-/// instance · target⁻¹. The node itself is drawn too when it is `visible`.
-pub(super) fn placements(dump: &SceneDump, label: &str, name: &str, target: &DumpNode, visible: bool) -> Option<Vec<Placement>> {
+/// instance · target⁻¹. The node itself is the first copy, at `IDENTITY`: a
+/// target DAZ doesn't render takes its copies with it (#130), so a hidden
+/// node never gets here.
+pub(super) fn placements(dump: &SceneDump, label: &str, name: &str, target: &DumpNode) -> Option<Vec<Placement>> {
     let copies: Vec<&Affine> = dump
         .instances
         .iter()
@@ -28,9 +30,7 @@ pub(super) fn placements(dump: &SceneDump, label: &str, name: &str, target: &Dum
         return None;
     };
     let mut out = Vec::with_capacity(copies.len() + 1);
-    if visible {
-        out.push(IDENTITY);
-    }
+    out.push(IDENTITY);
     for c in copies {
         let m = compose(c, &inverse);
         out.push(std::array::from_fn(|k| if k % 4 == 3 { (m[k] * CM as f64) as f32 } else { m[k] as f32 }));
