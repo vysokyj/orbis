@@ -574,6 +574,30 @@ uber_spheres('Calib-DualLobeWeightedTL', [0.45, 0.05, 0.04], DLWT, [
     ('T7 both no translucency', {'Translucency Weight': 0.0}),
     ('T8 both gloss refl 0', {'Glossy Reflectivity': 0.0}),
 ])
+# A metal under a partial refraction (#129): DAZ's metallic_layered_base
+# lays the refraction (weighted_layer at Refraction Weight) over the metal,
+# so Iray's metal keeps (1 - r) of its colour and the refraction r whatever
+# the metal; Universal's transmission sits in its dielectric, under the
+# metallic blend. R1 / R2 refraction alone, M1 / M2 metal alone (the
+# decomposition), X1 - X4 both. The red base is the metal's colour, the
+# refraction white (Glossy Color, shared inputs): the channels split them.
+# -g0 without the glossy layer (the refraction then reflects nothing of its
+# own, `refraction_reflection_enable` off); -TL with translucency 0.5, which
+# a refractive metal keeps out of the translucent-metal Mix and dimming.
+MR = {'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.2, 'Refraction Index': 1.5}
+MR_SPHERES = [
+    ('R1 refraction 0.3', {'Refraction Weight': 0.3}),
+    ('R2 refraction 0.7', {'Refraction Weight': 0.7}),
+    ('M1 metal 0.75', {'Metallic Weight': 0.75}),
+    ('M2 metal 0.3', {'Metallic Weight': 0.3}),
+    ('X1 metal 0.75 refraction 0.3', {'Metallic Weight': 0.75, 'Refraction Weight': 0.3}),
+    ('X2 metal 0.75 refraction 0.7', {'Metallic Weight': 0.75, 'Refraction Weight': 0.7}),
+    ('X3 metal 0.3 refraction 0.3', {'Metallic Weight': 0.3, 'Refraction Weight': 0.3}),
+    ('X4 metal 0.3 refraction 0.7', {'Metallic Weight': 0.3, 'Refraction Weight': 0.7}),
+]
+uber_spheres('Calib-MetalRefr', [0.45, 0.05, 0.04], MR, MR_SPHERES)
+uber_spheres('Calib-MetalRefr-g0', [0.45, 0.05, 0.04], {**MR, 'Glossy Layered Weight': 0.0}, MR_SPHERES)
+uber_spheres('Calib-MetalRefr-TL', [0.45, 0.05, 0.04], {**MR, 'Translucency Weight': 0.5, 'Translucency Color': [0.9, 0.6, 0.4]}, MR_SPHERES)
 # Volume scattering (#28) on a skin's volume (Victoria 8's: translucency
 # 0.9, Transmitted Color over 0.125, scattering over 0.015 cm): chromatic
 # SSS scatters −ln(SSS Color) per distance, mono SSS Amount per distance
