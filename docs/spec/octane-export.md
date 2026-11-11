@@ -1308,7 +1308,39 @@ leaves out, #15):
   channel's value); the glossy excess coating × (1 − w). Iray's metal is a
   coat at weight w inside a layer at weight w (DAZ passes w to both, its
   .mi export): w² metal + (1 − w) base. Universal's metal takes the
-  albedo's colour, so the scale has to be shared.
+  albedo's colour, so the scale has to be shared. The dual lobe's
+  `specular` takes the scale as the glossy layer's does.
+- **Diffuse-only factors under a flat metal** (#109): what only Iray's
+  diffuse loses — the head-on Oren-Nayar F(σ) (Diffuse Roughness, below)
+  and the translucent metal's dimming — is a factor d on the albedo,
+  which Universal's metal would take too. With the metal blend (m, k)
+  (M = m k metal, B = (1 − m) k base; PBRSkin: m = w, k = 1) and
+  S = M + B d: `metallic` M / S, albedo C d × S / d and the gloss × S / d,
+  so Universal holds M C metal, B d C diffuse and B gloss, as Iray's
+  layer stack (the metal over the diffuse). Scaling the albedo by d alone
+  dimmed the metal to d (0.78 at Diffuse Roughness 1). Not under a
+  metallic map: one albedo scale can't follow the map, and where it leaves
+  no metal the diffuse came out × S / d, so there the map's metal is
+  dimmed with the diffuse (provisional).
+- **Translucency on a metal** (not refractive; Universal's transmission
+  would swallow the metal, P8's 0.75 rendered 0.23): no transmission; the
+  diffuse × (1 − t). The base's diffuse is a `weighted_layer` at 1 − t
+  over the diffuse transmission (DAZ's MDL), whose light goes into the
+  volume under the metal and doesn't come back. Under a metallic map the
+  whole albedo × (1 − 0.35 t) instead (fitted on Calib-PBRSkin-MetalTL's
+  map spheres while the dimming hit the metal too: a grey map at 0.85
+  1.38 × Iray without it, 0.66 with all of t taken; with it 1.12 beside
+  the same map without translucency 1.07, a white map 1.01).
+
+  Why: Calib-PBRSkin-MetalTL (enhanced-final, sphere centres, Y), metal
+  0.75 at t 0.85 / 0.5 and metal 0.3 at 0.85: 1.02 / 1.03 / 1.13 × Iray
+  with the old 0.35 t dimming the metal too; with the metal kept and
+  0.35 t 1.11 / 1.08 / 1.17; with the metal kept and all of t taken
+  1.03 / 1.04 / 0.97 — the metal alone 1.05, so the fitted 0.35 had
+  stood in for the metal's missing light. Calib-PBRSkin's P8 (Gladio
+  armour, metal 0.75, t 0.85) 1.00 → 1.04 beside the opaque metal's 1.05. The Oren-Nayar part is derived
+  from the layer stack, not rendered (no calibration scene combines a
+  metal with Diffuse Roughness).
 
   Why: Calib-Map-Metal's red spheres at 0.25 / 0.5 / 0.75 went from 1.23
   / 1.38 / 1.39 to 1.12 / 1.16 / 1.22 × Iray (the full metal 1.19), the
@@ -1384,7 +1416,9 @@ leaves out, #15):
   metal, refraction or transmission on its one `roughness` pin (Glossy
   Layered Weight 0, no dual lobe, or the diffuse part of a weighted mix):
   `diffuseBrdf` 2 (Oren-Nayar) and `roughness` σ. Elsewhere Lambertian,
-  the albedo × F(σ), the head-on albedo of Iray's Oren-Nayar:
+  the albedo × F(σ) (under a flat metal its diffuse part only, see
+  "Diffuse-only factors under a flat metal"), the head-on albedo of
+  Iray's Oren-Nayar:
   F(σ) = π A = 1 / (1 + (1/2 − 2 / (3π)) σ) (0.874 at 0.5, 0.777 at 1).
   **Diffuse Overlay Roughness** σ₀: the overlay's share × F(σ₀); under
   Octane's Oren-Nayar, which stands in for Iray's at σ, × F(σ₀) / F(σ)

@@ -1500,14 +1500,16 @@ impl Ocs<'_> {
 
     /// Universal's (metallic, base scale) for a material's metal Metallic
     /// Weight w: `metal_mix`, or under a backscattering Mix the shares that
-    /// leave the Mix's sum at Iray's (`backscatter_shares`).
-    fn metal_mix(&self, mat: &Material, w: f32) -> (f32, f32) {
-        if self.in_backscatter_mix && !crate::iray::is_pbrskin(mat) {
+    /// leave the Mix's sum at Iray's (`backscatter_shares`), the diffuse
+    /// at `diffuse_only` of the albedo (`metal_over_diffuse`).
+    fn metal_mix(&self, mat: &Material, w: f32, diffuse_only: f32) -> (f32, f32) {
+        let (m, k) = if self.in_backscatter_mix && !crate::iray::is_pbrskin(mat) {
             let (_, m, k) = backscatter_shares(w, backscatter_weight(mat));
             (m, k)
         } else {
             metal_mix(mat, w)
-        }
+        };
+        metal_over_diffuse(m, k, diffuse_only)
     }
 
     /// Iray's backscattering (DAZ's MDL): a `weighted_layer` at
@@ -3130,12 +3132,20 @@ impl Ocs<'_> {
             (1.0, 1.0)
         };
         // On metal the translucency isn't transmitted (above), yet Iray dims
-        // the surface's non-metal part by it: light goes into the volume and
-        // only partly comes back. Calib-PBRSkin-MetalTL (PBRSkin metal × its
-        // translucency): without it metal 0.3 / a grey metallic map at
-        // translucency 0.85 rendered 1.32 / 1.38 × Iray, with all of the
-        // translucency's share taken 0.71 / 0.66, metal 0.75 0.53.
-        let dimmed = if metal && !refractive { METAL_TRANSLUCENCY_LOSS * translucency } else { 0.0 };
+        // the surface's non-metal part by it: the base's diffuse is a
+        // `weighted_layer` at 1 − Translucency Weight over the diffuse
+        // transmission (DAZ's MDL), whose light goes into the volume under
+        // the metal and doesn't come back. A flat metal keeps its own
+        // colour (`metal_over_diffuse`): Calib-PBRSkin-MetalTL's metal
+        // 0.75 at translucency 0.85 / 0.5 and metal 0.3 at 0.85 render 1.03
+        // / 1.04 / 0.97 × Iray, the metal alone 1.05 (#109). A metallic
+        // map can't take a per-texel albedo, so its metal is dimmed with the
+        // diffuse, by `METAL_MAP_TRANSLUCENCY_LOSS` × the translucency
+        // (fitted on that scene's map spheres while the dimming hit the
+        // metal too: a grey map at 0.85 rendered 1.38 × Iray without it,
+        // 0.66 with all of the translucency's share taken).
+        let metal_map = mat.image("Metallic Weight").is_some();
+        let dimmed = if !metal || refractive { 0.0 } else if metal_map { METAL_MAP_TRANSLUCENCY_LOSS * translucency } else { translucency };
         let diffuse_weight = (1.0 - refraction) * (1.0 - transmit) * (1.0 - dimmed) * diffuse_share;
 
         // Iray "Base Mixing" 1 (specular/glossiness) ignores Metallic Weight;
@@ -3168,27 +3178,6 @@ impl Ocs<'_> {
             (true, Some(_)) => (mat.base_color(), 1.0),
             (false, _) => ([1.0; 3], 1.0),
         };
-        // Base Mixing 1 with a coloured gloss: see `specular_diffuse_share`.
-        let share = if specular_mode && !mirror && weighted.is_none() { specular_diffuse_share(mat, gloss.min(1.0), gloss_color) } else { [1.0; 3] };
-        // Under a partial metal albedo and gloss scale (`metal_shares`).
-        let metal_w = if mirror || specular_mode || weighted.is_some() || !(metallic(mat) >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some()) {
-            0.0
-        } else {
-            metallic(mat)
-        };
-        let base_keep = self.metal_mix(mat, metal_w).1;
-        let share = share.map(|s| s * base_keep);
-        let tint = [0, 1, 2].map(|k| tint[k] * share[k]);
-        // The weighted blend scales the diffuse map (not a translucency
-        // map standing in for a missing one — the HS CB cap went grey).
-        let eye_albedo = if eye_volume {
-            match (mat.image("diffuse"), mat.image("Translucency Color")) {
-                (Some(d), Some(t)) => self.textures.blend(self.dirs, d, t, 1.0 - translucency, translucency),
-                _ => None,
-            }
-        } else {
-            None
-        };
         // Iray's diffuse is Oren-Nayar at Diffuse Roughness σ (DAZ's MDL).
         // Universal's Oren-Nayar (`diffuseBrdf` 2) takes the one roughness
         // pin the gloss, metal and transmission use too: only where none
@@ -3208,6 +3197,37 @@ impl Ocs<'_> {
         let oren_nayar = sigma > 0.0 && no_gloss && !mirror && !metal && refraction == 0.0 && transmit == 0.0;
         let base_flat = if oren_nayar { 1.0 } else { oren_nayar_flat(sigma) };
         let overlay_flat = oren_nayar_flat(diffuse_roughness(mat, true)) / if oren_nayar { oren_nayar_flat(sigma) } else { 1.0 };
+        // Base Mixing 1 with a coloured gloss: see `specular_diffuse_share`.
+        let share = if specular_mode && !mirror && weighted.is_none() { specular_diffuse_share(mat, gloss.min(1.0), gloss_color) } else { [1.0; 3] };
+        // Under a partial metal albedo and gloss scale (`metal_shares`).
+        let metal_w = if mirror || specular_mode || weighted.is_some() || !(metallic(mat) >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some()) {
+            0.0
+        } else {
+            metallic(mat)
+        };
+        // Universal's metal takes its colour from the albedo, which also
+        // carries what only Iray's diffuse loses: the head-on Oren-Nayar
+        // factor and the translucent metal's dimming. Iray's metal sits
+        // over them (`metallic_layered_base`, `pbr_skin.mdl`), so the
+        // shares are taken with the diffuse at that factor
+        // (`metal_over_diffuse`, #109). Not under a metallic map: one
+        // albedo scale can't follow it, and where the map leaves no metal
+        // the diffuse came out × S / d (a black texel 1.75 × at
+        // translucency 0.5), so the map's metal is dimmed with it.
+        let diffuse_only = if metal_map { 1.0 } else { base_flat * (1.0 - dimmed) };
+        let (metal_m, base_keep) = self.metal_mix(mat, metal_w, diffuse_only);
+        let share = share.map(|s| s * base_keep);
+        let tint = [0, 1, 2].map(|k| tint[k] * share[k]);
+        // The weighted blend scales the diffuse map (not a translucency
+        // map standing in for a missing one — the HS CB cap went grey).
+        let eye_albedo = if eye_volume {
+            match (mat.image("diffuse"), mat.image("Translucency Color")) {
+                (Some(d), Some(t)) => self.textures.blend(self.dirs, d, t, 1.0 - translucency, translucency),
+                _ => None,
+            }
+        } else {
+            None
+        };
         if mirror {
             self.rgb_pin(i, "albedo", gloss_color);
         } else if let Some(asset) = eye_albedo {
@@ -3336,9 +3356,10 @@ impl Ocs<'_> {
             // The dual lobe specular alone: its reflectivity as the glossy
             // layer's, × its weight; lobe 1's part of it here, lobe 2's the
             // coating below (or all of it, when a Top Coat or the glossy
-            // layer takes that).
-            let weight = if coat > 0.0 || glossy_coat { dl.share } else { dl.share * dl.lobe1 };
-            if weight < 1.0 || self.film.is_some() {
+            // layer takes that). Under a metal × its base share as the
+            // glossy layer's (`metal_over_diffuse`).
+            let weight = (if coat > 0.0 || glossy_coat { dl.share } else { dl.share * dl.lobe1 }) * base_keep;
+            if weight != 1.0 || self.film.is_some() {
                 self.rgb_pin(i, "specular", [weight; 3]);
             }
         }
@@ -3352,7 +3373,7 @@ impl Ocs<'_> {
         } else if mirror || (!specular_mode && (metallic >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some())) {
             // Iray's metal reflects at w² (`metal_shares`); a map squared
             // too, by twice its gamma (its 1 / k at the channel's value).
-            let m = self.metal_mix(mat, metallic).0;
+            let m = if mirror { 0.0 } else { metal_m };
             // Iray Uber's map is squared with its weight (twice its gamma);
             // PBRSkin's is read as is.
             let squared = !crate::iray::is_pbrskin(mat);
@@ -4926,9 +4947,33 @@ fn metal_shares(w: f32) -> (f32, f32) {
     (w * w / k, k)
 }
 
-/// The share of a translucent metal's non-metal diffuse its translucency
-/// takes, per unit of Translucency Weight: see `universal`.
-const METAL_TRANSLUCENCY_LOSS: f32 = 0.35;
+/// Universal's (metallic, albedo and specular scale) for a metal blend
+/// (m, k) — m k metal, (1 − m) k base — whose albedo also carries a factor
+/// d that belongs to the diffuse alone (Iray's head-on Oren-Nayar, the
+/// translucent metal's dimming). Iray's metal lies over the diffuse, so it
+/// keeps M = m k of the colour while the diffuse gets B d, B = (1 − m) k:
+/// with the albedo at C d × s, `metallic` m' and the gloss × s, Universal
+/// holds m' C d s metal, (1 − m') C d s diffuse and (1 − m') s gloss, which
+/// are M C, B d C and B for S = M + B d: m' = M / S, s = S / d. At d = 1
+/// it is (m, k); scaling the albedo by d alone dimmed the metal to d (as
+/// little as 0.78 at Diffuse Roughness 1, #109).
+fn metal_over_diffuse(m: f32, k: f32, d: f32) -> (f32, f32) {
+    if d >= 1.0 {
+        return (m, k);
+    }
+    let d = d.max(1e-3);
+    let (metal, base) = (m * k, (1.0 - m) * k);
+    let s = metal + base * d;
+    if s <= 0.0 {
+        return (m, k);
+    }
+    (metal / s, s / d)
+}
+
+/// The share of a translucent metal's albedo its translucency takes, per
+/// unit of Translucency Weight, under a metallic map (whose metal it dims
+/// too): see `universal`.
+const METAL_MAP_TRANSLUCENCY_LOSS: f32 = 0.35;
 
 /// Metallic Weight below this (without a map) is left out: see `universal`.
 const NEGLIGIBLE_METALLIC: f32 = 0.05;
@@ -6254,6 +6299,40 @@ mod tests {
             let want = 0.5 + 0.5 * k;
             assert!(albedo.iter().all(|v| (v - want).abs() < 1e-4), "σ₀ {sigma0}: {albedo:?} vs {want}");
         }
+    }
+
+    #[test]
+    fn diffuse_only_factors_leave_the_metal_its_colour() {
+        // Iray's w² metal + (1 − w) base with the base's diffuse × d:
+        // Universal's metal m' A, diffuse (1 − m') A, gloss (1 − m') s.
+        for (m, k) in [metal_shares(0.5), metal_shares(0.9), (0.75, 1.0), (0.3, 1.0)] {
+            for d in [1.0, oren_nayar_flat(1.0), 0.15] {
+                let (m2, s) = metal_over_diffuse(m, k, d);
+                let albedo = d * s;
+                assert!((m2 * albedo - m * k).abs() < 1e-5, "metal ({m}, {k}, {d})");
+                assert!(((1.0 - m2) * albedo - (1.0 - m) * k * d).abs() < 1e-5, "diffuse ({m}, {k}, {d})");
+                assert!(((1.0 - m2) * s - (1.0 - m) * k).abs() < 1e-4, "gloss ({m}, {k}, {d})");
+            }
+        }
+        assert_eq!(metal_over_diffuse(0.4, 0.8, 1.0), (0.4, 0.8));
+        // A rough metal (Diffuse Roughness 1, Uber, w 0.5): the albedo is
+        // C × (w² + (1 − w) F(1)), no longer C × k × F(1) (#109).
+        let dirs: Vec<PathBuf> = Vec::new();
+        let rough = mat(json!([
+            {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},
+            {"channel": {"id": "Diffuse Roughness", "current_value": 1.0}},
+            {"channel": {"id": "Metallic Weight", "current_value": 0.5}},
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 1.0}},
+        ]));
+        let (x, _) = material_inputs(&[("RoughMetal".into(), rough, 1.0)], &dirs, HashMap::new(), 9400, SkinShader::None);
+        let value = |name: &str| {
+            let p = &x[x.find(&format!("<pin name='{name}'>")).unwrap()..];
+            let v = &p[p.find("<attr name='value'").unwrap()..];
+            v[v.find('>').unwrap() + 1..v.find("</attr>").unwrap()].split(' ').map(|v| v.parse::<f32>().unwrap()).collect::<Vec<_>>()
+        };
+        let s = 0.25 + 0.5 * oren_nayar_flat(1.0);
+        assert!(value("albedo").iter().all(|v| (v - s).abs() < 1e-4), "{x}");
+        assert!((value("metallic")[0] - 0.25 / s).abs() < 1e-4, "{x}");
     }
 
     #[test]
