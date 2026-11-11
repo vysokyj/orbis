@@ -956,8 +956,8 @@ leaves out, #15):
   stack at once — the dual lobe over the diffuse (`dl_diffuse_bsdf`), the
   glossy layer's custom curve over that (`metallic_layered_base`), each
   with its own roughness; DAZ hands both over (Calib-DualLobeGlossy's
-  `.mi`). On a plain dielectric (Base Mixing 0, no refraction, no metal)
-  the export keeps both, in Iray's order: the dual lobe on `specular` as
+  `.mi`). On a plain dielectric (Base Mixing 0, or Base Mixing 2 with
+  translucency — below; no refraction, no metal) the export keeps both, in Iray's order: the dual lobe on `specular` as
   under a Top Coat (the full share, both lobes at the ratio's roughness
   blend, IOR above r 0.5), the gloss as the `coating` — Glossy Color
   (map) × weight (map) × min(2r, 1), `coatingRoughness` the Phong pin of
@@ -968,9 +968,16 @@ leaves out, #15):
   (`layered_coat_material`), so the coating stays the gloss's. On OpenPBR
   skin the same (the gloss's weight and F0's IOR per texel on the coat,
   undarkened) without a Top Coat; with one (OpenPBR has one coat) and
-  elsewhere (metal, refraction, Base Mixing 1, Base Mixing 2 with
-  translucency) the gloss alone, as before; weighted mixing without
-  translucency keeps it in the Mix's diffuse part (#121, below). Wherever the gloss is on `specular`, the roughness is the glossy
+  elsewhere (metal, refraction, Base Mixing 1) the gloss alone, as
+  before; weighted mixing without translucency keeps it in the Mix's
+  diffuse part (#121, below). A translucent weighted material skips that
+  Mix (mesh hair's brightened diffuse map, `weighted_mix`), yet DAZ's
+  `normalized_base` keeps the dual lobe in `dl_diffuse_bsdf` beside the
+  gloss there too: it takes this layout, the gloss's weight Glossy
+  Weight (`gloss_weight_channel`) — the gloss alone on `specular` had
+  dropped the lobe (#128). Unverified against Iray until the
+  Calib-DualLobeWeightedTL references are in (no `glossy_reflectivity`
+  reaches Iray under Base Mixing 2, its `.mi`: #132). Wherever the gloss is on `specular`, the roughness is the glossy
   layer's (`glossy_roughness_source`), not lobe 1's — the gloss took the
   dual lobe's roughness until #106 (a weighted mix's gloss too). Why:
   dropping the dual lobe left 15 of 348 installed dual-lobe skin
@@ -1325,7 +1332,9 @@ leaves out, #15):
   — Calib-Mixing (Fetroom's surfaces): weighted grey 0.63 → 1.05, ceiling
   0.85 → 1.06, door jamb (black, 0.8 coat) 1.09 once the coat covered the
   metal too (0.55 without). With translucency (mesh hair) the diffuse map
-  is brightened by `weighted_mix` as before. Base Mixing 1 with the wall
+  is brightened by `weighted_mix` as before, the gloss on `specular` — with
+  a dual lobe the dual lobe there and the gloss the `coating` (#128, Glossy
+  layer over a dual lobe). Base Mixing 1 with the wall
   map as Diffuse and Glossy Color renders like a flat one (1.12 – 1.14).
   **A dual lobe under weighted mixing** (#121) belongs to `material2`:
   DAZ's `normalized_base` mixes the diffuse with the dual lobe over it

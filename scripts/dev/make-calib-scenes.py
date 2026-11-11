@@ -57,6 +57,9 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-DualLobeWeighted (#121): the dual lobe under weighted mixing
   (Base Mixing 2), each part alone and both (shares, weights below 1,
   Top Coat, reflectivity, dual lobe weight).
+- Calib-DualLobeWeightedTL (#128): the same with translucency, which skips
+  the weighted Mix (gloss / dual lobe alone and both, translucency 1, Top
+  Coat, weights below 1, no translucency, Glossy Reflectivity 0).
 - Calib-DOF-*: depth of field, focus at 1.5 m with the spheres at ~4.6 m,
   f/4, f/8, f/16 — to check Iray's 10x aperture.
 
@@ -555,6 +558,21 @@ uber_spheres('Calib-DualLobeWeighted', [0.45, 0.05, 0.04], DLW, [
     ('W6 both top coat', {'Top Coat Weight': 1.0, 'Top Coat Roughness': 0.1}),
     ('W7 both lobe refl 1', {'Dual Lobe Specular Reflectivity': 1.0}),
     ('W8 both dual lobe w0.5', {'Dual Lobe Specular Weight': 0.5, 'Dual Lobe Specular Ratio': 1.0}),
+])
+# The same with translucency (#128): weighted mixing then skips the Mix
+# (mesh hair's path), the dual lobe on `specular`, the gloss the coating.
+# T7 without translucency pairs with Calib-DualLobeWeighted's W3; T8's
+# Glossy Reflectivity 0 asks whether normalized_base's plain glossy reads it.
+DLWT = {**DLW, 'Translucency Weight': 0.5, 'Translucency Color': [0.9, 0.6, 0.4]}
+uber_spheres('Calib-DualLobeWeightedTL', [0.45, 0.05, 0.04], DLWT, [
+    ('T1 gloss only', {'Dual Lobe Specular Weight': 0.0}),
+    ('T2 dual lobe only', {'Glossy Weight': 0.0}),
+    ('T3 both', {}),
+    ('T4 both translucency 1', {'Translucency Weight': 1.0}),
+    ('T5 both top coat', {'Top Coat Weight': 1.0, 'Top Coat Roughness': 0.1}),
+    ('T6 both diffuse 0.5 gloss 0.3', {'Diffuse Weight': 0.5, 'Glossy Weight': 0.3}),
+    ('T7 both no translucency', {'Translucency Weight': 0.0}),
+    ('T8 both gloss refl 0', {'Glossy Reflectivity': 0.0}),
 ])
 # Volume scattering (#28) on a skin's volume (Victoria 8's: translucency
 # 0.9, Transmitted Color over 0.125, scattering over 0.015 cm): chromatic
