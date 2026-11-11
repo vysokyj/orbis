@@ -1345,8 +1345,10 @@ leaves out, #15):
   under 1 `amount` = 1 − Diffuse Weight and the metal's colour (albedo,
   edge tint) × Glossy Weight / (1 − Diffuse Weight), the diffuse part and
   the coat untouched (`WeightedGloss`, #126): Diffuse 0.5 / Glossy 0.3
-  had rendered 0.625 D + 0.375 G for Iray's 0.5 D + 0.3 G. Unverified
-  against Iray until Calib-DualLobeWeighted's W5 reference is in. Iray blends a full-strength glossy reflection by that share: as
+  had rendered 0.625 D + 0.375 G for Iray's 0.5 D + 0.3 G. Confirmed
+  against Iray: Calib-DualLobeWeighted's W5 (weights summing to 0.8) is
+  1.09 Octane / Iray, with W3 (1.08, the same parts summing past 1) and
+  W1 (1.07) at their positions; W5 / W3 0.86 in both renderers. Iray blends a full-strength glossy reflection by that share: as
   a metallic share of one Universal the reflection took the diffuse colour
   — Calib-Mixing (Fetroom's surfaces): weighted grey 0.63 → 1.05, ceiling
   0.85 → 1.06, door jamb (black, 0.8 coat) 1.09 once the coat covered the

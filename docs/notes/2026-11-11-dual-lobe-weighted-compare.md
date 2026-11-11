@@ -48,3 +48,27 @@ to its own resume.
 ## Outcome
 The mapping holds (spec, "A dual lobe under weighted mixing"): #121
 closed.
+
+## #126 resume: W5 against W3 and W1
+The same Octane render (19:56, after 963e66d; no export change since) and
+reference, measured again independently: mean linear luminance (gamma 2.2
+decode) over each sphere's upper disc r < 0.9 R, sphere centres read off
+the render (y 562, R 44 px), centre r < 0.45 R, rim 0.65 - 0.9 R.
+
+| sphere | Iray | Octane / Iray | centre | rim | G / R Iray / Octane |
+|---|---|---|---|---|---|
+| W1 gloss only | 0.217 | 1.072 | 1.055 | 1.067 | 0.856 / 0.853 |
+| W3 both (D 1, G 0.5) | 0.231 | 1.078 | 1.057 | 1.083 | 0.906 / 0.906 |
+| W5 both (D 0.5, G 0.3) | 0.198 | 1.087 | 1.064 | 1.092 | 0.959 / 0.960 |
+
+(The absolute values sit below the table above: a smaller disc, the
+same ratios within 0.02.) W5 / W3: Iray 0.857, Octane 0.864.
+
+#126's Resume asked: W5's ratio within W3's and W1's -> close; still
+~1.25 x -> the rest is not black. W5 is 0.009 above W3, inside the
+scene's 1.04 - 1.11 band and the 400-sample Octane noise, centre and rim
+alike, colour equal. The export before d093523 rendered W5 1 / 0.78 x
+brighter (the issue's own before / after Octane ratio, measured before
+900080c / 8efab8b), far outside the band: that is what the rule removed. `normalized_mix` leaves
+weights summing below 1 unscaled, as the MDL says; nothing fitted. #126
+closed.
