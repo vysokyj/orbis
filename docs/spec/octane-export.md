@@ -995,8 +995,11 @@ leaves out, #15):
   layer's (`glossy_roughness_source`), not lobe 1's — the gloss took the
   dual lobe's roughness until #106 (a weighted mix's gloss too). Why:
   dropping the dual lobe left 15 of 348 installed dual-lobe skin
-  materials without it (one also with a Top Coat). Unverified against
-  Iray until the Calib-DualLobeGlossy references are in.
+  materials without it (one also with a Top Coat). Against Iray
+  (Calib-DualLobeGlossy) both layers together come out 1.17 – 1.27 ×
+  (Top Coat 1.39, dual lobe W 0.5 1.48) where each alone is 1.12; Octane's
+  coating takes only 2 % of the layers under it. Open until the per-sphere
+  Iray decomposition (-dl / -gloss / -bare) says what Iray's stack takes.
 - **Roughness** by Base Mixing: 0 and 2 → `Glossy Roughness`, 1 →
   1 − `Glossiness` (both channels are always saved; Calib-Materials:
   Glossiness 0.8 beside Glossy Roughness 0.5 rendered Iray's sharp

@@ -533,7 +533,7 @@ uber_spheres('Calib-DualLobe2', [0.45, 0.05, 0.04], DL, [
 # Layered material), the dual lobe at half weight.
 DLG = {**DL, 'Dual Lobe Specular Ratio': 0.5, 'Specular Lobe 2 Roughness': 0.1,
        'Glossy Layered Weight': 1.0, 'Glossy Roughness': 0.5, 'Glossy Reflectivity': 0.5}
-uber_spheres('Calib-DualLobeGlossy', [0.45, 0.05, 0.04], DLG, [
+DLG_SPHERES = [
     ('G1 gloss only', {'Dual Lobe Specular Weight': 0.0}),
     ('G2 dual lobe only', {'Glossy Layered Weight': 0.0}),
     ('G3 both', {}),
@@ -542,7 +542,18 @@ uber_spheres('Calib-DualLobeGlossy', [0.45, 0.05, 0.04], DLG, [
     ('G6 both gloss refl 1', {'Glossy Reflectivity': 1.0}),
     ('G7 both top coat', {'Top Coat Weight': 1.0, 'Top Coat Roughness': 0.1}),
     ('G8 both dual lobe w0.5', {'Dual Lobe Specular Weight': 0.5, 'Dual Lobe Specular Ratio': 1.0}),
-])
+]
+uber_spheres('Calib-DualLobeGlossy', [0.45, 0.05, 0.04], DLG, DLG_SPHERES)
+# Its decomposition per sphere (#106): each sphere sees its own light, so
+# G1 / G2 are no baseline for G3 - G8. The same eight spheres with the
+# gloss off (-dl: the dual lobe alone, G7 keeps its Top Coat), the dual
+# lobe off (-gloss) and everything off (-bare: the diffuse) split each
+# sphere into its layers where it stands.
+for suffix, off in [('dl', {'Glossy Layered Weight': 0.0}),
+                    ('gloss', {'Dual Lobe Specular Weight': 0.0}),
+                    ('bare', {'Glossy Layered Weight': 0.0, 'Dual Lobe Specular Weight': 0.0, 'Top Coat Weight': 0.0})]:
+    uber_spheres(f'Calib-DualLobeGlossy-{suffix}', [0.45, 0.05, 0.04], DLG,
+                 [(label, {**over, **off}) for label, over in DLG_SPHERES])
 # The dual lobe under weighted mixing (#121): DAZ's normalized_base mixes
 # the diffuse with its dual lobe at Diffuse Weight against the gloss at
 # Glossy Weight. W1 / W2 each part alone (the decomposition: W2 has no
