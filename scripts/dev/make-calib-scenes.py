@@ -49,6 +49,9 @@ a plane under an HDRI) that each change one thing, written beside it.
   shown - which ones DAZ reads otherwise (#52 follow-up); -Visible2(-Shown)
   the gloss, backscatter and coat groups in every mixing mode; -Visible3
   what lets hidden gloss anisotropy through (Glossy Roughness > 0).
+- Calib-Mi-FullRefl, -FullRefl-Shown (#120, .mi only): a refracting
+  sphere with shared glossy inputs per mixing mode, Abbe, thin wall,
+  layered weight - when DAZ sets full_refraction_reflection_enable.
 - Calib-DualLobeGlossy (#106): the glossy layer over the dual lobe, each
   alone and both together (weight, roughness, reflectivity, Top Coat).
 - Calib-DOF-*: depth of field, focus at 1.5 m with the spheres at ~4.6 m,
@@ -1248,6 +1251,39 @@ uber_spheres('Calib-Mi-Visible3', [0.7, 0.5, 0.4], {}, [
     ('Y7 mode 0 roughness 0', {**VIS_V3, 'Base Mixing': 0}),
     ('Y8 mode 2 roughness 0', {**VIS_V3, 'Base Mixing': 2, 'Glossy Weight': 0.6}),
 ])
+
+# Full refraction reflection (#120): Calib-Strand's Morgan nocoat (glossiness
+# mode, shared inputs, Abbe 7.5, thin walled) got
+# full_refraction_reflection_enable false from DAZ. A closed refracting
+# sphere with shared glossy inputs in glossiness mode, one change per
+# sphere; R8 is Morgan's channels in mode 0. -Shown: the same, every
+# channel shown.
+FR = {'Refraction Weight': 0.5, 'Refraction Index': 1.5, 'Glossy Layered Weight': 1.0, 'Glossy Roughness': 0.3, 'Glossiness': 0.6,
+      'Share Glossy Inputs': True, 'Thin Walled': False, 'Abbe': 0.0}
+FR_MORGAN = {'Base Mixing': 1, 'Glossy Layered Weight': 0.9795402, 'Share Glossy Inputs': True, 'Glossy Color': [0.9411765, 0.9137255, 0.8196079],
+             'Glossy Color Effect': 2, 'Glossy Specular': [0.7215686, 0.7019608, 0.6156863], 'Glossiness': 0.8382353, 'Glossy Anisotropy': 0.7352941,
+             'Glossy Anisotropy Rotations': 0.25, 'Translucency Weight': 0.0591133, 'Base Color Effect': 2,
+             'Translucency Color': [0.8039216, 0.7647059, 0.6862745], 'Refraction Index': 1.794118, 'Refraction Weight': 0.1061947,
+             'Abbe': 7.522124, 'Thin Walled': True}
+uber_spheres('Calib-Mi-FullRefl', [0.7, 0.5, 0.4], FR, [
+    ('R1 mode 0', {'Base Mixing': 0}),
+    ('R2 mode 1', {'Base Mixing': 1}),
+    ('R3 mode 2', {'Base Mixing': 2, 'Glossy Weight': 0.5}),
+    ('R4 mode 1 abbe 7.5', {'Base Mixing': 1, 'Abbe': 7.5}),
+    ('R5 mode 1 thin walled', {'Base Mixing': 1, 'Thin Walled': True}),
+    ('R6 mode 1 layered weight 0.5', {'Base Mixing': 1, 'Glossy Layered Weight': 0.5}),
+    ('R7 mode 1 Morgan', FR_MORGAN),
+    ('R8 mode 0 Morgan', {**FR_MORGAN, 'Base Mixing': 0}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for m in d['material_library']:
+        for e in m.get('extra', []):
+            for c in e.get('channels', []) or []:
+                c['channel'].pop('visible', None)
+    p = os.path.join(out_dir, 'Calib-Mi-FullRefl-Shown.duf')
+    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    print(p)
 
 # --- Top Coat Bump (#61): DAZ's MDL gives the coat its own normal
 # (`calc_mix_layer_normal`): the Top Coat Bump (height or normal map, by Top

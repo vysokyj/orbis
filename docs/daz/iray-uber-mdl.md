@@ -45,7 +45,13 @@ Found beyond it:
 - **Refraction** without gloss (Glossy Layered Weight 0) doesn't reflect
   (`refraction_reflection_enable` false); otherwise DAZ asks for the full
   Fresnel reflection, except with Share Glossy Inputs off, which switches to
-  the `iray_uber` entry with the refraction's own colour and roughness.
+  the `iray_uber` entry with the refraction's own colour and roughness, in
+  Weighted mixing, or under a partial glossy layer: with Refraction Weight
+  > 0 and Glossy Layered Weight < 1 `full_refraction_reflection_enable` is
+  false in Base Mixing 0 and 1 alike, whatever Abbe or Thin Walled, and the
+  MDL weights the refraction's reflection by the layered weight instead of 1
+  (Calib-Mi-FullRefl, -Shown; Calib-Strand C5, #120). Without refraction the
+  flag stays on at any layered weight.
 - **Volume** (transmitted colour and distance, scattering distance,
   direction) is passed only inside a closed surface that lets light in
   (Refraction, Translucency or SSS Amount > 0, not Thin Walled);

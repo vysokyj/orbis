@@ -302,11 +302,16 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     // The refraction reflects through the glossy layer: without gloss it
     // doesn't reflect at all; otherwise (and without refraction) DAZ asks
     // for the full Fresnel reflection, unless it splits refraction from
-    // gloss (Share Glossy Inputs off).
+    // gloss (Share Glossy Inputs off) or the glossy layer is partial: a
+    // refracting material with Glossy Layered Weight below 1 gets the flag
+    // off, so the MDL weights the refraction's reflection by that weight
+    // instead of 1 - in every mixing mode, whatever Abbe or thin wall
+    // (Calib-Mi-FullRefl R6-R8, Calib-Strand C5, #120).
     let share = ch.bool("Share Glossy Inputs", true);
     let reflects = !(refraction > 0.0 && weight <= 0.0);
+    let full_layer = refraction <= 0.0 || weight >= 1.0;
     out.insert("refraction_reflection_enable", Arg::Bool(reflects));
-    out.insert("full_refraction_reflection_enable", Arg::Bool(mixing != 2 && reflects && share));
+    out.insert("full_refraction_reflection_enable", Arg::Bool(mixing != 2 && reflects && share && full_layer));
 
     // Share Glossy Inputs off: DAZ switches to `iray_uber` (`uber_entry`),
     // which takes the refraction's and backscattering's own colour and

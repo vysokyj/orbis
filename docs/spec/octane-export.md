@@ -1538,7 +1538,10 @@ leaves out, #15):
   colour and roughness while **Share Glossy Inputs** is on (the default),
   its own Refraction Color / Roughness (Glossiness in Base Mixing 1 / 2)
   when off: shared, a green Refraction Color and roughness 0.3 changed
-  nothing in Iray. A mostly refractive surface (weight ≥ 0.5) with its own
+  nothing in Iray. Its reflection is the glossy layer's: under a partial
+  layer (Glossy Layered Weight < 1) DAZ weights it by that weight
+  (`full_refraction_reflection_enable` off, #120), as Universal's specular
+  already does (× the glossy weight). A mostly refractive surface (weight ≥ 0.5) with its own
   roughness gets it on Universal's one `roughness`, squared as usual.
   **Rough glass** (refraction ≥ 0.5, not thin-walled; shared or own
   roughness) → `brdf` 1 (Beckmann) at the **Phong pin √(r / √(1 + r²))**
