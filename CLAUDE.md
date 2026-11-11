@@ -20,7 +20,7 @@ references, lab notes) is a **project skill** in `.claude/skills/` - use it
 instead of remembering the commands: `calib-loop`, `ship-fix`, `lab-note`,
 `iray-refs`, `demo-scene`, `iray-queue`, `mi-fixture`, `octane-probe`, `daz-script-dev`,
 `docs-first`, `progress`, `issue-loop`. Subagents in `.claude/agents/` (`calib-analyst`,
-`spec-guard`, `doc-researcher`); the
+`spec-guard`, `doc-researcher`, `issue-worker`); the
 ask-first rules below are kept by Claude itself (no hooks). The scripts are in `scripts/dev/` (each has its usage
 in its header). The repo is location-independent: scripts find each other
 via their own path; keep it that way (no
@@ -94,7 +94,8 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   working through issues unattended, headless DAZ and Octane renders /
   probes start without the question above (the render lock, "hands off
   when the user works in an app" and "leave a failed Octane open" still
-  hold). An issue that needs Iray is not a call to the user: prepare its
+  hold). Each issue is worked by the `issue-worker` agent (Opus), one at
+  a time. An issue that needs Iray is not a call to the user: prepare its
   scenes, write the batch into the issue (`## Iray batch`), label it
   `needs-iray` and take the next issue. The user's "server runs" queues
   every parked batch at once.

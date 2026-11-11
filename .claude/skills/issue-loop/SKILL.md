@@ -14,25 +14,28 @@ The user's rule (2026-11-11): don't call them for an Iray run per task. Work goe
 - Octane failed -> leave Octane X open (#50), don't retry; park the issue (below, `question`) and go on with issues that need no Octane. Small `Calib-*` scenes or half resolution only.
 
 ## One iteration
-One issue, strictly one at a time (no parallel sessions or subagents working on other issues).
+The session that runs the loop only orchestrates; the work on an issue is done by the **`issue-worker` agent (Opus)**, so each issue starts with a clean context. One worker at a time, never two (parallel sessions fought over sources and Octane, #74).
 
 1. `git pull --rebase`; `gh issue list -L 100 --json number,title,labels`.
 2. **Pick** (issue numbers given as arguments win, in that order):
-   1. an issue whose `## Iray batch` comment is answered by a later `Iray references in` comment (label gone) - resume it from its "Resume" lines;
+   1. an issue whose `## Iray batch` comment is answered by a later `Iray references in` comment (label gone) - a resume;
    2. `bug` issues, oldest first;
    3. the rest, oldest first.
    Skip issues labelled `needs-iray` or `question`, and what the project rules hold back: #57 / #19 (PBRSkin: no constant tuning), #3 (signing needs the user), anything that needs private or store content in git.
-3. **Work it** with the usual skills: `docs-first` and `mi-fixture` before any render, decompose before fitting, `calib-loop` for Octane, `lab-note` for a calibration session.
-4. **End the iteration in exactly one of these states:**
-   - **Done**: `ship-fix` (tests, spec, commit `Closes #N`, push, `scripts/install.sh` if the export changed).
-   - **Needs Iray**: park it (next section).
-   - **Needs the user** (a decision, missing knowledge, a failed Octane, content we may not use): comment what was found and the one question, `gh issue edit N --add-label question`. Commit what is worth keeping (`refs #N`).
+3. **Start the worker**: Agent tool, `subagent_type: issue-worker`, prompt = the issue number and title, "resume" if it is one, and what earlier workers reported that concerns it. Wait for its report; don't work on anything that touches the sources or renders meanwhile.
+4. **Check its end state** - the report is not proof. It must be exactly one of:
+   - **Done**: the issue is closed, the commit is on `origin/master`, `cargo test` passes, `scripts/install.sh` ran if the export changed.
+   - **Needs Iray**: parked as in the next section (scenes in git, the comment, the label).
+   - **Needs the user** (a decision, missing knowledge, a failed Octane, content we may not use): a comment with what was found and the one question, label `question`; what is worth keeping committed (`refs #N`).
+   None of them (the worker died, left a dirty tree or failing tests): repair it here or park the issue with `question`; never start the next worker on a broken tree.
 5. `scripts/dev/clean-cache.sh` if a compare loop ran. Next iteration.
+
+What the worker does in between: the usual skills - `docs-first` and `mi-fixture` before any render, decompose before fitting, `calib-loop` for Octane, `lab-note` for a calibration session, `ship-fix` to finish.
 
 **Stop the loop** when nothing is left to pick. Final message (and the `notify` skill, if present): what closed, what waits on a question, and the parked Iray batch as one list - issues, scene count, ETA from `status.py`'s s/scene, DAZ restarts needed.
 
 ## Parking an issue that needs Iray
-Do everything that doesn't need the server first, so the resume is only a compare:
+The worker's job. Do everything that doesn't need the server first, so the resume is only a compare:
 
 1. Generate the scenes (`make-*.py`, `daz-build-*.dsa`; DAZ built-ins / primitives / free DAZ add-ons only for `calib/scenes`). Include the variants the decomposition will ask for (w0, tcwhite, dwhite, gloss off...) and what will probably be needed next - a second round costs the user another server start.
 2. Check each scene: it opens, `python3 scripts/dev/duf_camera.py --fix` (a scene without `current_camera` is refused, #97), list the NVIDIA presets it uses (#94).
@@ -57,7 +60,7 @@ Do everything that doesn't need the server first, so the resume is only a compar
    Paths relative to the repo; a private scene by its name only (never its content). A newer `## Iray batch` comment replaces an older one.
 
 ## The user says the server runs ("server bezi", "pust Iray davku")
-The comments are the announcement: their go-ahead covers **every batch parked under `needs-iray` at that moment**, nothing else.
+The orchestrating session's job, never a worker's. The comments are the announcement: their go-ahead covers **every batch parked under `needs-iray` at that moment**, nothing else.
 
 1. `gh issue list --label needs-iray --json number,title`; read each issue's last `## Iray batch` comment.
 2. Merge into one ordered list (issue order, references before variants; identical scene + samples once). Check NVIDIA preset repeats across the whole batch and against what the running queue DAZ already rendered: a repeat needs a queue-side DAZ restart - say where to split **before** queueing.
