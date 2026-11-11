@@ -55,6 +55,14 @@ VARIANTS = {
     'gloss0nb': {'Dual Lobe Specular Weight': 0.0, 'Top Coat Weight': 0.0, 'Bump Strength': 0.0},
     'dlflatnn': {'Dual Lobe Specular Reflectivity': 0.5, 'Top Coat Weight': 0.0, 'Normal Map': 0.0},
     'gloss0nn': {'Dual Lobe Specular Weight': 0.0, 'Top Coat Weight': 0.0, 'Normal Map': 0.0},
+    # A dual lobe under the skin's glossy layer (#106; the Genesis 8 base
+    # skin has the gloss, no dual lobe): against coat0 (the gloss alone),
+    # without and with its Top Coat (OpenPBR has one coat: the gloss alone
+    # there).
+    'dlgloss': {'Dual Lobe Specular Weight': 1.0, 'Dual Lobe Specular Reflectivity': 0.5, 'Specular Lobe 1 Roughness': 0.4,
+                'Specular Lobe 2 Roughness': 0.2, 'Dual Lobe Specular Ratio': 0.5, 'Top Coat Weight': 0.0},
+    'dlglosstc': {'Dual Lobe Specular Weight': 1.0, 'Dual Lobe Specular Reflectivity': 0.5, 'Specular Lobe 1 Roughness': 0.4,
+                  'Specular Lobe 2 Roughness': 0.2, 'Dual Lobe Specular Ratio': 0.5},
 }
 
 

@@ -935,6 +935,29 @@ leaves out, #15):
   Iray's at correlation 0.93 – 0.999 (on 2 · r2² and the GGX curve 1.1 –
   2.4, 0.55 – 0.99). On a skin the ratio moves little: Victoria's forehead
   0.92 × with all of it on lobe 2, 1.00 on lobe 1 (Iray).
+- **Glossy layer over a dual lobe** (#106): DAZ's MDL has both in the
+  stack at once — the dual lobe over the diffuse (`dl_diffuse_bsdf`), the
+  glossy layer's custom curve over that (`metallic_layered_base`), each
+  with its own roughness; DAZ hands both over (Calib-DualLobeGlossy's
+  `.mi`). On a plain dielectric (Base Mixing 0, no refraction, no metal)
+  the export keeps both, in Iray's order: the dual lobe on `specular` as
+  under a Top Coat (the full share, both lobes at the ratio's roughness
+  blend, IOR above r 0.5), the gloss as the `coating` — Glossy Color
+  (map) × weight (map) × min(2r, 1), `coatingRoughness` the Phong pin of
+  the glossy layer's own roughness (map included), `coatingIor` from F0 =
+  0.08 r above r 0.5 (no room for the excess coating), the base's bump /
+  normal on the coating's pins; no anisotropy (the coating has none). A
+  Top Coat over both moves into a Layered material's Specular Layer
+  (`layered_coat_material`), so the coating stays the gloss's. On OpenPBR
+  skin the same (the gloss's weight and F0's IOR per texel on the coat,
+  undarkened) without a Top Coat; with one (OpenPBR has one coat) and
+  elsewhere (metal, refraction, Base Mixing 1 / 2) the gloss alone, as
+  before. Wherever the gloss is on `specular`, the roughness is the glossy
+  layer's (`glossy_roughness_source`), not lobe 1's — the gloss took the
+  dual lobe's roughness until #106 (a weighted mix's gloss too). Why:
+  dropping the dual lobe left 15 of 348 installed dual-lobe skin
+  materials without it (one also with a Top Coat). Unverified against
+  Iray until the Calib-DualLobeGlossy references are in.
 - **Roughness** by Base Mixing: 0 and 2 → `Glossy Roughness`, 1 →
   1 − `Glossiness` (both channels are always saved; Calib-Materials:
   Glossiness 0.8 beside Glossy Roughness 0.5 rendered Iray's sharp
@@ -1084,6 +1107,8 @@ leaves out, #15):
   Calib-Aniso2's rotated K5 1.21; as a layer 1.16 / 1.08 with Iray's
   streaks. Modes 2 / 3 differ from 0 only in the IOR (no reference of
   them anisotropic). The weighted coat (mode 1) keeps its own metal node.
+  A coat over a glossy layer over a dual lobe takes the same Layered
+  material, isotropic or not (#106, above).
   **On strand hair** (an Uber material on `BasisCurves`) the rotation
   turns a quarter more, 1 − (rotation + 0.25), gloss and coat alike:
   DAZ hands Iray tessellated strands (Line Tessellation sides 2 / 3) as

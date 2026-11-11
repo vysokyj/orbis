@@ -337,6 +337,12 @@ impl Material {
                 return (Some("Specular Lobe 1 Roughness"), r, false);
             }
         }
+        self.glossy_roughness_source()
+    }
+
+    /// [`roughness_source`] of the glossy layer itself, the dual lobe's
+    /// left aside: Iray has both in its stack at once (#106).
+    pub fn glossy_roughness_source(&self) -> (Option<&'static str>, f32, bool) {
         // Base Mixing 1 (specular / glossiness) takes its gloss from
         // Glossiness, 0 (metallicity / roughness) and 2 (weighted) from
         // Glossy Roughness — both channels are always saved (DAZ's .mi
