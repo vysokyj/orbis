@@ -218,7 +218,10 @@ impl SceneEnvironment {
 }
 
 /// Where Iray puts its ground, meters: `Ground Origin Y` in Manual mode,
-/// else (Auto) the lowest point of the scene's geometry — 0 for an empty one.
+/// else (Auto) the lowest point of the scene's visible geometry, strands
+/// included (`crate::iray::DomeSetup::ground_y`; hidden nodes are not in
+/// `meshes`) — 0 for an empty one. DAZ's further 0.001 cm drop is left to
+/// the shadow catcher's own `GROUND_DROP`.
 pub(super) fn ground_height(env: &SceneEnvironment, meshes: &[Mesh]) -> f64 {
     if let Some(y) = env.ground_origin_y {
         return y * f64::from(CM);
@@ -266,7 +269,7 @@ pub(super) fn scene_environment(lib: &mut Library) -> Option<SceneEnvironment> {
             orientation_deg: ["X", "Y", "Z"].map(|a| num(&format!("Dome Orientation {a}")).unwrap_or(0.0)),
             scene_only: num("Environment Mode") == Some(3.0),
             ground_shadow: (setup.ground && num("Environment Mode") != Some(3.0)).then_some(setup.ground_shadow),
-            ground_origin_y: (num("Ground Position Mode") == Some(1.0)).then_some(setup.ground_y),
+            ground_origin_y: setup.ground_origin_y,
             draw_dome: ch.get("Draw Dome").and_then(Value::as_bool).unwrap_or(true),
             scene_lights: !matches!(num("Environment Mode").map(|m| m as i64), Some(1 | 2)),
             sun_sky: match &iray {

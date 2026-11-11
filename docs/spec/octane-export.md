@@ -2930,7 +2930,9 @@ scene with a light.
 
 Iray `Draw Ground` (with an HDRI, not scene-only) → infinite plane (110) with
 a shadow catcher (145) in a placement 1 mm below Iray's ground height
-(`GROUND_DROP`; Manual origin or the scene's lowest point), in the geometry
+(`GROUND_DROP`; Manual: `Ground Origin Y`; Auto: the lowest point of the
+visible geometry, strands included, which DAZ hands Iray 0.001 cm lower -
+`iray::DomeSetup::ground_y`, Calib-Env-Mi-GroundAuto-Low / -LowHidden, #119), in the geometry
 group. Why 1 mm under: exactly at a floor's height it z-fought (washed-out
 planks, hard shadows); 1 mm under the floor covers it and outdoors the
 shadow stays. Opacity = **0.89** × `Ground Shadow Intensity`

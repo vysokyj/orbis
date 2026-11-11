@@ -1334,8 +1334,10 @@ pub struct DomeSetup {
     pub orientation: [f64; 9],
     pub tint: [f64; 3],
     pub ground: bool,
-    /// The ground's height (cm) in Manual position mode, else 0.
-    pub ground_y: f64,
+    /// The ground's height (cm) in Manual position mode (`Ground Origin Y`
+    /// as it is); None in Auto, where DAZ puts it at the scene's lowest
+    /// point (`DomeSetup::ground_y`).
+    pub ground_origin_y: Option<f64>,
     pub ground_shadow: f64,
     pub ground_glossiness: f64,
     pub ground_reflectivity: [f64; 3],
@@ -1357,11 +1359,27 @@ pub fn dome_setup(ch: &NodeChannels) -> DomeSetup {
         orientation: std::array::from_fn(|i| m[i / 3][i % 3]),
         tint: ch_colour(ch, "Environment Tint", [1.0; 3]),
         ground: ch_bool(ch, "Draw Ground", true),
-        ground_y: if ch_num(ch, "Ground Position Mode", 0.0) == 1.0 { ch_num(ch, "Ground Origin Y", 0.0) } else { 0.0 },
+        ground_origin_y: (ch_num(ch, "Ground Position Mode", 0.0) == 1.0).then(|| ch_num(ch, "Ground Origin Y", 0.0)),
         ground_shadow: ch_num(ch, "Ground Shadow Intensity", 1.0),
         ground_glossiness: ch_num(ch, "Ground Glossiness", 0.1),
         ground_reflectivity: ch_colour(ch, "Ground Reflectivity", [0.0; 3]),
         ground_visible_from_below: !ch_bool(ch, "Draw Ground", true) || ch_bool(ch, "Ground Visible from Below", true),
+    }
+}
+
+/// How far (cm) under the scene's lowest point DAZ puts the auto ground.
+pub const AUTO_GROUND_DROP_CM: f64 = 0.001;
+
+impl DomeSetup {
+    /// `environment_dome_ground_position`'s y (cm), given the lowest world y
+    /// (cm) of the visible geometry: the Manual origin, else (Auto) that
+    /// lowest point 0.001 cm lower (#119). Visible only: a hidden node is not
+    /// exported and doesn't count (Calib-Env-Mi-GroundAuto-Low / -LowHidden:
+    /// a sphere's bottom at -60 cm under a floor at 0, -60.001 shown, -0.001
+    /// hidden); strand hair counts by its vertices (Calib-Strand: fibres down
+    /// to -45 cm, no floor, -45.001), and so does every floor at 0 (-0.001).
+    pub fn ground_y(&self, lowest_cm: f64) -> f64 {
+        self.ground_origin_y.unwrap_or(lowest_cm - AUTO_GROUND_DROP_CM)
     }
 }
 
@@ -2102,9 +2120,11 @@ mod tests {
                     check(format!("{scene} ground reflectivity {i}"), num(&o["environment_dome_ground_reflectivity"][i]), d.ground_reflectivity[i]);
                 }
                 check(format!("{scene} ground"), f64::from(u8::from(o["environment_dome_ground"].as_bool().unwrap_or(false))), f64::from(u8::from(d.ground)));
-                // The ground's height: its position's y, with DAZ's 1 mm drop at 0.
-                let gy = num(&o["environment_dome_ground_position"][1]);
-                check(format!("{scene} ground height"), if d.ground_y == 0.0 { gy + 0.001 } else { gy }, d.ground_y);
+                // The ground's height: its position's y, from the lowest point of
+                // the exported geometry (mi-oracle's `geometry_min_y`; fixtures
+                // from before #119 lack it, and every one of them has its floor at 0).
+                let lowest = mi["geometry_min_y"].as_f64().unwrap_or(0.0);
+                check(format!("{scene} ground height"), num(&o["environment_dome_ground_position"][1]), d.ground_y(lowest));
                 check(format!("{scene} ground shadow"), num(&o["environment_dome_ground_shadow_intensity"]), d.ground_shadow);
                 check(format!("{scene} ground glossiness"), num(&o["environment_dome_ground_glossiness"]), d.ground_glossiness);
                 let flag = |v: &Value| f64::from(u8::from(v.as_bool().unwrap_or(false)));

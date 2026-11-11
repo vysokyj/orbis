@@ -10,6 +10,7 @@ argument) and copied into calib/scenes; existing scenes are kept (--force).
 - Calib-Env-*   environment: tint, dome rotation / orientation, lighting blur / resolution,
                 intensity, ground, matte fog, ground fog, dome modes (#37, #65); Calib-Env-Mi-*
                 for DAZ's .mi export only (every fog / dome channel off its default, #37);
+                Calib-Env-Mi-GroundAuto-*: where the auto ground sits (#119);
                 Calib-L-Mi-SunSky-Look: Sun-Sky's horizon blur, tint, glow, night colour (#15)
 - Calib-RS-*    render settings: caustics, path length, firefly, bloom, pixel filter, spectral (#43);
                 Calib-RS-Mi-* for DAZ's .mi export only (triangle filter, SSS path length, bloom settings)
@@ -257,3 +258,16 @@ for name, ies in (('Emit', DAZ_IES), ('Emit-Asym', ASYM_IES)):
     m = next(m for m in d['material_library'] if m['id'] == 'Default-5')
     set_channel(next(e for e in m['extra'] if e['type'] == 'studio_material_channels')['channels'], 'Emission Profile', ies)
     save(d, f'Calib-L-IES-{name}')
+
+# Where DAZ puts the auto ground (Ground Position Mode Auto, #119), for its .mi export only:
+# one sphere (radius 15) dropped to y -60, its bottom at -75, below the floor at 0 - shown,
+# and hidden (Visible off). Calib-Strand (fibres down to -45, no floor) has the ground at -45.001.
+for name, hidden in (('GroundAuto-Low', False), ('GroundAuto-LowHidden', True)):
+    d = copy.deepcopy(load('Calib-Tone-Default'))
+    set_channel(node_channels(d, 'Environment Options'), 'Draw Ground', True)
+    set_xyz(d, 'pSphere(10v0000)48_24-7', 'translation', {'x': 75.0, 'y': -60.0, 'z': 0.0})
+    if hidden:
+        n = next(n for n in d['scene']['nodes'] if n.get('url') == '#pSphere%2810v0000%2948_24-7')
+        n.setdefault('extra', []).append({'type': 'studio_node_channels', 'version': 5,
+                                          'channels': [{'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}}]})
+    save(d, f'Calib-Env-Mi-{name}')

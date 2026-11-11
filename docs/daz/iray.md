@@ -123,7 +123,10 @@ skin; the first layer alone drops them.
 there is no backdrop for its shadow) catches shadows on a ground plane that
 is **part of the environment**: geometry at its height (a room's floor)
 hides it. Height: `Ground Origin Y` when `Ground Position Mode` is Manual,
-else (Auto, default) the scene's lowest point. `Ground Shadow Intensity`
+else (Auto, default) the scene's lowest point: the world bounding box's
+minimum y over the visible geometry (a hidden node doesn't count; strand
+hair counts by its vertices), and the .mi's `environment_dome_ground_position`
+is 0.001 cm below it (-0.001 over a floor at 0). `Ground Shadow Intensity`
 scales the shadow; Iray keeps the sky's fill in a full shadow (an umbra at
 ~11 % of the lit ground in one HDRI scene).
 
