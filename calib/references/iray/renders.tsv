@@ -24,6 +24,9 @@ Calib-Dome-Off	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:17	106
 Calib-DualLobe	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:29	124
 Calib-DualLobe2	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:31	108
 Calib-DualLobeGlossy	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:20	108
+Calib-DualLobeGlossy-bare	5000	0	DAZ Studio Iray (CPU)	2026-11-11 21:24	112
+Calib-DualLobeGlossy-dl	5000	0	DAZ Studio Iray (CPU)	2026-11-11 21:12	1448
+Calib-DualLobeGlossy-gloss	5000	0	DAZ Studio Iray (CPU)	2026-11-11 21:22	575
 Calib-DualLobeWeighted	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:22	109
 Calib-DualLobeWeightedTL	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:24	122
 Calib-Env-Blur	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:39	105
