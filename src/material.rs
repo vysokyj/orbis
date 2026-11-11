@@ -2900,7 +2900,9 @@ impl Ocs<'_> {
             None => self.float_pin(i, weight_pin, glossy.min(1.0)),
         }
         let f0 = crate::iray::REFLECTIVITY_SCALE * glossy_reflectivity(mat).unwrap_or(0.5);
-        self.ior_pin(i, ior_pin, mat, "Glossy Reflectivity", f0);
+        // Its map neither, under weighted mixing (`glossy_reflectivity`).
+        let rch = if weighted_mixing(mat) { "" } else { "Glossy Reflectivity" };
+        self.ior_pin(i, ior_pin, mat, rch, f0);
     }
 
     /// A dielectric's IOR pin for head-on reflectance `f0` × the channel's
@@ -3265,7 +3267,7 @@ impl Ocs<'_> {
         // leaves the translucency its share, 1 − Refraction Weight
         // (`diffuse_weight` below). Universal has one transmission: the
         // translucency takes it while the surface is mostly diffuse.
-        let transmit = if metal || refraction >= 0.5 || eye_volume || mat.float("Base Mixing").unwrap_or(0.0) as i32 == 2 { 0.0 } else { translucency.min(self.max_transmission) };
+        let transmit = if metal || refraction >= 0.5 || eye_volume || weighted_mixing(mat) { 0.0 } else { translucency.min(self.max_transmission) };
         // Base Color Effect 1 / 2 on that diffuse: the diffuse thinned to
         // its colour's mono, the translucency the rest
         // (`base_color_effect_shares`). Calib-Thin's cards (thin-walled,
@@ -4887,7 +4889,13 @@ fn glossy_layer_roughness(mat: &Material) -> (Option<&'static str>, f32, bool) {
 /// every mode: a weighted material with Glossy Weight 0 got a gloss Iray
 /// hasn't (#127).
 fn gloss_weight_channel(mat: &Material) -> &'static str {
-    if mat.float("Base Mixing").unwrap_or(0.0) as i32 == 2 { "Glossy Weight" } else { "Glossy Layered Weight" }
+    if weighted_mixing(mat) { "Glossy Weight" } else { "Glossy Layered Weight" }
+}
+
+/// Base Mixing 2 (Weighted): DAZ hands Iray `normalized_base`, else
+/// `metallic_layered_base` (irayubermaterial.mdl).
+fn weighted_mixing(mat: &Material) -> bool {
+    mat.float("Base Mixing").unwrap_or(0.0) as i32 == 2
 }
 
 /// The glossy layer's weight in Iray (`gloss_weight_channel`).
@@ -4933,7 +4941,14 @@ fn pbrskin(mat: &Material, param: &str) -> Option<f32> {
 }
 
 /// Glossy Reflectivity as DAZ's 0–1 slider r, from the F0 = 0.08 r Iray gets.
+/// None under weighted mixing (Base Mixing 2): DAZ's `normalized_base` has
+/// no `glossy_reflectivity`, its gloss is a plain glossy BSDF at Glossy
+/// Weight, and DAZ hands Iray none — Calib-DualLobeWeightedTL's T8
+/// (Reflectivity 0) and T3 (0.5) get identical arguments (its `.mi`, #132).
 fn glossy_reflectivity(mat: &Material) -> Option<f32> {
+    if weighted_mixing(mat) {
+        return None;
+    }
     match iray(mat).and_then(|u| u.float("glossy_reflectivity")).filter(|_| mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0) {
         Some(f0) => Some(f0 / crate::iray::REFLECTIVITY_SCALE),
         None => mat.float("Glossy Reflectivity"),
@@ -6920,6 +6935,19 @@ mod tests {
         let (x, _) = material_inputs(&[("Card".into(), w(&[json!({"channel": {"id": "Dual Lobe Specular Weight", "current_value": 0}})]), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
         assert!(pin(&x, "specular").contains(">0.4 0.4 0.4<") && !x.contains("<pin name='coating'>"), "{x}");
         assert!(pin(&x, "roughness").contains(&format!(">{}<", num(phong_pin(0.25)))), "{x}");
+
+        // Glossy Reflectivity doesn't reach Iray under Base Mixing 2 (#132,
+        // Calib-DualLobeWeightedTL's .mi: T8 at 0 gets T3's arguments):
+        // neither the coating nor the gloss alone on `specular` scale by it,
+        // nor does 1 raise the coating's IOR.
+        let r = |v: f32| json!({"channel": {"id": "Glossy Reflectivity", "current_value": v}});
+        for v in [0.0, 1.0] {
+            let (x, _) = material_inputs(&[("Card".into(), w(&[r(v)]), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+            assert!(pin(&x, "coating").contains(">0.4 0.4 0.4<"), "{v}: {x}");
+            assert!(pin(&x, "coatingIor").contains(&format!(">{}<", num(1.5))), "{v}: {x}");
+            let (x, _) = material_inputs(&[("Card".into(), w(&[r(v), json!({"channel": {"id": "Dual Lobe Specular Weight", "current_value": 0}})]), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+            assert!(pin(&x, "specular").contains(">0.4 0.4 0.4<") && !x.contains("<pin name='coating'>"), "{v}: {x}");
+        }
 
         // Without translucency the Mix holds both (#121), not this.
         assert!(!gloss_over_dual_lobe(&w(&[json!({"channel": {"id": "Translucency Weight", "current_value": 0}})])));

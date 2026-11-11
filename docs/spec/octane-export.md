@@ -937,7 +937,12 @@ leaves out, #15):
   takes that layer. Universal caps `specular` at 1 (2 renders as 1). Why:
   Calib-Glossy, r 0 / 0.25 at the full default 2.42 / 1.54 × Iray, scaled
   1.21 / 1.14; r 1 0.74 at specular 1 or 2, 1.08 with the coating — the
-  neighbours sit at 1.11 – 1.16.
+  neighbours sit at 1.11 – 1.16. **Not under weighted mixing** (Base
+  Mixing 2), neither the value nor its map: DAZ's `normalized_base` has no
+  `glossy_reflectivity` (its gloss is a plain glossy BSDF at Glossy
+  Weight), and DAZ's `.mi` export hands Iray none —
+  Calib-DualLobeWeightedTL's T8 (Reflectivity 0) and T3 (0.5) get
+  identical arguments, so Iray renders them alike (#132).
 - **Dual lobe specular** (skin's, no glossy layer): Iray blends two GGX
   lobes by `Dual Lobe Specular Ratio` — on Iray Uber the ratio weighs lobe
   1 (default 0.85) and lobe 2 has `Specular Lobe 2 Roughness` (default 0, a
@@ -984,8 +989,9 @@ leaves out, #15):
   gloss there too: it takes this layout, the gloss's weight Glossy
   Weight (`gloss_weight_channel`) — the gloss alone on `specular` had
   dropped the lobe (#128). Unverified against Iray until the
-  Calib-DualLobeWeightedTL references are in (no `glossy_reflectivity`
-  reaches Iray under Base Mixing 2, its `.mi`: #132). Wherever the gloss is on `specular`, the roughness is the glossy
+  Calib-DualLobeWeightedTL references are in; Glossy Reflectivity scales
+  neither layer there (none reaches Iray under Base Mixing 2, its `.mi`:
+  #132). Wherever the gloss is on `specular`, the roughness is the glossy
   layer's (`glossy_roughness_source`), not lobe 1's — the gloss took the
   dual lobe's roughness until #106 (a weighted mix's gloss too). Why:
   dropping the dual lobe left 15 of 348 installed dual-lobe skin
