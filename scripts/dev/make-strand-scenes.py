@@ -32,6 +32,18 @@ Materials (all channels shown, as product content saves them):
   top coat and maps (diffuse, translucency, overlay, refraction, effects).
 Rows A / B take 1 2 3 4, rows C / D 1 3 4 5.
 
+The -Sparse scenes hold only rows E / F: patches thin enough that the
+background shows through, so the reference's alpha is the strands' coverage
+and follows their width (rows C / D are several strands deep: alpha 0.93 -
+0.99, saturated). Diffuse grey, one width along the strand:
+- row E (at row C's place): 300 horizontal strands each, Line Width 0.1 /
+  0.2 / 0.4 / 0.8 (sub-pixel; 0.25 / 0.5 / 1 / 2 strand widths per width of
+  patch);
+- row F (at row D's): 40 vertical strands of 0.75 / 1.5 / 3 (about a pixel
+  and wider), and row E's 300 x 0.2 turned vertical.
+Each width is twice the one before: the export's curves at k x the width
+on one patch are what 1 x would draw on the next.
+
 How DAZ hands a polyline to Iray depends on the hair's Line Tessellation
 modifier (its .mi export reads the Viewport sides, the render the Render
 sides; both are set alike here): none -> Iray `hair` (cubic B-spline fibres,
@@ -45,7 +57,8 @@ Scenes: Calib-Strand (the template's sun, fibres), Calib-Strand-Side (the
 sun turned 60 degrees about y: the strands' cone), Calib-Strand-Dome (no
 sun, the HDRI dome of Calib-Aniso, not drawn), Calib-Strand-T2 / -T3 (the
 sun, ribbons / prisms), Calib-Strand-T2-Dome (ribbons under the dome, as
-Morgan's hair in Calib-Hair-Teens). Existing scenes are kept (--force
+Morgan's hair in Calib-Hair-Teens), Calib-Strand-Sparse / -Sparse-T2 /
+-Sparse-T3 (rows E / F as fibres / ribbons / prisms). Existing scenes are kept (--force
 rewrites them); written to "My Library/Scenes" and copied into
 calib/scenes. --tess-probe <dir> writes row A at several sides into <dir>
 (scratch, for the .mi). --mohawk <DAZ library> writes Calib-Mi-Mohawk-T2
@@ -230,6 +243,15 @@ for col, k in enumerate((1, 3, 4, 5)):
     OBJECTS.append((f'D{k}', f'D{k} strands vertical {MATERIALS[k][0]}', -25.0, X[col], k, 'patch-y'))
 
 
+# Sparse patches (rows E / F): id -> (strands, Line Width).
+SPARSE = {}
+for col, (w_e, (n_f, w_f)) in enumerate(zip((0.1, 0.2, 0.4, 0.8), ((40, 0.75), (40, 1.5), (40, 3.0), (300, 0.2)))):
+    SPARSE[f'E{col + 1}'] = (300, w_e)
+    SPARSE[f'F{col + 1}'] = (n_f, w_f)
+    OBJECTS.append((f'E{col + 1}', f'E{col + 1} sparse 300 x {w_e}', 36.0, X[col], 1, 'patch-x'))
+    OBJECTS.append((f'F{col + 1}', f'F{col + 1} sparse vertical {n_f} x {w_f}', -25.0, X[col], 1, 'patch-y'))
+
+
 def tessellation(d, oid, sides):
     """DAZ's Line Tessellation modifier on a strand node (as dForce hair and
     Morgan Hair carry it): without it DAZ hands Iray the polylines as Iray
@@ -281,6 +303,10 @@ def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None):
         elif kind == 'tube':
             g, uv = tube_geometry(gid)
             widths = THIN
+        elif oid in SPARSE:
+            count, w = SPARSE[oid]
+            g, uv = strands_geometry(gid, patch(ord(oid[0]) * 10 + int(oid[1]), count, kind[-1]))
+            widths = (w, w)
         else:
             g, uv = strands_geometry(gid, patch(ord(kind[-1]) * 10 + k, 3000, kind[-1]))
             widths = THIN
@@ -359,3 +385,6 @@ build('Calib-Strand-Dome', dome=True)
 build('Calib-Strand-T2', tess=2)
 build('Calib-Strand-T3', tess=3)
 build('Calib-Strand-T2-Dome', dome=True, tess=2)
+build('Calib-Strand-Sparse', rows='EF')
+build('Calib-Strand-Sparse-T2', tess=2, rows='EF')
+build('Calib-Strand-Sparse-T3', tess=3, rows='EF')
