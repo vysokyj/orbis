@@ -1055,9 +1055,10 @@ leaves out, #15):
   0.18, v 0.36 – 0.48) 1.00 – 1.01 / 1.01 – 1.03 / 1.01, Calib-Aniso's
   metal A6 (u 0.16, v 0.8) 1.03 / 1.08 / 1.05 (rendered: A6 / the
   isotropic A1 1.064), saturated (u 0.04, v r / 0.0001) 1.07 / 1.09 /
-  1.11. Resin's loss (`resin_lobe_albedo`, 17 % at r 0.25) isn't this
+  1.11. Resin's loss (`resin_lobe_albedo`, 19 % at r 0.25) isn't this
   effect: v-cavities against Smith on the whole resin sphere is 0.6 % at
-  r 0.25; the loss is `fresnel_layer`'s weights (Dielectrics below, #113).
+  r 0.25; the loss is `fresnel_layer`'s weights and Iray's own rough
+  transmission (Dielectrics below, #113, #115).
   Why: at the axes' geometric mean Calib-Aniso's streaks came out short
   and bright — highlight elongation (major / minor axis of the highlight)
   1.96 against Iray's 9.9 on roughness 0.1, anisotropy 1, mean 1.52 ×
@@ -1746,39 +1747,51 @@ leaves out, #15):
     and transmission its colour, which Octane, like Iray, applies at every
     crossing — that keeps the hue — under the rough-glass rule (Beckmann at
     the Phong pin; the clear gloss as the coating at its Phong pin), both ×
-    **k per channel** (`resin_lobe_albedo`, `resin::resin_tint_factor`):
+    **k per channel** (`resin_lobe_albedo`, `mdl_layer::tint_factor_measured`):
     the factor that makes a closed sphere of the material, entered over its
     whole silhouette in a white furnace, keep in Octane (Beckmann α = pin²,
     Smith masking, coat w · F(k·h) over the base's 1 − w · F(k·h)) what it
-    keeps under Iray's model, both traced at export (65 536 paths each,
-    fixed seed; k solved on the same paths). Iray's model is the MDL SDK's
-    `libbsdf`: `simple_glossy_bsdf` = Phong half-vector distribution
-    (exponent 2 / r²) with v-cavities masking, min(G1, G2) on reflection,
-    max(G1 + G2 − 1, 0) on refraction; `fresnel_layer` picks the coat with
-    probability w · F(n·k1), weights it w · F(k·h), and weights the base
-    **1 − w · max(F(n·k1), F(n·k2_refl))** — Fresnel at the macro normal,
-    k2_refl the reflection of k1 about the base's microfacet. Light leaving
-    a rough base from inside meets k2_refl past the critical angle (F = 1):
-    the base keeps 1 − w there, a loss that grows with roughness. Grey 0.79,
-    coat 0.95, IOR 1.49: k 0.99 at r 0.02, 0.94 at 0.1, 0.83 at 0.25, 0.64
-    at 0.5; without the coat ≥ 0.99. Why: Calib-Furnace-Resin (uniform
-    dome) — Iray's rough coated resin keeps far less than the physical
-    sphere (white r 0.25 0.72, physics 0.98; grey r 0.5 0.26, physics
-    0.56), the uncoated one nearly all (0.91); Octane keeps what physics
-    does (0.99 / 0.60 / 0.99 at the full tint); the `libbsdf` model gives
-    0.76 / 0.28 / 0.98 — the coat's weights are the loss, the lobe's
-    masking ≤ 1 %. Octane / Iray disk (r < 0.75), full tint → k:
-    furnace grey r 0.25 1.41 → 1.01, white 1.40 → 0.99, r 0.5 2.37 →
-    1.13, r 0.1 1.11 → 1.00; Calib-Resin (HDRI) 1.43 → 1.05, 1.42 → 1.03,
-    2.37 → 1.21, 1.11 → 1.00; Calib-NVIDIA2 A7 1.05 (centre 0.92, whole
-    sphere 1.16), A8 0.95; Calib-NVIDIA's red resin 0.99, g/r 0.23 v
-    0.20 (floors 1.03 – 1.06). Left: Iray darkens the rough resin towards
-    the rim more than Octane (whole sphere 1.10 – 1.16 at r 0.25), which a
-    constant tint can't draw; the uncoated rough resin is 1.10 – 1.15 ×
-    (smooth 1.04 – 1.09) — Iray's rough transmission loses ~6 % more than
-    the `libbsdf` model. The former fit 1 − 0.64 r (`RESIN_LOSS`, on a
-    mis-framed reference, #97) gave nearly the same k for the coated resin
-    but darkened the uncoated one to 0.80 ×.
+    keeps in Iray, both traced at export (65 536 paths each, fixed seed; k
+    solved on the same paths). Iray's model is the MDL SDK's `libbsdf`:
+    `simple_glossy_bsdf` = Phong half-vector distribution (exponent 2 / r²)
+    with v-cavities masking, min(G1, G2) on reflection, max(G1 + G2 − 1, 0)
+    on refraction; `fresnel_layer` picks the coat with probability
+    w · F(n·k1), weights it w · F(k·h), and weights the base **1 − w ·
+    max(F(n·k1), F(n·k2_refl))** — Fresnel at the macro normal, k2_refl the
+    reflection of k1 about the base's microfacet. Light leaving a rough
+    base from inside meets k2_refl past the critical angle (F = 1): the
+    base keeps 1 − w there, a loss that grows with roughness. **On top,
+    Iray's base lobe loses more than `libbsdf`'s** (#116): what the lobe
+    alone (no coat, white) keeps in the furnace over the sphere's inner
+    disk is measured (`RESIN_LOBE`, by MDL roughness: 0.971 / 0.963 /
+    0.920 / 0.678 / 0.462 / 0.324 at r 0.02 / 0.1 / 0.25 / 0.5 / 0.75 / 1,
+    Calib-Furnace-Resin2; `libbsdf` 1.000 / 0.999 / 0.973 / 0.824 / 0.655 /
+    0.531), and the `libbsdf` model meets it with an extra tint τ on every
+    base event before the coated stack is traced. Grey 0.79, coat 0.95,
+    IOR 1.49: k 0.98 at r 0.02, 0.92 at 0.1, 0.81 at 0.25, 0.59 at 0.5;
+    uncoated white 0.99 / 0.98 / 0.97 / 0.89. Why: Calib-Furnace-Resin
+    (uniform dome) — Iray's rough coated resin keeps far less than the
+    physical sphere (white r 0.25 0.72, physics 0.98; grey r 0.5 0.26,
+    physics 0.56); Octane keeps what physics does (0.99 / 0.60 at the full
+    tint, uncoated r 0.5 / 1 0.894 / 0.740 v 0.88 / 0.71); `libbsdf` gives
+    0.76 / 0.28 — the coat's weights are most of the loss, the lobe's
+    masking ≤ 1 %. With the lobe's measured τ the `libbsdf` layering
+    predicts the coated spheres: grey r 0.1 0.605 v Iray 0.605, r 0.25
+    0.473 v 0.473, r 0.02 0.627 v 0.623, white r 0.25 0.722 v 0.722 /
+    0.737, grey r 0.5 0.240 v 0.257 — the "3 – 6 % below the model" of
+    #113 was the lobe. Octane / Iray disk (r < 0.75), floors 1.02 / 1.04,
+    `libbsdf` alone (#113) → with the lobe: Calib-Resin grey r 0.25 1.05 →
+    1.00, smooth 1.07 → 1.04, white r 0.25 1.03 → 0.97, uncoated grey /
+    white r 0.25 1.15 / 1.10 → 1.09 / 1.04, r 0.5 1.21 → 1.07, r 0.1 1.00
+    → 0.96; Calib-Furnace-Resin2 uncoated r 0.02 – 0.25 1.03 – 1.04, r 0.5
+    / 0.75 / 1 1.08 / 1.15 / 1.17; Calib-NVIDIA2 A7 1.00, A8 0.93;
+    Calib-NVIDIA's red resin 0.95 (centre 0.83), g/r 0.24 v 0.19. Left
+    (#117): the whole sphere matches, its spread doesn't — Iray darkens a
+    rough coated resin's centre and rim differently from Octane, the
+    uncoated r ≥ 0.75 stays 1.15 ×; a constant tint can't draw it. The
+    former fit 1 − 0.64 r (`RESIN_LOSS`, on a mis-framed reference, #97)
+    gave nearly the same k for the coated resin but darkened the uncoated
+    one to 0.80 ×.
     Architectural (mental ray's mia_material) keeps the pins its rules
     below were found on — the reflection on the GGX curve min(r + 1.85 r²,
     √r) under energy-preserving GGX, the glass and the coat over it at √r
@@ -1809,20 +1822,48 @@ leaves out, #15):
     anisotropy stretched Calib-NVIDIA2's anisotropy-4 sphere far beyond
     Iray's (centre 1.69 ×); per axis 1.06 with Iray's look.
     Transparency t (`weighted_layer(t, transmit lobe, diffuse)`): diffuse
-    × (1 − t), `transmission` = refr_color × t × **(1 − 0.36 r_t)**
-    (`arch_glass_albedo`) through a transmit-only lobe — `specular` 0
-    (Octane still refracts) — at **r_t = 3.7 × architectural_gloss_to_rough
-    (refr_gloss)**, at most 1 (`arch_glass_rough`), and `ior` = Index of
-    Refraction (refr_ior), under the rough-glass rule (Beckmann at √r);
-    the reflection on the coating at √r of its own roughness and the
-    reflection curve's IOR. Why: refr_gloss 0.6 and 0.2 (MDL 0.020 /
-    0.134) matched Octane's Beckmann at r 0.06 – 0.09 and ~0.5; the
-    reflection's curve would give 0.08 and 0.22, and at 0.2 Iray's
-    interior is an even frosted grey that only r ~0.5 draws. The glass
-    lobe also loses light with roughness, like resin's (Iray's lobe has
-    no multiple-scattering compensation): at r_t 0.5 the full refr_color
-    was 1.53 × Iray, 1 − 0.36 r_t brings it to 1.02. Both glass factors
-    are measured at two refr_gloss values.
+    × (1 − t), `transmission` = refr_color × t × **k per channel**
+    (`arch_glass_albedo`, `mdl_layer::tint_factor_measured`, as resin's)
+    through a transmit-only lobe — `specular` 0 (Octane still refracts) —
+    at **r_t = 3.7 × architectural_gloss_to_rough(refr_gloss)**, at most 1
+    (`arch_glass_rough`), and `ior` = Index of Refraction (refr_ior), under
+    the rough-glass rule (Beckmann at √r); the reflection on the coating
+    at √r of its own roughness and the reflection curve's IOR. k makes a
+    closed sphere keep in Octane what it keeps in Iray in a white furnace:
+    Iray = `libbsdf`'s layering — `custom_curve_layer` (Schlick's r0, r90,
+    exponent; its base weight 1 − w · max(c(n·k1), c(|n·k2|)), no IOR) or,
+    with Use Fresnel Term, `fresnel_layer` at refr_ior (the critical angle
+    in the base's weight, as resin's) of weight reflectivity × the
+    reflection colour's peak, the reflection at its roughness, over the
+    transmit lobe at r_t (`scatter_transmit` refracts every sample, a
+    totally reflected one reflects) — with the lobe's own loss measured
+    (`ARCH_GLASS_LOBE`, by refr_gloss 0 / 0.2 / 0.4 / 0.6 / 1: 0.512 /
+    0.614 / 0.938 / 0.964 / 1.000, Calib-Furnace-ArchGlass G5 – G1,
+    reflectivity 0); Octane = the coating at its IOR, the lobe Beckmann at
+    α r_t, Smith, physical layering. Reflectivity 0, refr_gloss 0.6 / 0.4
+    / 0.2 / 0: k 0.98 / 0.97 / 0.85 / 0.93 (Octane caps α at 1 too); 0.2
+    under reflectivity 0.6 0.85, with the Fresnel term 0.73. Why: Iray's
+    rough transmit lobe loses far more than `libbsdf`'s at the formula's
+    roughness (refr_gloss 0.2: 0.614 v 0.99 — v-cavities masking loses
+    almost nothing there; `base::architectural_gloss_to_rough` is the same
+    in every MDL SDK since 2018.1), so the loss can't be derived and is
+    measured on the lobe alone (#116); with it `libbsdf`'s layer weights
+    predict the coated spheres — refr_gloss 0.2 under reflectivity 0.6
+    Schlick 0.657 v Iray 0.655, Fresnel term 0.421 v 0.416 — while
+    Octane's coating keeps all (its furnace 0.895 for both, the lobe alone
+    0.886; Smith model 0.87). The former 1 − 0.36 r_t (`ARCH_GLASS_LOSS`,
+    fitted on Calib-NVIDIA3's HDRI at two refr_gloss values) was the same
+    level at 0.2 but 0.51 × Iray at refr_gloss 0 and missed the Fresnel
+    term's weights (1.75 ×). r_t (3.7 ×) is still the look's fit: refr_gloss
+    0.6 and 0.2 (MDL 0.020 / 0.134) matched Octane's Beckmann at r 0.06 –
+    0.09 and ~0.5; the reflection's curve would give 0.08 and 0.22, and at
+    0.2 Iray's interior is an even frosted grey that only r ~0.5 draws —
+    part of #116. Octane / Iray disk, floor 1.04 (furnace 1.02): Calib-
+    ArchGlass refr_gloss 1 / 0.6 / 0.4 / 0.2 / 0 1.03 / 1.02 / 1.03 /
+    1.07 / 1.08 (was 0.51 at 0), reflectivity 0.6 smooth 1.02, at 0.2
+    1.06, with the Fresnel term 1.75 → 1.40 (furnace 1.45 → 1.17: the
+    spread, #117); Calib-NVIDIA3 refr_gloss 0.6 1.02, 0.2 1.10, 0.2 under
+    reflectivity 0.6 1.10; Calib-NVIDIA2's glass 1.05.
     **Enable Absorption** (`refr_falloff_on`, with transparency) → an
     absorption medium on the glass, σa = −ln(c) / d per metre
     (`arch_absorption`), as `nvidia/architectural.mdl` computes its
@@ -1835,9 +1876,10 @@ leaves out, #15):
     Calib-NVIDIA3 (Iray 5000, Octane 1024; floor 1.04), disk before →
     after: glossiness 0.15 0.97 → 1.05, 0.3 0.89 → 1.01, 0.5 1.01 → 1.05,
     0.7 1.04 → 1.05; glass refr_gloss 1 1.04, 0.6 1.06 → 1.01, 0.2 1.67 →
-    1.02, 0.2 under reflectivity 0.6 1.42 → 1.05; hue within 0.04 (b/r).
+    1.02, 0.2 under reflectivity 0.6 1.42 → 1.05 (the roughness rules,
+    #21; with #115's furnace k 1.02 / 1.10 / 1.10); hue within 0.04 (b/r).
     Calib-NVIDIA2 (floor 1.05): glossiness 0.3 0.90 → 1.02, 0 1.01,
-    anisotropy 4 0.95 → 1.06, glass 1.46 → 0.98.
+    anisotropy 4 0.95 → 1.06, glass 1.46 → 0.98 (#115: 1.05).
     Calib-NVIDIA (Iray 5000 samples, Octane 1024; sphere disk luminance,
     Octane / Iray; floor 1.04): Metal Brushed 1.02, Cast Iron 1.11 (1.04
     with the bump baked, #89),

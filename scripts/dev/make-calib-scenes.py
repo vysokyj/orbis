@@ -32,6 +32,8 @@ a plane under an HDRI) that each change one thing, written beside it.
   under a uniform dome, the floor hidden - each lobe's directional albedo.
 - Calib-Resin / Calib-Furnace-Resin (#113): NVIDIA's resin on Calib-NVIDIA2's
   spheres, tint / roughness / coat one at a time, under the HDRI and the dome.
+- Calib-ArchGlass / Calib-Furnace-ArchGlass (#115): architectural glass on
+  Calib-NVIDIA3's spheres, refr_gloss / reflection / Fresnel term one at a time.
 - Calib-Mi-ImageGamma (#91, .mi only): maps the image_library doesn't
   list - which channel's default_image_gamma DAZ gives the image.
 - Calib-Mi-ImageMod, -ImageMod2: per-map image modifications (#77) - tiles, tiling
@@ -1669,8 +1671,14 @@ RESIN = [('R1 grey r 0.25', 0.9, 0.25, None), ('R2 grey r 0.02', 0.9, 0.02, None
          ('R3 white r 0.25', 1.0, 0.25, None), ('R4 white r 0.02', 1.0, 0.02, None),
          ('R5 grey r 0.25 coat 0', 0.9, 0.25, 0.0), ('R6 white r 0.25 coat 0', 1.0, 0.25, 0.0),
          ('R7 grey r 0.5', 0.9, 0.5, None), ('R8 grey r 0.1', 0.9, 0.1, None)]
+# Calib-Furnace-Resin2 (#115): the uncoated resin's roughness alone (white,
+# Glossy Weight 0, r 0.02 - 1), R6 and R3 again as anchors.
+RESIN2 = [('U1 white r 0.02 coat 0', 1.0, 0.02, 0.0), ('U2 white r 0.1 coat 0', 1.0, 0.1, 0.0),
+          ('U3 white r 0.25 coat 0', 1.0, 0.25, 0.0), ('U4 white r 0.5 coat 0', 1.0, 0.5, 0.0),
+          ('U5 white r 0.75 coat 0', 1.0, 0.75, 0.0), ('U6 white r 1 coat 0', 1.0, 1.0, 0.0),
+          ('U7 grey r 0.5 coat 0', 0.9, 0.5, 0.0), ('U8 white r 0.25', 1.0, 0.25, None)]
 nv2 = os.path.join(out_dir, 'Calib-NVIDIA2.duf')
-for name, furnace in (('Calib-Resin', False), ('Calib-Furnace-Resin', True)):
+for name, furnace, RESIN in (('Calib-Resin', False, RESIN), ('Calib-Furnace-Resin', True, RESIN), ('Calib-Furnace-Resin2', True, RESIN2)):
     if not os.path.exists(nv2):
         break
     d = load(nv2)
@@ -1691,6 +1699,57 @@ for name, furnace in (('Calib-Resin', False), ('Calib-Furnace-Resin', True)):
         ch.append({'channel': {'id': 'roughness', 'type': 'float', 'current_value': rough}})
         if weight is not None:
             ch.append({'channel': {'id': 'glossy_weight', 'type': 'float', 'current_value': weight}})
+        mats[i] = new
+        for n in d['scene']['nodes']:
+            if n.get('label') == label:
+                n['label'] = lab
+    if furnace:
+        for n in d['scene']['nodes']:
+            if n.get('label') == 'Plane':
+                ext = next(e for e in n.setdefault('extra', [{'type': 'studio_node_channels', 'version': 5}]) if e.get('type') == 'studio_node_channels')
+                ext.setdefault('channels', []).append({'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}})
+            for e in n.get('extra', []):
+                for c in e.get('channels') or []:
+                    if c['channel']['id'] == 'Environment Map':
+                        c['channel']['image_file'] = FURNACE
+                        c['channel']['current_value'] = 1
+        d['image_library'] = [i for i in d['image_library'] if 'RuinsB' not in i['map'][0]['url']] + [
+            {'id': 'calib-furnace.hdr', 'name': 'calib-furnace.hdr', 'map_gamma': 1, 'map_type': 'LatLong', 'map': [{'url': FURNACE, 'label': 'calib-furnace.hdr'}]}]
+    made.append((save(d, name), None))
+
+# Architectural glass (#115): Calib-NVIDIA3's spheres all transparency 1,
+# one part at a time - the transmit lobe's refr_gloss alone (reflectivity
+# 0: no layer weights; 1 / 0.6 / 0.4 / 0.2 / 0), the reflection on top
+# (reflectivity 0.6, Schlick's curve) smooth and at 0.2, and at 0.2 with
+# Use Fresnel Term (fresnel_layer at IOR 1.5). Calib-ArchGlass under
+# Calib-NVIDIA3's HDRI and floor, Calib-Furnace-ArchGlass under the
+# uniform dome, the floor hidden; one MDL module, one DAZ session each
+# (#94). Geometry from Calib-NVIDIA3's dump (labels A<k> -> G<k> ...).
+ARCH_GLASS = [('G1 refr 1', 1.0, 0.0, False), ('G2 refr 0.6', 0.6, 0.0, False),
+              ('G3 refr 0.4', 0.4, 0.0, False), ('G4 refr 0.2', 0.2, 0.0, False),
+              ('G5 refr 0', 0.0, 0.0, False), ('G6 refr 1 refl 0.6', 1.0, 0.6, False),
+              ('G7 refr 0.2 refl 0.6', 0.2, 0.6, False), ('G8 refr 0.2 refl 0.6 fresnel', 0.2, 0.6, True)]
+nv3 = os.path.join(out_dir, 'Calib-NVIDIA3.duf')
+for name, furnace in (('Calib-ArchGlass', False), ('Calib-Furnace-ArchGlass', True)):
+    if not os.path.exists(nv3):
+        break
+    d = load(nv3)
+    mats = d['scene']['materials']
+    geo_label = {g['id']: n['label'] for n in d['scene']['nodes'] for g in n.get('geometries', [])}
+    glass = next(m for m in mats if geo_label.get(m['geometry'].lstrip('#'), '').startswith('A8'))
+    for i, m in enumerate(mats):
+        label = geo_label.get(m['geometry'].lstrip('#'))
+        if not label or not label.startswith('A'):
+            continue
+        lab, refr, refl, fres = ARCH_GLASS[int(label[1]) - 1]
+        new = copy.deepcopy(glass)
+        new.update(id=m['id'], geometry=m['geometry'], uv_set=m.get('uv_set', glass.get('uv_set')))
+        ch = next(e for e in new['extra'] if e['type'] == 'studio_material_channels')['channels']
+        ch[:] = [c for c in ch if c['channel']['id'] not in ('refr_gloss', 'reflectivity', 'brdf_fresnel')]
+        ch.append({'channel': {'id': 'refr_gloss', 'type': 'float', 'current_value': refr}})
+        ch.append({'channel': {'id': 'reflectivity', 'type': 'float', 'current_value': refl}})
+        if fres:
+            ch.append({'channel': {'id': 'brdf_fresnel', 'type': 'bool', 'current_value': True}})
         mats[i] = new
         for n in d['scene']['nodes']:
             if n.get('label') == label:

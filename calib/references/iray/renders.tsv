@@ -1,6 +1,7 @@
 scene	samples	max_time	renderer	rendered	seconds
 Calib-Aniso	5000	0	Iray Server (Boost for Daz)	2026-10-30 03:15	104
 Calib-Aniso2	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:04	116
+Calib-ArchGlass	5000	0	Iray Server (Boost for Daz)	2026-11-11 03:26	143
 Calib-Backscatter	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:52	108
 Calib-BumpGamma-NVIDIA	5000	0	Iray Server (Boost for Daz)	2026-11-11 00:20	86
 Calib-BumpGamma-Uber	5000	0	Iray Server (Boost for Daz)	2026-11-09 23:22	98
@@ -37,11 +38,13 @@ Calib-Env-Rot90	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:03	105
 Calib-Env-Tint	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:05	105
 Calib-FilmIOR	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:44	106
 Calib-Flakes	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:45	109
+Calib-Furnace-ArchGlass	5000	0	Iray Server (Boost for Daz)	2026-11-11 02:53	81
 Calib-Furnace-Brushed	5000	0	Iray Server (Boost for Daz)	2026-11-10 19:13	60
 Calib-Furnace-CoatTint	5000	0	Iray Server (Boost for Daz)	2026-11-10 22:56	
 Calib-Furnace-Metal	5000	0	Iray Server (Boost for Daz)	2026-11-10 19:12	60
 Calib-Furnace-MetalBump	5000	0	Iray Server (Boost for Daz)	2026-11-10 22:48	
 Calib-Furnace-Resin	5000	0	Iray Server (Boost for Daz)	2026-11-11 02:04	82
+Calib-Furnace-Resin2	5000	0	Iray Server (Boost for Daz)	2026-11-11 03:28	72
 Calib-Glass	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:48	131
 Calib-Glossy	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:49	108
 Calib-Headlamp-auto-a0	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:42	106

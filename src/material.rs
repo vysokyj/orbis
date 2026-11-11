@@ -901,13 +901,28 @@ fn arch_absorption(mat: &Material) -> Option<[f32; 3]> {
 /// macro normal (1 − w · max(F(n·k1), F(n·k2_refl)), MDL SDK `libbsdf`),
 /// which light leaving a rough base from inside meets past the critical
 /// angle; Octane layers physically. The factor makes a closed sphere of the
-/// material keep in Octane what it keeps in Iray in a white furnace
-/// (`resin::resin_tint_factor`, computed from both models, #113). Grey
-/// 0.79, coat 0.95: 0.99 at r 0.02, 0.94 at 0.1, 0.83 at 0.25, 0.64 at 0.5.
+/// material keep in Octane what it keeps in Iray in a white furnace,
+/// computed from both models (`mdl_layer::tint_factor_measured`, #113),
+/// with Iray's own lobe loss on top (`RESIN_LOBE`, #115). Grey 0.79, coat
+/// 0.95: 0.98 at r 0.02, 0.92 at 0.1, 0.81 at 0.25, 0.59 at 0.5; uncoated
+/// white 0.99 / 0.98 / 0.97 / 0.89.
 fn resin_lobe_albedo(r: f32, weight: f32, ior: f32, tint: [f32; 3]) -> [f32; 3] {
-    let pin = phong_pin(r);
-    crate::resin::resin_tint_factor(r, pin * pin, weight, ior, tint)
+    use crate::mdl_layer::{Curve, Scatter, Stack};
+    let (r, weight, ior) = (r.max(0.0) as f64, weight.clamp(0.0, 1.0) as f64, (ior as f64).max(1.0001));
+    let pin = phong_pin(r as f32) as f64;
+    let stack = |rough: f64| Stack { weight, curve: Curve::Fresnel(ior), coat_rough: rough, base: Scatter::ReflectTransmit, base_rough: rough, ior };
+    crate::mdl_layer::tint_factor_measured(&stack(r), &stack(pin * pin), crate::mdl_layer::interp(&RESIN_LOBE, r), tint)
 }
+
+/// What Iray's resin base lobe alone keeps (`simple_glossy_bsdf`,
+/// `scatter_reflect_transmit`, no coat, white) in the furnace, over the
+/// sphere's inner disk, by MDL roughness: Calib-Furnace-Resin2 U1 – U6
+/// (Iray Server 5000, #115). Measured, not derived: `libbsdf` keeps 1.000
+/// / 0.999 / 0.973 / 0.824 / 0.655 / 0.531 there — Iray's rough
+/// transmission loses more than its reference implementation, and ~3 % even
+/// at r 0.02 (#116). With it the `libbsdf` layering predicts the coated
+/// spheres (grey r 0.1 0.605 v Iray 0.605, r 0.25 0.473 v 0.473).
+const RESIN_LOBE: [(f64, f64); 6] = [(0.02, 0.971), (0.1, 0.963), (0.25, 0.920), (0.5, 0.678), (0.75, 0.462), (1.0, 0.324)];
 
 /// The NVIDIA dielectric a brick shader renders with, its parameters from
 /// the shader's channels and the MDL defaults (`nvidia/<module>.mdl`).
@@ -1017,11 +1032,19 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
             // weighted_layer(transparency, transmit lobe, diffuse).
             let transparency = mat.float("transparency").unwrap_or(0.0).clamp(0.0, 1.0);
             if transparency > 0.0 {
-                let refr = arch_glass_rough(architectural_gloss_to_rough(mat.float("refr_gloss").unwrap_or(1.0)));
-                let k = arch_glass_albedo(refr);
-                d.transmission = Some(mat.color("refr_color").unwrap_or([1.0; 3]).map(|c| c * transparency * k));
+                let refr_gloss = mat.float("refr_gloss").unwrap_or(1.0);
+                let refr = arch_glass_rough(architectural_gloss_to_rough(refr_gloss));
+                let refr_ior = mat.float("Index of Refraction").unwrap_or(1.4);
+                let colour = mat.color("refr_color").unwrap_or([1.0; 3]);
+                let weight = if let MdlGloss::Weight(w) = d.gloss { w } else { 0.0 };
+                let curve = (mat.float("brdf_fresnel").unwrap_or(0.0) <= 0.0).then(|| {
+                    let c = |ch: &str, v: f32| mat.float(ch).unwrap_or(v) as f64;
+                    (c("brdf_0_degree_refl2", 0.2), c("brdf_90_degree_refl2", 1.0), c("brdf_curve", 5.0))
+                });
+                let k = arch_glass_albedo(refr, refr_gloss, refr_ior, weight, d.roughness, d.ior, curve, colour);
+                d.transmission = Some([0, 1, 2].map(|i| colour[i] * transparency * k[i]));
                 d.albedo = MdlAlbedo::Colour(diffuse.map(|c| c * (1.0 - transparency)));
-                d.refraction = Some((refr, mat.float("Index of Refraction").unwrap_or(1.4)));
+                d.refraction = Some((refr, refr_ior));
                 d.absorption = arch_absorption(mat);
             }
             d.opacity = mat.float("Cutout Opacity").unwrap_or(1.0);
@@ -1059,15 +1082,45 @@ fn arch_glass_rough(r: f32) -> f32 {
 
 const ARCH_GLASS_ROUGH: f32 = 3.7;
 
-/// What Iray's rough transmit-only lobe keeps per crossing at roughness r
-/// (fitted; to be derived from `libbsdf` as resin's is, #115): Calib-NVIDIA3's glass at r 0.5
-/// was 1.53 × Iray at the full refr_color, 1.03 at 1 − 0.36 r; at r 0.07
-/// 1.06 → 1.01.
-fn arch_glass_albedo(r: f32) -> f32 {
-    (1.0 - ARCH_GLASS_LOSS * r.clamp(0.0, 1.0)).max(0.0)
+/// The glass's refr_color × this (per channel) = Octane's transmission:
+/// a closed sphere of the material keeps in Octane what it keeps in Iray in
+/// a white furnace (`mdl_layer::tint_factor_measured`, as resin's, #115).
+/// Iray: `libbsdf`'s layering — `custom_curve_layer` (Schlick's r0, r90,
+/// exponent; without "Use Fresnel Term") or `fresnel_layer` (refr_ior)
+/// of weight `weight`, its reflection at `refl_rough`, over the transmit-
+/// only lobe at `refr` (`arch_glass_rough`) — with the lobe's own loss
+/// measured (`ARCH_GLASS_LOBE`). Octane: the coating at its IOR `coat_ior`
+/// and α `refl_rough`, the lobe Beckmann at α `refr`, Smith, physical
+/// layering. Reflectivity 0, refr_gloss 0.6 / 0.4 / 0.2 / 0: 0.98 / 0.97 /
+/// 0.85 / 0.93 (the lobe's α is capped at 1 in Octane too); 0.2 under
+/// reflectivity 0.6 0.85, with the Fresnel term 0.73 (the critical angle in
+/// `fresnel_layer`'s weights).
+#[allow(clippy::too_many_arguments)]
+fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, refl_rough: f32, coat_ior: f32, curve: Option<(f64, f64, f64)>, colour: [f32; 3]) -> [f32; 3] {
+    use crate::mdl_layer::{Curve, Scatter, Stack};
+    let ior = (refr_ior as f64).max(1.0001);
+    let iray = Stack {
+        weight: weight.clamp(0.0, 1.0) as f64,
+        curve: curve.map_or(Curve::Fresnel(ior), |(r0, r90, exponent)| Curve::Schlick { r0, r90, exponent }),
+        coat_rough: refl_rough as f64,
+        base: Scatter::Transmit,
+        base_rough: refr as f64,
+        ior,
+    };
+    let octane = Stack { curve: Curve::Fresnel((coat_ior as f64).max(1.0001)), ..iray };
+    crate::mdl_layer::tint_factor_measured(&iray, &octane, crate::mdl_layer::interp(&ARCH_GLASS_LOBE, refr_gloss as f64), colour)
 }
 
-const ARCH_GLASS_LOSS: f32 = 0.36;
+/// What Iray's architectural transmit lobe alone keeps (reflectivity 0,
+/// white) in the furnace, over the sphere's inner disk, by refr_gloss:
+/// Calib-Furnace-ArchGlass G5 – G1 (Iray Server 5000, #115). Measured, not
+/// derived: `libbsdf` at the formula's roughness keeps 0.87 – 1.00 (it
+/// loses only to v-cavities masking), at `arch_glass_rough`'s 0.56 / 0.85 /
+/// 0.995 / 1.00 / 1 — Iray's rough transmission loses more than its
+/// reference implementation (#116). With it the `libbsdf` layering
+/// predicts the coated spheres (refr_gloss 0.2 under reflectivity 0.6:
+/// Schlick 0.657 v Iray 0.655, Fresnel term 0.421 v 0.416).
+const ARCH_GLASS_LOBE: [(f64, f64); 5] = [(0.0, 0.512), (0.2, 0.614), (0.4, 0.938), (0.6, 0.964), (1.0, 1.0)];
 
 /// mental ray's glossiness → MDL roughness by the MDL SDK's
 /// `base::architectural_gloss_to_rough` (`base.mdl`): √(2 · 2^(−4 − 14 g)),
@@ -5794,7 +5847,7 @@ mod tests {
         assert!(z.contains("<pin name='transmission'>") && z.contains("<pin name='coating'>"), "{z}");
         // Resin's base: the rough-glass rule (Beckmann at the Phong pin of
         // 0.25), its white tint × what Iray's layer weights keep
-        // (`resin_lobe_albedo`, ~0.82; the test material has no IOR channel: 1.5).
+        // (`resin_lobe_albedo`, ~0.80; the test material has no IOR channel: 1.5).
         let k = resin_lobe_albedo(0.25, 0.95, 1.5, [1.0; 3]);
         assert!((0.78..0.88).contains(&k[0]), "{k:?}");
         assert!(z.contains(&format!("type='2'>{GLASS_BRDF}<")) && z.contains(&format!(">{}<", num(phong_pin(0.25)))) && z.contains(&format!(">{} {} {}<", num(k[0]), num(k[1]), num(k[2]))), "{z}");
@@ -5824,11 +5877,14 @@ mod tests {
         assert_eq!(pin(&x, "brdf"), GLASS_BRDF, "{x}");
         assert_eq!(pin(&x, "specular"), "0 0 0", "{x}");
         // Iray's glass roughness (3.7 × the MDL's), Beckmann at √r (the pin
-        // it was fitted on); the transmission × the lobe's albedo.
+        // it was fitted on); the transmission × what the furnace sphere
+        // keeps (reflectivity 0.6 by default, Schlick's curve, a mirror
+        // reflection at its 0.2 → IOR 2.62).
         let rr = architectural_gloss_to_rough(0.2) * ARCH_GLASS_ROUGH;
         assert_eq!(pin(&x, "roughness"), num(rr.sqrt()), "{x}");
-        let t = 1.0 - ARCH_GLASS_LOSS * rr;
-        assert_eq!(pin(&x, "transmission"), format!("{} {} {}", num(t), num(t), num(t)), "{x}");
+        let k = arch_glass_albedo(rr, 0.2, 1.5, 0.6, 0.0, (1.0 + 0.2f32.sqrt()) / (1.0 - 0.2f32.sqrt()), Some((0.2, 1.0, 5.0)), [1.0; 3]);
+        assert!((0.8..0.92).contains(&k[0]), "{k:?}");
+        assert_eq!(pin(&x, "transmission"), format!("{} {} {}", num(k[0]), num(k[1]), num(k[2])), "{x}");
         assert_eq!(pin(&x, "ior"), num(1.5), "{x}");
         assert!(x.contains("<pin name='coating'>") && x.contains("<pin name='transmission'>"), "{x}");
         let aniso = arch(json!([
