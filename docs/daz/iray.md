@@ -56,6 +56,28 @@ roughness, `Glossy Layer Weight`, strand width `Line Start Width` →
 `Line End Width`. Each lobe is tinted by the colour; no transmission through
 the fibres.
 
+### Strand geometry as Iray gets it
+
+A polyline mesh (strand hair, dForce guides and their render hairs) reaches
+Iray in one of three shapes, chosen by the figure's **Line Tessellation**
+modifier (`studio/modifier/line_tessellation`; it runs on figures only).
+Seen in DAZ's `.mi` export, which reads the *Viewport* sides (a render reads
+the *Render* sides; product hair sets both alike):
+
+| Line Tessellation | Iray object | cross-section |
+|---|---|---|
+| none, or sides 0 / 1 | `hair`: cubic B-spline fibres, per-vertex radius = Line Width / 20 cm (the width is a diameter in mm), the ends extended by one control point | Iray's own round fibre |
+| sides 2 | `trilist`, 2 vertices per strand point (plus an unused one) | a **flat ribbon** one Line Width wide, one normal across it; UV u across the ribbon (± a few thousandths), v along |
+| sides 3 | `trilist`, flat-shaded faces | a triangular **prism**, circumradius = width / 2; each face its own normal |
+
+On a plain polyline (no generator) the 2-sided ribbon's normal is the
+object's +z made perpendicular to the strand (a strand along z: −y). The
+render hairs of a dForce generator carry their own frames: Morgan Hair's
+ribbons (Calib-Hair-Teens, sides 2) follow no fixed axis. Morgan Hair
+(sides 2) is ribbons, dForce Corporate Hair (Calib-Hair, sides 3) prisms,
+the free dForce Mohawk ships sides 1 (fibres). Scenes:
+`scripts/dev/make-strand-scenes.py` (#79).
+
 ### Emission
 
 `Emission Color` (non-black), `Luminance` in `Luminance Units` (cd/m²,

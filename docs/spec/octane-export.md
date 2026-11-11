@@ -321,6 +321,9 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   the albedo refit below, 0.65–0.93 after it); at 1× the sky shows through
   (grey-blue hair). The earlier 4× was fitted on
   guide-only strands — it made the strands visibly thick close up (#16).
+  Iray's own strands are 1× (DAZ's .mi: fibre radius, ribbon width and
+  prism size all follow the width in mm), so the 2× is a fit against
+  Iray's shapes (flat ribbons, prisms), not a unit (#79).
 - A `Material` per (mesh, group) under `/Scene/Materials/<mesh>_<group>` (a
   constant `UsdPreviewSurface`) — overridden by the Octane material inputs
   below.
@@ -1082,10 +1085,13 @@ leaves out, #15):
   them anisotropic). The weighted coat (mode 1) keeps its own metal node.
   **On strand hair** (an Uber material on `BasisCurves`) the rotation
   turns a quarter more, 1 − (rotation + 0.25), gloss and coat alike:
-  DAZ hands Iray its strands as thin tubes whose UV u runs around the
-  strand (its .mi export of Calib-Hair: a strand point's vertices step u
-  by 1/6, v grows along the strand), so Iray's unrotated tangent lies
-  across it, and Octane's curves take theirs along it. Why: Morgan Hair
+  DAZ hands Iray tessellated strands (Line Tessellation sides 2 / 3) as
+  flat ribbons or flat-faced prisms whose UV u runs across the strand and
+  v along it (`docs/daz/iray.md`, Strand geometry; Morgan Hair is
+  ribbons, Calib-Hair prisms), so Iray's unrotated tangent lies across
+  it, and Octane's curves take theirs along it. Octane's curves are round
+  where Iray's ribbons are flat (#79); untessellated strands reach Iray
+  as its own `hair` fibres, not checked here. Why: Morgan Hair
   (Rotations 0.25, anisotropy 0.74 / 0.92) streaked across its strands as
   exported; Iray streaks along them. Turned, its highlights 0.69 – 0.77 →
   1.07 – 1.13 × Iray, the crown 2.98 → 2.24 (#52). On the measured

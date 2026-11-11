@@ -97,6 +97,7 @@ thing at a time.
 | `Calib-ColorEffect` | colour effects, Glossy Specular | — | [#27](https://github.com/vysokyj/orbis/issues/27) |
 | `Calib-SpecMode` | Base Mixing 1: Glossy Specular as F0, Morgan Hair's gloss and top coat | done (F0 → IOR) | [#52](https://github.com/vysokyj/orbis/issues/52) |
 | `Calib-CoatEffect` | colour effects of a top coat / glossy layer over an opaque base | done (no tint) | [#27](https://github.com/vysokyj/orbis/issues/27) |
+| `Calib-Strand`, `-Side`, `-Dome`, `-T2`, `-T3`, `-T2-Dome` | synthetic strands (thick, mesh tubes, 3000-strand patches) with Uber gloss one part at a time, as Iray fibres / ribbons / prisms (Line Tessellation), sun or dome | open (Iray batch) | [#79](https://github.com/vysokyj/orbis/issues/79) |
 | `Calib-FilmIOR` | thin films with an IOR contrast: what they leave of the diffuse | done (film tint) | [#31](https://github.com/vysokyj/orbis/issues/31) |
 | `Calib-Backscatter` | backscattering lobe | — | [#29](https://github.com/vysokyj/orbis/issues/29) |
 | `Calib-Flakes` | metallic flakes | — | [#30](https://github.com/vysokyj/orbis/issues/30) |
