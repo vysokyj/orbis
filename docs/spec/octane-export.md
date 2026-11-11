@@ -1406,7 +1406,7 @@ leaves out, #15):
   channel's value, one albedo scale couldn't follow the map (its
   unmetalled texels × S / d, 1.75 × at t 0.5), so until #123 the map's
   metal was dimmed with the diffuse.
-- **Translucency on a metal** (not refractive, Base Mixing 0): a Mix
+- **Translucency on a metal** (not refractive - a refractive one: the Mix below -, Base Mixing 0): a Mix
   material (19) by the Metallic Weight (its map at its gamma × the
   value) of the metal (the material at weight 1: `metallic` 1, its
   colour) and the base (at weight 0: the translucency Universal's diffuse
@@ -1433,6 +1433,27 @@ leaves out, #15):
   0.75, t 0.85) 1.08 → 1.09 beside the opaque metal's. The Oren-Nayar
   part is derived from the layer stack, not rendered (no calibration
   scene combines a metal with Diffuse Roughness).
+- **Refraction on a metal** (Iray Uber, Base Mixing 0; checked before the
+  translucent metal): a Mix material (19) by the Refraction Weight (its
+  map at its gamma × the value) of the refraction (the material at
+  Refraction Weight 1 and metal 0: albedo 0, `transmission`, its IOR and
+  gloss) and the opaque rest (at Refraction Weight 0: the metal over the
+  base, a translucent one as the Mix above). DAZ's MDL
+  (`metallic_layered_base`) lays the refraction over everything, a
+  `weighted_layer` at Refraction Weight over the metal-over-base, so
+  Iray refracts r whatever the metal and its metal keeps 1 − r.
+  Universal's `transmission` belongs to its dielectric, which the
+  metallic blend scales away: as one node the metal swallowed the
+  refraction.
+
+  Why (#129): Calib-MetalRefr (enhanced-final, Y over each sphere's disc,
+  red metal base, white refraction): metal 0.75 / 0.3 at refraction 0.3
+  / 0.7 as one node 0.47 / 0.18 / 0.94 / 0.69 × Iray, green / blue (the
+  background through) down to 0.15; as the Mix 1.14 / 1.12 / 1.13 / 0.90,
+  beside the metals alone 1.16 and the refractions alone 1.02 / 1.03, G /
+  R as Iray's (±0.06). The -g0 (no glossy layer) and -TL (translucency
+  0.5) variants alike (1.10 – 1.14) except the last sphere, which sits
+  in front of the floor's edge (refraction 0.7: 0.67 / 0.95).
 
   Why: Calib-Map-Metal's red spheres at 0.25 / 0.5 / 0.75 went from 1.23
   / 1.38 / 1.39 to 1.12 / 1.16 / 1.22 × Iray (the full metal 1.19), the

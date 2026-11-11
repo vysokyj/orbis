@@ -1289,6 +1289,10 @@ struct Ocs<'a> {
     /// Metallic Weight taken as this (1 its metal, 0 its base), its map
     /// left to the Mix.
     metal_override: Option<f32>,
+    /// Writing one part of `refractive_metal_material`: the material's
+    /// Refraction Weight taken as this (1 its refraction, 0 the opaque
+    /// metal and base under it), its map left to the Mix.
+    refraction_override: Option<f32>,
     /// Writing an Uber gloss (`phong_pin`): Universal's `brdf` for its
     /// node (`phong_brdf`).
     gloss_brdf: Option<&'static str>,
@@ -1717,11 +1721,49 @@ impl Ocs<'_> {
     /// The `amount` of `translucent_metal_material`'s Mix: Metallic Weight,
     /// its map (at its gamma, its value range) × the value.
     fn metal_amount_pin(&mut self, indent: usize, mat: &Material) {
-        let w = metallic(mat).clamp(0.0, 1.0);
-        match self.channel_map(mat, "Metallic Weight") {
-            Some((asset, im)) => self.with_map(im, |s| s.image_pin(indent, "amount", &asset, true, s.textures.map_gamma(&asset, mat.image_gamma("Metallic Weight")), w)),
+        self.weight_amount_pin(indent, mat, "Metallic Weight", metallic(mat));
+    }
+
+    /// A Mix's `amount` from a weight channel: its map (at its gamma, its
+    /// value range) × the value `w`.
+    fn weight_amount_pin(&mut self, indent: usize, mat: &Material, ch: &str, w: f32) {
+        let w = w.clamp(0.0, 1.0);
+        match self.channel_map(mat, ch) {
+            Some((asset, im)) => self.with_map(im, |s| s.image_pin(indent, "amount", &asset, true, s.textures.map_gamma(&asset, mat.image_gamma(ch)), w)),
             None => self.float_pin(indent, "amount", w),
         }
+    }
+
+    /// Iray's refraction over a metal (DAZ's MDL, Uber's
+    /// `metallic_layered_base`: `weighted_layer(refraction_weight,
+    /// refraction_bsdf, bsdf_w_metal)`, the metal itself a layer over the
+    /// diffuse) as a Mix material (19) by the Refraction Weight (its map at
+    /// its gamma × the value): the refraction (the material at Refraction
+    /// Weight 1 and metal 0: no albedo, the transmission and its
+    /// reflection) and the opaque metal and base under it (at Refraction
+    /// Weight 0, a translucent one as `translucent_metal_material`).
+    /// Universal's `transmission` belongs to its dielectric, which its
+    /// metallic blend scales away: as one node Calib-MetalRefr's X2 (metal
+    /// 0.75, refraction 0.7) rendered 0.18 × Iray, X1 (0.3) 0.48, its
+    /// green / blue (the background through it) 0.16 / 0.34 (#129).
+    fn refractive_metal_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
+        let id = self.id();
+        let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
+        let i = indent + 1;
+        self.weight_amount_pin(i, mat, "Refraction Weight", mat.float("Refraction Weight").unwrap_or(0.0));
+        self.pin_open(i, "material1");
+        self.refraction_override = Some(1.0);
+        self.metal_override = Some(0.0);
+        self.universal(i + 1, &format!("{name} refraction"), mat, area_m2, skin);
+        self.metal_override = None;
+        self.pin_close(i);
+        self.pin_open(i, "material2");
+        self.refraction_override = Some(0.0);
+        self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
+        self.refraction_override = None;
+        self.pin_close(i);
+        self.displacement_pin(i, mat);
+        let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
     /// `universal` at Metallic Weight `w` (`metal_override`).
@@ -3188,7 +3230,9 @@ impl Ocs<'_> {
         // cards, and fabrics are thin-walled sheets — random walk needs a
         // closed volume.
         let translucency = mat.float("Translucency Weight").unwrap_or(0.0).clamp(0.0, 1.0);
-        let refractive = mat.float("Refraction Weight").unwrap_or(0.0) > 0.0;
+        // (One part of `refractive_metal_material`: its share, 1 or 0.)
+        let refraction_weight = self.refraction_override.unwrap_or_else(|| mat.float("Refraction Weight").unwrap_or(0.0));
+        let refractive = refraction_weight > 0.0;
         let emissive = mat.color("Emission Color").is_some_and(|c| c.iter().any(|v| *v > 0.0));
         let cutout = mat.opacity() < 1.0 || mat.image(mat.opacity_channel()).is_some();
         // Iray "Thin Walled": clothing — a single-sided sheet, no volume.
@@ -3225,6 +3269,10 @@ impl Ocs<'_> {
                 return self.weighted_mix_material(indent, name, mat, area_m2, skin, weights);
             }
         }
+        let base_mixing_0 = mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0;
+        if self.refraction_override.is_none() && self.metal_override.is_none() && !self.in_backscatter_mix && metal && refractive && base_mixing_0 && !crate::iray::is_pbrskin(mat) {
+            return self.refractive_metal_material(indent, name, mat, area_m2, skin);
+        }
         if self.metal_override.is_none() && !self.in_backscatter_mix && metal && translucency > 0.0 && !refractive && !(is_eye(name) && crate::iray::is_pbrskin(mat)) && mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0 {
             return self.translucent_metal_material(indent, name, mat, area_m2, skin);
         }
@@ -3243,7 +3291,7 @@ impl Ocs<'_> {
         // Iray refraction replaces the diffuse base: a fully refractive
         // surface (cornea, eye moisture, glass) has no diffuse left — a white
         // albedo there renders a milky shell over the eye.
-        let refraction = mat.float("Refraction Weight").unwrap_or(0.0).clamp(0.0, 1.0);
+        let refraction = refraction_weight.clamp(0.0, 1.0);
         // Iray translucency (off the skin path) passes its share of the
         // diffuse through the surface: Universal's diffuse transmission. Left
         // out, Calib-SSS's translucent spheres rendered 1.6 – 3.2 × Iray
@@ -5387,7 +5435,7 @@ fn ies_projection_rotation(frame: &[[f64; 3]; 3]) -> [f64; 3] {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -5611,7 +5659,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, dome_groun
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -5835,7 +5883,7 @@ fn environment_texture_at(
     first_id: u32,
     origin: Option<[f64; 3]>,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -5954,7 +6002,7 @@ pub fn material_inputs_scaled(
     // materials' channels give each its own, "auto" ones aren't listed.
     let own_gammas = materials.iter().flat_map(|(_, m, _)| m.channels.values()).filter_map(|c| Some((c.image.clone()?, c.gamma?))).collect();
     let mut textures = Textures { layered, own_gammas, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -6708,6 +6756,38 @@ mod tests {
         // Opaque: one Universal node as before.
         let opaque = material_inputs(&[("O".into(), mat(json!([{"channel": {"id": "Metallic Weight", "current_value": 0.3}}])), 1.0)], &dirs, HashMap::new(), 9470, SkinShader::None).0;
         assert!(!opaque.contains("type='19'"), "{opaque}");
+    }
+
+    #[test]
+    fn refractive_metal_is_a_mix_of_refraction_and_opaque_metal() {
+        let dirs: Vec<PathBuf> = Vec::new();
+        let export = |extra: serde_json::Value| {
+            let mut chs = vec![
+                json!({"channel": {"id": "diffuse", "current_value": [0.45, 0.05, 0.04]}}),
+                json!({"channel": {"id": "Metallic Weight", "current_value": 0.75}}),
+                json!({"channel": {"id": "Refraction Weight", "current_value": 0.7}}),
+                json!({"channel": {"id": "Glossy Layered Weight", "current_value": 1.0}}),
+            ];
+            chs.extend(extra.as_array().unwrap().iter().cloned());
+            material_inputs(&[("RM".into(), mat(json!(chs)), 1.0)], &dirs, HashMap::new(), 9480, SkinShader::None).0
+        };
+        let node = |x: &str, name: &str| {
+            let p = &x[x.find(&format!("name='{name}'>")).unwrap()..];
+            p[..p[1..].find("type='130'").or_else(|| p[1..].find("type='19'")).map_or(p.len(), |e| e + 1)].to_string()
+        };
+        let x = export(json!([]));
+        assert!(x.contains("type='19' name='RM'"), "{x}");
+        let amount = &x[x.find("<pin name='amount'>").unwrap()..];
+        assert!(amount[..amount.find("</pin>").unwrap()].contains(">0.7<"), "{x}");
+        // The refraction: transmission at full weight, no metal.
+        let refr = node(&x, "RM refraction");
+        assert!(refr.contains("<pin name='transmission'>") && !refr.contains("<pin name='metallic'>"), "{refr}");
+        // The opaque rest: the metal, no transmission.
+        let base = node(&x, "RM base");
+        assert!(base.contains("<pin name='metallic'>") && !base.contains("<pin name='transmission'>"), "{base}");
+        // A translucent one: the opaque rest is the translucent metal's Mix.
+        let tl = export(json!([{"channel": {"id": "Translucency Weight", "current_value": 0.5}}]));
+        assert!(tl.contains("type='19' name='RM base'") && tl.contains("name='RM base metal layer'"), "{tl}");
     }
 
     #[test]
@@ -8293,7 +8373,7 @@ mod tests {
     #[test]
     fn mdl_metal_roughness_is_the_long_axis() {
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.02, 0.4), rough_v: (String::new(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;
@@ -8318,7 +8398,7 @@ mod tests {
         image::GrayImage::from_fn(16, 16, |x, _| image::Luma([(x * 8) as u8])).save(dir.path().join("b.png")).unwrap();
         let dirs = [dir.path().to_path_buf()];
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.06, 0.4), rough_v: (String::new(), 0.06, 0.4), bump: ("b.png".into(), 1.5), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         assert!(w.out.contains("<pin name='normal'>") && !w.out.contains("<pin name='bump'>"), "{}", w.out);
