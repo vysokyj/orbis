@@ -48,7 +48,8 @@ sun, ribbons / prisms), Calib-Strand-T2-Dome (ribbons under the dome, as
 Morgan's hair in Calib-Hair-Teens). Existing scenes are kept (--force
 rewrites them); written to "My Library/Scenes" and copied into
 calib/scenes. --tess-probe <dir> writes row A at several sides into <dir>
-(scratch, for the .mi).
+(scratch, for the .mi). --mohawk <DAZ library> writes Calib-Mi-Mohawk-T2
+(the free dForce Mohawk at sides 2, for its .mi; My Library only).
 """
 import sys as _sys
 if any(a in ('-h', '--help') for a in _sys.argv[1:]):
@@ -60,7 +61,8 @@ import duf_camera
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CALIB = os.path.join(REPO, 'calib', 'scenes')
-out_dir = next((a for a in sys.argv[1:] if not a.startswith('--')), None) or '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes'
+_opt_vals = {sys.argv[i + 1] for i, a in enumerate(sys.argv[:-1]) if a in ('--mohawk', '--tess-probe')}
+out_dir = next((a for a in sys.argv[1:] if not a.startswith('--') and a not in _opt_vals), None) or '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes'
 FORCE = '--force' in sys.argv
 
 
@@ -317,6 +319,33 @@ def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None):
     shutil.copy2(p, os.path.join(CALIB, name + '.duf'))
 
 
+MOHAWK = 'People/Genesis 8 Female/Hair/Strand-Based Hair Samples/G8F dForce Hair Mohawk.duf'
+
+
+def mohawk_scene(lib):
+    """Calib-Mi-Mohawk-T2: the free dForce Mohawk preset (dForce Starter
+    Essentials, on Genesis 8 Female) as a scene at Line Tessellation 2, with
+    this file's camera: its .mi shows the ribbon frames of generated render
+    hairs (#79). It carries the preset's own data, so it stays in My Library
+    only (not calib/scenes); a headless DAZ crashed saving it itself."""
+    d = load(os.path.join(lib, MOHAWK))
+    d['asset_info']['type'] = 'scene'
+    d['asset_info']['id'] = '/Scenes/Calib-Mi-Mohawk-T2.duf'
+    d['node_library'] = [copy.deepcopy(next(l for l in base['node_library'] if l['id'] == 'Camera'))]
+    d['scene']['nodes'].append(copy.deepcopy(next(n for n in base['scene']['nodes'] if n['url'].lstrip('#') == 'Camera')))
+    for m in d['scene']['modifiers']:
+        if m['id'] == 'Line Tessellation':
+            m['extra'].append({'type': 'studio_modifier_channels', 'channels': [
+                {'channel': {'id': f'{w} Line Tessellation Sides', 'type': 'int', 'current_value': 2}} for w in ('Viewport', 'Render')]})
+    duf_camera.ensure(d)
+    p = os.path.join(out_dir, 'Calib-Mi-Mohawk-T2.duf')
+    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    print(p)
+
+
+if '--mohawk' in sys.argv:
+    mohawk_scene(sys.argv[sys.argv.index('--mohawk') + 1])
+    sys.exit(0)
 if '--tess-probe' in sys.argv:
     # scratch: row A at each Render Line Tessellation Sides, for the .mi
     probe = sys.argv[sys.argv.index('--tess-probe') + 1]

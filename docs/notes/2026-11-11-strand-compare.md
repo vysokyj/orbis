@@ -101,8 +101,9 @@ hair layers, brows, lacquers).
   don't touch the lobe's direction. Unexplained; a mesh tube with a
   glossiness-mode gloss is no hair case, so left.
 - **Ribbon frames of generated hair**: an `.mi` of the free dForce Mohawk
-  at sides 2 (its preset rewritten as a scene with a camera — saving it
-  from a headless DAZ segfaulted) shows them: each render hair's ribbon
+  at sides 2 (Calib-Mi-Mohawk-T2: `make-strand-scenes.py --mohawk`, its
+  preset rewritten as a scene with a camera — saving it from a headless DAZ
+  segfaulted; My Library only, it carries the preset's data) shows them: each render hair's ribbon
   faces the scalp at its root and keeps that frame along the strand
   without twist (`docs/daz/iray.md`). Enough to export ribbons; whether to
   is the question on #79: Iray's flat ribbons are a tessellation artefact
