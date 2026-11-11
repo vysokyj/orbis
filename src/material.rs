@@ -3162,6 +3162,8 @@ impl Ocs<'_> {
             // 0.84 – 1.05 × Iray, before 1.05 – 2.68; mono 1.40 – 1.54
             // (before 1.40 – 1.69: Iray's mono spheres darker than Rd says,
             // unlike its figures), SSS Reflectance Tint, unread, 1.34 (#28).
+            // Mono with the amount clamped as Iray gets it (#105): 1.11 –
+            // 1.31 per channel, Amount 2 before 1.26 – 1.59.
             let volume = if !thin && !mat.open && absorption(mat).is_some() { volume_factor(mat).map(|v| v * PROP_VOLUME_LEVEL) } else { [1.0; 3] };
             let tc = [0, 1, 2].map(|k| tc[k] * volume[k]);
             match mat.image("Translucency Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
@@ -3917,7 +3919,7 @@ fn absorption(mat: &Material) -> Option<[f32; 3]> {
 /// Iray's volume scattering coefficient per channel (1/m), as DAZ passes
 /// it (`add_uber_volume`, the .mi export): chromatic (`SSS Mode` 1) −ln(SSS
 /// Color) / `Scattering Measurement Distance`, else `SSS Amount` / that
-/// distance (cm; SSS Amount as is), × `REFRACTIVE_SCATTERING_SCALE`. None
+/// distance (cm; [`mono_sss_amount`]), × `REFRACTIVE_SCATTERING_SCALE`. None
 /// without SSS. Missing on a refractive volume, Calib-Map-Misc's (SSS
 /// Amount 0.3 at 0.5 cm under a blue-grey absorption) rendered 0.67 ×
 /// Iray; at the full σs 1.47, × 0.5 / 0.25 / 0.1 1.14 / 0.93 / 0.79 (#28).
@@ -3934,15 +3936,14 @@ fn scattering(mat: &Material) -> Option<[f32; 3]> {
         let sigma = amount.map(|a| if log { -a.clamp(1e-4, 1.0).ln() } else { a.max(0.0) } / distance_m * REFRACTIVE_SCATTERING_SCALE);
         return sigma.iter().any(|s| *s > 0.0).then_some(sigma);
     }
-    let amount = mat.float("SSS Amount")?;
+    mat.float("SSS Amount")?;
     let distance_m = mat.float("Scattering Measurement Distance").unwrap_or(0.0) * CM_PER_M_INV;
     if distance_m <= 0.0 {
         return None;
     }
-    let sigma = if mat.float("SSS Mode").unwrap_or(0.0) as i32 == 1 {
-        mat.color("SSS Color")?.map(|c| -c.clamp(1e-4, 1.0).ln() / distance_m)
-    } else {
-        [amount.max(0.0) / distance_m; 3]
+    let sigma = match mono_sss_amount(mat) {
+        Some(mono) => [mono / distance_m; 3],
+        None => mat.color("SSS Color")?.map(|c| -c.clamp(1e-4, 1.0).ln() / distance_m),
     };
     let sigma = sigma.map(|x| x * REFRACTIVE_SCATTERING_SCALE);
     sigma.iter().any(|s| *s > 0.0).then_some(sigma)
@@ -4327,10 +4328,13 @@ fn reference_volume_albedo() -> [f32; 3] {
 /// A(α) (`skin_albedo`, #19).
 ///
 /// The square root is still a fit (#83): Iray's Calib-SSSColor spheres
-/// don't follow any function of α alone. Mono SSS Amount 2 (α 1.00 / 0.91
-/// / 0.88, σs 133 / cm) renders darker than chromatic grey (α 0.99 / 0.80
-/// / 0.74, σs 53 / cm): how much passes through the sphere counts, a
-/// thickness the albedo doesn't carry. A(α) / A(α₀), right on figures,
+/// don't follow any function of α alone. Mono SSS Amount 2 (clamped to 1:
+/// α 0.99 / 0.84 / 0.78, σs 67 / cm) renders darker than chromatic grey (α
+/// 0.99 / 0.80 / 0.74, σs 53 / cm): how much passes through the sphere
+/// counts, a thickness the albedo doesn't carry. With the clamp (#105) the
+/// two mono spheres agree (1.13 / 1.29 / 1.31 and 1.11 / 1.29 / 1.22 ×
+/// Iray, before 1.26 / 1.53 / 1.59 for Amount 2); still above the
+/// chromatic ones. A(α) / A(α₀), right on figures,
 /// spread the spheres 0.58 – 2.26 × Iray against the root's 0.71 – 1.61.
 /// The derived rule needs the volume itself (a random walk on props, #87).
 fn volume_factor(mat: &Material) -> [f32; 3] {
@@ -4358,10 +4362,7 @@ enum Scattering {
 fn volume_albedo(mat: &Material) -> [f32; 3] {
     let linear = |c: [f32; 3]| c.map(colour_to_linear);
     let chromatic = Scattering::Chromatic(mat.color("SSS Color").unwrap_or(linear(SKIN_SSS_COLOR)));
-    let scattering = match mat.float("SSS Amount") {
-        Some(amount) if mat.float("SSS Mode").unwrap_or(0.0) as i32 != 1 => Scattering::Mono(amount),
-        _ => chromatic,
-    };
+    let scattering = mono_sss_amount(mat).map_or(chromatic, Scattering::Mono);
     volume_albedo_of(
         mat.color("Transmitted Color").unwrap_or(linear(SKIN_TRANSMITTED)),
         mat.float("Transmitted Measurement Distance").filter(|d| *d > 0.0).unwrap_or(SKIN_TRANSMITTED_DISTANCE),
@@ -4369,6 +4370,19 @@ fn volume_albedo(mat: &Material) -> [f32; 3] {
         mat.float("Scattering Measurement Distance").filter(|d| *d > 0.0).unwrap_or(SKIN_SCATTERING_DISTANCE),
         mat.float("SSS Direction").unwrap_or(0.0).clamp(-0.95, 0.95),
     )
+}
+
+/// A mono SSS's (`SSS Mode` not 1) amount as DAZ hands it to Iray: clamped
+/// to 0 – 1 (`src/iray.rs`; Calib-SSSColor's .mi: Amount 2 arrives as [1,
+/// 1, 1], so σs = 1 / d_s). None for chromatic SSS or without an amount.
+/// Unclamped (#105), Amount 2 doubled σs: Calib-SSSColor's mono-2 sphere
+/// 1.26 / 1.53 / 1.59 × Iray beside mono 0.5's 1.12 / 1.29 / 1.22; on
+/// Victoria 8 the skin's A(α) predicts the mono-2 variant 1.11 / 1.18 / 1.31 ×
+/// Iray's subsurface part, clamped 1.05 / 0.90 / 0.96 (mono 0.5 1.04 /
+/// 0.93 / 0.94).
+fn mono_sss_amount(mat: &Material) -> Option<f32> {
+    let amount = mat.float("SSS Amount")?;
+    (mat.float("SSS Mode").unwrap_or(0.0) as i32 != 1).then(|| amount.clamp(0.0, 1.0))
 }
 
 /// Colours linear.
@@ -4782,10 +4796,7 @@ fn sss_radius(mat: &Material) -> ([f32; 3], f32) {
     // SSS Direction as in `volume_albedo`: the walk is isotropic, so it
     // takes the similar medium's reduced scattering σs (1 − g).
     let g = mat.float("SSS Direction").unwrap_or(0.0).clamp(-0.95, 0.95);
-    let mono = match mat.float("SSS Amount") {
-        Some(a) if mat.float("SSS Mode").unwrap_or(0.0) as i32 != 1 => Some(a.max(0.0)),
-        _ => None,
-    };
+    let mono = mono_sss_amount(mat);
     let mfp = [0, 1, 2].map(|k| {
         let sigma_a = extinction(t[k]) / d_t;
         let sigma_s = mono.unwrap_or_else(|| extinction(sss[k])) / d_s * (1.0 - g);
@@ -7181,9 +7192,13 @@ mod tests {
         // A blue SSS Color scatters more red, less blue (Iray 1.69 / 0.92 / 0.52).
         let blue = with(json!([{"channel": {"id": "SSS Color", "current_value": [0.6, 0.75, 0.95]}}]));
         assert!(near(blue, [1.58, 0.93, 0.51]), "{blue:?}");
-        // Mono: SSS Amount per distance (Iray 1.71 / 1.21 / 1.35).
+        // Mono: SSS Amount per distance, the amount clamped to 1 as DAZ
+        // hands it to Iray (#105): Amount 2 scatters as Amount 1 (unclamped
+        // 1.65 / 1.24 / 1.40).
         let mono = with(json!([{"channel": {"id": "SSS Mode", "current_value": 0}}]));
-        assert!(near(mono, [1.65, 1.24, 1.40]), "{mono:?}");
+        assert!(near(mono, [1.56, 1.05, 1.16]), "{mono:?}");
+        let one = with(json!([{"channel": {"id": "SSS Mode", "current_value": 0}}, {"channel": {"id": "SSS Amount", "current_value": 1}}]));
+        assert!(near(one, mono), "{one:?}");
     }
 
     /// An anisotropic Top Coat outside Layering Mode 1: a Layered material

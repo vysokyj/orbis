@@ -850,7 +850,8 @@ leaves out, #15):
   `transmission` × the skin's volume factor (`volume_factor`, Rd(α) /
   Rd(α₀))^0.5 per channel) × 0.7 (`PROP_VOLUME_LEVEL`). Both are fits
   (#83): Iray's spheres follow no function of α alone — mono SSS Amount 2
-  (α 1.00 / 0.91 / 0.88, σs 133 / cm) renders darker than chromatic grey
+  (clamped to 1 as DAZ passes it, below: α 0.99 / 0.84 / 0.78, σs 67 /
+  cm) renders darker than chromatic grey
   (α 0.99 / 0.80 / 0.74, σs 53 / cm), so how much passes through the
   sphere counts; skin's derived A(α) / A(α₀) in place of the root spread
   them 0.58 – 2.26 × Iray (the root 0.71 – 1.61, per channel); a derived
@@ -1446,8 +1447,8 @@ leaves out, #15):
   3× crops (OSL's dP/du is per face).
 - **Scattering in a refractive volume** (SSS Amount / SSS Color with
   refraction, not thin-walled) → a scattering medium (59) with Iray's σa
-  and σs (as DAZ passes them: −ln(SSS Color) / d chromatic, SSS Amount /
-  d mono, d in m) × 0.3 for σs; the phase stays isotropic. Why: missing,
+  and σs (as DAZ passes them: −ln(SSS Color) / d chromatic, SSS Amount
+  clamped to 0 – 1 / d mono, d in m) × 0.3 for σs; the phase stays isotropic. Why: missing,
   Calib-Map-Misc's milky sphere rendered 0.67 × Iray, at the full σs
   1.47, × 0.3 ~1.0 — one sphere's fit (#28). Translucent props keep
   `volume_factor`; SSS Reflectance Tint isn't passed to Iray by DAZ at
@@ -2087,7 +2088,8 @@ the only Calib-Skin figure with one): front 0.96 / 1.04 / 1.07 → 0.92 /
 - The subsurface's distance per channel = Iray's volume's **transport
   mean free path** 1 / (σa + σs (1 − g)) (`sss_radius`; σa = −ln
   Transmitted Color / Transmitted Measurement Distance, σs = −ln SSS Color
-  — or SSS Amount — / Scattering Measurement Distance, g = SSS Direction,
+  — or the mono SSS Amount, clamped to 1 — / Scattering Measurement
+  Distance, g = SSS Direction,
   the `anisotropic_vdf`'s Henyey-Greenstein bias; DAZ's MDL
   `add_uber_volume`), OpenPBR's definition: the largest as the distance
   (m, clamped 0.1 mm – 5 cm), the channels over it as the colour; the walk
@@ -2222,7 +2224,16 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   (dipole, η 1.4) at the volume's reduced single-scattering albedo α =
   σs(1 − g) / (σs(1 − g) + σa), α₀ Victoria 8's volume. DAZ's MDL: σa =
   −ln(Transmitted Color) / d_t; σs = −ln(SSS Color) / d_s (chromatic) or
-  SSS Amount / d_s (mono); colours linear. On the skins Iray's SSS
+  SSS Amount / d_s (mono); colours linear. The **mono SSS Amount is
+  clamped to 0 – 1** wherever σs is read (`mono_sss_amount`: volume
+  factor, the skin's A(α), the walk radius, a refractive volume's σs):
+  DAZ hands Iray `sub_surface_scattering_amount` clamped (`src/iray.rs`,
+  Calib-SSSColor's .mi: Amount 2 → [1, 1, 1]). Unclamped (#105) Amount 2
+  had twice Iray's σs: Calib-SSSColor's mono-2 sphere 1.26 / 1.53 / 1.59
+  × Iray, clamped 1.13 / 1.29 / 1.31 beside mono 0.5's 1.11 / 1.29 /
+  1.22 (enhanced-final); on Victoria 8 the skin's A(α) predicts Iray's
+  mono-2 subsurface part 1.05 / 0.90 / 0.96 (unclamped 1.11 / 1.18 /
+  1.31), mono 0.5 1.04 / 0.93 / 0.94. On the skins Iray's SSS
   variants (Victoria / Monique / Zurie: SSS Color grey, blue, deep; mono
   at Amount 2 and 0.5) moved the subsurface part as Rd's root predicts
   within ~10 % (Zurie ~20 %). SSS Reflectance Tint did nothing on the
