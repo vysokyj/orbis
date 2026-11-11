@@ -2063,7 +2063,7 @@ impl Ocs<'_> {
         // A roughness map (Twosret 8's face: its gloss map at Roughness 1,
         // sharp where it is dark) per texel, as the gloss's (#19). Weighted
         // (Base Mixing 2) takes the Roughness channel and its map (#110).
-        let glossiness = top_coat_glossiness_mode(mat) && mat.float("Top Coat Glossiness").is_some();
+        let glossiness = mat.glossiness_mode() && mat.float("Top Coat Glossiness").is_some();
         match Some("Top Coat Roughness").filter(|c| !glossiness && mat.image(c).is_some()) {
             Some(ch) => self.roughness_pin_named(i, "coatingRoughness", mat, Some(ch), rough.clamp(0.0, 1.0), curve, 1.0),
             None => self.float_pin(i, "coatingRoughness", rough.clamp(0.0, 1.0)),
@@ -3549,8 +3549,10 @@ impl Ocs<'_> {
         let own_refraction = refraction > 0.0 && mat.float("Share Glossy Inputs").unwrap_or(1.0) == 0.0;
         let refraction_rough = own_refraction && refraction >= 0.5 && !thin;
         let (rough_ch, rough, inverted) = if refraction_rough {
-            match (mat.float("Base Mixing").unwrap_or(0.0) as i32, mat.float("Refraction Glossiness")) {
-                (1 | 2, Some(g)) => (Some("Refraction Glossiness"), 1.0 - g, true),
+            // Refraction Glossiness only in glossiness mode, as the glossy
+            // layer's (#124).
+            match (mat.glossiness_mode(), mat.float("Refraction Glossiness")) {
+                (true, Some(g)) => (Some("Refraction Glossiness"), 1.0 - g, true),
                 _ => (Some("Refraction Roughness"), mat.float("Refraction Roughness").unwrap_or(0.0), false),
             }
         } else if glossy > 0.0 && !glossy_coat && weighted_lobe.is_none() {
@@ -4317,27 +4319,14 @@ fn weighted_top_coat(mat: &Material) -> bool {
     mat.float("Top Coat Layering Mode").unwrap_or(0.0) as i32 == 1 && (mat.float("Top Coat Weight").unwrap_or(0.0) > 0.0 || mat.image("Top Coat Weight").is_some())
 }
 
-/// Whether the Top Coat reads Top Coat Glossiness rather than Roughness:
-/// Base Mixing 1 only. Weighted (2) takes Roughness, as the glossy layer
-/// does (DAZ's .mi export: Calib-Mi-Mix2's coat at Roughness 0.3,
-/// Glossiness 0.2 gets 0.3², #110) — except on a brick graph, which keeps
-/// Glossiness as `Material::roughness_source` does (unverified there).
-fn top_coat_glossiness_mode(mat: &Material) -> bool {
-    match mat.float("Base Mixing").unwrap_or(0.0) as i32 {
-        1 => true,
-        2 => mat.brick,
-        _ => false,
-    }
-}
-
 /// The top coat's roughness as Octane takes it: 1 − Top Coat Glossiness in
-/// glossiness mode (`top_coat_glossiness_mode`), else Top Coat Roughness,
+/// glossiness mode (`Material::glossiness_mode`), else Top Coat Roughness,
 /// as Iray squares it.
 fn top_coat_roughness(mat: &Material) -> f32 {
     if let Some(r) = iray(mat).and_then(|u| u.float("top_coat_roughness")) {
         return r.clamp(0.0, 1.0);
     }
-    let (r, inv) = match (top_coat_glossiness_mode(mat), mat.float("Top Coat Glossiness")) {
+    let (r, inv) = match (mat.glossiness_mode(), mat.float("Top Coat Glossiness")) {
         (true, Some(g)) => (1.0 - g, true),
         _ => (mat.float("Top Coat Roughness").unwrap_or(0.0), false),
     };
@@ -7152,6 +7141,21 @@ mod tests {
         // (#72, #95).
         let pin = |x: &str, p: &str| x[x.find(&format!("<pin name='{p}'>")).unwrap()..].split("</attr>").next().unwrap().rsplit('>').next().unwrap().to_string();
         assert_eq!((pin(&bx, "brdf"), pin(&bx, "roughness")), (GLASS_BRDF.to_string(), num(phong_pin(0.09))), "{bx}");
+        // Its own roughness by mixing mode, as the glossy layer's (DAZ's .mi
+        // export, Calib-Mi-Mix2 M6: Roughness 0.4, Glossiness 0.3 -> 0.4²
+        // weighted, #124): Glossiness in Base Mixing 1 only.
+        for (mixing, r) in [(1, 0.49), (2, 0.16)] {
+            let own = mat(json!([
+                {"channel": {"id": "Base Mixing", "current_value": mixing}},
+                {"channel": {"id": "Refraction Weight", "current_value": 1}},
+                {"channel": {"id": "Share Glossy Inputs", "current_value": false}},
+                {"channel": {"id": "Refraction Roughness", "current_value": 0.4}},
+                {"channel": {"id": "Refraction Glossiness", "current_value": 0.3}},
+            ]));
+            assert_eq!(own.glossiness_mode(), mixing == 1);
+            let (ox, _) = material_inputs(&[("Own".into(), own, 1.0)], &dirs, HashMap::new(), 8982, SkinShader::None);
+            assert_eq!(pin(&ox, "roughness"), num(phong_pin(r)), "mixing {mixing}: {ox}");
+        }
         // Shared with a rough glossy layer: the same rule on the glossy
         // roughness, the reflection included.
         let frosted = mat(json!([

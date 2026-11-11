@@ -1569,8 +1569,9 @@ leaves out, #15):
   `index4`, probe 82; `ior` 2.0 brightened Calib-Materials' gloss 1.08 →
   1.15), transparent shadows. Iray's refraction takes the glossy layer's
   colour and roughness while **Share Glossy Inputs** is on (the default),
-  its own Refraction Color / Roughness (Glossiness in Base Mixing 1 / 2)
-  when off: shared, a green Refraction Color and roughness 0.3 changed
+  its own Refraction Color / Roughness (1 − Refraction Glossiness in Base
+  Mixing 1 only: Weighted (2) reads Roughness, Calib-Mi-Mix2's M6 0.4²,
+  #124; a brick graph keeps Glossiness, as its gloss and coat do) when off: shared, a green Refraction Color and roughness 0.3 changed
   nothing in Iray. Its reflection is the glossy layer's: under a partial
   layer (Glossy Layered Weight < 1) DAZ weights it by that weight
   (`full_refraction_reflection_enable` off, #120), as Universal's specular

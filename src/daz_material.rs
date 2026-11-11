@@ -340,22 +340,29 @@ impl Material {
         self.glossy_roughness_source()
     }
 
-    /// [`roughness_source`] of the glossy layer itself, the dual lobe's
-    /// left aside: Iray has both in its stack at once (#106).
-    pub fn glossy_roughness_source(&self) -> (Option<&'static str>, f32, bool) {
-        // Base Mixing 1 (specular / glossiness) takes its gloss from
-        // Glossiness, 0 (metallicity / roughness) and 2 (weighted) from
-        // Glossy Roughness — both channels are always saved (DAZ's .mi
-        // export: Calib-Mixing's weighted spheres at Glossy Roughness 0.5,
-        // Glossiness 1 get 0.25; #62). A brick graph on Uber's weighted
-        // base keeps reading Glossiness: what DAZ makes of a graph isn't
-        // verified (HFGG's terrain).
-        let glossiness_mode = match self.float("Base Mixing").unwrap_or(0.0) as i32 {
+    /// Whether Uber's roughnesses (the glossy layer's, the Top Coat's, the
+    /// refraction's own) come from their Glossiness channels: Base Mixing 1
+    /// (specular / glossiness) only; 0 (metallicity / roughness) and 2
+    /// (weighted) read the Roughness ones — both are always saved (DAZ's
+    /// .mi export: Calib-Mixing's weighted spheres at Glossy Roughness 0.5,
+    /// Glossiness 1 get 0.25, #62; Calib-Mi-Mix2's coat at Roughness 0.3,
+    /// Glossiness 0.2 gets 0.3², #110; its M6 refraction at Roughness 0.4,
+    /// Glossiness 0.3 gets 0.4², #124). A brick graph on Uber's weighted
+    /// base keeps reading Glossiness: what DAZ makes of a graph isn't
+    /// verified (HFGG's terrain).
+    pub fn glossiness_mode(&self) -> bool {
+        match self.float("Base Mixing").unwrap_or(0.0) as i32 {
             1 => true,
             2 => self.brick,
             _ => false,
-        };
-        if !glossiness_mode {
+        }
+    }
+
+    /// [`roughness_source`] of the glossy layer itself, the dual lobe's
+    /// left aside: Iray has both in its stack at once (#106).
+    pub fn glossy_roughness_source(&self) -> (Option<&'static str>, f32, bool) {
+        // Glossy Roughness unless `glossiness_mode`.
+        if !self.glossiness_mode() {
             if let Some(r) = self.float("Glossy Roughness") {
                 return (Some("Glossy Roughness"), r, false);
             }
