@@ -837,10 +837,13 @@ leaves out, #15):
   layer over the skin (probes 62–63).
 - **No glossy layer, dual lobe, refraction or mirror → `specular` 0** (Iray
   is matte there; Universal's white default glittered velvet, probe 53).
-  A `Glossy Color` map tints `specular` (× glossy weight); else a `Glossy
-  Layered Weight` map × the weight, else glossy colour × weight when below 1
-  — Universal's full white default made the GSOV4 leather (gloss 0.33 through
-  a seam mask) 3.4× Iray's sheen; now 1.13–1.16 (Fetroom).
+  `specular` = Glossy Color (× its map) × glossy weight (× the `Glossy
+  Layered Weight` map), flat when neither has a map and only below 1 — the
+  MDL tints the glossy BSDF by Glossy Color and weights the layer apart, so
+  both maps apply, multiplied in a Multiply texture (39); a weight map alone
+  dropped the colour and the Base Mixing 1 hue (#107). Universal's full
+  white default made the GSOV4 leather (gloss 0.33 through a seam mask)
+  3.4× Iray's sheen; now 1.13–1.16 (Fetroom).
 - **Translucency** off the skin path (props, cloth, cards) → Universal's
   diffuse transmission: `albedo` × (1 − w), `transmission` = Translucency
   Color (map) × w, `transmissionType` 1 (Diffuse), 3 (Thin Wall (Diffuse))
@@ -1100,7 +1103,8 @@ leaves out, #15):
   no anisotropy): an anisotropic one makes the material a **Layered
   material** (143, `pin_count` 1) of the surface without its coat
   (`material1`) and a **Specular Layer** (139, dynamic pin `Layer 1`,
-  `dynamicType` 33) with the coating's colour × weight (`specular`), its
+  `dynamicType` 33) with the coating's colour × weight, maps included
+  (`specular`), its
   roughness, IOR (`top_coat_ior`) and the anisotropy and rotation as
   above. Why: as an isotropic coating Calib-Aniso's A7 (mode 0, a 1) was
   1.22 × Iray with a sharp round highlight where Iray draws a streak,
@@ -1129,7 +1133,8 @@ leaves out, #15):
   Calib-Backscatter B8 and Calib-Aniso2 K6 stayed isotropic
   (Calib-Mi-Visible2-Shown, see iray-uber-mdl.md, Channel visibility). The
   Octane side keeps the backscatter isotropic either way.
-- **Top Coat** → Universal `coating` = Top Coat Color × weight,
+- **Top Coat** → Universal `coating` = Top Coat Color (× its map) ×
+  weight (× its map; both maps multiplied as the glossy layer's, #107),
   `coatingRoughness` (Top Coat Roughness, or 1 − Top Coat Glossiness in
   mode 1 — verified; mode 2 not yet, it keeps Glossiness — squared
   likewise), `coatingIor`: the top-coated sphere's

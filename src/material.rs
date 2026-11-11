@@ -1602,9 +1602,9 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:j$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
         let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
         let (colour, coat) = color_effect(mat, "Top Coat Color Effect", mat.color("Top Coat Color").unwrap_or([1.0; 3]), coat);
-        match self.channel_map(mat, "Top Coat Weight") {
-            Some((asset, m)) => self.with_map(m, |w| w.image_pin(j + 1, "specular", &asset, true, w.textures.map_gamma(&asset, mat.image_gamma("Top Coat Weight")), coat)),
-            None => self.rgb_pin(j + 1, "specular", colour.map(|c| c * coat)),
+        // The coat's colour (× its map) at its weight (× its map), #107.
+        if !self.layer_colour_pin(j + 1, "specular", mat, "Top Coat Weight", "Top Coat Color", coat, colour, false) {
+            self.rgb_pin(j + 1, "specular", colour.map(|c| c * coat));
         }
         let (rough, aniso) = (top_coat_roughness(mat), Anisotropy::top_coat(mat));
         self.gloss_brdf = Some(phong_brdf(&[(rough * aniso.stretch()).min(1.0)]));
@@ -1911,10 +1911,9 @@ impl Ocs<'_> {
         // coats with its gloss map; uniform, the coat shone over the dark
         // parts, #19). A weight map is a float channel's map: at 2.2
         // (`data_gamma`).
-        match (self.channel_map(mat, "Top Coat Weight"), self.channel_map(mat, "Top Coat Color")) {
-            (Some((asset, m)), _) => self.with_map(m, |w| w.image_pin(i, "coating", &asset, true, w.textures.map_gamma(&asset, mat.image_gamma("Top Coat Weight")), coat)),
-            (None, Some((asset, m))) => self.with_map(m, |w| w.tinted_image_pin(i, "coating", &asset, coat, colour)),
-            (None, None) => self.rgb_pin(i, "coating", colour.map(|c| c * coat)),
+        // Both maps, as Iray's coat tint × weight (#107).
+        if !self.layer_colour_pin(i, "coating", mat, "Top Coat Weight", "Top Coat Color", coat, colour, false) {
+            self.rgb_pin(i, "coating", colour.map(|c| c * coat));
         }
         let curve = curve.unwrap_or(if self.gloss_brdf.is_some() { RoughCurve::Phong } else { RoughCurve::Linear });
         let rough = curve.apply(top_coat_roughness(mat));
@@ -2459,6 +2458,56 @@ impl Ocs<'_> {
         self.pin_close(indent);
     }
 
+    /// A layer's colour at its weight on `pin`, as Iray's glossy layer and
+    /// Top Coat take them: the BSDF's `tint` (`colour_ch`, × its map) and
+    /// the layer's `weight` (`weight_ch`, × its map) are separate inputs in
+    /// DAZ's MDL (`irayubermaterial.mdl`: `tint: glossy_color` /
+    /// `top_coat_color`, the layer's weight apart), so both maps apply:
+    /// the colour map tinted as `tinted_image_pin` (through `overlaid_pin`
+    /// when `overlay`, OOT's Glossy Overlay), the weight map a grey data
+    /// map at `weight`, the two in a Multiply texture (39). A weight map
+    /// alone kept only the weight and lost the colour (#107). False when
+    /// neither channel has a map: the caller writes the flat value.
+    #[allow(clippy::too_many_arguments)]
+    fn layer_colour_pin(&mut self, i: usize, pin: &str, mat: &Material, weight_ch: &str, colour_ch: &str, weight: f32, colour: [f32; 3], overlay: bool) -> bool {
+        let wmap = self.channel_map(mat, weight_ch).map(|(asset, m)| {
+            let g = self.textures.map_gamma(&asset, mat.image_gamma(weight_ch));
+            (asset, m, g)
+        });
+        let cmap = self.channel_map(mat, colour_ch);
+        let colour_pin = |w: &mut Self, indent: usize, pin: &str, asset: &str, m: ImageMod, power: f32| {
+            if overlay {
+                w.overlaid_pin(indent, pin, mat, colour_ch, asset, power, colour)
+            } else {
+                w.with_map(m, |w| w.tinted_image_pin(indent, pin, asset, power, colour))
+            }
+        };
+        match (wmap, cmap) {
+            (None, None) => return false,
+            (None, Some((asset, m))) => colour_pin(self, i, pin, &asset, m, weight),
+            (Some((asset, m, g)), cmap) => {
+                let (lo, hi) = colour.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &c| (lo.min(c), hi.max(c)));
+                if cmap.is_none() && hi - lo < 0.01 {
+                    // A grey colour: the weight map at weight × the grey.
+                    self.with_map(m, |w| w.image_pin(i, pin, &asset, true, g, weight * map_tint(colour)));
+                    return true;
+                }
+                let id = self.id();
+                self.pin_open(i, pin);
+                let j = i + 1;
+                let _ = writeln!(self.out, "{:j$}<node id='{id}' type='39'>", "");
+                match cmap {
+                    Some((casset, cm)) => colour_pin(self, j + 1, "texture1", &casset, cm, 1.0),
+                    None => self.rgb_pin(j + 1, "texture1", colour.map(|c| c.clamp(0.0, 1.0))),
+                }
+                self.with_map(m, |w| w.image_pin(j + 1, "texture2", &asset, true, g, weight));
+                let _ = writeln!(self.out, "{:j$}</node>", "");
+                self.pin_close(i);
+            }
+        }
+        true
+    }
+
     /// A float pin driven by `channel`'s texture when it has one (scaled by
     /// `value`), else the constant `value`.
     fn float_or_map(&mut self, indent: usize, pin: &str, mat: &Material, channel: Option<&str>, value: f32) {
@@ -2605,11 +2654,8 @@ impl Ocs<'_> {
         let glossy = mat.float("Glossy Layered Weight").unwrap_or(0.0).min(1.0);
         let r = glossy_reflectivity(mat);
         let (colour, weight) = color_effect(mat, "Glossy Color Effect", mat.color("Glossy Color").unwrap_or([1.0; 3]), glossy * reflectivity_share(r));
-        if let Some(asset) = mat.image("Glossy Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-            self.overlaid_pin(i, "coating", mat, "Glossy Color", &asset, weight, colour);
-        } else if let Some((asset, m)) = self.channel_map(mat, "Glossy Layered Weight") {
-            self.with_map(m, |w| w.image_pin(i, "coating", &asset, true, w.textures.map_gamma(&asset, mat.image_gamma("Glossy Layered Weight")), weight));
-        } else {
+        // Colour and weight maps both (#107; see `layer_colour_pin`).
+        if !self.layer_colour_pin(i, "coating", mat, "Glossy Layered Weight", "Glossy Color", weight, colour, true) {
             self.rgb_pin(i, "coating", colour.map(|c| c * weight));
         }
         self.roughness_pin_named(i, "coatingRoughness", mat, rough_ch, curve.apply(rough.clamp(0.0, 1.0)), curve, 1.0);
@@ -3260,14 +3306,13 @@ impl Ocs<'_> {
             // A coloured gloss map tints the reflection: the HS CB braids'
             // brown gloss rendered as a grey sheen with Universal's white
             // default (Octane1, probe 60).
-            if let Some(asset) = mat.image("Glossy Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-                self.overlaid_pin(i, "specular", mat, "Glossy Color", &asset, weight, gloss_color);
-            } else if let Some((asset, m)) = self.channel_map(mat, "Glossy Layered Weight") {
-                // The glossy layer's weight map (data) × its weight: the
-                // GSOV4 leather's 0.33 gloss with a seam mask rendered 3.4×
-                // Iray's sheen with Universal's full white one (Fetroom).
-                self.with_map(m, |w| w.image_pin(i, "specular", &asset, true, w.textures.map_gamma(&asset, mat.image_gamma("Glossy Layered Weight")), weight));
-            } else if weight < 1.0 || gloss_color != [1.0; 3] || self.film.is_some() {
+            // The glossy layer's weight map (data) × its weight: the GSOV4
+            // leather's 0.33 gloss with a seam mask rendered 3.4× Iray's
+            // sheen with Universal's full white one (Fetroom). With the
+            // colour (its map, the Base Mixing 1 hue) as Iray tints the
+            // layer's BSDF: a weight map kept only the weight (#107).
+            let mapped = self.layer_colour_pin(i, "specular", mat, "Glossy Layered Weight", "Glossy Color", weight, gloss_color, true);
+            if !mapped && (weight < 1.0 || gloss_color != [1.0; 3] || self.film.is_some()) {
                 // (Universal's default is white; a film tints it.)
                 self.rgb_pin(i, "specular", gloss_color.map(|c| c * weight));
             }
@@ -6300,6 +6345,55 @@ mod tests {
         assert!(pin(&x, "coatingRoughness").contains(&format!(">{}<", num(phong_pin(0.25)))), "{x}");
         assert!(pin(&x, "roughness").contains(&format!(">{}<", num(blended))), "{x}");
         assert!(pin(&x, "coatingDarkening").contains("type='6'>0</attr>"), "{x}");
+    }
+
+    #[test]
+    fn weight_maps_keep_the_layers_colour() {
+        // Iray tints a glossy / Top Coat layer's BSDF by its colour and
+        // weights the layer apart (#107): a weight map multiplies the
+        // colour, with a colour map both maps.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("Runtime/Textures")).unwrap();
+        for f in ["col.jpg", "wgt.png"] {
+            std::fs::write(dir.path().join("Runtime/Textures").join(f), b"x").unwrap();
+        }
+        let dirs = vec![dir.path().to_path_buf()];
+        // The pin up to its own closing tag (at its indent).
+        let pin = |x: &str, p: &str| {
+            let at = x.find(&format!("<pin name='{p}'>")).unwrap_or_else(|| panic!("{p}: {x}"));
+            let indent = &x[x[..at].rfind('\n').map_or(0, |n| n + 1)..at];
+            let s = &x[at..];
+            s[..s.find(&format!("\n{indent}</pin>")).expect("closed")].to_string()
+        };
+        let weight = json!({"channel": {"id": "Glossy Layered Weight", "current_value": 0.5, "image_file": "/Runtime/Textures/wgt.png"}});
+        let red = |id: &str, map: bool| if map { json!({"channel": {"id": id, "current_value": [1, 0, 0], "image_file": "/Runtime/Textures/col.jpg"}}) } else { json!({"channel": {"id": id, "current_value": [1, 0, 0]}}) };
+        for map in [false, true] {
+            let m = mat(json!([weight, red("Glossy Color", map)]));
+            let (x, _) = material_inputs(&[("Gloss".into(), m, 1.0)], &dirs, HashMap::new(), 9200, SkinShader::None);
+            let spec = pin(&x, "specular");
+            assert!(spec.contains("type='39'") && spec.contains("wgt.png") && spec.contains("type='36'"), "weight map: {spec}");
+            if map {
+                assert!(spec.contains("col.jpg"), "colour map too: {spec}");
+            } else {
+                assert!(spec.contains("1 0 0"), "the colour: {spec}");
+            }
+        }
+        // A white gloss stays a plain weight map.
+        let (x, _) = material_inputs(&[("White".into(), mat(json!([weight])), 1.0)], &dirs, HashMap::new(), 9300, SkinShader::None);
+        assert!(!pin(&x, "specular").contains("type='39'"), "{x}");
+        // The Top Coat: Universal's coating, and the Layered material's
+        // specular layer (an anisotropic coat).
+        let coat = json!({"channel": {"id": "Top Coat Weight", "current_value": 1, "image_file": "/Runtime/Textures/wgt.png"}});
+        for (aniso, p) in [(0.0, "coating"), (0.5, "specular")] {
+            for map in [false, true] {
+                let m = mat(json!([coat, red("Top Coat Color", map), {"channel": {"id": "Top Coat Anisotropy", "current_value": aniso}}]));
+                let (x, _) = material_inputs(&[("Coat".into(), m, 1.0)], &dirs, HashMap::new(), 9400, SkinShader::None);
+                let x = if aniso > 0.0 { &x[x.find("top coat'>").expect("layered coat")..] } else { &x[..] };
+                let c = pin(x, p);
+                assert!(c.contains("type='39'") && c.contains("wgt.png"), "{p} weight map: {c}");
+                assert!(if map { c.contains("col.jpg") } else { c.contains("1 0 0") }, "{p} colour: {c}");
+            }
+        }
     }
 
     #[test]
