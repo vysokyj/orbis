@@ -60,6 +60,9 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-DualLobeWeightedTL (#128): the same with translucency, which skips
   the weighted Mix (gloss / dual lobe alone and both, translucency 1, Top
   Coat, weights below 1, no translucency, Glossy Reflectivity 0).
+- Calib-WeightedTL, -Thin (#131): weighted mixing with translucency on a
+  diffuse map - Diffuse / Translucency / Glossy Weight combinations, plain
+  colours and a dark diffuse map under lighter translucency / glossy maps.
 - Calib-DOF-*: depth of field, focus at 1.5 m with the spheres at ~4.6 m,
   f/4, f/8, f/16 — to check Iray's 10x aperture.
 
@@ -574,6 +577,42 @@ uber_spheres('Calib-DualLobeWeightedTL', [0.45, 0.05, 0.04], DLWT, [
     ('T7 both no translucency', {'Translucency Weight': 0.0}),
     ('T8 both gloss refl 0', {'Glossy Reflectivity': 0.0}),
 ])
+# Weighted mixing's shares with translucency (#131): the export brightens
+# the diffuse map by `weighted_mix` (translucency as a third share), while
+# DAZ's normalized_base keeps the translucency inside the diffuse part
+# (diffuse_base: diffuse reflection at 1 - t over the transmission) and,
+# with no gloss part, reads no Diffuse Weight. Only a diffuse map takes the
+# brightening, so every sphere has one (uniform synthetic maps, ours): a
+# red one (Y 0.13) under an orange translucency (Y 0.65), and the hair case
+# - a dark diffuse map under 3.5x lighter translucency and glossy maps.
+# W1 / W2 without translucency (Diffuse Weight unread: W2 = W1), W3 - W5 the
+# translucency with no gloss (W4 = W3 if Diffuse Weight stays unread), W6 /
+# W7 with the gloss (Dw + Gw past 1 and below), W8 the hair maps.
+# -Thin: the same thin-walled (mesh hair's cards).
+WTL_MAPS = {name: f'/Runtime/Textures/ORBIS/calib-wtl-{name}.png' for name in ('red', 'dark', 'light')}
+for name, rgb in {'red': (180, 60, 50), 'dark': (100, 70, 45), 'light': (200, 150, 100)}.items():
+    p = os.path.join(os.path.dirname(out_dir), WTL_MAPS[name].lstrip('/'))
+    if not os.path.exists(p):
+        from PIL import Image
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        Image.new('RGB', (64, 64), rgb).save(p)
+WTL = {'Base Mixing': 2, ('diffuse', 'image'): WTL_MAPS['red'], 'Diffuse Weight': 1.0, 'Glossy Weight': 0.0,
+       'Glossy Layered Weight': 0.0, 'Glossy Roughness': 0.4, 'Glossy Color': [1.0, 1.0, 1.0],
+       'Translucency Weight': 0.0, 'Translucency Color': [0.9, 0.6, 0.4]}
+WTL_SPHERES = [
+    ('W1 diffuse only', {}),
+    ('W2 diffuse 0.5', {'Diffuse Weight': 0.5}),
+    ('W3 tl 0.5', {'Translucency Weight': 0.5}),
+    ('W4 tl 0.5 diffuse 0.5', {'Translucency Weight': 0.5, 'Diffuse Weight': 0.5}),
+    ('W5 tl 1', {'Translucency Weight': 1.0}),
+    ('W6 tl 0.5 gloss 0.5', {'Translucency Weight': 0.5, 'Glossy Weight': 0.5}),
+    ('W7 tl 0.5 diffuse 0.5 gloss 0.3', {'Translucency Weight': 0.5, 'Diffuse Weight': 0.5, 'Glossy Weight': 0.3}),
+    ('W8 hair maps tl 0.5 gloss 0.5', {'Translucency Weight': 0.5, 'Glossy Weight': 0.5, ('diffuse', 'image'): WTL_MAPS['dark'],
+                                       ('Translucency Color', 'image', 'float_color'): WTL_MAPS['light'],
+                                       ('Glossy Color', 'image', 'float_color'): WTL_MAPS['light']}),
+]
+uber_spheres('Calib-WeightedTL', [1.0, 1.0, 1.0], WTL, WTL_SPHERES)
+uber_spheres('Calib-WeightedTL-Thin', [1.0, 1.0, 1.0], {**WTL, 'Thin Walled': True}, WTL_SPHERES)
 # A metal under a partial refraction (#129): DAZ's metallic_layered_base
 # lays the refraction (weighted_layer at Refraction Weight) over the metal,
 # so Iray's metal keeps (1 - r) of its colour and the refraction r whatever
