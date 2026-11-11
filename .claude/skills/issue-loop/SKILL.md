@@ -17,15 +17,15 @@ The user's rule (2026-11-11): don't call them for an Iray run per task. Work goe
 The session that runs the loop only orchestrates; the work on an issue is done by the **`issue-worker` agent (Opus)**, so each issue starts with a clean context. One worker at a time, never two (parallel sessions fought over sources and Octane, #74).
 
 1. `git pull --rebase`; `gh issue list -L 100 --json number,title,labels`.
-2. **Pick** (issue numbers given as arguments win, in that order):
-   1. an issue whose `## Iray batch` comment is answered by a later `Iray references in` comment (label gone) - a resume;
+2. **Pick** (issue numbers given as arguments win, in that order, except over a resume):
+   1. **resumes first, always**: an issue whose `## Iray batch` comment is answered by a later `Iray references in` comment (label gone), oldest batch first. Its scenes, dumps and Octane side are ready, so it is only a compare - and a compare tends to settle more (and to tell what the next batch must hold) than starting a new issue without a render. Check for them at every iteration, also while the server queue still runs: an issue whose own references are in is resumed at once;
    2. `bug` issues, oldest first;
    3. the rest, oldest first.
    Skip issues labelled `needs-iray` or `question`, and what the project rules hold back: #57 / #19 (PBRSkin: no constant tuning), #3 (signing needs the user), #50 (a 1.2 M-face private scene; its renders froze the Mac), anything that needs private or store content in git.
 3. **Start the worker**: Agent tool, `subagent_type: issue-worker`, prompt = the issue number and title, "resume" if it is one, and what earlier workers reported that concerns it. Wait for its report; don't work on anything that touches the sources or renders meanwhile.
 4. **Check its end state** - the report is not proof. It must be exactly one of:
    - **Done**: the issue is closed, the commit is on `origin/master`, `cargo test` passes, `scripts/install.sh` ran if the export changed.
-   - **Needs Iray**: parked as in the next section (scenes in git, the comment, the label).
+   - **Needs Iray**: parked as in the next section (scenes in git, the comment, the label), and the report ends with its scene list - checked against the issue's `## Iray batch` table (same scenes, same samples).
    - **Needs the user** (a decision, missing knowledge, a failed Octane, content we may not use): a comment with what was found and the one question, label `question`; what is worth keeping committed (`refs #N`).
    In every end state: **each scene the worker generated is in `calib/scenes` and committed with its generator** (`git status` clean, the report's scene list against `git log --stat`). The generators write into "My Library/Scenes"; not all of them copy the scene into the repo, and a scene that lives only there is lost for the next compare. Exception: a scene with store or private content stays out of git - then the generator alone is committed and the issue says so.
    None of them (the worker died, left a dirty tree or failing tests): repair it here or park the issue with `question`; never start the next worker on a broken tree.
