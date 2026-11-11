@@ -2816,7 +2816,7 @@ impl Ocs<'_> {
     /// the coating, without OpenPBR's coat darkening (it took the base to
     /// 0.58 – 0.80 of Universal's on Calib-SSS's spheres, off it is 1.00).
     fn skin_gloss(&mut self, i: usize, mat: &Material, rough_ch: Option<&str>, rough: f32, inverted: bool) {
-        let glossy = mat.float("Glossy Layered Weight").unwrap_or(0.0).max(mat.float("Glossy Weight").unwrap_or(0.0));
+        let glossy = gloss_weight(mat);
         let coat = mat.float("Top Coat Weight").unwrap_or(0.0) > 0.0;
         // Iray's glossy layer over its dual lobe (`gloss_over_dual_lobe`):
         // the dual lobe on `specular`, the gloss the coating over it, as
@@ -2885,13 +2885,14 @@ impl Ocs<'_> {
     /// specular's, or the coating's over a dual lobe): Iray's glossy layer
     /// as its dual lobe — a custom curve at F0 = 0.08 × Glossy Reflectivity
     /// (× its map) head-on, 1 at grazing, weighted by Glossy Layered
-    /// Weight (× its map) — the weight, the F0 as the IOR per texel. The
+    /// Weight (Glossy Weight under weighted mixing, `gloss_weight_channel`;
+    /// × its map) — the weight, the F0 as the IOR per texel. The
     /// Genesis 8 base skin maps its weight: unmapped, its face shone
     /// everywhere, the sky's reflection 1 – 2 % over Iray's skin
     /// (Calib-Skin-Base-hdri, Calib-Eye; #19).
     fn skin_glossy_layer(&mut self, i: usize, mat: &Material, weight_pin: &str, ior_pin: &str) {
-        let glossy = mat.float("Glossy Layered Weight").unwrap_or(0.0).max(mat.float("Glossy Weight").unwrap_or(0.0));
-        let wch = if mat.image("Glossy Layered Weight").is_some() || mat.float("Glossy Weight").unwrap_or(0.0) <= 0.0 { "Glossy Layered Weight" } else { "Glossy Weight" };
+        let glossy = gloss_weight(mat);
+        let wch = gloss_weight_channel(mat);
         match self.channel_map(mat, wch) {
             Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, weight_pin, &asset, true, w.textures.map_gamma(&asset, mat.image_gamma(wch)), glossy.min(1.0))),
             None => self.float_pin(i, weight_pin, glossy.min(1.0)),
@@ -3332,7 +3333,10 @@ impl Ocs<'_> {
         // Iray's Oren-Nayar (`oren_nayar_flat`), the overlay's at its own
         // roughness (#32, #76); under Octane's Oren-Nayar, which stands in
         // for Iray's at σ, the overlay's relative to the base's.
-        let glossy = mat.float("Glossy Layered Weight").unwrap_or(0.0).max(mat.float("Glossy Weight").unwrap_or(0.0));
+        // The glossy layer's weight: Glossy Weight under weighted mixing,
+        // else Glossy Layered Weight (`gloss_weight_channel`, #127).
+        let glossy = gloss_weight(mat);
+        let gloss_ch = gloss_weight_channel(mat);
         let dual_lobe = DualLobe::of(mat);
         // Iray's glossy layer over the dual lobe: the gloss as the coating,
         // when no Top Coat holds it on this node (`gloss_over_dual_lobe`).
@@ -3344,7 +3348,7 @@ impl Ocs<'_> {
         // (#121). As a dual lobe alone (Base Mixing 0), the gloss left to
         // `weighted_mix_material`'s other material.
         let weighted_lobe = dual_lobe.filter(|_| weighted.is_some() && !mirror && refraction == 0.0);
-        let no_gloss = (weighted.is_some() && weighted_lobe.is_none()) || (!mirror && refraction == 0.0 && glossy <= 0.0 && dual_lobe.is_none() && mat.image("Glossy Layered Weight").is_none());
+        let no_gloss = (weighted.is_some() && weighted_lobe.is_none()) || (!mirror && refraction == 0.0 && glossy <= 0.0 && dual_lobe.is_none() && mat.image(gloss_ch).is_none());
         let sigma = diffuse_roughness(mat, false);
         let oren_nayar = sigma > 0.0 && no_gloss && !mirror && !metal && refraction == 0.0 && transmit == 0.0;
         let base_flat = if oren_nayar { 1.0 } else { oren_nayar_flat(sigma) };
@@ -3468,7 +3472,7 @@ impl Ocs<'_> {
         let mut active_dual_lobe = None;
         if weighted.is_some() && weighted_lobe.is_none() {
             self.rgb_pin(i, "specular", [0.0; 3]);
-        } else if !mirror && refraction == 0.0 && glossy <= 0.0 && dual_lobe.is_none() && mat.image("Glossy Layered Weight").is_none() {
+        } else if !mirror && refraction == 0.0 && glossy <= 0.0 && dual_lobe.is_none() && mat.image(gloss_ch).is_none() {
             self.rgb_pin(i, "specular", [0.0; 3]);
         } else if weighted_lobe.is_none() && iray(mat).and_then(|u| u.bool("refraction_reflection_enable")) == Some(false) {
             // Iray's refraction reflects through the glossy layer only: without
@@ -3499,7 +3503,7 @@ impl Ocs<'_> {
             // sheen with Universal's full white one (Fetroom). With the
             // colour (its map, the Base Mixing 1 hue) as Iray tints the
             // layer's BSDF: a weight map kept only the weight (#107).
-            let mapped = self.layer_colour_pin(i, "specular", mat, "Glossy Layered Weight", "Glossy Color", weight, gloss_color, true);
+            let mapped = self.layer_colour_pin(i, "specular", mat, gloss_ch, "Glossy Color", weight, gloss_color, true);
             if !mapped && (weight < 1.0 || gloss_color != [1.0; 3] || self.film.is_some() || self.metal_scale.is_some()) {
                 // (Universal's default is white; a film tints it.)
                 self.rgb_pin(i, "specular", gloss_color.map(|c| c * weight));
@@ -4876,6 +4880,25 @@ fn glossy_layer_roughness(mat: &Material) -> (Option<&'static str>, f32, bool) {
 /// refraction, no metal): the gloss as the `coating`, the dual lobe as the
 /// `specular` under it (`Ocs::glossy_coating`). Elsewhere the gloss alone,
 /// as before.
+/// The channel that weights Iray Uber's glossy layer, as DAZ hands it
+/// (`crate::iray::uber`, the .mi fixtures): Glossy Weight under weighted
+/// base mixing (2) — DAZ's `normalized_base` takes no
+/// `glossy_layered_weight` (DAZ passes 1 whatever its value: Calib-Mi-Mix2,
+/// -Visible2, the Calib-Tone base) and enables the gloss from Glossy Weight
+/// alone (Calib-DualLobeWeighted W2) —, Glossy Layered Weight under the
+/// layered mixings (0, 1), whose `metallic_layered_base` has no
+/// `glossy_weight` (DAZ passes 0). The larger of the two had counted in
+/// every mode: a weighted material with Glossy Weight 0 got a gloss Iray
+/// hasn't (#127).
+fn gloss_weight_channel(mat: &Material) -> &'static str {
+    if mat.float("Base Mixing").unwrap_or(0.0) as i32 == 2 { "Glossy Weight" } else { "Glossy Layered Weight" }
+}
+
+/// The glossy layer's weight in Iray (`gloss_weight_channel`).
+fn gloss_weight(mat: &Material) -> f32 {
+    mat.float(gloss_weight_channel(mat)).unwrap_or(0.0).max(0.0)
+}
+
 fn gloss_over_dual_lobe(mat: &Material) -> bool {
     mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0
         && mat.float("Glossy Layered Weight").unwrap_or(0.0) > 0.0
@@ -7294,6 +7317,38 @@ mod tests {
         // Well-formed (balanced) XML fragment.
         assert_eq!(xml.matches("<node ").count(), xml.matches("</node>").count());
         assert_eq!(xml.matches("<pin ").count(), xml.matches("</pin>").count());
+    }
+
+    #[test]
+    fn gloss_weight_follows_the_base_mixing() {
+        // DAZ hands Iray the gloss from Glossy Weight under weighted mixing
+        // (2) and from Glossy Layered Weight otherwise (#127): the other
+        // channel gives no gloss.
+        let specular = |chs: serde_json::Value| {
+            let (x, _) = material_inputs(&[("Ball".into(), mat(chs), 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
+            x[x.find("<pin name='specular'>").unwrap_or_else(|| panic!("{x}"))..].split("</pin>").next().unwrap().to_string()
+        };
+        let weighted_layered_only = specular(json!([
+            {"channel": {"id": "Base Mixing", "current_value": 2}},
+            {"channel": {"id": "Glossy Weight", "current_value": 0.0}},
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 0.8}},
+        ]));
+        assert!(weighted_layered_only.contains(">0 0 0<"), "{weighted_layered_only}");
+        // Translucent (no Mix): the gloss on `specular` at Glossy Weight
+        // 0.3 (× min(2r, 1) = 1 at the default r 0.5), not the layered 1.
+        let translucent = specular(json!([
+            {"channel": {"id": "Base Mixing", "current_value": 2}},
+            {"channel": {"id": "Translucency Weight", "current_value": 0.5}},
+            {"channel": {"id": "Glossy Weight", "current_value": 0.3}},
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 1.0}},
+        ]));
+        assert!(translucent.contains(">0.3 0.3 0.3<"), "{translucent}");
+        let layered_weight_only = specular(json!([
+            {"channel": {"id": "Base Mixing", "current_value": 0}},
+            {"channel": {"id": "Glossy Weight", "current_value": 0.5}},
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 0.0}},
+        ]));
+        assert!(layered_weight_only.contains(">0 0 0<"), "{layered_weight_only}");
     }
 
     #[test]

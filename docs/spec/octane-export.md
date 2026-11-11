@@ -830,8 +830,19 @@ leaves out, #15):
   to the blend's brightness (`weighted_mix`; 2.8 for a mesh hair; with a
   gloss the weights sum to at least 1, below it the rest is black as in
   `normalized_mix`, #126) and
-  `Glossy Weight` counts as gloss. Not applied to a translucency map standing
+  `Glossy Weight` is the gloss. Not applied to a translucency map standing
   in as albedo (greyed a cap's crown, probe 60).
+- **The glossy layer's weight follows Base Mixing** (#127): `Glossy Weight`
+  (and its map) under weighted mixing (2), `Glossy Layered Weight` under 0
+  and 1 — the other channel gives no gloss. DAZ's `normalized_base` has no
+  `glossy_layered_weight` (DAZ passes 1 whatever the channel: Calib-Mi-Mix2,
+  -Visible2, the Calib-Tone base's .mi) and enables the gloss from Glossy
+  Weight alone (Calib-DualLobeWeighted W2); `metallic_layered_base` has no
+  `glossy_weight` (DAZ passes 0). The larger of the two had counted in every
+  mode: a weighted material with Glossy Weight 0 (or a translucent weighted
+  one, which skips the Mix) got a gloss on `specular` Iray hasn't, at
+  roughness 0 since DAZ passes none without gloss (#121). The skin's gloss
+  (`skin_gloss`, `skin_glossy_layer`) reads the same channel.
 - roughness (dual-lobe skin: Specular Lobe 1 Roughness), metallic, cutout
   opacity = greyscale map × value or constant; normal / bump maps. Without
   `Cutout Opacity` (DAZ Default shader) opacity is `transparency` ("Opacity
