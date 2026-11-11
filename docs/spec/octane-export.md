@@ -1055,8 +1055,9 @@ leaves out, #15):
   0.18, v 0.36 – 0.48) 1.00 – 1.01 / 1.01 – 1.03 / 1.01, Calib-Aniso's
   metal A6 (u 0.16, v 0.8) 1.03 / 1.08 / 1.05 (rendered: A6 / the
   isotropic A1 1.064), saturated (u 0.04, v r / 0.0001) 1.07 / 1.09 /
-  1.11. Resin's loss (`resin_lobe_albedo`, 16 % at r 0.25) isn't this
-  effect: its reflection's share at r 0.25 is ≤ 1 %.
+  1.11. Resin's loss (`resin_lobe_albedo`, 17 % at r 0.25) isn't this
+  effect: v-cavities against Smith on the whole resin sphere is 0.6 % at
+  r 0.25; the loss is `fresnel_layer`'s weights (Dielectrics below, #113).
   Why: at the axes' geometric mean Calib-Aniso's streaks came out short
   and bright — highlight elongation (major / minor axis of the highlight)
   1.96 against Iray's 9.9 on roughness 0.1, anisotropy 1, mean 1.52 ×
@@ -1745,19 +1746,39 @@ leaves out, #15):
     and transmission its colour, which Octane, like Iray, applies at every
     crossing — that keeps the hue — under the rough-glass rule (Beckmann at
     the Phong pin; the clear gloss as the coating at its Phong pin), both ×
-    the lobe's albedo
-    **1 − 0.64 r** (`resin_lobe_albedo`). Why: Iray's lobe has no
-    multiple-scattering compensation (MDL spec 21.1.3) and loses light
-    with roughness. On Calib-NVIDIA2, at r 0.02 the full colour matched
-    Iray (A8 0.91 ×, g/r 0.14 v 0.12; the earlier fitted × 0.8 gave 0.71
-    and g/r 0.19). At r 0.25 the full colour was 1.23 – 1.46 × Iray under
-    every BSDF tried (default, plain or energy-preserving GGX on the curve,
-    Beckmann at √r); the albedo 0.84 brings the grey resin (A7) to 1.02 ×
-    and Calib-NVIDIA's red one to 1.05 × with g/r 0.25 v 0.22 (floors
-    1.04 – 1.05). The two roughnesses are measured; the line between them
-    is assumed. Calib-NVIDIA2's numbers came from a view fitted to a
-    mis-framed reference (#97); on its true reference A7 is 1.28 × and A8
-    1.01 × — the r 0.25 point is open (#113).
+    **k per channel** (`resin_lobe_albedo`, `resin::resin_tint_factor`):
+    the factor that makes a closed sphere of the material, entered over its
+    whole silhouette in a white furnace, keep in Octane (Beckmann α = pin²,
+    Smith masking, coat w · F(k·h) over the base's 1 − w · F(k·h)) what it
+    keeps under Iray's model, both traced at export (65 536 paths each,
+    fixed seed; k solved on the same paths). Iray's model is the MDL SDK's
+    `libbsdf`: `simple_glossy_bsdf` = Phong half-vector distribution
+    (exponent 2 / r²) with v-cavities masking, min(G1, G2) on reflection,
+    max(G1 + G2 − 1, 0) on refraction; `fresnel_layer` picks the coat with
+    probability w · F(n·k1), weights it w · F(k·h), and weights the base
+    **1 − w · max(F(n·k1), F(n·k2_refl))** — Fresnel at the macro normal,
+    k2_refl the reflection of k1 about the base's microfacet. Light leaving
+    a rough base from inside meets k2_refl past the critical angle (F = 1):
+    the base keeps 1 − w there, a loss that grows with roughness. Grey 0.79,
+    coat 0.95, IOR 1.49: k 0.99 at r 0.02, 0.94 at 0.1, 0.83 at 0.25, 0.64
+    at 0.5; without the coat ≥ 0.99. Why: Calib-Furnace-Resin (uniform
+    dome) — Iray's rough coated resin keeps far less than the physical
+    sphere (white r 0.25 0.72, physics 0.98; grey r 0.5 0.26, physics
+    0.56), the uncoated one nearly all (0.91); Octane keeps what physics
+    does (0.99 / 0.60 / 0.99 at the full tint); the `libbsdf` model gives
+    0.76 / 0.28 / 0.98 — the coat's weights are the loss, the lobe's
+    masking ≤ 1 %. Octane / Iray disk (r < 0.75), full tint → k:
+    furnace grey r 0.25 1.41 → 1.01, white 1.40 → 0.99, r 0.5 2.37 →
+    1.13, r 0.1 1.11 → 1.00; Calib-Resin (HDRI) 1.43 → 1.05, 1.42 → 1.03,
+    2.37 → 1.21, 1.11 → 1.00; Calib-NVIDIA2 A7 1.05 (centre 0.92, whole
+    sphere 1.16), A8 0.95; Calib-NVIDIA's red resin 0.99, g/r 0.23 v
+    0.20 (floors 1.03 – 1.06). Left: Iray darkens the rough resin towards
+    the rim more than Octane (whole sphere 1.10 – 1.16 at r 0.25), which a
+    constant tint can't draw; the uncoated rough resin is 1.10 – 1.15 ×
+    (smooth 1.04 – 1.09) — Iray's rough transmission loses ~6 % more than
+    the `libbsdf` model. The former fit 1 − 0.64 r (`RESIN_LOSS`, on a
+    mis-framed reference, #97) gave nearly the same k for the coated resin
+    but darkened the uncoated one to 0.80 ×.
     Architectural (mental ray's mia_material) keeps the pins its rules
     below were found on — the reflection on the GGX curve min(r + 1.85 r²,
     √r) under energy-preserving GGX, the glass and the coat over it at √r
@@ -1820,7 +1841,7 @@ leaves out, #15):
     Calib-NVIDIA (Iray 5000 samples, Octane 1024; sphere disk luminance,
     Octane / Iray; floor 1.04): Metal Brushed 1.02, Cast Iron 1.11 (1.04
     with the bump baked, #89),
-    concrete 1.00, polished 0.95, porcelain 1.09, granite 1.09, resin 1.05,
+    concrete 1.00, polished 0.95, porcelain 1.09, granite 1.09, resin 0.99 (#113),
     architectural 1.07; Calib-NVIDIA2: asphalt 1.05, ceramic tiles small
     1.04 (floor 1.05); hue within 0.02 (g/r) – 0.04 (b/r) but resin.
     Porcelain's and granite's excess (centre 1.14) is the diffuse under a

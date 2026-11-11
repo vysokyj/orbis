@@ -15,6 +15,7 @@ pub mod install;
 pub mod layered_image;
 pub mod material;
 pub mod orbx;
+pub mod resin;
 pub mod texture_budget;
 pub mod tuning;
 pub mod usd;

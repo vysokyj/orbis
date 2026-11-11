@@ -30,6 +30,8 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-Furnace-Metal / -Brushed (#98), -MetalBump / -CoatTint (#111): white
   Uber metals, Metal Brushed, flat-bumped metals, tinted Weighted coats
   under a uniform dome, the floor hidden - each lobe's directional albedo.
+- Calib-Resin / Calib-Furnace-Resin (#113): NVIDIA's resin on Calib-NVIDIA2's
+  spheres, tint / roughness / coat one at a time, under the HDRI and the dome.
 - Calib-Mi-ImageGamma (#91, .mi only): maps the image_library doesn't
   list - which channel's default_image_gamma DAZ gives the image.
 - Calib-Mi-ImageMod, -ImageMod2: per-map image modifications (#77) - tiles, tiling
@@ -1655,5 +1657,56 @@ if made[-1][0]:
     d['image_library'] = [i for i in d['image_library'] if 'RuinsB' not in i['map'][0]['url']] + [
         {'id': 'calib-furnace.hdr', 'name': 'calib-furnace.hdr', 'map_gamma': 1, 'map_type': 'LatLong', 'map': [{'url': FURNACE, 'label': 'calib-furnace.hdr'}]}]
     open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+# Resin's level (#113): NVIDIA's Resin Polyurethane Matte on all eight of
+# Calib-NVIDIA2's spheres (one MDL module: one DAZ session, #94), one part
+# at a time - the base tint (grey 0.9 sRGB = A7, white), the roughness
+# (0.02 / 0.1 / 0.25 / 0.5) and the coat (Glossy Weight 0). Calib-Resin
+# under Calib-NVIDIA2's HDRI and floor, Calib-Furnace-Resin under the
+# uniform dome, the floor hidden. The geometry is Calib-NVIDIA2's: its dump
+# serves both with the scene path and the sphere labels (A<k> -> R<k> ...)
+# changed.
+RESIN = [('R1 grey r 0.25', 0.9, 0.25, None), ('R2 grey r 0.02', 0.9, 0.02, None),
+         ('R3 white r 0.25', 1.0, 0.25, None), ('R4 white r 0.02', 1.0, 0.02, None),
+         ('R5 grey r 0.25 coat 0', 0.9, 0.25, 0.0), ('R6 white r 0.25 coat 0', 1.0, 0.25, 0.0),
+         ('R7 grey r 0.5', 0.9, 0.5, None), ('R8 grey r 0.1', 0.9, 0.1, None)]
+nv2 = os.path.join(out_dir, 'Calib-NVIDIA2.duf')
+for name, furnace in (('Calib-Resin', False), ('Calib-Furnace-Resin', True)):
+    if not os.path.exists(nv2):
+        break
+    d = load(nv2)
+    mats = d['scene']['materials']
+    resin = next(m for m in mats if 'Resin%20Polyurethane' in m.get('url', ''))
+    geo_label = {g['id']: n['label'] for n in d['scene']['nodes'] for g in n.get('geometries', [])}
+    for i, m in enumerate(mats):
+        label = geo_label.get(m['geometry'].lstrip('#'))
+        if not label or not label.startswith('A'):
+            continue
+        k = int(label[1]) - 1
+        lab, grey, rough, weight = RESIN[k]
+        new = copy.deepcopy(resin)
+        new.update(id=m['id'], geometry=m['geometry'], uv_set=m.get('uv_set', resin.get('uv_set')))
+        new['diffuse']['channel']['current_value'] = [grey] * 3
+        ch = next(e for e in new['extra'] if e['type'] == 'studio_material_channels')['channels']
+        ch[:] = [c for c in ch if c['channel']['id'] not in ('roughness', 'glossy_weight')]
+        ch.append({'channel': {'id': 'roughness', 'type': 'float', 'current_value': rough}})
+        if weight is not None:
+            ch.append({'channel': {'id': 'glossy_weight', 'type': 'float', 'current_value': weight}})
+        mats[i] = new
+        for n in d['scene']['nodes']:
+            if n.get('label') == label:
+                n['label'] = lab
+    if furnace:
+        for n in d['scene']['nodes']:
+            if n.get('label') == 'Plane':
+                ext = next(e for e in n.setdefault('extra', [{'type': 'studio_node_channels', 'version': 5}]) if e.get('type') == 'studio_node_channels')
+                ext.setdefault('channels', []).append({'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}})
+            for e in n.get('extra', []):
+                for c in e.get('channels') or []:
+                    if c['channel']['id'] == 'Environment Map':
+                        c['channel']['image_file'] = FURNACE
+                        c['channel']['current_value'] = 1
+        d['image_library'] = [i for i in d['image_library'] if 'RuinsB' not in i['map'][0]['url']] + [
+            {'id': 'calib-furnace.hdr', 'name': 'calib-furnace.hdr', 'map_gamma': 1, 'map_type': 'LatLong', 'map': [{'url': FURNACE, 'label': 'calib-furnace.hdr'}]}]
+    made.append((save(d, name), None))
 
 # Scene dumps: scripts/dev/daz-dump.sh (DAZ evaluates each scene headless).
