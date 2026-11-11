@@ -1363,8 +1363,11 @@ leaves out, #15):
   without a glossy layer (lobe 1 on `specular` at lobe 1's roughness,
   isotropic; lobe 2 the `coating`; under a Top Coat one lobe at the
   blended roughness), the gloss stays `material1`'s alone. It was dropped
-  (`specular` 0) until #121. Unverified against Iray until the
-  Calib-DualLobeWeighted references are in.
+  (`specular` 0) until #121. Calib-DualLobeWeighted (enhanced-final,
+  Octane / Iray per sphere where it stands): gloss alone 1.05, dual lobe
+  alone 1.12 (= Calib-DualLobeGlossy's G2, the same material there), both
+  1.03 – 1.11 with any share, a Top Coat, lobe reflectivity 1 or dual lobe
+  W 0.5, highlight spread and colour as Iray's (±0.2, G / R ±0.015).
 - **Metallic Weight w → `metallic` w² / k, albedo and specular × k,**
   k = 1 − w + w² (a map: squared by twice its gamma, k from the
   channel's value); the glossy excess coating × (1 − w). Iray's metal is a
