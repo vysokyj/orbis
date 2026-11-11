@@ -954,8 +954,9 @@ leaves out, #15):
   (`layered_coat_material`), so the coating stays the gloss's. On OpenPBR
   skin the same (the gloss's weight and F0's IOR per texel on the coat,
   undarkened) without a Top Coat; with one (OpenPBR has one coat) and
-  elsewhere (metal, refraction, Base Mixing 1 / 2) the gloss alone, as
-  before. Wherever the gloss is on `specular`, the roughness is the glossy
+  elsewhere (metal, refraction, Base Mixing 1, Base Mixing 2 with
+  translucency) the gloss alone, as before; weighted mixing without
+  translucency keeps it in the Mix's diffuse part (#121, below). Wherever the gloss is on `specular`, the roughness is the glossy
   layer's (`glossy_roughness_source`), not lobe 1's — the gloss took the
   dual lobe's roughness until #106 (a weighted mix's gloss too). Why:
   dropping the dual lobe left 15 of 348 installed dual-lobe skin
@@ -1294,8 +1295,9 @@ leaves out, #15):
   0.83 / 0.88 / 0.92.
 - **Weighted mixing** (Base Mixing 2) without translucency → a **Mix
   material** (19): `material1` a metal (metallic 1) in the Glossy Color (or
-  its map) at the surface's roughness, `material2` the surface without its
-  gloss (`specular` 0, the diffuse map unbrightened), `amount` = Glossy
+  its map) at the glossy layer's roughness, `material2` the surface without its
+  gloss (`specular` 0, the diffuse map unbrightened; a dual lobe stays
+  there, below), `amount` = Glossy
   Weight / (Diffuse Weight + Glossy Weight) (`weighted_gloss`); the Top Coat
   on both. Iray blends a full-strength glossy reflection by that share: as
   a metallic share of one Universal the reflection took the diffuse colour
@@ -1304,6 +1306,16 @@ leaves out, #15):
   metal too (0.55 without). With translucency (mesh hair) the diffuse map
   is brightened by `weighted_mix` as before. Base Mixing 1 with the wall
   map as Diffuse and Glossy Color renders like a flat one (1.12 – 1.14).
+  **A dual lobe under weighted mixing** (#121) belongs to `material2`:
+  DAZ's `normalized_base` mixes the diffuse with the dual lobe over it
+  (`dl_diffuse_bsdf`, the same `custom_curve_layer` as in Base Mixing 0)
+  at Diffuse Weight against the gloss at Glossy Weight, and DAZ hands the
+  lobes over (Calib-Mi-Mix2's M3). So `material2` takes it as a dual lobe
+  without a glossy layer (lobe 1 on `specular` at lobe 1's roughness,
+  isotropic; lobe 2 the `coating`; under a Top Coat one lobe at the
+  blended roughness), the gloss stays `material1`'s alone. It was dropped
+  (`specular` 0) until #121. Unverified against Iray until the
+  Calib-DualLobeWeighted references are in.
 - **Metallic Weight w → `metallic` w² / k, albedo and specular × k,**
   k = 1 − w + w² (a map: squared by twice its gamma, k from the
   channel's value); the glossy excess coating × (1 − w). Iray's metal is a

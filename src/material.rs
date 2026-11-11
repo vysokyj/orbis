@@ -3193,7 +3193,14 @@ impl Ocs<'_> {
         // Iray's glossy layer over the dual lobe: the gloss as the coating,
         // when no Top Coat holds it on this node (`gloss_over_dual_lobe`).
         let glossy_coat = !mirror && weighted.is_none() && gloss_over_dual_lobe(mat) && self.node_coat_roughness(mat).is_none();
-        let no_gloss =weighted.is_some() || (!mirror && refraction == 0.0 && glossy <= 0.0 && dual_lobe.is_none() && mat.image("Glossy Layered Weight").is_none());
+        // The diffuse part of a weighted mix keeps its dual lobe: DAZ's
+        // MDL (`normalized_base`) mixes the diffuse with the dual lobe over
+        // it (`dl_diffuse_bsdf`) at Diffuse Weight against the gloss at
+        // Glossy Weight, so the lobe belongs here, not to the mix's gloss
+        // (#121). As a dual lobe alone (Base Mixing 0), the gloss left to
+        // `weighted_mix_material`'s other material.
+        let weighted_lobe = dual_lobe.filter(|_| weighted.is_some() && !mirror && refraction == 0.0);
+        let no_gloss = (weighted.is_some() && weighted_lobe.is_none()) || (!mirror && refraction == 0.0 && glossy <= 0.0 && dual_lobe.is_none() && mat.image("Glossy Layered Weight").is_none());
         let sigma = diffuse_roughness(mat, false);
         let oren_nayar = sigma > 0.0 && no_gloss && !mirror && !metal && refraction == 0.0 && transmit == 0.0;
         let base_flat = if oren_nayar { 1.0 } else { oren_nayar_flat(sigma) };
@@ -3314,17 +3321,17 @@ impl Ocs<'_> {
         // Iray's Top Coat: a clear dielectric layer over everything.
         let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
         let mut active_dual_lobe = None;
-        if weighted.is_some() {
+        if weighted.is_some() && weighted_lobe.is_none() {
             self.rgb_pin(i, "specular", [0.0; 3]);
         } else if !mirror && refraction == 0.0 && glossy <= 0.0 && dual_lobe.is_none() && mat.image("Glossy Layered Weight").is_none() {
             self.rgb_pin(i, "specular", [0.0; 3]);
-        } else if iray(mat).and_then(|u| u.bool("refraction_reflection_enable")) == Some(false) {
+        } else if weighted_lobe.is_none() && iray(mat).and_then(|u| u.bool("refraction_reflection_enable")) == Some(false) {
             // Iray's refraction reflects through the glossy layer only: without
             // one DAZ switches its reflection off (`refraction_reflection_enable`,
             // the .mi export) — Calib-Dispersion's glass spheres show no sky
             // nor sun on their surface in Iray.
             self.rgb_pin(i, "specular", [0.0; 3]);
-        } else if !mirror && glossy > 0.0 && !glossy_coat {
+        } else if !mirror && glossy > 0.0 && !glossy_coat && weighted.is_none() {
             // Iray's Glossy Reflectivity r scales the reflection (r 0.5 is
             // the default, Universal's full specular); Octane matched it at
             // specular × min(2r, 1) — Calib-Glossy, r 0 / 0.25: 2.42 / 1.54
@@ -3400,7 +3407,7 @@ impl Ocs<'_> {
                 (1 | 2, Some(g)) => (Some("Refraction Glossiness"), 1.0 - g, true),
                 _ => (Some("Refraction Roughness"), mat.float("Refraction Roughness").unwrap_or(0.0), false),
             }
-        } else if glossy > 0.0 && !glossy_coat {
+        } else if glossy > 0.0 && !glossy_coat && weighted_lobe.is_none() {
             // The gloss on `specular`: its own roughness, not a dual
             // lobe's it leaves out (#106).
             mat.glossy_roughness_source()
@@ -3438,9 +3445,10 @@ impl Ocs<'_> {
         let glass = !thin && !mirror && refraction >= 0.5 && weighted.is_none();
         // Iray's anisotropy on the gloss (and the metal: both take the
         // glossy layer's); a refraction's roughness keeps it isotropic.
-        // (Not the dual lobe's under a glossy coating: Iray's lobes are
-        // isotropic, and Universal's coating has no anisotropy.)
-        let aniso = if refraction_rough || dispersive || glossy_coat { Anisotropy::default() } else { Anisotropy::glossy(mat) };
+        // (Not the dual lobe's under a glossy coating or in a weighted
+        // mix's diffuse part: Iray's lobes are isotropic, and Universal's
+        // coating has no anisotropy.)
+        let aniso = if refraction_rough || dispersive || glossy_coat || weighted_lobe.is_some() { Anisotropy::default() } else { Anisotropy::glossy(mat) };
         let all_metal = mirror || (metallic >= 1.0 && mat.image("Metallic Weight").is_none());
         let gloss_coat_rough = glossy_coat.then(|| glossy_layer_roughness(mat));
         let dielectric: Vec<f32> = [
@@ -6487,6 +6495,53 @@ mod tests {
         assert!(pin(&x, "coatingRoughness").contains(&format!(">{}<", num(phong_pin(0.25)))), "{x}");
         assert!(pin(&x, "roughness").contains(&format!(">{}<", num(blended))), "{x}");
         assert!(pin(&x, "coatingDarkening").contains("type='6'>0</attr>"), "{x}");
+    }
+
+    #[test]
+    fn weighted_mix_keeps_the_dual_lobe_in_its_diffuse_part() {
+        // DAZ's `normalized_base` mixes the diffuse with its dual lobe
+        // (`dl_diffuse_bsdf`) against the gloss (#121): the Mix's gloss is
+        // the glossy layer's alone, its diffuse part the dual lobe as
+        // without a glossy layer (lobe 1 on `specular`, lobe 2 the coating).
+        let dirs: Vec<std::path::PathBuf> = vec![];
+        let w = |extra: &[serde_json::Value]| {
+            let mut c = vec![
+                json!({"channel": {"id": "Base Mixing", "current_value": 2}}),
+                json!({"channel": {"id": "Diffuse Weight", "current_value": 1}}),
+                json!({"channel": {"id": "Glossy Weight", "current_value": 0.5}}),
+                json!({"channel": {"id": "Glossy Roughness", "current_value": 0.7}}),
+                json!({"channel": {"id": "Glossy Anisotropy", "current_value": 0.5}}),
+                json!({"channel": {"id": "Dual Lobe Specular Weight", "current_value": 1}}),
+                json!({"channel": {"id": "Specular Lobe 1 Roughness", "current_value": 0.3}}),
+                json!({"channel": {"id": "Specular Lobe 2 Roughness", "current_value": 0.6}}),
+                json!({"channel": {"id": "Dual Lobe Specular Ratio", "current_value": 0.25}}),
+            ];
+            c.extend(extra.iter().cloned());
+            mat(json!(c))
+        };
+        let pin = |x: &str, p: &str| x[x.find(&format!("<pin name='{p}'>")).unwrap_or_else(|| panic!("{p}: {x}"))..].split("</pin>").next().unwrap().to_string();
+        let (x, _) = material_inputs(&[("Ball".into(), w(&[]), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+        assert!(x.contains("type='19' name='Ball'"), "{x}");
+        let gloss = &x[x.find("<pin name='material1'>").unwrap()..x.find("<pin name='material2'>").unwrap()];
+        assert!(gloss.contains("<pin name='anisotropyTexture'>") && !pin(gloss, "roughness").contains(&format!(">{}<", num(phong_pin(0.09)))), "the gloss at its own (anisotropic) roughness: {gloss}");
+        assert!(!gloss.contains("<pin name='coating'>"), "{gloss}");
+        let base = &x[x.find("<pin name='material2'>").unwrap()..];
+        assert!(pin(base, "specular").contains(">0.25 0.25 0.25<"), "lobe 1's share: {base}");
+        assert!(pin(base, "coating").contains(">0.75 0.75 0.75<"), "lobe 2: {base}");
+        assert!(pin(base, "coatingRoughness").contains(&format!(">{}<", num(phong_pin(0.36)))), "{base}");
+        assert!(pin(base, "roughness").contains(&format!(">{}<", num(phong_pin(0.09)))), "lobe 1's roughness, isotropic: {base}");
+        assert!(!base.contains("<pin name='metallic'>") && !base.contains("diffuseBrdf") && !base.contains("anisotropyTexture"), "{base}");
+
+        // Under a Top Coat (on both parts) one lobe at the blended roughness.
+        let (x, _) = material_inputs(&[("Ball".into(), w(&[json!({"channel": {"id": "Top Coat Weight", "current_value": 1}})]), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+        let base = &x[x.find("<pin name='material2'>").unwrap()..];
+        assert!(!base[..base.find("<pin name='coating'>").unwrap()].contains("<pin name='specular'>"), "the full share: {base}");
+        assert!(pin(base, "roughness").contains(&format!(">{}<", num(phong_pin(0.25 * 0.09 + 0.75 * 0.36)))), "{base}");
+
+        // Without a dual lobe the diffuse part stays matte.
+        let (x, _) = material_inputs(&[("Ball".into(), w(&[json!({"channel": {"id": "Dual Lobe Specular Weight", "current_value": 0}})]), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+        let base = &x[x.find("<pin name='material2'>").unwrap()..];
+        assert!(pin(base, "specular").contains(">0 0 0<"), "{base}");
     }
 
     #[test]

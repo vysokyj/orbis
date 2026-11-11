@@ -54,6 +54,9 @@ a plane under an HDRI) that each change one thing, written beside it.
   layered weight - when DAZ sets full_refraction_reflection_enable.
 - Calib-DualLobeGlossy (#106): the glossy layer over the dual lobe, each
   alone and both together (weight, roughness, reflectivity, Top Coat).
+- Calib-DualLobeWeighted (#121): the dual lobe under weighted mixing
+  (Base Mixing 2), each part alone and both (shares, weights below 1,
+  Top Coat, reflectivity, dual lobe weight).
 - Calib-DOF-*: depth of field, focus at 1.5 m with the spheres at ~4.6 m,
   f/4, f/8, f/16 — to check Iray's 10x aperture.
 
@@ -533,6 +536,25 @@ uber_spheres('Calib-DualLobeGlossy', [0.45, 0.05, 0.04], DLG, [
     ('G6 both gloss refl 1', {'Glossy Reflectivity': 1.0}),
     ('G7 both top coat', {'Top Coat Weight': 1.0, 'Top Coat Roughness': 0.1}),
     ('G8 both dual lobe w0.5', {'Dual Lobe Specular Weight': 0.5, 'Dual Lobe Specular Ratio': 1.0}),
+])
+# The dual lobe under weighted mixing (#121): DAZ's normalized_base mixes
+# the diffuse with its dual lobe at Diffuse Weight against the gloss at
+# Glossy Weight. W1 / W2 each part alone (the decomposition: W2 has no
+# gloss part, so it is Calib-DualLobe's lobe at Base Mixing 2), W3 - W8
+# both: the glossy share, the weights summing below 1 (normalized_mix
+# leaves the rest black), a Top Coat over both (one blended lobe),
+# reflectivity 1 (the IOR), the dual lobe at half weight.
+DLW = {**DL, 'Base Mixing': 2, 'Dual Lobe Specular Ratio': 0.5, 'Specular Lobe 2 Roughness': 0.1,
+       'Glossy Layered Weight': 0.0, 'Diffuse Weight': 1.0, 'Glossy Weight': 0.5, 'Glossy Roughness': 0.6}
+uber_spheres('Calib-DualLobeWeighted', [0.45, 0.05, 0.04], DLW, [
+    ('W1 gloss only', {'Dual Lobe Specular Weight': 0.0}),
+    ('W2 dual lobe only', {'Glossy Weight': 0.0}),
+    ('W3 both', {}),
+    ('W4 both gloss 0.8 diffuse 0.2', {'Diffuse Weight': 0.2, 'Glossy Weight': 0.8}),
+    ('W5 both diffuse 0.5 gloss 0.3', {'Diffuse Weight': 0.5, 'Glossy Weight': 0.3}),
+    ('W6 both top coat', {'Top Coat Weight': 1.0, 'Top Coat Roughness': 0.1}),
+    ('W7 both lobe refl 1', {'Dual Lobe Specular Reflectivity': 1.0}),
+    ('W8 both dual lobe w0.5', {'Dual Lobe Specular Weight': 0.5, 'Dual Lobe Specular Ratio': 1.0}),
 ])
 # Volume scattering (#28) on a skin's volume (Victoria 8's: translucency
 # 0.9, Transmitted Color over 0.125, scattering over 0.015 cm): chromatic

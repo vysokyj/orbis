@@ -139,7 +139,10 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
         1 => ch.map("Glossiness", MapKind::Grey, [ch.float("Glossiness", 1.0); 3]).map(|m| Map { gloss_to_rough: true, squared: ch.bool("Glossiness Squared", true), ..m }),
         _ => ch.map("Glossy Roughness", MapKind::Grey, [ch.float("Glossy Roughness", 0.0); 3]).map(|m| Map { squared: ch.bool("Roughness Squared", true), ..m }),
     };
-    out.insert("glossy_roughness", rough_map.map_or(Arg::Float(rough), Arg::Map));
+    // Weighted mixing without gloss passes no roughness either (the MDL's
+    // 0), though it still enables it (Calib-DualLobeWeighted W2, #121).
+    let unpassed = mixing == 2 && weight <= 0.0;
+    out.insert("glossy_roughness", if unpassed { Arg::Float(0.0) } else { rough_map.map_or(Arg::Float(rough), Arg::Map) });
     out.insert("glossy_roughness_enable", Arg::Bool(rough > 0.0));
     let reflectivity = match mixing {
         0 => REFLECTIVITY_SCALE * ch.float("Glossy Reflectivity", 0.5),
