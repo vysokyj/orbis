@@ -918,9 +918,9 @@ fn resin_lobe_albedo(r: f32, weight: f32, ior: f32, tint: [f32; 3]) -> [f32; 3] 
 /// `scatter_reflect_transmit`, no coat, white) in the furnace, over the
 /// sphere's inner disk, by MDL roughness: Calib-Furnace-Resin2 U1 – U6
 /// (Iray Server 5000, #115). Measured, not derived: `libbsdf` keeps 1.000
-/// / 0.999 / 0.973 / 0.824 / 0.655 / 0.531 there — Iray's rough
-/// transmission loses more than its reference implementation, and ~3 % even
-/// at r 0.02 (#116). With it the `libbsdf` layering predicts the coated
+/// / 0.999 / 0.973 / 0.824 / 0.655 / 0.531 there — Iray loses more
+/// with NVIDIA's module, ~3 % even at r 0.02, while the same lobe through
+/// the Uber keeps `libbsdf`'s value (Calib-Furnace-UberGlass, #116). With it the `libbsdf` layering predicts the coated
 /// spheres (grey r 0.1 0.605 v Iray 0.605, r 0.25 0.473 v 0.473).
 const RESIN_LOBE: [(f64, f64); 6] = [(0.02, 0.971), (0.1, 0.963), (0.25, 0.920), (0.5, 0.678), (0.75, 0.462), (1.0, 0.324)];
 
@@ -1116,8 +1116,9 @@ fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, ref
 /// Calib-Furnace-ArchGlass G5 – G1 (Iray Server 5000, #115). Measured, not
 /// derived: `libbsdf` at the formula's roughness keeps 0.87 – 1.00 (it
 /// loses only to v-cavities masking), at `arch_glass_rough`'s 0.56 / 0.85 /
-/// 0.995 / 1.00 / 1 — Iray's rough transmission loses more than its
-/// reference implementation (#116). With it the `libbsdf` layering
+/// 0.995 / 1.00 / 1 — Iray loses more with NVIDIA's module, at every
+/// surface event, while the same lobe through the Uber keeps `libbsdf`'s
+/// value (Calib-Furnace-UberGlass / -ArchGlass2, #116). With it the `libbsdf` layering
 /// predicts the coated spheres (refr_gloss 0.2 under reflectivity 0.6:
 /// Schlick 0.657 v Iray 0.655, Fresnel term 0.421 v 0.416).
 const ARCH_GLASS_LOBE: [(f64, f64); 5] = [(0.0, 0.512), (0.2, 0.614), (0.4, 0.938), (0.6, 0.964), (1.0, 1.0)];

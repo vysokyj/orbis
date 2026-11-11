@@ -34,6 +34,9 @@ a plane under an HDRI) that each change one thing, written beside it.
   spheres, tint / roughness / coat one at a time, under the HDRI and the dome.
 - Calib-ArchGlass / Calib-Furnace-ArchGlass (#115): architectural glass on
   Calib-NVIDIA3's spheres, refr_gloss / reflection / Fresnel term one at a time.
+- Calib-Furnace-UberGlass(-PL3), -ArchGlass2, -Resin3 (#116): the rough
+  transmit lobe through the Uber against NVIDIA's modules - thin walls, IOR,
+  tint, Firefly Filter off, Max Path Length 3.
 - Calib-Mi-ImageGamma (#91, .mi only): maps the image_library doesn't
   list - which channel's default_image_gamma DAZ gives the image.
 - Calib-Mi-ImageMod, -ImageMod2: per-map image modifications (#77) - tiles, tiling
@@ -1767,5 +1770,98 @@ for name, furnace in (('Calib-ArchGlass', False), ('Calib-Furnace-ArchGlass', Tr
         d['image_library'] = [i for i in d['image_library'] if 'RuinsB' not in i['map'][0]['url']] + [
             {'id': 'calib-furnace.hdr', 'name': 'calib-furnace.hdr', 'map_gamma': 1, 'map_type': 'LatLong', 'map': [{'url': FURNACE, 'label': 'calib-furnace.hdr'}]}]
     made.append((save(d, name), None))
+
+
+def furnace_dome(d):
+    """The uniform dome (FURNACE), the floor hidden."""
+    for n in d['scene']['nodes']:
+        if n.get('label') == 'Plane':
+            ext = next(e for e in n.setdefault('extra', [{'type': 'studio_node_channels', 'version': 5}]) if e.get('type') == 'studio_node_channels')
+            ext.setdefault('channels', []).append({'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}})
+        for e in n.get('extra', []):
+            for c in e.get('channels') or []:
+                if c['channel']['id'] == 'Environment Map':
+                    c['channel']['image_file'] = FURNACE
+                    c['channel']['current_value'] = 1
+    d['image_library'] = [i for i in d.get('image_library', []) if 'RuinsB' not in i['map'][0]['url'] and i['id'] != 'calib-furnace.hdr'] + [
+        {'id': 'calib-furnace.hdr', 'name': 'calib-furnace.hdr', 'map_gamma': 1, 'map_type': 'LatLong', 'map': [{'url': FURNACE, 'label': 'calib-furnace.hdr'}]}]
+
+
+def render_option(d, cid, value):
+    """Set one of the scene's Iray render settings channels."""
+    def walk(o):
+        if isinstance(o, dict):
+            c = o.get('channel')
+            if isinstance(c, dict) and c.get('id') == cid:
+                yield c
+            for v in o.values():
+                yield from walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                yield from walk(v)
+    found = list(walk(next(e for e in d['scene']['extra'] if e.get('type') == 'studio_render_settings')))
+    assert len(found) == 1, (cid, len(found))
+    found[0]['current_value'] = value
+
+
+# Iray's rough transmission (#116). Calib-Furnace-UberGlass: the same df as
+# architectural's transmit lobe (`simple_glossy_bsdf`, scatter_transmit:
+# Refraction Weight 1, no gloss, own roughness, squared) through DAZ's Uber
+# at MDL roughness 0.019 / 0.051 / 0.134 / 0.354 (architectural_gloss_to_rough
+# at refr_gloss 0.6 / 0.4 / 0.2 / 0), 0.218, 0.6, and resin's
+# scatter_reflect_transmit (shared gloss, full Fresnel reflection) at 0.25 /
+# 0.5 - NVIDIA's material or Iray's lobe. -PL3: the same at Max Path Length
+# 3 (camera, two surface events, dome: no light that bounced inside).
+UBER_GLASS = [(f'T{k + 1} transmit r {r}', {'Refraction Weight': 1.0, 'Share Glossy Inputs': False, 'Refraction Roughness': round(r ** 0.5, 4)})
+              for k, r in enumerate((0.019, 0.051, 0.134, 0.218, 0.354, 0.6))] + [
+             (f'T{k + 7} reflect_transmit r {r}', {'Refraction Weight': 1.0, 'Glossy Layered Weight': 1.0, 'Glossy Roughness': round(r ** 0.5, 4)})
+              for k, r in enumerate((0.25, 0.5))]
+for name, path_len in (('Calib-Furnace-UberGlass', None), ('Calib-Furnace-UberGlass-PL3', 3)):
+    uber_spheres(name, [1.0, 1.0, 1.0], {'Glossy Layered Weight': 0.0, 'Thin Walled': False, 'Refraction Index': 1.5, 'Share Glossy Inputs': True}, UBER_GLASS)
+    if made[-1][0]:
+        d = load(made[-1][0])
+        furnace_dome(d)
+        if path_len:
+            render_option(d, 'Max Path Length', path_len)
+        open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+# Calib-Furnace-ArchGlass2 (#116): the transmit lobe alone (reflectivity 0)
+# with the Firefly Filter off - refr_gloss 0.6 / 0.2 / 0 again, thin-walled
+# at 0.2 and 0 (no refraction), IOR 1.2 and 2.0 at 0.2, refr_color 0.5 at
+# 0.2 (the number of tinted events).
+ARCH_GLASS2 = [('H1 refr 0.6', 0.6, {}), ('H2 refr 0.2', 0.2, {}), ('H3 refr 0', 0.0, {}),
+               ('H4 refr 0.2 thin', 0.2, {'thin_walled': True}), ('H5 refr 0 thin', 0.0, {'thin_walled': True}),
+               ('H6 refr 0.2 ior 1.2', 0.2, {'Index of Refraction': 1.2}), ('H7 refr 0.2 ior 2', 0.2, {'Index of Refraction': 2.0}),
+               ('H8 refr 0.2 color 0.5', 0.2, {'refr_color': [0.5, 0.5, 0.5]})]
+if os.path.exists(nv3):
+    d = load(nv3)
+    mats = d['scene']['materials']
+    geo_label = {g['id']: n['label'] for n in d['scene']['nodes'] for g in n.get('geometries', [])}
+    glass = next(m for m in mats if geo_label.get(m['geometry'].lstrip('#'), '').startswith('A8'))
+    for i, m in enumerate(mats):
+        label = geo_label.get(m['geometry'].lstrip('#'))
+        if not label or not label.startswith('A'):
+            continue
+        lab, refr, over = ARCH_GLASS2[int(label[1]) - 1]
+        new = copy.deepcopy(glass)
+        new.update(id=m['id'], geometry=m['geometry'], uv_set=m.get('uv_set', glass.get('uv_set')))
+        ch = next(e for e in new['extra'] if e['type'] == 'studio_material_channels')['channels']
+        ch[:] = [c for c in ch if c['channel']['id'] not in ('refr_gloss', 'reflectivity', 'brdf_fresnel', *over)]
+        ch.append({'channel': {'id': 'refr_gloss', 'type': 'float', 'current_value': refr}})
+        ch.append({'channel': {'id': 'reflectivity', 'type': 'float', 'current_value': 0.0}})
+        for k, v in over.items():
+            ch.append({'channel': {'id': k, 'type': TYPES.get(type(v), 'float'), 'current_value': v}})
+        mats[i] = new
+        for n in d['scene']['nodes']:
+            if n.get('label') == label:
+                n['label'] = lab
+    furnace_dome(d)
+    render_option(d, 'Firefly Filter Enable', False)
+    made.append((save(d, 'Calib-Furnace-ArchGlass2'), None))
+# Calib-Furnace-Resin3 (#116): Calib-Furnace-Resin2 at Max Path Length 3.
+p2 = os.path.join(out_dir, 'Calib-Furnace-Resin2.duf')
+if os.path.exists(p2) and not os.path.exists(os.path.join(out_dir, 'Calib-Furnace-Resin3.duf')):
+    d = load(p2)
+    render_option(d, 'Max Path Length', 3)
+    made.append((save(d, 'Calib-Furnace-Resin3'), None))
 
 # Scene dumps: scripts/dev/daz-dump.sh (DAZ evaluates each scene headless).

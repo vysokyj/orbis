@@ -34,7 +34,9 @@
 //! (the paths' weights and number of tinted bounces are kept, so k solves
 //! exactly against the same paths).
 //!
-//! Iray's rough *transmission* loses more than `libbsdf`'s lobe (#116): the
+//! Iray's rough transmission through NVIDIA's modules loses more than
+//! `libbsdf`'s lobe — the same `simple_glossy_bsdf` through DAZ's Uber
+//! doesn't (#116), so it isn't the df and can't be derived from it: the
 //! base lobe alone, measured in the furnace (`tint_factor_measured`), sets
 //! an extra per-event tint τ on the `libbsdf` model; the layering on top is
 //! `libbsdf`'s, and predicts Iray's coated spheres within 1 – 7 %.
