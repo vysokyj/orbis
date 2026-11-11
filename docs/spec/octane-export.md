@@ -1958,6 +1958,24 @@ rendered grey. And not the eye (material named …Irises / Pupils / Sclera,
 `is_eye`): Genesis eyes are translucent too, and the skin's tint (half,
 reddened) turned blue irises dark green (Calib-Hair, #20).
 
+**Genesis 9's eye** (`eye_volume`: `is_eye`, PBRSkin, translucency > 0,
+not thin-walled; one surface per eye, a closed ball) gets no transmission:
+its diffuse and Translucency Color maps are baked into one albedo, mixed
+per pixel in linear light at weights 1 − t and t (`Textures::blend`). Why:
+as Universal's transmission the whole eye glowed milky (Gladiator, Julius
+9). The weights are `pbr_skin.mdl`'s `diffuse_translucency_bsdf`
+(`weighted_layer`: the diffuse at 1 − Translucency Weight over the diffuse
+transmission at t). **Provisional, not yet measured** (#66): the
+transmitted share goes into the eye's volume (DAZ's `.mi`: absorption from
+Transmitted Color, linear 0.95 / 0.20 / 0.10 at 0.1 cm; scattering from
+PBRSkin's default SSS Color, 0.95 / 0.45 / 0.55 at 0.015 cm; SSS Direction
+−0.8) and comes back through the same interface (t × tint again, 1 − t
+reflected back in). A Monte Carlo of that ball (`eye-volume-mc.py`, radius
+1.3 cm, white maps) returns 0.61 / 0.43 / 0.32 of the light at t 1 and an
+albedo of 0.65 / 0.50 / 0.42 at t 0.8, where the bake gives 1: Iray's eye
+should be darker and warmer than the maps. Calib-G9Eye and its variants
+(`make-eye-scenes.py`) decide it against Iray.
+
 **Faithful** (`SkinShader::IrayAlbedo`, #19): OpenPBR Surface with
 `subsurface` 0 — the colour Iray's skin shows, as a plain diffuse, the
 gloss as Enhanced's (`skin_gloss`, below). No random walk; the colour

@@ -1,10 +1,12 @@
-// ORBIS calibration: an eye close-up of another figure, built headless from
-// Calib-Eye (Genesis 8 Female, the camera on her left eye; scripts/dev/
-// daz-script.sh with DONE_FILE=<out>.done). Arguments: Calib-Eye .duf, the
-// figure's .duf (e.g. People/Genesis 9/Genesis 9.duf), out .duf, "--",
-// then the content directories. Genesis 8 and what follows her go; the
-// figure comes in at her place, its eyes where hers were, and the camera
-// stays as it is. ECMAScript 3, ASCII only.
+// ORBIS calibration (#66): a figure for an eye close-up, built headless
+// from Calib-L-Distant-45 (calib/scenes) by scripts/dev/daz-script.sh with
+// DONE_FILE=<out>.done. Arguments: base .duf, the figure's .duf (People/
+// Genesis 9/Genesis 9.duf - DAZ's free base figure - for the scenes in
+// git; a store figure only for a local, private scene), out .duf, "--",
+// then the content directories. The cubes and the sphere go, the figure
+// comes in at the origin with its default eyes, tear and eyelashes.
+// scripts/dev/make-eye-scenes.py aims the camera and writes the variants.
+// ECMAScript 3, ASCII only.
 (function () {
     var a = App.scriptArgs;
     var sBase = a[0], sFigure = a[1], sOut = a[2];
@@ -18,33 +20,22 @@
         f.close();
         App.delayedExit();
     }
-    function figureWith(sLabelStart) {
-        for (var n = 0; n < Scene.getNumNodes(); n++) {
-            var o = Scene.getNode(n);
-            if (o.inherits("DzFigure") && o.getLabel().indexOf(sLabelStart) == 0 && !o.getFollowTarget()) return o;
-        }
-        return null;
-    }
     if (!oContent.openFile(sBase, false)) { done("base not opened"); return; }
-    var oOld = figureWith("Genesis 8");
-    if (!oOld) { done("no Genesis 8 figure"); return; }
-    var vPlace = oOld.getWSPos();
-    // The old figure and everything fitted to it.
     var aGone = [];
     for (var k = 0; k < Scene.getNumNodes(); k++) {
         var o = Scene.getNode(k);
-        if (o == oOld || (o.inherits("DzFigure") && o.getFollowTarget() == oOld)) aGone.push(o);
+        var sLabel = o.getLabel();
+        if (sLabel.indexOf("Cube") == 0 || sLabel == "Sphere") aGone.push(o);
     }
     for (var g = 0; g < aGone.length; g++) Scene.removeNode(aGone[g]);
     sLog += "removed " + aGone.length + "\n";
     Scene.selectAllNodes(false);
     sLog += "figure " + oContent.openFile(sFigure, true) + "\n";
-    var oNew = null;
+    var nFig = 0;
     for (var m = 0; m < Scene.getNumNodes(); m++) {
         var p = Scene.getNode(m);
-        if (p.inherits("DzFigure") && !p.getFollowTarget() && p != oOld) oNew = p;
+        if (p.inherits("DzFigure")) { nFig++; sLog += "  " + p.getLabel() + "\n"; }
     }
-    if (!oNew) { done("figure not loaded"); return; }
-    oNew.setWSPos(vPlace);
+    if (!nFig) { done("figure not loaded"); return; }
     done("saved " + Scene.saveScene(sOut));
 })();
