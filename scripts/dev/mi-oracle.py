@@ -5,7 +5,8 @@ flags (visible, shadow, label, matte...) and every material's MDL
 call with its arguments, textures and light profiles inlined (path, gamma;
 IES path, flags, hermite degree, resolution). Of the geometry only
 `geometry_min_y`: the lowest world y (cm) of every exported mesh and hair
-(control points) - DAZ's auto Iray ground sits there (#119). These
+(control points), instance nodes' copies left out - DAZ's auto Iray ground
+sits there (#119, #125). These
 are the oracle the DAZ -> Iray conversions in src/iray.rs are tested against
 (#62): `calib/references/mi/<scene>.json`.
 
@@ -145,10 +146,18 @@ def geometry_min_y(path):
                 flat = struct.unpack(f">{n * per}f", b[s:s + n * per * 4])
             objects[name] = [flat[k * per:k * per + 3] for k in range(n)]
         i = e
+    # An instance node's copy is an `instance` the root instgroup names
+    # directly (the node's own geometry sits in its shape's `igroup`); DAZ's
+    # auto ground leaves the copies out (Calib-Env-Mi-GroundAuto-Instance:
+    # a copy down to -60 cm, the ground at -0.001; #125).
+    root = re.search(rb'\ninstgroup "DS_rootgroup_[^"]*"\n(.*?)\nend instgroup', b, re.S)
+    copies = set(re.findall(rb'"([^"]+)"', root.group(1))) if root else set()
     low = None
-    for m in re.finditer(rb'\ninstance "[^"]+" "([^"]+)"\n(.*?)\nend instance', b, re.S):
-        pts = objects.get(m.group(1).decode("latin-1"))
-        t = re.search(r"transform\n((?:\s+[-\d.e+ ]+\n){4})", m.group(2).decode("latin-1") + "\n")
+    for m in re.finditer(rb'\ninstance "([^"]+)" "([^"]+)"\n(.*?)\nend instance', b, re.S):
+        if m.group(1) in copies:
+            continue
+        pts = objects.get(m.group(2).decode("latin-1"))
+        t = re.search(r"transform\n((?:\s+[-\d.e+ ]+\n){4})", m.group(3).decode("latin-1") + "\n")
         if not pts or not t:
             continue
         T = [[float(x) for x in r.split()] for r in t.group(1).strip().split("\n")]

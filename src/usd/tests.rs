@@ -469,6 +469,14 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     let mut e = SceneEnvironment { map: None, intensity: 1.0, tint: [1.0; 3], rotation_deg: 0.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None, ground_fog: None, dome_ground: None };
     assert!((ground_height(&e, &[low]) + 0.03).abs() < 1e-6);
     assert_eq!(ground_height(&e, &[]), 0.0);
+    // Instances (#125): a copy 0.6 m down doesn't lower DAZ's ground
+    // (Calib-Env-Mi-GroundAuto-Instance), a hidden prototype at -0.6 m
+    // doesn't count (-InstanceHidden).
+    let floor = || Mesh { points: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 1.0]], ..Default::default() };
+    let copied = Mesh { points: vec![[0.75, 0.15, 0.0]], instances: Some(vec![IDENTITY, [1.0, 0.0, 0.0, 0.45, 0.0, 1.0, 0.0, -0.75, 0.0, 0.0, 1.0, 0.0]]), ..Default::default() };
+    assert_eq!(ground_height(&e, &[floor(), copied]), 0.0);
+    let prototype = Mesh { points: vec![[0.75, -0.6, 0.0]], instances: Some(vec![[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.75, 0.0, 0.0, 1.0, 0.0]]), prototype_only: true, ..Default::default() };
+    assert_eq!(ground_height(&e, &[floor(), prototype]), 0.0);
     e.ground_origin_y = Some(12.0);
     assert!((ground_height(&e, &[]) - 0.12).abs() < 1e-6);
     let (lifted, _) = crate::material::scene_lights(&[], Some((0.8, 0.12)), None, &[], 500, 1439);

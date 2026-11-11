@@ -10,7 +10,7 @@ argument) and copied into calib/scenes; existing scenes are kept (--force).
 - Calib-Env-*   environment: tint, dome rotation / orientation, lighting blur / resolution,
                 intensity, ground, matte fog, ground fog, dome modes (#37, #65); Calib-Env-Mi-*
                 for DAZ's .mi export only (every fog / dome channel off its default, #37);
-                Calib-Env-Mi-GroundAuto-*: where the auto ground sits (#119);
+                Calib-Env-Mi-GroundAuto-*: where the auto ground sits (#119), with instances (#125);
                 Calib-L-Mi-SunSky-Look: Sun-Sky's horizon blur, tint, glow, night colour (#15)
 - Calib-RS-*    render settings: caustics, path length, firefly, bloom, pixel filter, spectral (#43);
                 Calib-RS-Mi-* for DAZ's .mi export only (triangle filter, SSS path length, bloom settings)
@@ -270,4 +270,43 @@ for name, hidden in (('GroundAuto-Low', False), ('GroundAuto-LowHidden', True)):
         n = next(n for n in d['scene']['nodes'] if n.get('url') == '#pSphere%2810v0000%2948_24-7')
         n.setdefault('extra', []).append({'type': 'studio_node_channels', 'version': 5,
                                           'channels': [{'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}}]})
+    save(d, f'Calib-Env-Mi-{name}')
+
+# The auto ground with a DAZ instance node (#125): the sphere's instance node (as
+# daz-build-node-flags.dsa makes it, taken from Calib-CastShadows-Off with Cast Shadows
+# back on) - the copy at y -60 under the floor, the sphere where it stands
+# (GroundAuto-Instance); the sphere hidden at y -60 and its copy where the sphere stood
+# (GroundAuto-InstanceHidden: does an undrawn instance target count?).
+def add_instance(d, target_node, xyz):
+    src = load('Calib-CastShadows-Off')
+    lib = copy.deepcopy(next(n for n in src['node_library'] if n['id'] == 'SphereInstance'))
+    for e in lib.get('extra', []):
+        for c in e.get('channels', []):
+            if c['channel']['id'] == 'Cast Shadows':
+                c['channel']['current_value'] = True
+    for c in lib['translation']:
+        c['current_value'] = xyz[c['id']]
+    node = copy.deepcopy(next(n for n in src['scene']['nodes'] if n['url'] == '#SphereInstance'))
+    for e in node['extra']:
+        for c in e.get('channels', []):
+            if c['channel']['id'] == 'Instance Target':
+                c['channel']['node'] = target_node
+            elif c['channel']['id'] == 'Cast Shadows':
+                c['channel']['current_value'] = True
+    d['node_library'].append(lib)
+    d['scene']['nodes'].append(node)
+
+
+SPHERE = '#pSphere%2810v0000%2948_24-15'  # the scene node of pSphere(10v0000)48_24-7
+for name, hidden in (('GroundAuto-Instance', False), ('GroundAuto-InstanceHidden', True)):
+    d = copy.deepcopy(load('Calib-Tone-Default'))
+    set_channel(node_channels(d, 'Environment Options'), 'Draw Ground', True)
+    if hidden:
+        set_xyz(d, 'pSphere(10v0000)48_24-7', 'translation', {'x': 75.0, 'y': -60.0, 'z': 0.0})
+        n = next(n for n in d['scene']['nodes'] if n.get('url') == '#pSphere%2810v0000%2948_24-7')
+        n.setdefault('extra', []).append({'type': 'studio_node_channels', 'version': 5,
+                                          'channels': [{'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}}]})
+        add_instance(d, SPHERE, {'x': 75.0, 'y': 15.0, 'z': 0.0})
+    else:
+        add_instance(d, SPHERE, {'x': 120.0, 'y': -60.0, 'z': 0.0})
     save(d, f'Calib-Env-Mi-{name}')

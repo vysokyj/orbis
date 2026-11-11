@@ -221,12 +221,16 @@ impl SceneEnvironment {
 /// else (Auto) the lowest point of the scene's visible geometry, strands
 /// included (`crate::iray::DomeSetup::ground_y`; hidden nodes are not in
 /// `meshes`) — 0 for an empty one. DAZ's further 0.001 cm drop is left to
-/// the shadow catcher's own `GROUND_DROP`.
+/// the shadow catcher's own `GROUND_DROP`. Instances don't count: neither
+/// their copies (Calib-Env-Mi-GroundAuto-Instance: a copy down to -60 cm,
+/// DAZ's ground at -0.001) nor a hidden node kept only as their prototype
+/// (-InstanceHidden; #125) — a mesh's own points are where the node itself
+/// is drawn.
 pub(super) fn ground_height(env: &SceneEnvironment, meshes: &[Mesh]) -> f64 {
     if let Some(y) = env.ground_origin_y {
         return y * f64::from(CM);
     }
-    let lowest = meshes.iter().flat_map(|m| m.points.iter().map(|p| p[1])).fold(f32::INFINITY, f32::min);
+    let lowest = meshes.iter().filter(|m| !m.prototype_only).flat_map(|m| m.points.iter().map(|p| p[1])).fold(f32::INFINITY, f32::min);
     if lowest.is_finite() { f64::from(lowest) } else { 0.0 }
 }
 

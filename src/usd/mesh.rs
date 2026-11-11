@@ -305,6 +305,9 @@ pub(super) struct Mesh {
     /// Instanced: where its copies go (the mesh itself, when drawn, is one at
     /// `IDENTITY`) — written as a `PointInstancer` with it as the prototype.
     pub(super) instances: Option<Vec<Placement>>,
+    /// A hidden node kept only as its instances' prototype (not drawn at
+    /// `IDENTITY`): it doesn't count for the auto ground (#125).
+    pub(super) prototype_only: bool,
 }
 
 /// Meters per unit of DAZ's hair line widths (`Line Start Width` /
@@ -434,6 +437,7 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
             // mesh is only their guide.
             for mut mesh in hair_curves(lib, n, fig, &mut names) {
                 mesh.instances = copies.clone();
+                mesh.prototype_only = !n.visible;
                 report.instances += instances;
                 report.meshes += 1;
                 report.points += mesh.points.len();
@@ -608,6 +612,7 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
             }
         }
         mesh.instances = copies;
+        mesh.prototype_only = !n.visible;
         report.instances += instances;
         report.meshes += 1;
         report.points += mesh.points.len();
@@ -744,6 +749,7 @@ fn mesh_part(m: &Mesh, subsets: &[usize], name: String) -> Mesh {
         normal_indices: m.normal_indices.as_ref().map(|_| normal_idx),
         curve_widths: None,
         instances: m.instances.clone(),
+        prototype_only: m.prototype_only,
     }
 }
 
