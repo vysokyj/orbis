@@ -27,6 +27,7 @@ The session that runs the loop only orchestrates; the work on an issue is done b
    - **Done**: the issue is closed, the commit is on `origin/master`, `cargo test` passes, `scripts/install.sh` ran if the export changed.
    - **Needs Iray**: parked as in the next section (scenes in git, the comment, the label).
    - **Needs the user** (a decision, missing knowledge, a failed Octane, content we may not use): a comment with what was found and the one question, label `question`; what is worth keeping committed (`refs #N`).
+   In every end state: **each scene the worker generated is in `calib/scenes` and committed with its generator** (`git status` clean, the report's scene list against `git log --stat`). The generators write into "My Library/Scenes"; not all of them copy the scene into the repo, and a scene that lives only there is lost for the next compare. Exception: a scene with store or private content stays out of git - then the generator alone is committed and the issue says so.
    None of them (the worker died, left a dirty tree or failing tests): repair it here or park the issue with `question`; never start the next worker on a broken tree.
 5. `scripts/dev/clean-cache.sh` if a compare loop ran.
 6. **Show the table**: the `issue-status` skill (`python3 scripts/dev/issue-status.py`), after every iteration, unchanged in shape. Next iteration.
@@ -41,7 +42,7 @@ The worker's job. Do everything that doesn't need the server first, so the resum
 1. Generate the scenes (`make-*.py`, `daz-build-*.dsa`; DAZ built-ins / primitives / free DAZ add-ons only for `calib/scenes`). Include the variants the decomposition will ask for (w0, tcwhite, dwhite, gloss off...) and what will probably be needed next - a second round costs the user another server start.
 2. Check each scene: it opens, `python3 scripts/dev/duf_camera.py --fix` (a scene without `current_camera` is refused, #97), list the NVIDIA presets it uses (#94).
 3. Dump (`daz-dump.sh`), `.mi` fixture if the conversion is in question, and render the **Octane side now**.
-4. Commit and push the generator and the scenes (`refs #N`); the batch must be reproducible from git.
+4. Copy the scenes into `calib/scenes` (some generators do it, `make-calib-scenes.py` / `make-light-scenes.py` and the `daz-build-*.dsa` don't), commit and push them with the generator (`refs #N`); the batch must be reproducible from git.
 5. Comment on the issue, this exact shape (the collector reads it), then `gh issue edit N --add-label needs-iray`:
 
    ```markdown

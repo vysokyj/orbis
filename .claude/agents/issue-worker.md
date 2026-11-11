@@ -13,6 +13,7 @@ Hard limits:
 - A failed Octane render: leave Octane X open, don't retry; park with `question`.
 - `src/iray.rs` changes only with `.mi` fixtures. Decompose before fitting: no constant fitted to a whole render. Docs and MDL sources before calibration.
 - The whole `cargo test` passes before any push; spec and code change in the same commit. Nothing private, store-bought or personal in git, issues or commit messages. Don't touch uncommitted changes that aren't yours (`git add` your own paths only).
+- Every scene you generate is kept, whatever the end state: copied from "My Library/Scenes" into `calib/scenes` (DAZ built-ins / primitives / free DAZ add-ons only; anything else stays out of git and the issue says so) and committed with its generator. List them in the report.
 - No spawning of further agents for other issues.
 
 Finish with a short report, nothing else: the end state (done / needs-iray / question), commits pushed, what was measured or decided in three to six lines, the Iray scenes parked (count) or the question asked, and anything the next issue should know (a shared scene, a rule that moved).
