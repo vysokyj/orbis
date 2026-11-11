@@ -376,29 +376,61 @@ impl Textures {
         Some(asset)
     }
 
-    /// Two colour maps mixed per pixel, `wa` · a + `wb` · b in linear light,
-    /// written sRGB-encoded (gamma 2.2) at `a`'s size.
-    fn blend(&mut self, dirs: &[PathBuf], a: &str, b: &str, wa: f32, wb: f32) -> Option<String> {
-        let key = format!("blend|{a}|{b}|{wa}|{wb}");
+    /// `open_colour`, a layered image flattened first (Genesis 9's eye
+    /// maps are one: the plain file read missed it).
+    fn open_colour_or_layered(&mut self, dirs: &[PathBuf], daz_path: &str) -> Option<image::RgbImage> {
+        if !daz_path.starts_with(crate::daz_material::LAYERED_PREFIX) {
+            return self.open_colour(dirs, daz_path);
+        }
+        let asset = self.asset(dirs, daz_path)?;
+        let img = self.load(&asset)?;
+        let g = self.gamma(&asset);
+        if g == crate::iray::COLOUR_GAMMA {
+            return Some(img.to_rgb8());
+        }
+        let (lin, enc) = (img.to_rgb32f(), crate::bake::Encoder::srgb());
+        Some(image::RgbImage::from_fn(lin.width(), lin.height(), |x, y| image::Rgb(lin.get_pixel(x, y).0.map(|c| enc.encode(c.max(0.0).powf(g))))))
+    }
+
+    /// Genesis 9's eye albedo per texel (`eye_volume::albedo`): the base
+    /// colour `base` × its map `d` and the translucency tint `tint` × its
+    /// map `tm` (either may be missing: the colour alone), at weight `t`,
+    /// the ball returning `p`. Linear, written sRGB-encoded (gamma 2.2) at
+    /// the larger map's size.
+    #[allow(clippy::too_many_arguments)]
+    fn eye_bake(&mut self, dirs: &[PathBuf], d: Option<&str>, tm: Option<&str>, base: [f32; 3], tint: [f32; 3], t: f32, p: [f32; 3]) -> Option<String> {
+        let key = format!("eye|{d:?}|{tm:?}|{base:?}|{tint:?}|{t}|{p:?}");
         if let Some(asset) = self.by_source.get(&key) {
             return Some(asset.clone());
         }
-        let (ia, ib) = (self.open_colour(dirs, a)?, self.open_colour(dirs, b)?);
-        let ib = if ib.dimensions() == ia.dimensions() { ib } else { image::imageops::resize(&ib, ia.width(), ia.height(), image::imageops::FilterType::Triangle) };
+        let id = d.and_then(|a| self.open_colour_or_layered(dirs, a));
+        let it = tm.and_then(|a| self.open_colour_or_layered(dirs, a));
+        let (w, h) = match (&id, &it) {
+            (Some(a), Some(b)) => if (b.width() as u64 * b.height() as u64) > (a.width() as u64 * a.height() as u64) { b.dimensions() } else { a.dimensions() },
+            (Some(a), None) | (None, Some(a)) => a.dimensions(),
+            (None, None) => return None,
+        };
+        let fit = |i: Option<image::RgbImage>| i.map(|i| if i.dimensions() == (w, h) { i } else { image::imageops::resize(&i, w, h, image::imageops::FilterType::Triangle) });
+        let (id, it) = (fit(id), fit(it));
         let (lin, enc) = (crate::bake::decode_lut(), crate::bake::Encoder::srgb());
-        let stride = ia.width() as usize * 3;
-        let out = crate::bake::par_rgb(ia.width(), ia.height(), |y, px| {
+        let stride = w as usize * 3;
+        let out = crate::bake::par_rgb(w, h, |y, px| {
             let at = y as usize * stride;
-            let (ra, rb) = (&ia.as_raw()[at..at + stride], &ib.as_raw()[at..at + stride]);
+            let rd = id.as_ref().map(|i| &i.as_raw()[at..at + stride]);
+            let rt = it.as_ref().map(|i| &i.as_raw()[at..at + stride]);
             for (i, o) in px.iter_mut().enumerate() {
-                *o = enc.encode(wa * lin[ra[i] as usize] + wb * lin[rb[i] as usize]);
+                let k = i % 3;
+                let b = base[k] * rd.map_or(1.0, |r| lin[r[i] as usize]);
+                let c = tint[k] * rt.map_or(1.0, |r| lin[r[i] as usize]);
+                *o = enc.encode(crate::eye_volume::albedo(t, b, c, p[k]));
             }
         });
         let mut png = Vec::new();
         out.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
-        let base = Path::new(a.trim_start_matches('/')).file_stem().and_then(|n| n.to_str()).unwrap_or("map");
-        let safe: String = base.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect();
-        let asset = format!("assets/tex/{:04}_{safe}_blend.png", self.files.len() + self.generated.len());
+        let src = d.or(tm).unwrap_or("map");
+        let stem = Path::new(src.trim_start_matches('/')).file_stem().and_then(|n| n.to_str()).unwrap_or("map");
+        let safe: String = stem.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect();
+        let asset = format!("assets/tex/{:04}_{safe}_eye.png", self.files.len() + self.generated.len());
         self.generated.push((asset.clone(), png));
         self.by_source.insert(key, asset.clone());
         Some(asset)
@@ -3383,20 +3415,26 @@ impl Ocs<'_> {
         let tint = [0, 1, 2].map(|k| tint[k] * share[k]);
         // The weighted blend scales the diffuse map (not a translucency
         // map standing in for a missing one — the HS CB cap went grey).
+        // Genesis 9's eye: the diffuse layer and what its volume sends back
+        // through the translucency, one albedo (`eye_volume`, #66).
         let eye_albedo = if eye_volume {
-            match (mat.image("diffuse"), mat.image("Translucency Color")) {
-                (Some(d), Some(t)) => self.textures.blend(self.dirs, d, t, 1.0 - translucency, translucency),
-                _ => None,
+            let base = mat.base_color();
+            let tint = mat.color("Translucency Color").unwrap_or([1.0; 3]);
+            let p = crate::eye_volume::escape(&crate::eye_volume::Volume::of(mat), crate::eye_volume::G9_EYE_RADIUS_MM, EYE_VOLUME_PATHS);
+            match self.textures.eye_bake(self.dirs, mat.image("diffuse"), mat.image("Translucency Color"), base, tint, translucency, p) {
+                Some(asset) => Some(Ok(asset)),
+                None => Some(Err([0, 1, 2].map(|k| crate::eye_volume::albedo(translucency, base[k], tint[k], p[k])))),
             }
         } else {
             None
         };
         if mirror {
             self.rgb_pin(i, "albedo", gloss_color);
-        } else if let Some(asset) = eye_albedo {
-            // The diffuse's share of the colour map and the translucency's of
-            // its map, mixed per pixel (sRGB-encoded, as the maps are).
+        } else if let Some(Ok(asset)) = eye_albedo {
+            // Baked per texel, sRGB-encoded as the maps are.
             self.image_pin(i, "albedo", &asset, false, self.textures.gamma(&asset), 1.0);
+        } else if let Some(Err(colour)) = eye_albedo {
+            self.rgb_pin(i, "albedo", colour);
         } else {
             // Iray Uber's Diffuse Overlay over the base: flat over a flat
             // base folded into one colour, else a Mix texture (#71).
@@ -4302,6 +4340,10 @@ fn scattering(mat: &Material) -> Option<[f32; 3]> {
 /// See `scattering`: one sphere's fit — Octane's medium behind a
 /// refractive surface scatters more light back out than Iray's.
 const REFRACTIVE_SCATTERING_SCALE: f32 = 0.3;
+
+/// Paths per channel for the eye ball's escape (`eye_volume::escape`):
+/// ±0.005 at 20 000, a few ms per eye.
+const EYE_VOLUME_PATHS: u32 = 20_000;
 
 /// A figure's eye surface by its material name (Genesis 3 / 8 / 9: Irises,
 /// Pupils, Sclera; Cornea and EyeMoisture are refractive anyway).
@@ -8567,13 +8609,21 @@ mod tests {
             assert!(png(&tex, &asset) == want, "{mono:?} at {gamma}");
         }
 
-        let asset = tex.blend(&dirs, "d.png", "tc.png", 0.7, 0.4).unwrap();
+        // The Genesis 9 eye: both maps (tc resized to d), and one alone.
+        let (base, tint, p) = ([0.9, 1.0, 0.8], [1.0, 0.7, 0.5], [0.6, 0.4, 0.3]);
+        let asset = tex.eye_bake(&dirs, Some("d.png"), Some("tc.png"), base, tint, 0.8, p).unwrap();
         let tc_file = image::open(dir.path().join("tc.png")).unwrap().to_rgb8();
         let tcr = image::imageops::resize(&tc_file, w, h, image::imageops::FilterType::Triangle);
         let want = image::RgbImage::from_fn(w, h, |x, y| {
             let (pa, pb) = (d.get_pixel(x, y).0, tcr.get_pixel(x, y).0);
-            image::Rgb([0, 1, 2].map(|k| encode(0.7 * decode(pa[k]) + 0.4 * decode(pb[k]), 2.2)))
+            image::Rgb([0, 1, 2].map(|k| encode(crate::eye_volume::albedo(0.8, base[k] * decode(pa[k]), tint[k] * decode(pb[k]), p[k]), 2.2)))
         });
-        assert!(png(&tex, &asset) == want, "blend");
+        let got = png(&tex, &asset);
+        assert!(got.as_raw().iter().zip(want.as_raw()).all(|(g, w)| g.abs_diff(*w) <= 1), "eye bake");
+        let asset = tex.eye_bake(&dirs, None, Some("tc.png"), base, tint, 1.0, p).unwrap();
+        let want = image::RgbImage::from_fn(tc_file.width(), tc_file.height(), |x, y| image::Rgb([0, 1, 2].map(|k| encode(crate::eye_volume::albedo(1.0, base[k], tint[k] * decode(tc_file.get_pixel(x, y).0[k]), p[k]), 2.2))));
+        let got = png(&tex, &asset);
+        assert!(got.dimensions() == want.dimensions() && got.as_raw().iter().zip(want.as_raw()).all(|(g, w)| g.abs_diff(*w) <= 1), "eye bake, translucency map alone");
+        assert!(tex.eye_bake(&dirs, None, None, base, tint, 0.8, p).is_none(), "no map: a flat colour");
     }
 }

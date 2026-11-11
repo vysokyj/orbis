@@ -8,6 +8,7 @@ pub mod bake;
 pub mod daz;
 pub mod daz_material;
 pub mod detail_normal;
+pub mod eye_volume;
 pub mod iray;
 pub mod dson;
 pub mod ies;

@@ -2124,22 +2124,40 @@ rendered grey. And not the eye (material named …Irises / Pupils / Sclera,
 reddened) turned blue irises dark green (Calib-Hair, #20).
 
 **Genesis 9's eye** (`eye_volume`: `is_eye`, PBRSkin, translucency > 0,
-not thin-walled; one surface per eye, a closed ball) gets no transmission:
-its diffuse and Translucency Color maps are baked into one albedo, mixed
-per pixel in linear light at weights 1 − t and t (`Textures::blend`). Why:
-as Universal's transmission the whole eye glowed milky (Gladiator, Julius
-9). The weights are `pbr_skin.mdl`'s `diffuse_translucency_bsdf`
-(`weighted_layer`: the diffuse at 1 − Translucency Weight over the diffuse
-transmission at t). **Provisional, not yet measured** (#66): the
-transmitted share goes into the eye's volume (DAZ's `.mi`: absorption from
-Transmitted Color, linear 0.95 / 0.20 / 0.10 at 0.1 cm; scattering from
-PBRSkin's default SSS Color, 0.95 / 0.45 / 0.55 at 0.015 cm; SSS Direction
-−0.8) and comes back through the same interface (t × tint again, 1 − t
-reflected back in). A Monte Carlo of that ball (`eye-volume-mc.py`, radius
-1.3 cm, white maps) returns 0.61 / 0.43 / 0.32 of the light at t 1 and an
-albedo of 0.65 / 0.50 / 0.42 at t 0.8, where the bake gives 1: Iray's eye
-should be darker and warmer than the maps. Calib-G9Eye and its variants
-(`make-eye-scenes.py`) decide it against Iray.
+not thin-walled; one surface per eye, a closed ball) gets no transmission
+but one albedo, the diffuse layer plus what the eye's volume sends back
+through the translucency (`eye_volume.rs`, `Textures::eye_bake`, per texel
+in linear light; flat colours without maps):
+
+  A = (1 − t) B + t² T² P / (1 − (1 − t) B P)
+
+t = Translucency Weight, B = the base colour × its map, T = Translucency
+Color × its map, P = the share of light entering the ball that comes back
+out on its lit half. Why: `pbr_skin.mdl`'s `diffuse_translucency_bsdf` is
+a `weighted_layer` of the diffuse (1 − t) over a diffuse transmission (t,
+tint T); what goes through enters `pbr_add_volume` (absorption
+−ln(Transmitted Color) / distance, scattering −ln(SSS Color) / distance,
+Henyey-Greenstein at SSS Direction; DAZ's `.mi` hands the colours linear)
+and meets the same surface from inside: out with t T, back in with
+(1 − t) B for another round. Each re-entry is Lambertian like the first,
+so the rounds are a geometric series. P is a Monte Carlo of that ball at
+export (fixed seed, 20 000 paths per channel, radius 1.3 cm: Genesis 9's
+`l_eye` bone), no fitted constant; on Genesis 9 base 0.61 / 0.43 / 0.32.
+As Universal's transmission the whole eye glowed milky (Gladiator, Julius
+9); with the maps alone as albedo (the old bake) Calib-G9Eye's eye
+rendered 2.4 – 3.6 × Iray (sclera).
+
+Calib-G9Eye's variants (#66), Octane / Iray, enhanced-final, sclera
+(two boxes) / iris: translucency 0 (diffuse alone) 0.92 – 0.97 / 0.90 –
+0.92; `-t1-white` 1.14 – 1.17, 0.97 – 1.04 G / B, iris R 1.34; `-t08-white`
+1.09 – 1.11, 0.97 – 1.00 G / B; `-t1` (the map in both crossings: T²; T
+alone predicted 2.6 – 2.9) 1.20 – 1.25 R, 0.96 – 1.04 G / B; the eye with
+its maps, gloss off (`-nogloss`) 0.97 – 1.08 / 0.88 – 0.96; as loaded
+sclera 1.03 – 1.14. Red runs 10 – 25 % high where the maps are white or T
+is 1 (red travels farthest in the ball: the eye's inner geometry, not in
+the model, takes some; the maps' T² hides it on a real eye). Open: the
+dual lobe over the iris (as loaded / `-bare` iris 1.5 – 2.3 ×, `-nogloss`
+0.88 – 0.96: Octane's gloss adds a grey sheen Iray's doesn't), #133.
 
 **Faithful** (`SkinShader::IrayAlbedo`, #19): OpenPBR Surface with
 `subsurface` 0 — the colour Iray's skin shows, as a plain diffuse, the
