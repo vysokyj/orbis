@@ -827,7 +827,9 @@ leaves out, #15):
   through a Multiply texture (39, `texture1` map × `texture2` RGB) — as a
   scalar a brown-tinted grey strand map rendered grey hair (probe 62). No diffuse map → a translucency colour map (hair, caps).
 - **Weighted base mixing** (`Base Mixing` 2): a real diffuse map is scaled
-  to the blend's brightness (`weighted_mix`; 2.8 for a mesh hair) and
+  to the blend's brightness (`weighted_mix`; 2.8 for a mesh hair; with a
+  gloss the weights sum to at least 1, below it the rest is black as in
+  `normalized_mix`, #126) and
   `Glossy Weight` counts as gloss. Not applied to a translucency map standing
   in as albedo (greyed a cap's crown, probe 60).
 - roughness (dual-lobe skin: Specular Lobe 1 Roughness), metallic, cutout
@@ -1300,7 +1302,14 @@ leaves out, #15):
   gloss (`specular` 0, the diffuse map unbrightened; a dual lobe stays
   there, below), `amount` = Glossy
   Weight / (Diffuse Weight + Glossy Weight) (`weighted_gloss`); the Top Coat
-  on both. Iray blends a full-strength glossy reflection by that share: as
+  on both. DAZ's `df::normalized_mix` scales the two weights down only when
+  they sum past 1; below 1 the rest is black (MDL spec 21.6.1; DAZ hands
+  both weights as set, Calib-Mi-Mix2 / Calib-DualLobeWeighted's .mi). So
+  under 1 `amount` = 1 − Diffuse Weight and the metal's colour (albedo,
+  edge tint) × Glossy Weight / (1 − Diffuse Weight), the diffuse part and
+  the coat untouched (`WeightedGloss`, #126): Diffuse 0.5 / Glossy 0.3
+  had rendered 0.625 D + 0.375 G for Iray's 0.5 D + 0.3 G. Unverified
+  against Iray until Calib-DualLobeWeighted's W5 reference is in. Iray blends a full-strength glossy reflection by that share: as
   a metallic share of one Universal the reflection took the diffuse colour
   — Calib-Mixing (Fetroom's surfaces): weighted grey 0.63 → 1.05, ceiling
   0.85 → 1.06, door jamb (black, 0.8 coat) 1.09 once the coat covered the

@@ -1420,15 +1420,16 @@ impl Ocs<'_> {
     /// full-strength glossy reflection by the share (`weighted_gloss`); as a
     /// metallic share of one Universal the reflection took the diffuse
     /// colour — Calib-Mixing's weighted grey sphere (diffuse 1, gloss 0.5)
-    /// rendered 0.63 × Iray, the ceiling 0.85.
-    fn weighted_mix_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader, share: f32) {
+    /// rendered 0.63 × Iray, the ceiling 0.85. Weights summing below 1
+    /// leave the rest black (`WeightedGloss`, #126).
+    fn weighted_mix_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader, weights: WeightedGloss) {
         let tiles = [mat.float("Horizontal Tiles"), mat.float("Vertical Tiles")].map(|t| t.filter(|t| *t > 0.0).unwrap_or(1.0));
         let offsets = [mat.float("Horizontal Offset"), mat.float("Vertical Offset")].map(|o| o.unwrap_or(0.0));
         self.tiling = (tiles != [1.0, 1.0] || offsets != [0.0, 0.0]).then_some([tiles[0], tiles[1], offsets[0], offsets[1]]);
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
         let i = indent + 1;
-        self.float_pin(i, "amount", share.clamp(0.0, 1.0));
+        self.float_pin(i, "amount", weights.amount.clamp(0.0, 1.0));
         // The gloss: a metal coloured by the glossy colour, the surface's
         // roughness and detail.
         self.pin_open(i, "material1");
@@ -1436,7 +1437,7 @@ impl Ocs<'_> {
         let j = i + 1;
         let _ = writeln!(self.out, "{:j$}<node id='{gid}' type='130' name='{} gloss'>", "", esc(name));
         let _ = writeln!(self.out, "{:j$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
-        let gloss_color = mat.color("Glossy Color").unwrap_or([1.0; 3]);
+        let gloss_color = mat.color("Glossy Color").unwrap_or([1.0; 3]).map(|c| c * weights.scale);
         match self.channel_map(mat, "Glossy Color") {
             Some((asset, m)) => self.with_map(m, |w| w.tinted_image_pin(j + 1, "albedo", &asset, 1.0, gloss_color)),
             None => self.rgb_pin(j + 1, "albedo", gloss_color),
@@ -3132,10 +3133,14 @@ impl Ocs<'_> {
     /// Iray's "Weighted" base mixing (`Base Mixing` 2) blends diffuse,
     /// translucency and glossy by their weights; Universal takes only the
     /// diffuse map. The factor that scales it to the blend's brightness:
-    /// Σ wᵢ·Yᵢ / (Σ wᵢ · Y_diffuse), Y each layer's mean luminance (map mean
-    /// × colour). Mesh hair (HS CB, Octane1) has a dark diffuse map under a
-    /// 3× lighter translucency and glossy map — without it the braids came
-    /// out grey-brown; ×3 by hand matched Iray (probe 59), this gives 2.8.
+    /// Σ wᵢ·Yᵢ / (max(Σ wᵢ, 1) · Y_diffuse), Y each layer's mean luminance
+    /// (map mean × colour). Mesh hair (HS CB, Octane1) has a dark diffuse map
+    /// under a 3× lighter translucency and glossy map — without it the braids
+    /// came out grey-brown; ×3 by hand matched Iray (probe 59), this gives
+    /// 2.8. With a gloss Iray's `normalized_mix` scales the weights down only
+    /// past 1: below it the rest is black, not shared out (#126). Without
+    /// one DAZ's MDL takes the diffuse part alone, its weight unread: the
+    /// shares stay relative.
     fn weighted_mix(&mut self, mat: &Material) -> f32 {
         if mat.float("Base Mixing").unwrap_or(0.0) as i32 != 2 {
             return 1.0;
@@ -3156,7 +3161,9 @@ impl Ocs<'_> {
                 sum = (sum.0 + w, sum.1 + w * y);
             }
         }
-        if yd <= 0.0 { 1.0 } else { sum.1 / (sum.0 * yd) }
+        let gloss = mat.float("Glossy Weight").unwrap_or(0.0) > 0.0;
+        let norm = if gloss { sum.0.max(1.0) } else { sum.0 };
+        if yd <= 0.0 { 1.0 } else { sum.1 / (norm * yd) }
     }
 
     fn universal(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
@@ -3213,8 +3220,8 @@ impl Ocs<'_> {
             return self.weighted_coat_material(indent, name, mat, area_m2, skin);
         }
         if !self.in_mix {
-            if let Some(share) = weighted_gloss(mat) {
-                return self.weighted_mix_material(indent, name, mat, area_m2, skin, share);
+            if let Some(weights) = weighted_gloss(mat) {
+                return self.weighted_mix_material(indent, name, mat, area_m2, skin, weights);
             }
         }
         if self.metal_override.is_none() && !self.in_backscatter_mix && metal && translucency > 0.0 && !refractive && !(is_eye(name) && crate::iray::is_pbrskin(mat)) && mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0 {
@@ -4747,8 +4754,8 @@ fn diffusion_reflectance(alpha: f32) -> f32 {
 }
 
 
-/// Iray's weighted base mixing (2) without translucency: the glossy share
-/// of the diffuse + glossy weights. Iray blends a full-strength glossy
+/// Iray's weighted base mixing (2) without translucency: the Mix's glossy
+/// share and the gloss's scale (`WeightedGloss`). Iray blends a full-strength glossy
 /// reflection by it — a weighted sphere (diffuse 1, gloss 0.6) measured
 /// 0.625 · its matte twin + 0.375 · the gloss colour × the mirrored sky,
 /// where Universal's dielectric specular gave a tenth of its highlight
@@ -4756,13 +4763,39 @@ fn diffusion_reflectance(alpha: f32) -> f32 {
 /// to 68 px (Iray 215) at the same 0.81 of Iray's brightness — neither a
 /// white or gloss-coloured specular nor a larger share (0.6) closed that
 /// (probe 85).
-fn weighted_gloss(mat: &Material) -> Option<f32> {
+fn weighted_gloss(mat: &Material) -> Option<WeightedGloss> {
     if mat.float("Base Mixing").unwrap_or(0.0) as i32 != 2 || mat.float("Translucency Weight").unwrap_or(0.0) > 0.0 {
         return None;
     }
     let gw = mat.float("Glossy Weight").unwrap_or(0.0).max(0.0);
     let dw = mat.float("Diffuse Weight").unwrap_or(1.0).max(0.0);
-    (gw > 0.0 && dw + gw > 0.0).then(|| gw / (dw + gw))
+    (gw > 0.0).then(|| WeightedGloss::of(dw, gw))
+}
+
+/// DAZ's `normalized_base` (Base Mixing 2) as one Mix material: Iray mixes
+/// the diffuse part at Diffuse Weight against the gloss at Glossy Weight
+/// with `df::normalized_mix`, which scales the weights down only when they
+/// sum past 1 (MDL spec 21.6.1); below 1 the rest is black (#126). The Mix
+/// (`amount` the gloss's) sums to 1, so a sum below 1 leaves the diffuse at
+/// its weight (`amount` = 1 − Diffuse Weight) and darkens the gloss
+/// (`scale`, its colour × Glossy Weight / (1 − Diffuse Weight)): the gloss
+/// alone takes it, the diffuse part (its dual lobe, maps, overlay) and the
+/// Top Coat over both stay as they are.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct WeightedGloss {
+    /// The Mix's `amount`: the gloss's share.
+    amount: f32,
+    /// The gloss's colour scale.
+    scale: f32,
+}
+
+impl WeightedGloss {
+    fn of(dw: f32, gw: f32) -> Self {
+        let norm = (dw + gw).max(1.0);
+        let (dw, gw) = (dw / norm, gw / norm);
+        let amount = 1.0 - dw;
+        Self { amount, scale: if amount > 0.0 { (gw / amount).min(1.0) } else { 1.0 } }
+    }
 }
 
 /// Iray squares the roughness slider (`Roughness Squared`, and `Glossiness
@@ -7264,6 +7297,33 @@ mod tests {
     }
 
     #[test]
+    fn weighted_mixing_below_one_leaves_the_rest_black() {
+        // `df::normalized_mix` normalizes only past 1 (#126): Diffuse 0.5 /
+        // Glossy 0.3 is 0.5 D + 0.3 G, not 0.625 D + 0.375 G.
+        let w = WeightedGloss::of(0.5, 0.3);
+        assert!((w.amount - 0.5).abs() < 1e-6 && (w.scale - 0.6).abs() < 1e-6, "{w:?}");
+        // Past 1 the shares as before, the gloss at full colour.
+        let w = WeightedGloss::of(1.0, 0.6);
+        assert!((w.amount - 0.375).abs() < 1e-6 && (w.scale - 1.0).abs() < 1e-6, "{w:?}");
+        // At exactly 1 nothing to scale; no diffuse: the gloss at its weight.
+        assert_eq!(WeightedGloss::of(0.2, 0.8), WeightedGloss { amount: 0.8, scale: 1.0 });
+        let w = WeightedGloss::of(0.0, 0.4);
+        assert!((w.amount - 1.0).abs() < 1e-6 && (w.scale - 0.4).abs() < 1e-6, "{w:?}");
+
+        let ball = mat(json!([
+            {"channel": {"id": "Base Mixing", "current_value": 2}},
+            {"channel": {"id": "Diffuse Weight", "current_value": 0.5}},
+            {"channel": {"id": "Glossy Weight", "current_value": 0.3}},
+            {"channel": {"id": "Glossy Color", "current_value": [1, 1, 1]}},
+        ]));
+        let (x, _) = material_inputs(&[("Ball".into(), ball, 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
+        let pin = |x: &str, p: &str| x[x.find(&format!("<pin name='{p}'>")).unwrap_or_else(|| panic!("{p}: {x}"))..].split("</pin>").next().unwrap().to_string();
+        assert!(pin(&x, "amount").contains(">0.5<"), "{x}");
+        let gloss = &x[x.find("<pin name='material1'>").unwrap()..x.find("<pin name='material2'>").unwrap()];
+        assert!(pin(gloss, "albedo").contains(">0.6 0.6 0.6<") && pin(gloss, "edgeTint").contains(">0.6 0.6 0.6<"), "{gloss}");
+    }
+
+    #[test]
     fn weighted_base_mixing_brightens_the_diffuse_map() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("Runtime/Textures")).unwrap();
@@ -7290,6 +7350,22 @@ mod tests {
         // by the glossy map.
         let spec = &x[x.find("<pin name='specular'>").expect("tinted gloss")..];
         assert!(spec[..200].contains("light.png"), "{spec}");
+        // Weights summing below 1 leave the rest black (#126): (0.4·0.125 +
+        // 0.2·0.5 + 0.2·0.5) / (1 · 0.125) = 2.0, not shared out (2.5).
+        let hair = mat(json!([
+            {"channel": {"id": "Base Mixing", "current_value": 2}},
+            {"channel": {"id": "Diffuse Weight", "current_value": 0.4}},
+            {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/dark.png"}},
+            {"channel": {"id": "Translucency Weight", "current_value": 0.2}},
+            {"channel": {"id": "Translucency Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/light.png"}},
+            {"channel": {"id": "Glossy Weight", "current_value": 0.2}},
+            {"channel": {"id": "Glossy Color", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/light.png"}},
+        ]));
+        let (x, _) = material_inputs(&[("Braids".into(), hair, 1.0)], &[dir.path().to_path_buf()], HashMap::new(), 3000, SkinShader::None);
+        let albedo = &x[x.find("<pin name='albedo'>").unwrap()..];
+        let power = &albedo[albedo.find("<pin name='power'>").unwrap()..];
+        let v: f32 = power[power.find("type='6'>").unwrap() + 9..].split('<').next().unwrap().parse().unwrap();
+        assert!((v - 2.0).abs() < 0.05, "{v}");
     }
 
     #[test]
