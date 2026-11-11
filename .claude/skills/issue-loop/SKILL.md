@@ -21,18 +21,19 @@ The session that runs the loop only orchestrates; the work on an issue is done b
    1. an issue whose `## Iray batch` comment is answered by a later `Iray references in` comment (label gone) - a resume;
    2. `bug` issues, oldest first;
    3. the rest, oldest first.
-   Skip issues labelled `needs-iray` or `question`, and what the project rules hold back: #57 / #19 (PBRSkin: no constant tuning), #3 (signing needs the user), anything that needs private or store content in git.
+   Skip issues labelled `needs-iray` or `question`, and what the project rules hold back: #57 / #19 (PBRSkin: no constant tuning), #3 (signing needs the user), #50 (a 1.2 M-face private scene; its renders froze the Mac), anything that needs private or store content in git.
 3. **Start the worker**: Agent tool, `subagent_type: issue-worker`, prompt = the issue number and title, "resume" if it is one, and what earlier workers reported that concerns it. Wait for its report; don't work on anything that touches the sources or renders meanwhile.
 4. **Check its end state** - the report is not proof. It must be exactly one of:
    - **Done**: the issue is closed, the commit is on `origin/master`, `cargo test` passes, `scripts/install.sh` ran if the export changed.
    - **Needs Iray**: parked as in the next section (scenes in git, the comment, the label).
    - **Needs the user** (a decision, missing knowledge, a failed Octane, content we may not use): a comment with what was found and the one question, label `question`; what is worth keeping committed (`refs #N`).
    None of them (the worker died, left a dirty tree or failing tests): repair it here or park the issue with `question`; never start the next worker on a broken tree.
-5. `scripts/dev/clean-cache.sh` if a compare loop ran. Next iteration.
+5. `scripts/dev/clean-cache.sh` if a compare loop ran.
+6. **Show the table**: the `issue-status` skill (`python3 scripts/dev/issue-status.py`), after every iteration, unchanged in shape. Next iteration.
 
 What the worker does in between: the usual skills - `docs-first` and `mi-fixture` before any render, decompose before fitting, `calib-loop` for Octane, `lab-note` for a calibration session, `ship-fix` to finish.
 
-**Stop the loop** when nothing is left to pick. Final message (and the `notify` skill, if present): what closed, what waits on a question, and the parked Iray batch as one list - issues, scene count, ETA from `status.py`'s s/scene, DAZ restarts needed.
+**Stop the loop** when nothing is left to pick. Final message (and the `notify` skill, if present): the `issue-status` table, and for the parked Iray batch the ETA from `status.py`'s s/scene and the DAZ restarts needed.
 
 ## Parking an issue that needs Iray
 The worker's job. Do everything that doesn't need the server first, so the resume is only a compare:
@@ -68,4 +69,4 @@ The orchestrating session's job, never a worker's. The comments are the announce
 4. Meanwhile keep looping on issues that don't wait (Octane may render beside the server queue); `progress` instead of polling.
 5. Renders done -> `iray-refs` (`keep-refs.py`, commit as they come). Per issue: comment `Iray references in: <commit>` and `gh issue edit N --remove-label needs-iray`. The next iteration resumes it.
 
-Asked "what waits for Iray?" at any time: steps 1-2 and the list, nothing queued.
+Asked "what waits for Iray?" at any time: the `issue-status` table, and steps 1-2 for the scene list; nothing queued.

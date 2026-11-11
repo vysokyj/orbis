@@ -19,7 +19,7 @@ Everything else (calibration, DAZ/Octane runs, Iray queue, `.mi` fixtures,
 references, lab notes) is a **project skill** in `.claude/skills/` - use it
 instead of remembering the commands: `calib-loop`, `ship-fix`, `lab-note`,
 `iray-refs`, `demo-scene`, `iray-queue`, `mi-fixture`, `octane-probe`, `daz-script-dev`,
-`docs-first`, `progress`, `issue-loop`. Subagents in `.claude/agents/` (`calib-analyst`,
+`docs-first`, `progress`, `issue-loop`, `issue-status`. Subagents in `.claude/agents/` (`calib-analyst`,
 `spec-guard`, `doc-researcher`, `issue-worker`); the
 ask-first rules below are kept by Claude itself (no hooks). The scripts are in `scripts/dev/` (each has its usage
 in its header). The repo is location-independent: scripts find each other
