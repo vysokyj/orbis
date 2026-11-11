@@ -1156,8 +1156,10 @@ leaves out, #15):
   v along it (`docs/daz/iray.md`, Strand geometry; Morgan Hair is
   ribbons, Calib-Hair prisms), so Iray's unrotated tangent lies across
   it, and Octane's curves take theirs along it. Octane's curves are round
-  where Iray's ribbons are flat (#79); untessellated strands reach Iray
-  as its own `hair` fibres, not checked here. Why: Morgan Hair
+  where Iray's ribbons are flat (#79). Untessellated strands reach Iray
+  as its own `hair` fibres, and there the curves match per unit width
+  (Calib-Strand row A, 2× wide: 1.97 – 2.05 × Iray, the highlight at the
+  same place across the strand). Why: Morgan Hair
   (Rotations 0.25, anisotropy 0.74 / 0.92) streaked across its strands as
   exported; Iray streaks along them. Turned, its highlights 0.69 – 0.77 →
   1.07 – 1.13 × Iray, the crown 2.98 → 2.24 (#52). On the measured
@@ -1420,8 +1422,14 @@ leaves out, #15):
 - **Metallic Weight under 0.05** (no map) is left out: the GSOV4 jacket's
   0.0107 turned Octane's gloss off — black velvet (0.02× Iray) beside the
   same leather's trousers.
-- Base Mixing 1 ignores Metallic Weight; a black base under a strong white
-  gloss becomes a gloss-coloured metal (mirrors).
+- Base Mixing 1 ignores Metallic Weight, also over a black base: no metal,
+  the gloss is the dielectric below (F0 = Glossy Specular). Why: DAZ hands
+  Iray no metal there (the .mi: `glossy_reflectivity` = F0, the hue as a
+  directional tint), and the gloss-coloured metal the export made of a
+  black base under a strong gloss reflected the full Glossy Color —
+  Morgan Hair's gloss alone (Calib-Strand, F0 0.49) on a mesh tube under
+  the dome 2.27 × Iray, B / R 1.17 where Iray's is 0.85; as the dielectric
+  0.98 ×, 0.83 (#79).
 - **Base Mixing 1 (specular / glossiness): Glossy Specular is F0.** Iray
   reflects Glossy Specular head-on (a colour, per channel), with Fresnel to
   white at grazing, and the diffuse takes what is left. The export uses the

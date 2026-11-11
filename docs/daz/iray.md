@@ -73,7 +73,16 @@ the *Render* sides; product hair sets both alike):
 On a plain polyline (no generator) the 2-sided ribbon's normal is the
 object's +z made perpendicular to the strand (a strand along z: −y). The
 render hairs of a dForce generator carry their own frames: Morgan Hair's
-ribbons (Calib-Hair-Teens, sides 2) follow no fixed axis. Morgan Hair
+ribbons (Calib-Hair-Teens, sides 2) follow no fixed axis. The free dForce
+Mohawk at sides 2 (`.mi` of a scene written from its preset, #79) shows the
+rule: each render hair's ribbon faces the scalp at its root (normal against
+the root's direction from the head's centre, made perpendicular to the
+strand: median dot 0.94) and keeps that frame along the strand without twist
+(transported: median 0.00°, 95 % within 0.3° per segment) — the hairs lie
+flat over the head. UV u = the hair's index + 0.25 / 0.75 across, v its
+index + the position along. The `.mi` export writes fewer render hairs than
+the scene's dump holds (1504 vs 29803 strands: the viewport's preview
+density, as it reads the viewport sides). Morgan Hair
 (sides 2) is ribbons, dForce Corporate Hair (Calib-Hair, sides 3) prisms,
 the free dForce Mohawk ships sides 1 (fibres). Scenes:
 `scripts/dev/make-strand-scenes.py` (#79).

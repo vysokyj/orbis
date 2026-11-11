@@ -3330,14 +3330,14 @@ impl Ocs<'_> {
         let dimmed = if !metal || refractive { 0.0 } else { translucency.min(MAX_METAL_DIMMING) };
         let diffuse_weight = (1.0 - refraction) * (1.0 - transmit) * (1.0 - dimmed) * diffuse_share;
 
-        // Iray "Base Mixing" 1 (specular/glossiness) ignores Metallic Weight;
-        // a black base under a strong white gloss there is a mirror —
-        // Octane makes that a metal coloured by the gloss.
+        // Iray "Base Mixing" 1 (specular/glossiness) ignores Metallic Weight
+        // and reflects Glossy Specular head-on (`specular_ior`), also over a
+        // black base: DAZ hands Iray no metal there (its .mi), so neither do
+        // we (#79: a gloss-coloured metal for a black base rendered Morgan
+        // Hair's gloss 2.3 × Iray's and too pale).
         let specular_mode = mat.float("Base Mixing").unwrap_or(0.0) as i32 == 1;
         let gloss = mat.float("Glossy Layered Weight").unwrap_or(0.0);
         let gloss_color = mat.color("Glossy Color").unwrap_or([1.0; 3]);
-        let max = |c: [f32; 3]| c.iter().copied().fold(0.0f32, f32::max);
-        let mirror = specular_mode && max(mat.base_color()) < 0.05 && gloss > 0.5 && max(gloss_color) > 0.5;
 
         // Base colour: the diffuse map (scaled by the colour, see `tint`),
         // else the colour. Hair and hair caps often
@@ -3378,23 +3378,23 @@ impl Ocs<'_> {
         let dual_lobe = DualLobe::of(mat);
         // Iray's glossy layer over the dual lobe: the gloss as the coating,
         // when no Top Coat holds it on this node (`gloss_over_dual_lobe`).
-        let glossy_coat = !mirror && weighted.is_none() && gloss_over_dual_lobe(mat) && self.node_coat_roughness(mat).is_none();
+        let glossy_coat = weighted.is_none() && gloss_over_dual_lobe(mat) && self.node_coat_roughness(mat).is_none();
         // The diffuse part of a weighted mix keeps its dual lobe: DAZ's
         // MDL (`normalized_base`) mixes the diffuse with the dual lobe over
         // it (`dl_diffuse_bsdf`) at Diffuse Weight against the gloss at
         // Glossy Weight, so the lobe belongs here, not to the mix's gloss
         // (#121). As a dual lobe alone (Base Mixing 0), the gloss left to
         // `weighted_mix_material`'s other material.
-        let weighted_lobe = dual_lobe.filter(|_| weighted.is_some() && !mirror && refraction == 0.0);
-        let no_gloss = (weighted.is_some() && weighted_lobe.is_none()) || (!mirror && refraction == 0.0 && glossy <= 0.0 && dual_lobe.is_none() && mat.image(gloss_ch).is_none());
+        let weighted_lobe = dual_lobe.filter(|_| weighted.is_some() && refraction == 0.0);
+        let no_gloss = (weighted.is_some() && weighted_lobe.is_none()) || (refraction == 0.0 && glossy <= 0.0 && dual_lobe.is_none() && mat.image(gloss_ch).is_none());
         let sigma = diffuse_roughness(mat, false);
-        let oren_nayar = sigma > 0.0 && no_gloss && !mirror && !metal && refraction == 0.0 && transmit == 0.0;
+        let oren_nayar = sigma > 0.0 && no_gloss && !metal && refraction == 0.0 && transmit == 0.0;
         let base_flat = if oren_nayar { 1.0 } else { oren_nayar_flat(sigma) };
         let overlay_flat = oren_nayar_flat(diffuse_roughness(mat, true)) / if oren_nayar { oren_nayar_flat(sigma) } else { 1.0 };
         // Base Mixing 1 with a coloured gloss: see `specular_diffuse_share`.
-        let share = if specular_mode && !mirror && weighted.is_none() { specular_diffuse_share(mat, gloss.min(1.0), gloss_color) } else { [1.0; 3] };
+        let share = if specular_mode && weighted.is_none() { specular_diffuse_share(mat, gloss.min(1.0), gloss_color) } else { [1.0; 3] };
         // Under a partial metal albedo and gloss scale (`metal_shares`).
-        let metal_w = if mirror || specular_mode || weighted.is_some() || !metal { 0.0 } else { metal_value };
+        let metal_w = if specular_mode || weighted.is_some() || !metal { 0.0 } else { metal_value };
         // Universal's metal takes its colour from the albedo, which also
         // carries what only Iray's diffuse loses: the head-on Oren-Nayar
         // factor and the translucent metal's dimming. Iray's metal sits
@@ -3428,9 +3428,7 @@ impl Ocs<'_> {
         } else {
             None
         };
-        if mirror {
-            self.rgb_pin(i, "albedo", gloss_color);
-        } else if let Some(Ok(asset)) = eye_albedo {
+        if let Some(Ok(asset)) = eye_albedo {
             // Baked per texel, sRGB-encoded as the maps are.
             self.image_pin(i, "albedo", &asset, false, self.textures.gamma(&asset), 1.0);
         } else if let Some(Err(colour)) = eye_albedo {
@@ -3516,7 +3514,7 @@ impl Ocs<'_> {
         let mut active_dual_lobe = None;
         if weighted.is_some() && weighted_lobe.is_none() {
             self.rgb_pin(i, "specular", [0.0; 3]);
-        } else if !mirror && refraction == 0.0 && glossy <= 0.0 && dual_lobe.is_none() && mat.image(gloss_ch).is_none() {
+        } else if refraction == 0.0 && glossy <= 0.0 && dual_lobe.is_none() && mat.image(gloss_ch).is_none() {
             self.rgb_pin(i, "specular", [0.0; 3]);
         } else if weighted_lobe.is_none() && iray(mat).and_then(|u| u.bool("refraction_reflection_enable")) == Some(false) {
             // Iray's refraction reflects through the glossy layer only: without
@@ -3524,7 +3522,7 @@ impl Ocs<'_> {
             // the .mi export) — Calib-Dispersion's glass spheres show no sky
             // nor sun on their surface in Iray.
             self.rgb_pin(i, "specular", [0.0; 3]);
-        } else if !mirror && glossy > 0.0 && !glossy_coat && weighted.is_none() {
+        } else if glossy > 0.0 && !glossy_coat && weighted.is_none() {
             // Iray's Glossy Reflectivity r scales the reflection (r 0.5 is
             // the default, Universal's full specular); Octane matched it at
             // specular × min(2r, 1) — Calib-Glossy, r 0 / 0.25: 2.42 / 1.54
@@ -3552,7 +3550,7 @@ impl Ocs<'_> {
                 // (Universal's default is white; a film tints it.)
                 self.rgb_pin(i, "specular", gloss_color.map(|c| c * weight));
             }
-        } else if let Some(dl) = dual_lobe.filter(|_| !mirror && refraction == 0.0) {
+        } else if let Some(dl) = dual_lobe.filter(|_| refraction == 0.0) {
             active_dual_lobe = Some(dl);
             // The dual lobe specular alone: its reflectivity as the glossy
             // layer's, × its weight; lobe 1's part of it here, lobe 2's the
@@ -3565,29 +3563,28 @@ impl Ocs<'_> {
             }
         }
 
-        let metallic = if mirror { 1.0 } else if specular_mode { 0.0 } else { metal_value };
+        let metallic = if specular_mode { 0.0 } else { metal_value };
         // A trace of metallicity (the GSOV4 jacket's 0.0107) turned Octane's
         // gloss off — black velvet where Iray shows leather (Fetroom).
         if weighted.is_some() {
             // The diffuse part of a weighted mix: its gloss is the mix's
             // other material.
-        } else if mirror || (!specular_mode && metal) {
+        } else if !specular_mode && metal {
             // Iray's metal reflects at w² (`metal_shares`); a map squared
             // too, by twice its gamma (its 1 / k at the channel's value).
-            let m = if mirror { 0.0 } else { metal_m };
+            let m = metal_m;
             // Iray Uber's map is squared with its weight (twice its gamma);
             // PBRSkin's is read as is.
             let squared = !crate::iray::is_pbrskin(mat);
             let map = if metal_map { self.channel_map(mat, "Metallic Weight") } else { None };
-            match (mirror, map) {
+            match map {
                 // Baked per texel (`metal_map_bake`): its value range in it.
-                (false, Some((_, im))) if metal_baked.is_some() => {
+                Some((_, im)) if metal_baked.is_some() => {
                     let baked = metal_baked.clone().unwrap_or_default();
                     self.with_map(im.placement(), |w| w.image_pin(i, "metallic", &baked, true, 1.0, 1.0))
                 }
-                (false, Some((asset, im))) => self.with_map(im, |w| w.image_pin(i, "metallic", &asset, true, if squared { 2.0 } else { 1.0 } * w.textures.map_gamma(&asset, mat.image_gamma("Metallic Weight")), m)),
-                (false, None) => self.float_pin(i, "metallic", m),
-                (true, _) => self.float_pin(i, "metallic", metallic.max(0.0)),
+                Some((asset, im)) => self.with_map(im, |w| w.image_pin(i, "metallic", &asset, true, if squared { 2.0 } else { 1.0 } * w.textures.map_gamma(&asset, mat.image_gamma("Metallic Weight")), m)),
+                None => self.float_pin(i, "metallic", m),
             }
         }
         // The albedo and gloss are written: the scale ends with them.
@@ -3645,14 +3642,14 @@ impl Ocs<'_> {
         // or GGX energy preserving when a dielectric lobe on the node (the
         // gloss unless the surface is all metal, lobe 2 of a dual lobe, a
         // Top Coat) is past Octane's limit —, all at `phong_pin`.
-        let glass = !thin && !mirror && refraction >= 0.5 && weighted.is_none();
+        let glass = !thin && refraction >= 0.5 && weighted.is_none();
         // Iray's anisotropy on the gloss (and the metal: both take the
         // glossy layer's); a refraction's roughness keeps it isotropic.
         // (Not the dual lobe's under a glossy coating or in a weighted
         // mix's diffuse part: Iray's lobes are isotropic, and Universal's
         // coating has no anisotropy.)
         let aniso = if refraction_rough || dispersive || glossy_coat || weighted_lobe.is_some() { Anisotropy::default() } else { Anisotropy::glossy(mat) };
-        let all_metal = mirror || (metallic >= 1.0 && !metal_map);
+        let all_metal = metallic >= 1.0 && !metal_map;
         let gloss_coat_rough = glossy_coat.then(|| glossy_layer_roughness(mat));
         let dielectric: Vec<f32> = [
             (!all_metal).then(|| (rough * aniso.stretch()).min(1.0)),
@@ -3710,7 +3707,7 @@ impl Ocs<'_> {
         // Over a metal only the base's share of it: Iray's gloss is inside
         // the base (1 − w), none at all on a full metal (Calib-Map-Metal's
         // Reflectivity 1 metal: 2.14 × Iray with it).
-        let excess = if mirror || specular_mode || glossy <= 0.0 || weighted.is_some() || glossy_coat { 0.0 } else { glossy.min(1.0) * glossy_excess(glossy_reflectivity(mat)) * (1.0 - metal_w.clamp(0.0, 1.0)) };
+        let excess = if specular_mode || glossy <= 0.0 || weighted.is_some() || glossy_coat { 0.0 } else { glossy.min(1.0) * glossy_excess(glossy_reflectivity(mat)) * (1.0 - metal_w.clamp(0.0, 1.0)) };
         if coat <= 0.0 && excess > 0.0 {
             self.rgb_pin(i, "coating", gloss_color.map(|c| c * excess));
             self.float_pin(i, "coatingRoughness", rough.clamp(0.0, 1.0));
@@ -3730,7 +3727,7 @@ impl Ocs<'_> {
 
         // Base Mixing 1 reflects Glossy Specular head-on (F0), as an IOR on
         // the dielectric layer — unless the surface is mostly refraction.
-        let spec_ior = (specular_mode && !mirror && glossy > 0.0 && weighted.is_none()).then(|| specular_ior(mat));
+        let spec_ior = (specular_mode && glossy > 0.0 && weighted.is_none()).then(|| specular_ior(mat));
         if refraction == 0.0 {
             if let Some(n) = spec_ior {
                 self.float_pin(i, "ior", n);
@@ -7230,6 +7227,7 @@ mod tests {
             {"channel": {"id": "Metallic Weight", "current_value": 1}},
             {"channel": {"id": "Glossy Layered Weight", "current_value": 1}},
             {"channel": {"id": "Glossy Color", "current_value": [1, 1, 1]}},
+            {"channel": {"id": "Glossy Specular", "current_value": [1, 1, 1]}},
             {"channel": {"id": "Glossy Roughness", "current_value": 0}},
         ]));
         // Leather: a 0.33 gloss through a weight map, a trace of metallicity.
@@ -7417,8 +7415,13 @@ mod tests {
         let op = &hx[hx.find("<pin name='opacity'>").expect("legacy opacity")..];
         assert!(op.contains("<attr name='value' type='6'>0</attr>"), "{op}");
         let (mx, _) = material_inputs(&[("Mirror".into(), mirror, 1.0), ("Wall".into(), wall, 1.0)], &dirs, HashMap::new(), 5000, SkinShader::None);
-        assert!(mx.contains("<attr name='value' type='8'>1 1 1</attr>"), "mirror albedo = gloss colour");
-        assert!(mx.contains("<pin name='metallic'>"));
+        // Base Mixing 1 over a black base: no metal (DAZ hands Iray none),
+        // a dielectric reflecting Glossy Specular head-on — a mirror at 1
+        // (F0 0.95: IOR 77.9), black under it (#79).
+        let mirror_xml = &mx[mx.find("name='Mirror'").unwrap()..mx.find("name='Wall'").unwrap()];
+        assert!(!mirror_xml.contains("<pin name='metallic'>"), "{mirror_xml}");
+        assert!(mirror_xml.contains("<pin name='ior'>") && mirror_xml.contains("<attr name='value' type='6'>77.9"), "{mirror_xml}");
+        assert!(mirror_xml.contains("<attr name='value' type='8'>0 0 0</attr>"), "black albedo: {mirror_xml}");
         assert!(mx.contains("<attr name='scale' type='8'>0.166667 0.25 1</attr>"), "{mx}");
         // The wall has no glossy layer: matte (specular 0); the mirror keeps it.
         let wall_xml = &mx[mx.find("name='Wall'").unwrap()..];
