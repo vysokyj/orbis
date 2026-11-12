@@ -1023,7 +1023,11 @@ leaves out, #15):
   Top Coat over both moves into a Layered material's Specular Layer
   (`layered_coat_material`), so the coating stays the gloss's. On OpenPBR
   skin the same (the gloss's weight and F0's IOR per texel on the coat,
-  undarkened) without a Top Coat; with one (OpenPBR has one coat) and
+  undarkened); a Top Coat over them (OpenPBR has `specular` and one coat)
+  wraps the OpenPBR skin in the same Layered material, the coat its
+  Specular Layer (#138: the fallback to the gloss alone dropped the dual
+  lobe, the face 0.76 × Iray's rise over the uncoated skin; layered it
+  rises 1.39 × against Iray's 1.35, as the uncoated 1.37 / 1.34);
   elsewhere (metal, refraction, Base Mixing 1) the gloss alone, as
   before; weighted mixing, translucent or not, keeps it in the Mix's
   diffuse part (#121, #128, below). Wherever the gloss is on `specular`, the roughness is the glossy
@@ -1192,7 +1196,8 @@ leaves out, #15):
   streaks. Modes 2 / 3 differ from 0 only in the IOR (no reference of
   them anisotropic). The weighted coat (mode 1) keeps its own metal node.
   A coat over a glossy layer over a dual lobe takes the same Layered
-  material, isotropic or not (#106, above).
+  material, isotropic or not (#106, above), on an OpenPBR skin too (its
+  base the OpenPBR skin without its coat, #138).
   **On strand hair** (an Uber material on `BasisCurves`) the rotation
   turns a quarter more, 1 − (rotation + 0.25), gloss and coat alike:
   DAZ hands Iray tessellated strands (Line Tessellation sides 2 / 3) as

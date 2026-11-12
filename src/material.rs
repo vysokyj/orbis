@@ -2899,11 +2899,13 @@ impl Ocs<'_> {
     /// 0.58 – 0.80 of Universal's on Calib-SSS's spheres, off it is 1.00).
     fn skin_gloss(&mut self, i: usize, mat: &Material, rough_ch: Option<&str>, rough: f32, inverted: bool) {
         let glossy = gloss_weight(mat);
-        let coat = mat.float("Top Coat Weight").unwrap_or(0.0) > 0.0;
+        // The Top Coat on the coating, unless the Layered material holds it
+        // (`layered_top_coat`: over a gloss over a dual lobe, #138).
+        let coat = mat.float("Top Coat Weight").unwrap_or(0.0) > 0.0 && !self.in_layered_coat;
         // Iray's glossy layer over its dual lobe (`gloss_over_dual_lobe`):
         // the dual lobe on `specular`, the gloss the coating over it, as
-        // on Universal (#106). Under a Top Coat too (OpenPBR has one coat)
-        // the gloss alone, as before.
+        // on Universal (#106); under a Top Coat the Layered material's
+        // Specular Layer takes the coat (#138).
         let glossy_coat = !coat && gloss_over_dual_lobe(mat);
         // The dual lobe as Universal's (see `DualLobe`): lobe 2 the coating,
         // or under a Top Coat (or the glossy layer) both lobes' roughness
@@ -3354,10 +3356,17 @@ impl Ocs<'_> {
         // Nor in the eye: Genesis irises, pupils and sclera are translucent
         // too, and the skin's tint (half, reddened) turned blue irises dark
         // green (Calib-Hair, #20).
+        let layered_coat = !self.in_layered_coat && !self.in_backscatter_mix && !self.in_flake_mix && !self.in_coat_mix && layered_top_coat(mat);
         if skin != SkinShader::None && translucency > 0.0 && !refractive && !emissive && !cutout && !thin && !metal && !mat.prop && !is_eye(name) && mat.image("diffuse").is_some() {
+            // The skin's Top Coat over a glossy layer over a dual lobe: three
+            // dielectric layers, OpenPBR has `specular` and one `coat` (#138):
+            // the Layered material over the OpenPBR skin, as on Universal.
+            if layered_coat {
+                return self.layered_coat_material(indent, name, mat, area_m2, skin);
+            }
             return self.standard_surface(indent, name, mat, translucency, skin);
         }
-        if !self.in_layered_coat && !self.in_backscatter_mix && !self.in_flake_mix && !self.in_coat_mix && layered_top_coat(mat) {
+        if layered_coat {
             return self.layered_coat_material(indent, name, mat, area_m2, skin);
         }
         // Flakes outside the backscattering: DAZ's `add_metal_flakes` wraps
@@ -7107,6 +7116,7 @@ mod tests {
         let mut skin = channels.as_array().unwrap().clone();
         skin.push(json!({"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}}));
         skin.push(json!({"channel": {"id": "Translucency Weight", "current_value": 0.5}}));
+        let skin_channels = skin.clone();
         let skin = mat(json!(skin));
         let (x, _) = material_inputs(&[("Torso".into(), skin, 1.0)], &dirs, HashMap::new(), 9000, SkinShader::OpenPbr);
         assert!(x.contains("type='505' name='Torso'"), "{x}");
@@ -7115,6 +7125,20 @@ mod tests {
         assert!(pin(&x, "coatingRoughness").contains(&format!(">{}<", num(phong_pin(0.25)))), "{x}");
         assert!(pin(&x, "roughness").contains(&format!(">{}<", num(blended))), "{x}");
         assert!(pin(&x, "coatingDarkening").contains("type='6'>0</attr>"), "{x}");
+
+        // A skin under a Top Coat (#138): the Layered material over the
+        // OpenPBR skin, the coat its Specular Layer, the skin keeping the
+        // dual lobe on `specular` and the gloss on its coating.
+        let mut coated = skin_channels.clone();
+        coated.push(json!({"channel": {"id": "Top Coat Weight", "current_value": 0.5}}));
+        coated.push(json!({"channel": {"id": "Top Coat Roughness", "current_value": 0.3}}));
+        let (x, _) = material_inputs(&[("Torso".into(), mat(json!(coated)), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::OpenPbr);
+        assert!(x.contains("type='143' name='Torso'") && x.contains("type='505' name='Torso base'"), "{x}");
+        let base = &x[x.find("<pin name='material1'>").unwrap()..x.find("<pin name='Layer 1'").unwrap()];
+        assert!(pin(base, "specular").contains("type='6'>1</attr>") && pin(base, "coating").contains("type='6'>0.4</attr>"), "{base}");
+        assert!(pin(base, "roughness").contains(&format!(">{}<", num(blended))), "{base}");
+        let layer = &x[x.find("<pin name='Layer 1'").unwrap()..];
+        assert!(layer.contains("type='139'") && pin(layer, "specular").contains(">0.5 0.5 0.5<"), "{layer}");
     }
 
     #[test]
