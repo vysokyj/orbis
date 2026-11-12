@@ -3106,16 +3106,15 @@ impl Ocs<'_> {
     }
 
     /// DAZ's dForce hair shader (Blended Dual Lobe Hair, on strands) → an
-    /// Octane Hair material (type 147) in albedo mode: the hair colour and
-    /// transmission colour, each its map's mean × its tint (strands have no
-    /// UVs), mixed by `HAIR_COLOUR_SHARE` / `HAIR_TRANSMISSION_SHARE` — at the
-    /// root and at the tip, under 1 − Highlight Weight with the highlight
-    /// colour's share over it (`hair_albedo`), blended along each strand as
-    /// Iray blends its root and tip lobes (`hair_albedo_pin`); longitudinal
-    /// and azimuthal roughness from `base_roughness`; the specular the
-    /// glossy layer's weight under 1 − Highlight Weight, the highlight
-    /// colour over it; `separation` left out (Octane's `offset` only dimmed
-    /// the hair, Calib-Hair-hl).
+    /// Octane Hair material (type 147) in albedo mode: the colour a deep
+    /// pile of the shader's strands shows (`hair_pile_albedo`), from the
+    /// hair, transmission and highlight colours, each its map's mean × its
+    /// tint (strands have no UVs) — at the root and at the tip, blended
+    /// along each strand as Iray blends its root and tip lobes
+    /// (`hair_albedo_pin`); longitudinal and azimuthal roughness from
+    /// `base_roughness`; the whole `specular` (it scales every lobe of
+    /// Octane's Hair, not its reflection); `separation` left out (Octane's
+    /// `offset` only dimmed the hair, Calib-Hair-hl).
     fn hair(&mut self, indent: usize, name: &str, mat: &Material) {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='147' name='{}'>", "", esc(name));
@@ -3134,15 +3133,12 @@ impl Ocs<'_> {
         let (tip, tip_t) = (colour("Hair Tip Color"), colour("Tip Transmission Color"));
         let (hl_root, hl_tip) = (colour("Highlight Root Color"), colour("Tip Highlight Color"));
         let hw = mat.float("Highlight Weight").unwrap_or(0.11).clamp(0.0, 1.0);
-        let pile = self.strand_hair == StrandHair::HairPile;
-        let gloss = mat.float("Glossy Layer Weight").unwrap_or(if pile { 0.5 } else { 1.0 }).clamp(0.0, 1.0);
-        let albedo = |c: [f32; 3], t: [f32; 3], h: [f32; 3]| if pile { hair_pile_albedo(c, t, h, hw, gloss, mat.fibres) } else { hair_albedo(c, t, h, hw) };
+        let gloss = mat.float("Glossy Layer Weight").unwrap_or(0.5).clamp(0.0, 1.0);
+        let albedo = |c: [f32; 3], t: [f32; 3], h: [f32; 3]| hair_pile_albedo(c, t, h, hw, gloss, mat.fibres);
         self.value_pin(i, "hairMode", 57, 2, "0"); // albedo
         let (bias, gain) = (mat.float("Root To Tip Bias").unwrap_or(0.5), mat.float("Root to Tip Gain").unwrap_or(0.5));
         self.hair_albedo_pin(i, albedo(root, root_t, hl_root), albedo(tip, tip_t, hl_tip), bias, gain);
-        // `specular` scales every lobe of Octane's Hair, not its
-        // reflection: with the pile albedo it stays whole.
-        self.rgb_pin(i, "specular", if pile { [1.0; 3] } else { [0, 1, 2].map(|k| (1.0 - hw) * gloss + hw * 0.5 * (hl_root[k] + hl_tip[k])) });
+        self.rgb_pin(i, "specular", [1.0; 3]);
         let rough = mat.float("base_roughness").unwrap_or(0.2).clamp(0.0, 1.0);
         self.float_pin(i, "roughness", rough);
         self.float_pin(i, "roughnessV", rough);
@@ -3313,7 +3309,7 @@ impl Ocs<'_> {
         if mat.channel("Hair Root Color").is_some() {
             return match self.strand_hair {
                 StrandHair::MdlLayers => self.hair_layers(indent, name, mat),
-                StrandHair::OctaneHair | StrandHair::HairPile => self.hair(indent, name, mat),
+                StrandHair::HairPile => self.hair(indent, name, mat),
             };
         }
         if let Some(metal) = mdl_metal(mat) {
@@ -4669,29 +4665,6 @@ fn omni_hair(mat: &Material) -> Option<OmniHair> {
     })
 }
 
-/// Octane Hair albedo from Iray's Blended Dual Lobe hair: its hair colour
-/// and, more, its transmission colour (root / tip means, linear) — fitted on
-/// the crown of Calib-Hair (blond) and two copies with dark brown hair or
-/// transmission colours, strands at `LINE_WIDTH_SCALE`: 0.97 / 1.03 / 1.07 ×
-/// Iray in luminance; Octane's Hair is linear in its albedo (× 0.6 → × 0.6).
-const HAIR_COLOUR_SHARE: f32 = 0.046;
-const HAIR_TRANSMISSION_SHARE: f32 = 0.110;
-/// The highlight colour's share of the Hair albedo per unit Highlight
-/// Weight: Iray's `dual_lobe_hair` lays its highlight glossy over the rest
-/// by a `weighted_layer` (no Fresnel), so Highlight Weight hw takes hw of
-/// the light and leaves 1 − hw. Fitted on Calib-Hair-hl (hw 0.8, blue
-/// highlight, local): hair median 1.00 / 1.05 / 1.03 × Iray (RGB, linear),
-/// mean luminance on par with Calib-Hair's (0.84 vs 0.85 × Iray); 0.25 was
-/// 1.48 × in blue (#42).
-const HAIR_HIGHLIGHT_SHARE: f32 = 0.15;
-
-/// The Hair albedo at one end of the strand: the hair and transmission
-/// colours' shares under 1 − `highlight_weight`, the highlight colour's
-/// over it (`HAIR_HIGHLIGHT_SHARE`).
-fn hair_albedo(hair: [f32; 3], transmission: [f32; 3], highlight: [f32; 3], highlight_weight: f32) -> [f32; 3] {
-    let hw = highlight_weight;
-    [0, 1, 2].map(|k| (1.0 - hw) * (HAIR_COLOUR_SHARE * hair[k] + HAIR_TRANSMISSION_SHARE * transmission[k]) + hw * HAIR_HIGHLIGHT_SHARE * highlight[k])
-}
 /// What one strand of Blended Dual Lobe Hair scatters of the light that
 /// meets it, by the shader's MDL (`dual_lobe_hair.mdl`, plain weights): the
 /// two glossies reflect ρ = hw · highlight + (1 − hw) · gw · hair; the rest
@@ -5580,7 +5553,7 @@ fn ies_projection_rotation(frame: &[[f64; 3]; 3]) -> [f64; 3] {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::OctaneHair, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -5684,7 +5657,7 @@ impl Default for Shading {
 
 impl From<SkinShader> for Shading {
     fn from(skin: SkinShader) -> Self {
-        Shading { skin, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::OctaneHair }
+        Shading { skin, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile }
     }
 }
 
@@ -5697,12 +5670,10 @@ impl From<&crate::tuning::Tuning> for Shading {
 /// How DAZ's Blended Dual Lobe Hair renders on strands.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum StrandHair {
-    /// Octane's Hair material (147), a fibre BSDF, its albedo two fitted
-    /// shares of the shader's colours at 2x strand width: `Ocs::hair`.
+    /// Octane's Hair material (147), a fibre BSDF, its albedo the colour a
+    /// deep pile of the shader's strands shows (`hair_pile_albedo`):
+    /// `Ocs::hair`.
     #[default]
-    OctaneHair,
-    /// Octane's Hair material, its albedo the colour a deep pile of the
-    /// shader's strands shows (`hair_pile_albedo`): `Ocs::hair`.
     HairPile,
     /// The shader's own three layers, as DAZ's MDL stacks them, on
     /// Universal materials: `Ocs::hair_layers`.
@@ -5820,7 +5791,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, dome_groun
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::OctaneHair, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -6044,7 +6015,7 @@ fn environment_texture_at(
     first_id: u32,
     origin: Option<[f64; 3]>,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::OctaneHair, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -8386,15 +8357,24 @@ mod tests {
         ]));
         let (hx, tex) = material_inputs(&[("Curls".into(), hair, 0.0)], &[dir.path().to_path_buf()], HashMap::new(), 4000, SkinShader::None);
         assert!(hx.contains("type='147' name='Curls'"), "{hx}");
-        // Root 0.5 × (1, 0.218, 0.218) (the colour linear) and tip 0.5,
-        // × 0.046, + 0.110 × the (default white) transmission colour, from
-        // root to tip along the strand (W), linear at bias / gain 0.5.
+        // Root 0.5 × (1, 0.218, 0.218) (the colour linear) and tip 0.5 as
+        // the hair colour under the (default white) transmission: each
+        // end's pile albedo, from root to tip along the strand (W), linear
+        // at bias / gain 0.5.
         let albedo = &hx[hx.find("<pin name='albedo'>").unwrap()..hx.find("<pin name='specular'>").unwrap()];
         assert!(albedo.contains("type='49'") && albedo.contains("type='104'") && albedo.contains("<attr name='controlpoints' type='2'>0</attr>"), "{albedo}");
         let min = albedo.find("<pin name='min'>").unwrap();
         let max = albedo.find("<pin name='max'>").unwrap();
-        assert!(albedo[min..max].contains(">0.133134 0.115035 0.115035<") && albedo[max..].contains(">0.133134 0.133134 0.133134<"), "{albedo}");
-        assert!(hx.contains("<pin name='specular'>") && hx.contains("<attr name='value' type='8'>0.22 0.22 0.22</attr>"));
+        let (w, k) = ([1.0f32; 3], [0.0f32; 3]);
+        let dark = 0.5 * crate::daz_material::colour_to_linear(0.5);
+        let root = hair_pile_albedo([0.5, dark, dark], w, k, 0.0, 0.22, false);
+        let tip = hair_pile_albedo([0.5; 3], w, k, 0.0, 0.22, false);
+        // (The map's mean is 0.5 only to three digits.)
+        let rgb = |x: &str| -> Vec<f32> { x[x.find("type='8'>").unwrap() + 9..].split('<').next().unwrap().split(' ').map(|v| v.parse().unwrap()).collect() };
+        let near = |got: Vec<f32>, want: [f32; 3]| got.iter().zip(want).all(|(g, w)| (g - w).abs() < 0.01);
+        assert!(near(rgb(&albedo[min..max]), root) && near(rgb(&albedo[max..]), tip), "{albedo} {root:?} {tip:?}");
+        assert!(root[1] < root[0] && tip[0] > 0.3, "{root:?} {tip:?}");
+        assert!(hx.contains("<pin name='specular'>") && hx.contains("<attr name='value' type='8'>1 1 1</attr>"));
         assert!(hx.contains("<attr name='value' type='6'>0.35</attr>"));
         assert!(tex.files.is_empty(), "the map is averaged, not packed");
         assert_eq!(hx.matches("<node ").count(), hx.matches("</node>").count() + hx.matches("type='104'/>").count());
@@ -8415,12 +8395,13 @@ mod tests {
             {"channel": {"id": "separation", "current_value": 0.2}},
         ]));
         let hx = material_inputs(&[("Hair".into(), hair, 0.0)], &[], HashMap::new(), 4000, SkinShader::None).0;
-        // Albedo: 0.2 × the white hair / transmission shares + 0.8 × 0.15 × blue.
-        let a = [0, 1, 2].map(|k| 0.2 * (HAIR_COLOUR_SHARE + HAIR_TRANSMISSION_SHARE) + 0.8 * HAIR_HIGHLIGHT_SHARE * blue[k]);
+        // Albedo: the pile of a strand that scatters 0.8 × blue + 0.2 × 0.25
+        // (white gloss) and passes 0.2 × 0.75 (white transmission).
+        let w = [1.0f32; 3];
+        let a = hair_pile_albedo(w, w, blue, 0.8, 0.25, false);
         assert!(hx.contains(&format!(">{} {} {}<", num(a[0]), num(a[1]), num(a[2]))), "{hx}");
-        // Specular: 0.2 × the glossy layer's weight + 0.8 × the highlight colour.
-        let s = blue.map(|b| 0.2 * 0.25 + 0.8 * b);
-        assert!(hx.contains(&format!(">{} {} {}<", num(s[0]), num(s[1]), num(s[2]))), "{hx}");
+        // The whole specular: it scales every lobe of Octane's Hair.
+        assert!(hx.contains("<pin name='specular'>") && hx.contains(">1 1 1<"), "{hx}");
         // separation is left out (Octane's `offset` only dimmed the hair).
         assert!(!hx.contains("<pin name='offset'>"), "{hx}");
     }
@@ -8554,7 +8535,8 @@ mod tests {
         // each the root-to-tip mix DAZ's MDL gives there.
         let bent = ocs(json!([{"channel": {"id": "Root To Tip Bias", "current_value": 0.2}}, {"channel": {"id": "Root to Tip Gain", "current_value": 0.7}}]));
         assert!(bent.contains("<attr name='controlpoints' type='2'>15</attr>"), "{bent}");
-        let at = |t: f32| crate::iray::root_to_tip_blend(t, 0.2, 0.7) * (HAIR_COLOUR_SHARE + HAIR_TRANSMISSION_SHARE);
+        // A white tip (gloss 0.5 over a white transmission) piles up white.
+        let at = |t: f32| crate::iray::root_to_tip_blend(t, 0.2, 0.7);
         let p1 = bent.find("<pin name='Position 1' dynamicType='2'>").unwrap();
         let t1: f32 = bent[p1..].split("type='9'>").nth(1).unwrap().split(' ').next().unwrap().parse().unwrap();
         let v1 = &bent[bent.find("<pin name='Value 1' dynamicType='5'>").unwrap()..];
@@ -8646,7 +8628,7 @@ mod tests {
     #[test]
     fn mdl_metal_roughness_is_the_long_axis() {
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::OctaneHair, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.02, 0.4), rough_v: (String::new(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;
@@ -8671,7 +8653,7 @@ mod tests {
         image::GrayImage::from_fn(16, 16, |x, _| image::Luma([(x * 8) as u8])).save(dir.path().join("b.png")).unwrap();
         let dirs = [dir.path().to_path_buf()];
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::OctaneHair, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.06, 0.4), rough_v: (String::new(), 0.06, 0.4), bump: ("b.png".into(), 1.5), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         assert!(w.out.contains("<pin name='normal'>") && !w.out.contains("<pin name='bump'>"), "{}", w.out);

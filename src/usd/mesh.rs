@@ -308,12 +308,11 @@ pub(super) struct Mesh {
 }
 
 /// Meters per unit of DAZ's hair line widths (`Line Start Width` /
-/// `Line End Width`, which DAZ labels in mm) where no variant says
-/// otherwise (`Tuning::line_width_scale`) — 2× the unit, the width the
-/// Octane Hair material's shares were fitted at: Calib-Eye's close-up
-/// covers the background as Iray's at 2× (0.47 vs 0.43; 1× 0.28, 4× 0.63).
-/// Iray's own strands are 1× (DAZ's .mi, #79).
-pub(super) const LINE_WIDTH_SCALE: f32 = 0.002;
+/// `Line End Width`, which DAZ labels in mm): the unit itself, as Iray's
+/// own strands are (DAZ's .mi: fibre radius, ribbon width and prism size
+/// all follow the width in mm, #79). The earlier 2x stood in for the Hair
+/// material's fitted albedo shares on thin hair.
+pub(super) const LINE_WIDTH_SCALE: f32 = 0.001;
 
 /// The sides of DAZ's Line Tessellation modifier on a strand node at
 /// render time (`Render Line Tessellation Sides`: the scene's value, else
@@ -344,7 +343,7 @@ pub(super) fn line_tessellation_sides(lib: &mut Library, node_id: &str) -> Optio
 pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DumpNode, names: &mut HashSet<String>) -> Vec<Mesh> {
     let materials = scene_materials(lib, &n.instance_id);
     let fibres = line_tessellation_sides(lib, &n.id).is_none_or(|sides| sides < 2);
-    let scale = lib.line_width_scale;
+    let scale = LINE_WIDTH_SCALE;
     let mut by_group: Vec<Vec<&Vec<u32>>> = vec![Vec::new(); fig.material_groups.len().max(1)];
     for (k, strand) in fig.polylines.iter().enumerate() {
         let g = fig.polyline_materials.get(k).copied().unwrap_or(0) as usize;

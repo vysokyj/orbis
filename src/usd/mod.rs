@@ -375,7 +375,6 @@ fn build_scene(scene: &Path, dump: &Path, opts: &ExportOptions) -> Result<(Vec<M
         }
     }
     let mut lib = Library::new(dirs, duf);
-    lib.line_width_scale = opts.variant().tuning().line_width_scale;
     opts.progress.report(5, "building the meshes");
     let (meshes, mut report) = build_meshes(&mut lib, &dump)?;
     let volumes = volume::scene_volumes(&mut lib, &dump, &mut report);

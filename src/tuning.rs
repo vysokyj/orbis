@@ -98,10 +98,6 @@ pub struct Tuning {
     /// DAZ's Blended Dual Lobe Hair on strands (dForce hair): Octane's Hair
     /// material, or the shader's own layers as DAZ's MDL stacks them.
     pub strand_hair: StrandHair,
-    /// Meters per unit of DAZ's hair line widths (Geometry, strand hair):
-    /// 0.001 is DAZ's mm, what Iray gets; 0.002 the width Octane's Hair
-    /// shares were fitted at (#79).
-    pub line_width_scale: f32,
 }
 
 impl Variant {
@@ -128,7 +124,6 @@ impl Variant {
                 daylight_extinction: 0.0,
                 max_transmission: 1.0,
                 strand_hair: StrandHair::HairPile,
-                line_width_scale: 0.001,
             },
             (Faithful, Final) => Tuning {
                 kernel: Kernel::PathTracing,
@@ -141,7 +136,6 @@ impl Variant {
                 daylight_extinction: FAITHFUL_DAYLIGHT_EXTINCTION,
                 max_transmission: 1.0,
                 strand_hair: StrandHair::MdlLayers,
-                line_width_scale: 0.001,
             },
             (Enhanced, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -153,8 +147,7 @@ impl Variant {
                 daylight_power: SUN_SKY_POWER,
                 daylight_extinction: 0.0,
                 max_transmission: 0.75,
-                strand_hair: StrandHair::OctaneHair,
-                line_width_scale: 0.002,
+                strand_hair: StrandHair::HairPile,
             },
             (Faithful, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -166,8 +159,7 @@ impl Variant {
                 daylight_power: FAITHFUL_DAYLIGHT_POWER,
                 daylight_extinction: FAITHFUL_DAYLIGHT_EXTINCTION,
                 max_transmission: 0.75,
-                strand_hair: StrandHair::OctaneHair,
-                line_width_scale: 0.002,
+                strand_hair: StrandHair::HairPile,
             },
         }
     }
@@ -187,15 +179,14 @@ mod tests {
     }
 
     #[test]
-    fn faithful_final_takes_the_hair_shader_apart_at_iray_s_width() {
+    fn faithful_final_takes_the_hair_shader_apart() {
         for look in [Look::Enhanced, Look::Faithful] {
             for mode in [OctaneMode::Final, OctaneMode::Preview] {
                 let t = Variant::new(look, mode).tuning();
                 let layers = (look, mode) == (Look::Faithful, OctaneMode::Final);
                 assert_eq!(t.strand_hair == StrandHair::MdlLayers, layers, "{look:?} {mode:?}");
-                // The Hair material's fitted shares (Preview) were fitted at 2x.
-                assert_eq!(t.strand_hair == StrandHair::OctaneHair, mode == OctaneMode::Preview, "{look:?} {mode:?}");
-                assert_eq!(t.line_width_scale, if mode == OctaneMode::Final { 0.001 } else { 0.002 }, "{look:?} {mode:?}");
+                // Everywhere else Octane's Hair, its albedo the pile's colour.
+                assert_eq!(t.strand_hair == StrandHair::HairPile, !layers, "{look:?} {mode:?}");
             }
         }
     }

@@ -69,8 +69,7 @@ field of `Tuning`, set per variant in one table (`Variant::tuning`,
 | `daylight_power` | 2.7 | 2.864 | 2.7 | 2.864 |
 | `daylight_extinction` | 0 | 0.200 | 0 | 0.200 |
 | `max_transmission` | 1 | 1 | 0.75 | 0.75 |
-| `strand_hair` | Hair material, pile albedo | the MDL's layers | Hair material, fitted shares | Hair material, fitted shares |
-| `line_width_scale` | 0.001 (1×) | 0.001 (1×) | 0.002 (2×) | 0.002 (2×) |
+| `strand_hair` | Hair material, pile albedo | the MDL's layers | Hair material, pile albedo | Hair material, pile albedo |
 
 Calibrated on the same 17 scenes in each variant (lights, Sun-Sky at
 18:00, noon and steered, HDRI, tone, PBRSkin, Glossy, SSS, Glass, Mixing,
@@ -316,17 +315,16 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   Clothing refines with the figure and isn't touched.
 - **Strand hair** from the dump's `polylines` as one `BasisCurves` per
   material group, per-vertex `widths` tapering `Line Start Width` →
-  `Line End Width` (DAZ labels them mm) × `Tuning::line_width_scale`:
-  **1×** (0.001 m per unit) in Final, **2×** in Preview. Why 1×: Iray's own strands are 1× (DAZ's .mi: fibre radius,
+  `Line End Width` (DAZ labels them mm) × 0.001 m: the unit itself, in
+  every variant. Why: Iray's own strands are 1× (DAZ's .mi: fibre radius,
   ribbon width and prism size all follow the width in mm; strand counts
   equal the dump's), and on sparse patches Iray's coverage follows 1×
   down to 0.15 px, Octane's curves against Iray's fibres 0.91 – 1.00 at
-  equal width (#79, notes 2026-11-11 strand width). Why 2× in Preview: the
-  Hair material's fitted albedo shares (below) were fitted at it — on Calib-Eye's
-  close-up a 15 % contrast threshold "covered" the background as Iray's at
-  2× (0.47 vs 0.43; 1×: 0.28, 4×: 0.63); it stays until that material's
-  inputs are redone (#79). The earlier 4× was fitted on guide-only strands
-  (#16).
+  equal width (#79, notes 2026-11-11 strand width); an Uber material on
+  one thick fibre 0.99 – 1.04 × Iray at 1×, 1.55 – 2.0 at 2×. The earlier
+  2× stood in for the Hair material's fitted albedo shares on thin hair
+  (Calib-Eye's close-up "covered" the background as Iray's at it), the 4×
+  before was fitted on guide-only strands (#16).
 - **Line Tessellation**: the scene's modifier on the strand node (`Render
   Line Tessellation Sides`) says how DAZ hands the strands to Iray: fewer
   than 2 sides or no modifier → Iray's `hair` fibres (`Material::fibres`),
@@ -1183,7 +1181,10 @@ leaves out, #15):
   v along it (`docs/daz/iray.md`, Strand geometry; Morgan Hair is
   ribbons, Calib-Hair prisms), so Iray's unrotated tangent lies across
   it, and Octane's curves take theirs along it. Octane's curves are round
-  where Iray's ribbons are flat (#79). Untessellated strands reach Iray
+  where Iray's ribbons are flat, and stay so (decided 2026-11-12, #79: no
+  ribbon meshes - Iray's flat ribbons are a tessellation artefact, black
+  under a hard light from most views; Morgan's material on ribbon patches
+  renders 0.47 - 0.92 x Iray, the real hair 1.0 - 1.8). Untessellated strands reach Iray
   as its own `hair` fibres, and there the curves match per unit width
   (Calib-Strand row A, 2× wide: 1.97 – 2.05 × Iray, the highlight at the
   same place across the strand). Why: Morgan Hair
@@ -2584,70 +2585,40 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
 
 ### dForce hair — Hair material (147)
 
-(`Tuning::strand_hair`. This section's fitted shares: the two Preview
-variants. Enhanced + Final keeps the Hair material with the pile albedo,
-Faithful + Final writes the MDL's layers — both below.)
+(`Tuning::strand_hair`: the Hair material with the pile albedo in every
+variant but Faithful + Final, which writes the MDL's layers — both
+below.)
 
-albedo = 0.046 × the hair colour + 0.110 × the transmission colour
-(`HAIR_COLOUR_SHARE`, `HAIR_TRANSMISSION_SHARE`; each its map's linear
-mean × tint), at the root (Hair Root / Root Transmission Color) and at the
-tip (Hair Tip / Tip Transmission Color), **blended along each strand**: a
-Gradient (49) on a W Coordinate (104) from the root's albedo (W 0) to the
-tip's (W 1); Root To Tip Bias / Gain other than 0.5 bend it — DAZ's
-`get_line_root_to_tip_blend` (Schlick's bias, then gain; `basic.mdl`)
-sampled at 15 control points spaced along the curve (≤ 1 % off at
-0.2 – 0.8), linear between. Equal ends: a plain colour. Why: DAZ hands Iray
-two `dual_lobe_hair` instances, root colours and tip colours, under a
-`df::clamped_mix` weighted by that blend on the strand's line coordinate
-(Calib-Mi-Hair / -Hair2's .mi: the tip colours and bias / gain do reach
-Iray; bias / gain at 0.5 are left out as the MDL's default). Before #42 the
-Blended shader took the root colours only. Roughness both ways from
-`base_roughness`; specular = `Glossy Layer Weight` (with the highlight's
-share, below). Why: Iray's Blended
-Dual Lobe hair follows its transmission colour more than its hair colour —
-Calib-Hair (blond) and two copies with dark brown hair or transmission
-colours (render strands, 2× widths), fitted on the front-lit crown:
-0.97 / 1.03 / 1.07 × Iray in luminance; Octane's Hair is linear in its
-albedo (× 0.6 → × 0.60). Its `specular` barely shows (0.25 → 0.03: crown
-−3 %). The hue is less saturated than Iray's on the blonds (crown r/g 1.16
-vs 1.47) and more on the dark-transmission copy (1.18 vs 1.08) — no single
-saturation curve fits both; open (#42). Backlit strands glow through
-(Octane's TT lobe) where Iray's stay dark: kept, it is Octane's more
-plausible take (the Enhanced look).
+The shader's colours, each its map's linear mean × tint, are taken at the
+root (Hair Root / Root Transmission / Highlight Root Color) and at the
+tip (Hair Tip / Tip Transmission / Tip Highlight Color) and **blended
+along each strand**: a Gradient (49) on a W Coordinate (104) from the
+root's albedo (W 0) to the tip's (W 1); Root To Tip Bias / Gain other
+than 0.5 bend it — DAZ's `get_line_root_to_tip_blend` (Schlick's bias,
+then gain; `basic.mdl`) sampled at 15 control points spaced along the
+curve (≤ 1 % off at 0.2 – 0.8), linear between. Equal ends: a plain
+colour. Why: DAZ hands Iray two `dual_lobe_hair` instances, root colours
+and tip colours, under a `df::clamped_mix` weighted by that blend on the
+strand's line coordinate (Calib-Mi-Hair / -Hair2's .mi: the tip colours
+and bias / gain do reach Iray; bias / gain at 0.5 are left out as the
+MDL's default). Roughness both ways from `base_roughness`. Backlit
+strands glow through (Octane's TT lobe) where Iray's stay dark: kept, it
+is Octane's more plausible take.
 
-**Highlight** (#42): albedo = (1 − hw) × the above + hw × 0.15 × the
-highlight colour (`HAIR_HIGHLIGHT_SHARE`; Highlight Root / Tip Highlight
-Color at each end, hw = Highlight Weight); specular = (1 − hw) ×
-`Glossy Layer Weight` + hw × the highlight colour (root / tip mean). Why:
-`dual_lobe_hair` lays its highlight glossy (that colour, roughness²) over
-the hair-coloured glossy and the base by a `weighted_layer` — no Fresnel,
-so hw takes hw of the light and leaves 1 − hw; Octane's Hair has one R
-lobe (Fresnel-weighted, too weak for 80 % of the light), so the share goes
-into the albedo, the tint onto the R lobe. Calib-Hair-hl (Calib-Hair with
-hw 0.8, highlight (0.2, 0.4, 1), separation 0.2; local), hair masked:
-median 1.00 / 1.05 / 1.03 × Iray (RGB), mean luminance 0.84 × (Calib-Hair
-0.85 ×); unmapped it was 2.17 × (median) and grey. 0.25 was 1.48 × in blue.
-At Calib-Hair's hw 0.049 (pale highlight) the hair mean (same mask) is
-0.85 × Iray, its dark copies 0.88 / 0.84 ×, unchanged within 1 %; on the
-dark-rooted -tip copies the pale highlight adds 2 % (mean).
-**highlight_roughness**: not mapped (Octane's Hair has one roughness for
-all lobes; Calib-Hair-hl's equals its base_roughness, so it can't be fitted
-there). **separation** tilts the two glossy lobes' normals ±separation
-along the tangent, in opposite directions; Octane's `offset` (cuticle
-tilt, float, slider 0 – 1) tilts its one R lobe: on Calib-Hair-hl offset
-0.2 dimmed the hair 18 % (median) and lowered the log-luminance correlation
-with Iray 0.950 → 0.932, 1.0 dimmed it 40 % — left at 0. **Anisotropy /
-Anisotropy Rotations**: on strands the `anisotropy_conversion` tangent is
-the strand's; Octane's fibre BSDF is anisotropic by construction — nothing
-to map. **strength** reaches nothing in Iray (Calib-Mi-Hair2's .mi).
+Not mapped on the Hair material: **highlight_roughness** (one roughness
+for all lobes); **separation** (it tilts the two glossy lobes' normals
+±separation along the tangent; Octane's `offset` tilts its one R lobe and
+only dimmed the hair: 18 % at 0.2 on Calib-Hair-hl); **Anisotropy /
+Anisotropy Rotations** (the fibre BSDF is anisotropic by construction);
+**strength** reaches nothing in Iray (Calib-Mi-Hair2's .mi).
 
-**Root → tip, checked against Iray** (Calib-Hair-tip: root dark brown, tip
-blond; -tipbg: + bias 0.2 / gain 0.7; local): hair mean 0.94 / 0.92 ×
-Iray in luminance, the dark crown 1.20 / 1.19 ×, the blond top tuft 1.03 /
-1.03 × (linear medians); tipbg / tip in Octane 0.98 × Iray's ratio (hair
-mean; crown 0.75 vs 0.80) — the bent blend lands where Iray's does.
+Until #79 the albedo was two fitted shares of the colours (0.046 × hair +
+0.110 × transmission, the highlight at 0.15 per unit weight, #42) at 2×
+strand width, the specular the glossy weight; in the Preview variants
+that rendered Calib-Hair's crown / top tuft / side 0.68 / 0.85 / 0.68 ×
+Iray, r / g 0.96 / 0.76 / 1.00 against Iray's 1.23 / 0.85 / 1.21.
 
-#### Enhanced + Final: the pile albedo (#79)
+#### The pile albedo (#79)
 
 Octane's Hair (a fibre BSDF: its own reflection, the light through the
 strand, the backlit glow) stays; its inputs come from the shader's MDL
@@ -2687,7 +2658,9 @@ Octane's own (its reflection on top of the albedo, light forwarded
 through the sides) and is left: subtracting the material's reflection at
 albedo 0 (0.025 in albedo units) lowered it to 1.31 / 1.18 / 1.54 and
 reddened the crown to r / g 1.32. Calib-Eye's lashes and brows read as
-Iray's.
+Iray's. Both Preview variants (direct lighting): 1.17 / 1.15 / 1.19 ×
+Iray, r / g 1.13 / 0.83 / 1.12; Calib-Eye's frame 0.95 (Enhanced + Final
+1.08).
 
 #### Faithful + Final: the MDL's layers (#79)
 

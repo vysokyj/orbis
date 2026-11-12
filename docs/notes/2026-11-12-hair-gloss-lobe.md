@@ -286,15 +286,37 @@ local, Faithful + Final after section 9) is not dark: crown 1.21 / 1.49 /
 transmission would add to it. `transmissionType` 1 against 3 there: 7 %
 darker, every patch.
 
+## 11. Curves stay; Preview on the pile albedo
+
+The user's decision on the ribbons of section 10: no ribbon meshes, the
+round curves stay in both looks.
+
+The two Preview variants still had the fitted albedo shares at 2x width.
+Calib-Hair (local, 400 samples, direct lighting), crown / top tuft / side
+against Iray, r / g (Iray 1.23 / 0.85 / 1.21):
+
+| | level | r / g |
+|---|---|---|
+| fitted shares, 2x (Enhanced = Faithful Preview) | 0.68 / 0.85 / 0.68 | 0.96 / 0.76 / 1.00 |
+| pile albedo, 1x | 1.17 / 1.15 / 1.19 | 1.13 / 0.83 / 1.12 |
+
+Calib-Eye's frame 0.95 with it (Enhanced + Final 1.08). So every variant
+but Faithful + Final now takes the pile albedo at 1x; the fitted shares
+(`HAIR_COLOUR_SHARE`, `HAIR_TRANSMISSION_SHARE`, `HAIR_HIGHLIGHT_SHARE`),
+`StrandHair::OctaneHair` and `Tuning::line_width_scale` are gone.
+
 ## Left
 
 - Direction: under one hard light the gloss lands where a round rough
-  strand sends it (front sun 12 - 17 × on prisms' gloss alone, vertical
-  strands under the dome 0.43 - 0.46). Prism meshes would draw it.
-- The export's Uber weighted anisotropic gloss on strands (section 4).
-- Enhanced's level on Calib-Hair (1.22 - 1.65); the two Preview variants
-  keep the fitted shares at 2×; Uber strand hair at 1× (its gloss rules
-  were fitted at 2×).
+  strand sends it (front sun 12 - 17 x on prisms' gloss alone, vertical
+  strands under the dome 0.43 - 0.46); ribbons' flat faces (section 10).
+  Curves stay (decided).
+- Enhanced with an Uber translucency on fibres loses its highlight under
+  a hard light (0.44 - 0.47, section 10): Universal's own, with a
+  transmission under a dielectric specular.
+- Enhanced's level on Calib-Hair (1.22 - 1.65), left as Octane's.
+- The real Morgan Hair's crown and middle (1.2 - 1.8 x Iray): its gloss
+  and top coat on round curves.
 - Clean references of the hair shader itself on prisms (#94).
 
 ## Process
