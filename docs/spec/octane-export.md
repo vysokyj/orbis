@@ -911,7 +911,8 @@ leaves out, #15):
   darkens there) (#28). Why: left out, Calib-SSS's spheres at
   w 0.5 / 1 rendered 1.6 – 1.7 / 3.2 × Iray and Calib-PBRSkin's Gladio cloth
   1.72; with it 0.91 – 0.96 and 1.23 (its neighbours 1.14 – 1.26), the two
-  types alike on closed spheres. On P8 (metallic 0.75) the transmission
+  types alike on Calib-SSS's spheres (thin-walled shells through the base
+  material, not solids: #134; Calib-SSS-Solid measures the closed case). On P8 (metallic 0.75) the transmission
   swallowed the metal (0.23 × Iray). Thin-walled or not, figure or prop
   alike — Iray knows only the material: Calib-Thin's thin-walled cards (w
   0 / 0.3 / 0.5 / 0.65, Translucency Color white / the diffuse / dark, lit
@@ -952,8 +953,9 @@ leaves out, #15):
   thin-walled (a material whose faces have an edge no other face of the mesh
   shares: cards, leaves, a cloak) passes Tc × min(2w, 1): Iray lit
   Calib-Leaf's backlit card 1.9 × its thin-walled twin, Octane rendered them
-  alike (0.48 / 0.90 × Iray at w; 0.81 at min(2w, 1)); doubled on the closed
-  spheres it overshot (1.25 – 1.38). Opaque card 0.97.
+  alike (0.48 / 0.90 × Iray at w; 0.81 at min(2w, 1)); doubled on Calib-SSS's
+  spheres it overshot (1.25 – 1.38) - thin-walled shells, so a closed
+  non-thin solid (w here) is unmeasured until Calib-SSS-Solid (#134). Opaque card 0.97.
 - **Glossy Reflectivity** r (0.5 = Universal's full specular) scales the
   glossy weight by min(2r, 1) (PBRSkin's Dual Lobe Specular Reflectivity
   likewise); above 0.5 the excess 2r − 1 (× glossy weight, × glossy colour)

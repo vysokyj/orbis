@@ -61,7 +61,9 @@ add-ons such as dForce Starter Essentials, which a scene only references:
 Calib-Mi-Hair) — they are in
 [`calib/scenes`](../calib/scenes), their Iray renders in
 [`calib/references/iray`](../calib/references). Each family varies one
-thing at a time.
+thing at a time. The sphere scenes (`make-calib-scenes.py`) inherit
+Calib-Materials's thin-walled sphere material: a sphere is a closed solid
+only where its scene sets `Thin Walled` false (#134).
 
 | Scenes | Measures | Spec | Issues |
 |---|---|---|---|
@@ -73,7 +75,8 @@ thing at a time.
 | `Calib-DOF-*` | depth of field | [Render targets and cameras](spec/octane-export.md#render-targets-and-cameras) | — |
 | `Calib-Glossy` | glossy reflectivity and roughness | [Universal](spec/octane-export.md#universal-130--default) | — |
 | `Calib-PBRSkin` | PBRSkin layers and their enable switches | [Universal](spec/octane-export.md#universal-130--default) | — |
-| `Calib-SSS` | translucency and volume on props | [Universal](spec/octane-export.md#universal-130--default) | [#28](https://github.com/vysokyj/orbis/issues/28) |
+| `Calib-SSS` | translucency and volume on props (thin-walled shells: the base material's wall) | [Universal](spec/octane-export.md#universal-130--default) | [#28](https://github.com/vysokyj/orbis/issues/28) |
+| `Calib-*-Solid` (`SSS`, `WeightedTL`, `DualLobeWeightedTL`, `MetalRefr`, `MetalRefr-TL`) | the same spheres as closed solids (`Thin Walled` false) | [Universal](spec/octane-export.md#universal-130--default) | [#134](https://github.com/vysokyj/orbis/issues/134) |
 | `Calib-Leaf` | translucent cards, thin-walled or not | [Universal](spec/octane-export.md#universal-130--default) | — |
 | `Calib-Thin-*` | thin-walled translucency: w, Translucency Color, front- / backlit, Base Color Effect (`-bce`) | [Universal](spec/octane-export.md#universal-130--default) | [#45](https://github.com/vysokyj/orbis/issues/45) |
 | `Calib-Glass` | refraction: IOR, colour, roughness, thin walls, absorption | [Universal](spec/octane-export.md#universal-130--default) | — |

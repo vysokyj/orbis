@@ -63,6 +63,11 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-WeightedTL, -Thin (#131): weighted mixing with translucency on a
   diffuse map - Diffuse / Translucency / Glossy Weight combinations, plain
   colours and a dark diffuse map under lighter translucency / glossy maps.
+- Thin walls (#134): Calib-Materials's sphere material is thin-walled, and
+  so is every generated sphere that doesn't set `Thin Walled` false
+  (Calib-WeightedTL is -Thin's twin in fact). The closed twins: Calib-SSS-Solid,
+  -WeightedTL-Solid, -DualLobeWeightedTL-Solid, -MetalRefr-Solid,
+  -MetalRefr-TL-Solid.
 - Calib-DOF-*: depth of field, focus at 1.5 m with the spheres at ~4.6 m,
   f/4, f/8, f/16 — to check Iray's 10x aperture.
 
@@ -263,27 +268,31 @@ SSS = [
     ('S7 chromatic', {'Translucency Weight': 0.5, 'SSS Mode': 1, 'Transmitted Color': [0.9, 0.3, 0.2]}),
     ('S8 short scatter', {'Translucency Weight': 0.5, 'Scattering Measurement Distance': 0.1}),
 ]
-d = copy.deepcopy(base)
-d_nodes = {n['id']: n for n in d['scene']['nodes']}
-mlib = {m['id']: m for m in d['material_library']}
-first = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[spheres[0]['id']])
-base_extra = copy.deepcopy(mlib[first['url'].lstrip('#')]['extra'])
-sss_labels = []
-for s0, (label, over) in zip(spheres, SSS):
-    n = d_nodes[s0['id']]
-    n['label'] = label
-    lib = next(l for l in d['node_library'] if '#' + l['id'].replace('(', '%28').replace(')', '%29') == n['url'])
-    lib['label'] = label
-    sss_labels.append(label)
-    m = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[n['id']])
-    m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': SKINLIKE}}
-    lm = mlib[m['url'].lstrip('#')]
-    lm['extra'] = copy.deepcopy(base_extra)
-    lm['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': SKINLIKE}}
-    ch = next(e for e in lm['extra'] if e['type'] == 'studio_material_channels')['channels']
-    for k, v in {'Base Mixing': 0, 'Glossy Layered Weight': 0.0, 'Translucency Color': SKINLIKE, **over}.items():
-        set_channel(ch, k, v, TYPES.get(type(v), 'float'))
-made.append((save(d, 'Calib-SSS'), sss_labels))
+# The base material is thin-walled (see uber_spheres), so Calib-SSS's
+# spheres are thin-walled shells, S4 no different from the rest (#134);
+# Calib-SSS-Solid is the same with closed solids (S4 alone thin-walled).
+for sss_name, walls in [('Calib-SSS', {}), ('Calib-SSS-Solid', {'Thin Walled': False})]:
+    d = copy.deepcopy(base)
+    d_nodes = {n['id']: n for n in d['scene']['nodes']}
+    mlib = {m['id']: m for m in d['material_library']}
+    first = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[spheres[0]['id']])
+    base_extra = copy.deepcopy(mlib[first['url'].lstrip('#')]['extra'])
+    sss_labels = []
+    for s0, (label, over) in zip(spheres, SSS):
+        n = d_nodes[s0['id']]
+        n['label'] = label
+        lib = next(l for l in d['node_library'] if '#' + l['id'].replace('(', '%28').replace(')', '%29') == n['url'])
+        lib['label'] = label
+        sss_labels.append(label)
+        m = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[n['id']])
+        m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': SKINLIKE}}
+        lm = mlib[m['url'].lstrip('#')]
+        lm['extra'] = copy.deepcopy(base_extra)
+        lm['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': SKINLIKE}}
+        ch = next(e for e in lm['extra'] if e['type'] == 'studio_material_channels')['channels']
+        for k, v in {'Base Mixing': 0, 'Glossy Layered Weight': 0.0, 'Translucency Color': SKINLIKE, **walls, **over}.items():
+            set_channel(ch, k, v, TYPES.get(type(v), 'float'))
+    made.append((save(d, sss_name), sss_labels))
 
 # --- Iray Uber refraction (#9: glass and water — colour, absorption, thin
 # walls, roughness): the spheres' Uber material, grey, refraction variants.
@@ -401,6 +410,13 @@ IMAGE_MOD_DEFAULTS = {'grayscale_mode': 'average', 'scale': 1, 'offset': 0, 'inv
 
 
 def uber_spheres(name, colour, plain, variants):
+    """Eight Uber spheres: Calib-Materials's sphere material reset to a plain
+    base, then `plain`, then each sphere's `over`. The base material is
+    **thin-walled** (`Thin Walled` true, not the Uber default) and the reset
+    keeps it so - every scene generated so far relies on it, and Iray reads
+    the channel only where light passes (translucency, refraction: the
+    volume, the transmission's sides). A closed solid has to say
+    `'Thin Walled': False` (the `-Solid` twins, #134)."""
     d = copy.deepcopy(base)
     d_nodes = {n['id']: n for n in d['scene']['nodes']}
     mlib = {m['id']: m for m in d['material_library']}
@@ -420,7 +436,7 @@ def uber_spheres(name, colour, plain, variants):
         lm.setdefault('diffuse', {'channel': {'id': 'diffuse', 'type': 'float_color'}})['channel']['current_value'] = colour
         ch = next(e for e in lm['extra'] if e['type'] == 'studio_material_channels')['channels']
         for k, v in {'Base Mixing': 0, 'Metallic Weight': 0.0, 'Dual Lobe Specular Weight': 0.0, 'Top Coat Weight': 0.0,
-                     'Translucency Weight': 0.0, 'Refraction Weight': 0.0, **plain, **over}.items():
+                     'Translucency Weight': 0.0, 'Refraction Weight': 0.0, 'Thin Walled': True, **plain, **over}.items():
             # A map given as (path, {field: value}) carries DAZ's per-map
             # texture-instance settings (`image_modification`, #77), the
             # fields it leaves out at DAZ's defaults.
@@ -578,7 +594,7 @@ uber_spheres('Calib-DualLobeWeighted', [0.45, 0.05, 0.04], DLW, [
 # T7 without translucency pairs with Calib-DualLobeWeighted's W3; T8's
 # Glossy Reflectivity 0 asks whether normalized_base's plain glossy reads it.
 DLWT = {**DLW, 'Translucency Weight': 0.5, 'Translucency Color': [0.9, 0.6, 0.4]}
-uber_spheres('Calib-DualLobeWeightedTL', [0.45, 0.05, 0.04], DLWT, [
+DLWT_SPHERES = [
     ('T1 gloss only', {'Dual Lobe Specular Weight': 0.0}),
     ('T2 dual lobe only', {'Glossy Weight': 0.0}),
     ('T3 both', {}),
@@ -587,7 +603,11 @@ uber_spheres('Calib-DualLobeWeightedTL', [0.45, 0.05, 0.04], DLWT, [
     ('T6 both diffuse 0.5 gloss 0.3', {'Diffuse Weight': 0.5, 'Glossy Weight': 0.3}),
     ('T7 both no translucency', {'Translucency Weight': 0.0}),
     ('T8 both gloss refl 0', {'Glossy Reflectivity': 0.0}),
-])
+]
+uber_spheres('Calib-DualLobeWeightedTL', [0.45, 0.05, 0.04], DLWT, DLWT_SPHERES)
+# Calib-DualLobeWeightedTL's spheres are thin-walled (the base's wall); the
+# same closed (#134).
+uber_spheres('Calib-DualLobeWeightedTL-Solid', [0.45, 0.05, 0.04], {**DLWT, 'Thin Walled': False}, DLWT_SPHERES)
 # Weighted mixing's shares with translucency (#131): the export brightens
 # the diffuse map by `weighted_mix` (translucency as a third share), while
 # DAZ's normalized_base keeps the translucency inside the diffuse part
@@ -622,8 +642,12 @@ WTL_SPHERES = [
                                        ('Translucency Color', 'image', 'float_color'): WTL_MAPS['light'],
                                        ('Glossy Color', 'image', 'float_color'): WTL_MAPS['light']}),
 ]
+# Calib-WeightedTL was meant as the closed twin but inherits the base's thin
+# wall: it is -Thin's scene under another name (both rendered alike, #134).
+# -Solid is the closed one.
 uber_spheres('Calib-WeightedTL', [1.0, 1.0, 1.0], WTL, WTL_SPHERES)
 uber_spheres('Calib-WeightedTL-Thin', [1.0, 1.0, 1.0], {**WTL, 'Thin Walled': True}, WTL_SPHERES)
+uber_spheres('Calib-WeightedTL-Solid', [1.0, 1.0, 1.0], {**WTL, 'Thin Walled': False}, WTL_SPHERES)
 # A metal under a partial refraction (#129): DAZ's metallic_layered_base
 # lays the refraction (weighted_layer at Refraction Weight) over the metal,
 # so Iray's metal keeps (1 - r) of its colour and the refraction r whatever
@@ -648,6 +672,11 @@ MR_SPHERES = [
 uber_spheres('Calib-MetalRefr', [0.45, 0.05, 0.04], MR, MR_SPHERES)
 uber_spheres('Calib-MetalRefr-g0', [0.45, 0.05, 0.04], {**MR, 'Glossy Layered Weight': 0.0}, MR_SPHERES)
 uber_spheres('Calib-MetalRefr-TL', [0.45, 0.05, 0.04], {**MR, 'Translucency Weight': 0.5, 'Translucency Color': [0.9, 0.6, 0.4]}, MR_SPHERES)
+# The three above are thin-walled (the base's wall, #134): refraction
+# through a shell, not a solid. -Solid / -TL-Solid close them (#135, #136).
+uber_spheres('Calib-MetalRefr-Solid', [0.45, 0.05, 0.04], {**MR, 'Thin Walled': False}, MR_SPHERES)
+uber_spheres('Calib-MetalRefr-TL-Solid', [0.45, 0.05, 0.04], {**MR, 'Translucency Weight': 0.5, 'Translucency Color': [0.9, 0.6, 0.4],
+                                                              'Thin Walled': False}, MR_SPHERES)
 # Volume scattering (#28) on a skin's volume (Victoria 8's: translucency
 # 0.9, Transmitted Color over 0.125, scattering over 0.015 cm): chromatic
 # SSS scatters −ln(SSS Color) per distance, mono SSS Amount per distance
