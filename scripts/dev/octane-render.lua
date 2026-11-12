@@ -2,7 +2,8 @@
 -- octane-run.sh): every line of Documents/orbis_jobs.txt is
 -- "<file.orbx>\t<name>\t<samples>"; each export is opened, rendered as
 -- exported (its own imager, tone LUT included) and saved as
--- Documents/orbis_job_<name>.png.
+-- Documents/orbis_job_<name>.png (raw beauty), with the denoiser's output
+-- as orbis_job_<name>.denoised.png when the export has the denoiser on.
 
 local home = os.getenv("HOME") or "/tmp"
 local docs = home .. "/Documents/"
@@ -63,6 +64,11 @@ for line in io.lines(docs .. "orbis_jobs.txt") do
         octane.render.start{ renderTargetNode = rt }
         local saved = octane.render.saveImage(docs .. "orbis_job_" .. name .. ".png", octane.imageSaveFormat.PNG_8)
         log(name .. ": " .. (os.time() - t) .. " s, saved " .. tostring(saved))
+        -- saveImage writes the raw beauty, also when the export has the
+        -- denoiser on; the denoised pass beside it (#47: Iray's
+        -- references are denoised, Octane's raw grain read as texture).
+        local dok, dsaved = pcall(octane.render.saveRenderPass, octane.renderPassId.BEAUTY_DENOISER_OUTPUT, docs .. "orbis_job_" .. name .. ".denoised.png", octane.imageSaveFormat.PNG_8)
+        if dok and dsaved then log(name .. ": denoised pass saved") end
     end)
     if not ok then log(name .. ": ERROR " .. tostring(err)) end
 end

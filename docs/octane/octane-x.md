@@ -269,7 +269,8 @@ Octane X runs Lua scripts from its **Script** menu.
   (`rt:getInputNode(octane.P_KERNEL):setPinValue(octane.P_MAX_SAMPLES, n, true)`).
   Save with `octane.render.saveImage(path, octane.imageSaveFormat.PNG_8)` (raw
   beauty) or `octane.render.saveRenderPass(octane.renderPassId.BEAUTY_DENOISER_OUTPUT, …)`
-  (denoised). `octane.render.imageType` doesn't exist.
+  (denoised; `saveRenderPass(id, path, format)` returns true, confirmed
+  2026-11-12 by `octane-render.lua`). `octane.render.imageType` doesn't exist.
 - **Focus**: the first `octane.render.start` of a project opened with
   `octane.project.load` brings Octane X to the front (rendering it again
   doesn't). Nodes imported into the open project don't:

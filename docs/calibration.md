@@ -170,7 +170,10 @@ Examples that ship with DAZ Studio and are in `calib/scenes`.
    writes the scene dump (the posed geometry) and the `.orbx`.
 4. **Octane render** — `scripts/dev/octane-render.sh <out dir> [samples]
    <scene.orbx>…` renders each export as exported, unattended (Octane X is
-   driven through its Script menu).
+   driven through its Script menu). `<scene>.png` is the raw beauty; a
+   Final export (denoiser on) also gets `denoised/<scene>.png`. Iray's
+   references are denoised: judge texture, grain or highlight peaks on
+   the denoised pass (2026-11-12 skin texture contrast, #47).
 5. **Compare** — `scripts/dev/calib-compare-all.py <octane dir>`: Octane /
    Iray in linear luminance per sphere, light region or frame, plus side-by-
    side images. 1.00 = equal.
