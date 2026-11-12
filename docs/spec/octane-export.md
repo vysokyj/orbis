@@ -980,7 +980,11 @@ leaves out, #15):
   reflectivity r above 0.5 sets the IOR from F0 = 0.08 r on both. Under a
   Top Coat (which takes the coating) one lobe at the full share and the
   ratio's blend of both roughnesses. The same on OpenPBR skin (without the
-  IOR). Why: Calib-DualLobe rendered one sharp highlight whatever the ratio
+  IOR). A `Dual Lobe Specular Weight` map multiplies both lobes' pins on
+  Universal as on OpenPBR (DAZ hands Iray the map itself as
+  `dual_lobe_specular_weight`; Calib-G9Eye's `.mi`, gamma 1): Genesis 9's
+  eye (`G9_Eyes_SLW`, ≤ 0.17 over the iris, 0 on the sclera) had taken the
+  full gloss, a grey sheen over the iris (#133). Why: Calib-DualLobe rendered one sharp highlight whatever the ratio
   (p99 / median of the sphere 9 – 13, Iray 5.0 – 8.1 for lobe 2 at 0.6);
   now 6.4 / 5.2 / 7.6 / 9.3 against 8.1 / 5.5 / 8.1 / 9.0, lobe 2 at 0.1
   9.8 vs 10.8; r 1 0.79 → 1.17 × Iray. At the Phong pins (#95) its eight
@@ -2236,9 +2240,9 @@ alone predicted 2.6 – 2.9) 1.20 – 1.25 R, 0.96 – 1.04 G / B; the eye with
 its maps, gloss off (`-nogloss`) 0.97 – 1.08 / 0.88 – 0.96; as loaded
 sclera 1.03 – 1.14. Red runs 10 – 25 % high where the maps are white or T
 is 1 (red travels farthest in the ball: the eye's inner geometry, not in
-the model, takes some; the maps' T² hides it on a real eye). Open: the
-dual lobe over the iris (as loaded / `-bare` iris 1.5 – 2.3 ×, `-nogloss`
-0.88 – 0.96: Octane's gloss adds a grey sheen Iray's doesn't), #133.
+the model, takes some; the maps' T² hides it on a real eye). The dual
+lobe over the iris at its weight map (#133): `-bare` iris 0.88 – 0.92,
+as loaded 0.88 – 1.00 (before, the gloss at full weight: 1.25 – 1.96).
 
 **Faithful** (`SkinShader::IrayAlbedo`, #19): OpenPBR Surface with
 `subsurface` 0 — the colour Iray's skin shows, as a plain diffuse, the

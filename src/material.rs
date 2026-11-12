@@ -2936,15 +2936,10 @@ impl Ocs<'_> {
             // too: Twosret's dark gloss map (0.05) left it a twentieth of
             // Iray's (#19).
             Some(dl) => {
-                let w_map = self.channel_map(mat, "Dual Lobe Specular Weight");
-                let weight_pin = |w: &mut Self, pin: &str, share: f32| match &w_map {
-                    Some((asset, m)) => w.with_map(*m, |w| w.image_pin(i, pin, asset, true, w.textures.map_gamma(asset, mat.image_gamma("Dual Lobe Specular Weight")), share)),
-                    None => w.float_pin(i, pin, share),
-                };
-                weight_pin(self, "specular", dl.weight * lobe1);
+                self.dual_lobe_weight_pin(i, mat, "specular", dl.weight * lobe1, false);
                 self.ior_pin(i, "ior", mat, "Dual Lobe Specular Reflectivity", dl.f0);
                 if lobe2_free && dl.lobe1 < 1.0 {
-                    weight_pin(self, "coating", dl.weight * (1.0 - dl.lobe1));
+                    self.dual_lobe_weight_pin(i, mat, "coating", dl.weight * (1.0 - dl.lobe1), false);
                     self.float_pin(i, "coatingRoughness", phong_pin(dl.lobe2_roughness));
                     self.ior_pin(i, "coatingIor", mat, "Dual Lobe Specular Reflectivity", dl.f0);
                     self.float_pin(i, "coatingDarkening", 0.0);
@@ -2956,6 +2951,19 @@ impl Ocs<'_> {
         if coat {
             self.top_coat_curve(i, mat, Some(RoughCurve::Phong));
             self.float_pin(i, "coatingDarkening", 0.0);
+        }
+    }
+
+    /// A dual lobe's weight on `pin` (`v` its share there) × the Dual Lobe
+    /// Specular Weight map, when it has one: DAZ hands Iray the map itself
+    /// as `dual_lobe_specular_weight` (Calib-G9Eye's `.mi`: the eye's
+    /// `G9_Eyes_SLW`, gamma 1, a few % over the iris, 0 on the sclera).
+    /// `rgb`: a colour pin's value without the map (Universal's).
+    fn dual_lobe_weight_pin(&mut self, i: usize, mat: &Material, pin: &str, v: f32, rgb: bool) {
+        match self.channel_map(mat, "Dual Lobe Specular Weight") {
+            Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, pin, &asset, true, w.textures.map_gamma(&asset, mat.image_gamma("Dual Lobe Specular Weight")), v)),
+            None if rgb => self.rgb_pin(i, pin, [v; 3]),
+            None => self.float_pin(i, pin, v),
         }
     }
 
@@ -3670,9 +3678,11 @@ impl Ocs<'_> {
             // coating below (or all of it, when a Top Coat or the glossy
             // layer takes that). Under a metal × its base share as the
             // glossy layer's (`metal_over_diffuse`).
+            // Its weight map too (Genesis 9's eye: without it the whole
+            // iris took a grey sheen, #133).
             let weight = (if coat > 0.0 || glossy_coat { dl.share } else { dl.share * dl.lobe1 }) * base_keep;
-            if weight != 1.0 || self.film.is_some() || self.metal_scale.is_some() {
-                self.rgb_pin(i, "specular", [weight; 3]);
+            if weight != 1.0 || self.film.is_some() || self.metal_scale.is_some() || mat.image("Dual Lobe Specular Weight").is_some() {
+                self.dual_lobe_weight_pin(i, mat, "specular", weight, true);
             }
         }
 
@@ -3801,7 +3811,7 @@ impl Ocs<'_> {
         if let Some(dl) = active_dual_lobe {
             let lobe2 = dl.share * (1.0 - dl.lobe1);
             if lobe2_free && lobe2 > 0.0 {
-                self.rgb_pin(i, "coating", [lobe2; 3]);
+                self.dual_lobe_weight_pin(i, mat, "coating", lobe2, true);
                 let r2 = self.gloss_roughness(dl.lobe2_roughness);
                 self.float_pin(i, "coatingRoughness", r2);
                 self.float_pin(i, "coatingIor", dl.ior.unwrap_or(1.5));
@@ -6992,6 +7002,36 @@ mod tests {
         let blended = phong_pin(0.25 * 0.09 + 0.75 * 0.36);
         assert!(x.contains(&format!(">{}<", num(blended))), "blended roughness {blended} (Phong pin): {x}");
         assert!(DualLobe::of(&mat(json!([]))).is_none());
+    }
+
+    /// The dual lobe's weight map reaches Universal's `specular` and
+    /// `coating` (lobe 2), as DAZ hands Iray the map itself: without it
+    /// Genesis 9's eye (`G9_Eyes_SLW`, a few % over the iris) took the
+    /// full gloss, a grey sheen over the iris (#133).
+    #[test]
+    fn dual_lobe_weight_map_on_universal() {
+        let dir = tempfile::tempdir().unwrap();
+        image::GrayImage::from_pixel(2, 2, image::Luma([40])).save(dir.path().join("w.png")).unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let m = mat(json!([
+            {"channel": {"id": "Dual Lobe Specular Weight", "current_value": 1, "image_file": "/w.png"}},
+            {"channel": {"id": "Dual Lobe Specular Reflectivity", "current_value": 0.5}},
+            {"channel": {"id": "Specular Lobe 1 Roughness", "current_value": 0.3}},
+            {"channel": {"id": "Specular Lobe 2 Roughness", "current_value": 0.6}},
+            {"channel": {"id": "Dual Lobe Specular Ratio", "current_value": 0.85}},
+        ]));
+        let (x, _) = material_inputs(&[("Iris".into(), m, 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+        let pin = |name: &str| {
+            let p = &x[x.find(&format!("<pin name='{name}'>")).unwrap_or_else(|| panic!("no {name}: {x}"))..];
+            let end = p.find("\n  <pin name=").unwrap_or(p.len());
+            p[..end].to_string()
+        };
+        // Lobe 1's 0.85 and lobe 2's 0.15, each × the map (at the image's
+        // gamma: the G9 eye's is 1 in the scene, as its `.mi` has it).
+        let specular = pin("specular");
+        assert!(specular.contains("type='36'") && specular.contains("<attr name='value' type='6'>0.85</attr>"), "{specular}");
+        let coating = pin("coating");
+        assert!(coating.contains("type='36'") && coating.contains("<attr name='value' type='6'>0.15</attr>"), "{coating}");
     }
 
     #[test]
