@@ -3854,11 +3854,16 @@ impl Ocs<'_> {
                 let colour = mat.color(if own_refraction { "Refraction Color" } else { "Glossy Color" }).unwrap_or([1.0; 3]);
                 self.rgb_pin(i, "transmission", colour.map(|c| c * refraction));
             }
-            let ior = spec_ior.filter(|_| refraction < 0.5).unwrap_or_else(|| mat.float("Refraction Index").unwrap_or(1.5));
+            let gloss_ior = spec_ior.filter(|_| refraction < 0.5);
+            let ior = gloss_ior.unwrap_or_else(|| mat.float("Refraction Index").unwrap_or(1.5));
             // Iray's thin-walled refraction reflects nothing of
             // its own — Calib-Glass's thin sphere was invisible; only a
-            // glossy layer shows. IOR 1 takes Octane's Fresnel reflection away.
-            self.float_pin(i, "ior", if thin && self.thin_glass_ior_one { 1.0 } else { ior });
+            // glossy layer shows. IOR 1 takes Octane's Fresnel reflection
+            // away — the refraction's, not a gloss's: where the IOR is the
+            // glossy layer's F0 (a partial refraction in Base Mixing 1,
+            // Morgan Hair's strands) it stays, else the material lost its
+            // whole gloss (Calib-Strand's C5 / D5, #79).
+            self.float_pin(i, "ior", if thin && self.thin_glass_ior_one && gloss_ior.is_none() { 1.0 } else { ior });
             // Iray's Abbe number spreads the IOR over the spectrum
             // (`base::abbe_number_ior`); Universal's dispersion mode 1 (its
             // default) reads the coefficient as the same Abbe number. A plain
@@ -8458,6 +8463,37 @@ mod tests {
         assert!(!f.contains("<pin name='transmission'>") && f.matches("type='130'").count() == 3, "{f}");
         // The default shading keeps Octane's Hair.
         assert!(material_inputs(&[("Hair".into(), mat(chs), 0.0)], &[], HashMap::new(), 4000, SkinShader::None).0.contains("type='147'"));
+    }
+
+    #[test]
+    fn thin_glass_at_ior_one_keeps_a_gloss_s_ior() {
+        // Faithful takes a thin-walled refraction's own reflection away
+        // (IOR 1); a partial refraction under a Base Mixing 1 gloss keeps
+        // the gloss's F0 as the IOR (Morgan Hair's strands).
+        let shading = Shading { thin_glass_ior_one: true, ..Shading::default() };
+        let ior_of = |chs: serde_json::Value| {
+            let x = material_inputs(&[("M".into(), mat(chs), 0.0)], &[], HashMap::new(), 4000, shading).0;
+            let at = x.find("<pin name='ior'>").expect("an ior pin");
+            let v = &x[at..];
+            let a = v.find("type='6'>").unwrap() + 9;
+            v[a..a + v[a..].find('<').unwrap()].parse::<f32>().unwrap()
+        };
+        let glass = ior_of(json!([
+            {"channel": {"id": "Refraction Weight", "current_value": 1.0}},
+            {"channel": {"id": "Refraction Index", "current_value": 1.5}},
+            {"channel": {"id": "Thin Walled", "current_value": true}},
+        ]));
+        assert_eq!(glass, 1.0);
+        let strands = ior_of(json!([
+            {"channel": {"id": "Base Mixing", "current_value": 1}},
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 0.98}},
+            {"channel": {"id": "Glossy Specular", "current_value": [0.72, 0.70, 0.62]}},
+            {"channel": {"id": "Glossiness", "current_value": 0.84}},
+            {"channel": {"id": "Refraction Weight", "current_value": 0.106}},
+            {"channel": {"id": "Refraction Index", "current_value": 1.79}},
+            {"channel": {"id": "Thin Walled", "current_value": true}},
+        ]));
+        assert!(strands > 3.0, "{strands}");
     }
 
     #[test]

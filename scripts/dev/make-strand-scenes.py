@@ -65,6 +65,9 @@ shader's glossy lobe (materials 10 - 13, weighted mixing: a white gloss
 alone, anisotropy 1 along the hair shader's tangent / along Uber's own /
 isotropic, and 0.5 of it over a white translucency): Uber renders reliably
 where the hair shader's module fails to re-import (#94).
+The -UberM scenes take Morgan's Strands material apart (materials 5, 14 -
+16: whole, without its gloss, without its translucency, without its
+refraction) on fibres and on ribbons (-T2, Morgan's shape), sun and dome.
 
 How DAZ hands a polyline to Iray depends on the hair's Line Tessellation
 modifier (its .mi export reads the Viewport sides, the render the Render
@@ -178,6 +181,10 @@ MATERIALS = {
     13: ('weighted gloss 0.5 over translucent white', [1.0, 1.0, 1.0],
          {**WEIGHTED, 'Diffuse Weight': 0.5, 'Glossy Weight': 0.5, 'Translucency Weight': 1.0, 'Translucency Color': [1.0, 1.0, 1.0],
           'Glossy Anisotropy': 1.0, 'Glossy Anisotropy Rotations': 0.25}),
+    # Morgan's Strands (5) one part off at a time (-UberM).
+    14: ('Morgan nocoat, no gloss', [0.854902, 0.8117647, 0.7294118], {**MORGAN_GLOSS, **MORGAN_BASE, 'Glossy Layered Weight': 0.0}),
+    15: ('Morgan nocoat, no translucency', [0.854902, 0.8117647, 0.7294118], {**MORGAN_GLOSS, **MORGAN_BASE, 'Translucency Weight': 0.0}),
+    16: ('Morgan nocoat, no refraction', [0.854902, 0.8117647, 0.7294118], {**MORGAN_GLOSS, **MORGAN_BASE, 'Refraction Weight': 0.0}),
 }
 THICK = 20.0                     # Line Start / End Width of rows A
 THIN = (0.2, 0.1)                # Morgan's
@@ -493,3 +500,6 @@ for _name, _kw in (('', {}), ('-T3', {'tess': 3})):
     build('Calib-Strand-UberG' + _name + '-Dome', rows='GHIJ', mats=(10, 11, 12, 13), dome=True, **_kw)
     build('Calib-Strand-UberG' + _name + '-Side', rows='GHIJ', mats=(10, 11, 12, 13), sun_y=60.0, **_kw)
     build('Calib-Strand-UberG' + _name + '-Back', rows='GHIJ', mats=(10, 11, 12, 13), sun_y=180.0, **_kw)
+for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
+    build('Calib-Strand-UberM' + _name, rows='GHIJ', mats=(5, 14, 15, 16), **_kw)
+    build('Calib-Strand-UberM' + _name + '-Dome', rows='GHIJ', mats=(5, 14, 15, 16), dome=True, **_kw)

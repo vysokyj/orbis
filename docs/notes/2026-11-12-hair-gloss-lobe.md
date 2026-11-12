@@ -188,6 +188,50 @@ albedo takes the meaning Octane gives it: the colour after many bounces.
   under the dome / front sun, 0.025 in albedo units): 1.31 / 1.18 / 1.54,
   crown r / g 1.32 - redder than Iray for 10 % of level.
 
+## 9. Uber strands at 1x, and Morgan's lost gloss
+
+The user saw a scene where Faithful came out darker than Iray and Enhanced
+about like it. Suspect: Uber strand hair now at 1x width (its rules were
+checked at 2x). Calib-Strand, -Dome, -Side, -T2, -T3, -T2-Dome in Faithful
+Final (1x) against Faithful Preview (2x), Octane / Iray:
+
+| | 1x | 2x |
+|---|---|---|
+| A, one thick fibre: diffuse / gloss iso / aniso | 0.99 / 1.04 / 0.89 | 1.97 / 1.55 / 1.81 |
+| A under the dome | 1.01 / 1.05 / 1.06 | 2.01 / 2.04 / 2.08 |
+| C diffuse patch, fibres sun / dome | 0.86 / 0.92 | 0.95 / 0.99 |
+| C diffuse patch, ribbons sun / dome | 0.72 / 0.81 | 0.79 / 0.87 |
+| C5 Morgan's Strands, ribbons sun / dome | 0.54 / 0.36 | 0.46 / 0.29 |
+
+The width is no regression: a fibre is right at 1x, twice Iray's at 2x.
+Morgan's material is dark at either width.
+
+Its export: albedo 0.23 / 0.18 / 0.10, a thin-wall diffuse transmission
+0.39 / 0.35 / 0.28, specular 0.86 / 0.76 / 0.45 - and **`ior` 1** in
+Faithful (5.63 in Enhanced, the gloss's F0 0.49). Faithful's
+`thin_glass_ior_one` (a thin-walled glass shows none of its own reflection
+in Iray) caught every thin-walled material with a refraction, also a
+partial one whose IOR pin holds the *gloss's* F0: the strands had no gloss
+at all. Fixed: IOR 1 only where the pin is the refraction's own.
+
+| C5 / D5, Octane / Iray | before | fixed | Enhanced |
+|---|---|---|---|
+| fibres, sun | 0.51 / 1.40 | 0.47 / 1.25 | 0.47 / 1.25 |
+| ribbons, sun | 0.54 / 0.57 | 0.50 / 0.51 | 0.50 / 0.51 |
+| ribbons, dome | 0.36 / 0.44 | 0.62 / 0.56 | 0.62 / 0.56 |
+
+(Under the sun the gloss takes light from the base and mirrors it away
+from the camera: a little darker, as Iray's ribbons do.)
+
+Variants of the export on the way (project.ocs edited, `orbx_ocs`):
+`transmissionType` 1 (Diffuse) in place of 3 (Thin Wall (Diffuse)) renders
+the same on curves to the last digit; without the transmission C5 loses a
+fifth to a quarter (0.54 -> 0.42, 0.36 -> 0.27). So the transmission
+passes, and half of Iray's light is still missing with every part
+written. Iray's own parts are unknown: Calib-Strand-UberM{,-T2}{,-Dome}
+(materials 5, 14 - 16: whole, no gloss, no translucency, no refraction;
+rows G - J) are generated for an Iray batch.
+
 ## Left
 
 - Direction: under one hard light the gloss lands where a round rough

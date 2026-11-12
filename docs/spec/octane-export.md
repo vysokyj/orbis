@@ -1705,7 +1705,13 @@ leaves out, #15):
   1.03) is Smith vs v-cavities shadowing; Octane has no v-cavities.
   **Thin Walled** → `transmissionType` 2 (Thin wall), no volume. Iray shows
   a thin-walled glass sphere without any reflection — invisible; Octane's
-  thin wall keeps its Fresnel reflection, kept as the more plausible.
+  thin wall keeps its Fresnel reflection, kept as the more plausible
+  (Enhanced; Faithful writes IOR 1, `thin_glass_ior_one`). The IOR 1 takes
+  the refraction's reflection only: under a partial refraction (< 0.5) in
+  Base Mixing 1 the IOR is the glossy layer's F0 and stays. Why: Morgan
+  Hair's strands (thin-walled, refraction 0.106) lost their whole gloss in
+  Faithful - Calib-Strand-T2-Dome's C5 / D5 0.36 / 0.44 x Iray, with the
+  gloss 0.62 / 0.56 as Enhanced (#79).
   **Dispersion** (`dispersion_enable`: refraction and Abbe > 0, the .mi
   export) → `dispersion_coefficient_B` = Iray's Abbe number as is, in
   Universal's default dispersion mode 1 (Abbe number), not on thin walls.
