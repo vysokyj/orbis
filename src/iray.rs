@@ -757,44 +757,106 @@ pub fn is_daz_default(mat: &Material) -> bool {
 }
 
 /// DAZ's default shader as the Iray Uber material DAZ renders it with
-/// (Calib-Mi-DzDefault2): diffuse × diffuse_strength; a glossy layer at
-/// the specular colour's strongest channel (linear) × specular_strength,
-/// its hue as the glossy colour, roughness (1 − glossiness)^1.7; refraction
-/// at refraction_strength in its own colour and IOR (Share Glossy Inputs
-/// off then: `iray_uber`), closed when it refracts; transparency as Cutout Opacity. Ambient,
-/// reflection and the lighting model don't reach Iray. None for other
-/// shaders.
+/// (Calib-Mi-DzDefault2, -DzDefault4 … -DzDefault8; #41):
+/// - diffuse × diffuse_strength, both maps passing (a strength map
+///   attenuates the colour);
+/// - a glossy layer at the specular colour's strongest channel (linear) ×
+///   specular_strength, its hue as the glossy colour; with a **specular
+///   colour map** the whole colour (map × value) is the glossy colour,
+///   Glossy Color Effect 1, and the weight specular_strength alone; a
+///   specular_strength map drives the weight, scaled by it;
+/// - roughness (1 − glossiness)^1.7; a **glossiness map** switches DAZ to
+///   Uber's specular / glossiness mixing instead: Glossiness = map × value
+///   (squared `gloss_to_rough`), Glossy Specular 0.04 through DAZ's 8-bit
+///   colour channel (the .mi's 0.0399472);
+/// - Lighting Model **Matte** drops all of that, maps too: Iray Uber's
+///   white glossy layer at weight 1, roughness 1 (the other models change
+///   nothing, nor does the Subsurface group, shown or hidden);
+/// - refraction at refraction_strength in its own colour and IOR (both maps
+///   dropped), closed; it shares the glossy inputs (`iray_uber_unified`)
+///   when its colour equals the glossy colour (white under a grey
+///   specular), else Share Glossy Inputs off (`iray_uber`). A refracting
+///   material passes no transparency;
+/// - transparency as Cutout Opacity, bump (its value the factor; min / max
+///   don't reach Iray), normal (factor 1) and displacement (min / max
+///   included) with their maps; u/v scale and offset as the tiling.
+///
+/// Ambient, reflection and their maps don't reach Iray, nor do bump or
+/// displacement without a map. None for other shaders.
 pub fn daz_default_as_uber(mat: &Material) -> Option<Material> {
     if !is_daz_default(mat) {
         return None;
     }
+    use crate::daz_material::Channel;
     let ch = Channels(mat);
     let mut out = mat.clone();
-    let mut set = |id: &str, v: Value| {
-        let (image, image_mod) = out.channels.get(id).map_or((None, None), |c| (c.image.clone(), c.image_mod));
-        out.channels.insert(id.to_string(), crate::daz_material::Channel { value: v, image, image_mod, ..Default::default() });
+    let image = |id: &str| mat.channels.get(id).filter(|c| c.image.is_some());
+    // An Uber channel at `v`, with the DAZ Default channel `from`'s map
+    // (and its gamma and image settings) when it has one.
+    let mut set = |id: &str, v: Value, from: Option<&str>| {
+        let c = from.and_then(image).map_or_else(Channel::default, |c| Channel { value: Value::Null, ..c.clone() });
+        out.channels.insert(id.to_string(), Channel { value: v, ..c });
     };
+    let f = |x: f32| Value::from(f64::from(x));
+    // Back to DAZ's gamma-encoded colour, which `uber` linearises.
+    let encode = |c: [f32; 3]| Value::from(c.map(|x| f64::from(x.max(0.0).powf(1.0 / COLOUR_GAMMA))).to_vec());
+    let matte = ch.int("Lighting Model", 0) == DAZ_DEFAULT_MATTE;
     let spec = ch.color("specular", [0.6f32.powf(COLOUR_GAMMA); 3]);
     let peak = spec.into_iter().fold(0.0, f32::max);
     let strength = ch.float("specular_strength", 1.0);
-    let (weight, hue) = if peak * strength > 0.0 { (peak * strength, spec.map(|c| c / peak)) } else { (0.0, spec) };
-    // Back to DAZ's gamma-encoded colour, which `uber` linearises.
-    let encode = |c: [f32; 3]| Value::from(c.map(|x| f64::from(x.max(0.0).powf(1.0 / COLOUR_GAMMA))).to_vec());
+    let colour_map = image("specular").is_some();
+    let (weight, hue) = if colour_map {
+        (strength, spec)
+    } else if peak * strength > 0.0 {
+        (peak * strength, spec.map(|c| c / peak))
+    } else {
+        (0.0, spec)
+    };
+    let gloss_map = image("glossiness").is_some();
+    let glossiness = ch.float("glossiness", 1.0);
+    set("Diffuse Strength", f(ch.float("diffuse_strength", 1.0)), Some("diffuse_strength"));
+    if matte {
+        set("Base Mixing", Value::from(0), None);
+        set("Glossy Layered Weight", f(1.0), None);
+        set("Glossy Color", Value::from(vec![1.0, 1.0, 1.0]), None);
+        set("Glossy Roughness", f(1.0), None);
+    } else {
+        set("Base Mixing", Value::from(if gloss_map { 1 } else { 0 }), None);
+        set("Glossy Layered Weight", f(weight), Some("specular_strength"));
+        set("Glossy Color", encode(hue), Some("specular"));
+        set("Glossy Color Effect", Value::from(i32::from(colour_map)), None);
+        set("Glossy Roughness", f((1.0 - glossiness).clamp(0.0, 1.0).powf(DAZ_DEFAULT_ROUGHNESS_POWER)), None);
+        set("Glossiness", f(glossiness), Some("glossiness"));
+        // 0.04 as DAZ keeps a colour: 8 bits, gamma-encoded.
+        let specular = (0.04f32.powf(1.0 / COLOUR_GAMMA) * 255.0).round() / 255.0;
+        set("Glossy Specular", Value::from(vec![f64::from(specular); 3]), None);
+    }
+    set("Roughness Squared", Value::from(false), None);
     let refraction = ch.float("refraction_strength", 0.0);
-    set("Base Mixing", Value::from(0));
-    set("Diffuse Strength", Value::from(f64::from(ch.float("diffuse_strength", 1.0))));
-    set("Glossy Layered Weight", Value::from(f64::from(weight)));
-    set("Glossy Color", encode(hue));
-    set("Glossy Roughness", Value::from(f64::from((1.0 - ch.float("glossiness", 1.0)).clamp(0.0, 1.0).powf(DAZ_DEFAULT_ROUGHNESS_POWER))));
-    set("Roughness Squared", Value::from(false));
-    set("Refraction Weight", Value::from(f64::from(refraction)));
-    set("Refraction Color", encode(ch.color("refraction", [1.0; 3])));
-    set("Refraction Index", Value::from(f64::from(ch.float("ior", 1.5))));
-    set("Share Glossy Inputs", Value::from(refraction <= 0.0));
-    set("Thin Walled", Value::from(refraction <= 0.0));
-    set("Cutout Opacity", Value::from(f64::from(ch.float("transparency", 1.0))));
+    let refraction_colour = ch.color("refraction", [1.0; 3]);
+    let glossy_colour = if matte { [1.0; 3] } else { hue };
+    let shares = refraction <= 0.0 || (!colour_map && (0..3).all(|i| (refraction_colour[i] - glossy_colour[i]).abs() < 1e-4));
+    set("Refraction Weight", f(refraction), None);
+    set("Refraction Color", encode(refraction_colour), None);
+    set("Refraction Index", f(ch.float("ior", 1.5)), None);
+    set("Share Glossy Inputs", Value::from(shares), None);
+    set("Thin Walled", Value::from(refraction <= 0.0), None);
+    set("Cutout Opacity", f(if refraction > 0.0 { 1.0 } else { ch.float("transparency", 1.0) }), if refraction > 0.0 { None } else { Some("transparency") });
+    set("Bump Strength", f(ch.float("bump", 0.0)), Some("bump"));
+    set("Normal Map", Value::Null, Some("normal"));
+    set("Displacement Strength", f(ch.float("displacement", 0.0)), Some("displacement"));
+    set("Minimum Displacement", f(ch.float("displacement_min", -0.1)), None);
+    set("Maximum Displacement", f(ch.float("displacement_max", 0.1)), None);
+    for (to, from, default) in [("Horizontal Tiles", "u_scale", 1.0), ("Vertical Tiles", "v_scale", 1.0), ("Horizontal Offset", "u_offset", 0.0), ("Vertical Offset", "v_offset", 0.0)] {
+        set(to, f(ch.float(from, default)), None);
+    }
     Some(out)
 }
+
+/// DAZ Default's Lighting Model index for Matte (Plastic, Metallic, Skin,
+/// Glossy (Plastic), Matte, Glossy (Metallic)): the only one that changes
+/// what Iray gets (Calib-Mi-DzDefault6, -DzDefault7).
+pub const DAZ_DEFAULT_MATTE: i32 = 4;
 
 /// Any legacy shader DAZ converts to Iray Uber, as the Uber it renders:
 /// DAZ Default ([`daz_default_as_uber`]), the scripted 3Delight shaders
@@ -1858,6 +1920,50 @@ mod tests {
         }
         wrong.sort();
         assert!(wrong.is_empty(), "{} of {checked} arguments differ from DAZ's .mi:\n{}", wrong.len(), wrong.join("\n"));
+    }
+
+    /// What the Uber test leaves to `material` for DAZ Default: Cutout
+    /// Opacity (none while it refracts) and displacement, maps included
+    /// (Calib-Mi-DzDefault2 … -DzDefault8, #41).
+    #[test]
+    fn daz_default_opacity_and_displacement_match_mi() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let (mut checked, mut wrong) = (0, Vec::new());
+        for f in std::fs::read_dir(root.join("calib/references/mi")).unwrap() {
+            let f = f.unwrap().path();
+            let scene = f.file_stem().unwrap().to_string_lossy().to_string();
+            if !scene.starts_with("Calib-Mi-DzDefault") {
+                continue;
+            }
+            let fixture: Value = serde_json::from_str(&std::fs::read_to_string(&f).unwrap()).unwrap();
+            let mats = scene_materials(&root.join(format!("calib/scenes/{scene}.duf")));
+            for (key, mi) in fixture["materials"].as_object().unwrap() {
+                let Some(mat) = mats.get(key).and_then(daz_default_as_uber) else { continue };
+                let ch = Channels(&mat);
+                checked += 1;
+                let ours = ch.map("Cutout Opacity", MapKind::Grey, [ch.float("Cutout Opacity", 1.0); 3]).map_or(Arg::Float(ch.float("Cutout Opacity", 1.0)), Arg::Map);
+                let theirs = match mi["args"].get("cutout_opacity") {
+                    Some(v) => fixture_arg(v, &ours),
+                    None => Some(Arg::Float(1.0)),
+                };
+                if !theirs.as_ref().is_some_and(|t| close(t, &ours)) {
+                    wrong.push(format!("cutout_opacity: {scene} {key}: DAZ {theirs:?}, ours {ours:?}"));
+                }
+                let disp = crate::material::displacement(&mat);
+                let theirs = mi["args"].get("displace_amount").and_then(fixture_map);
+                let same = match (&disp, &theirs) {
+                    (None, None) => true,
+                    // scale = strength × (max − min) cm, offset = strength × min.
+                    (Some(d), Some(m)) => (d.height_m - m.scale[0] * 0.01).abs() < 1e-6 && (d.mid + m.offset[0] / m.scale[0]).abs() < 1e-5,
+                    _ => false,
+                };
+                if !same || mi["args"]["displacement_enable"].as_bool().unwrap_or(false) != disp.is_some() {
+                    wrong.push(format!("displacement: {scene} {key}: DAZ {theirs:?}, ours {:?}", disp.map(|d| (d.height_m, d.mid))));
+                }
+            }
+        }
+        assert!(checked > 40, "{checked}");
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
     }
 
     /// `dzpm_diffuse_area_light` / `dzpm_spot_light` defaults (daz_3d/basic.mdl).

@@ -24,6 +24,10 @@ Read through DAZ's .mi export, not rendered.
 - Calib-Mi-DzDefault3 / Calib-Mi-AoA5: Multiply Specular Through Opacity
   off on transparent spheres (#15); Calib-Mi-Arch (from Calib-NVIDIA3):
   Architectural's Enable Absorption.
+- Calib-Mi-DzDefault4 ... -DzDefault8 (from Calib-Mi-DzDefault): DAZ
+  Default's maps, bump / normal / displacement / tiling, lighting models,
+  the hidden Subsurface group (DzDefault6-Shown: every channel shown) and
+  when refraction shares the glossy inputs (#41).
 """
 import sys as _sys
 if any(a in ('-h', '--help') for a in _sys.argv[1:]):
@@ -201,11 +205,73 @@ VARIANTS.update({
         'S2': {'transparency': 0.6, 'Glossiness': 0.6, 'Multiply Specular Through Opacity': False},
         'S3': {'Multiply Specular Through Opacity': False},
     }),
+    # DAZ Default's maps and its remaining channels (#41): maps one per
+    # sphere (DzDefault4), the rest of the maps and the bump / displacement
+    # values without a map (DzDefault5), the lighting models and the hidden
+    # Subsurface group (DzDefault6, with a -Shown twin).
+    'Calib-Mi-DzDefault4': ('Calib-Mi-DzDefault', {
+        'S1': {'diffuse': (TILES, [1.0, 1.0, 1.0]), 'u_scale': 2.0, 'v_scale': 3.0, 'u_offset': 0.2, 'v_offset': 0.4},
+        'S2': {'diffuse_strength': (TILES, 0.8)},
+        'S3': {'specular': (TILES, [1.0, 0.8, 0.6]), 'glossiness': 0.6},
+        'S4': {'specular_strength': (TILES, 0.8), 'glossiness': 0.6},
+        'S5': {'glossiness': (TILES, 0.6)},
+        'S6': {'transparency': (TILES, 0.8), 'glossiness': 0.6},
+        'S7': {'bump': (TILES, 0.5), 'bump_min': -0.02, 'bump_max': 0.02},
+        'S8': {'normal': (TILES, None), 'glossiness': 0.6},
+    }),
+    'Calib-Mi-DzDefault5': ('Calib-Mi-DzDefault', {
+        'S1': {'displacement': (TILES, 0.5), 'displacement_min': -0.05, 'displacement_max': 0.05},
+        'S2': {'refraction_strength': (TILES, 0.8), 'ior': 1.4},
+        'S3': {'refraction': (TILES, [1.0, 1.0, 1.0]), 'refraction_strength': 0.8, 'ior': 1.4},
+        'S4': {'ambient': (TILES, [1.0, 1.0, 1.0]), 'ambient_strength': 1.0},
+        'S5': {'reflection': (TILES, [1.0, 1.0, 1.0]), 'reflection_strength': (TILES, 0.6)},
+        'S6': {'bump': 0.5, 'displacement': 0.5, 'glossiness': 0.6},
+        'S7': {'diffuse': (TILES, [1.0, 0.8, 0.6]), 'specular_strength': (TILES, 0.8), 'glossiness': (TILES, 0.6), 'u_scale': 2.0, 'v_scale': 3.0},
+        'S8': {'transparency': (TILES, 1.0), 'bump': (TILES, 0.5), 'normal': (TILES, None), 'glossiness': 0.6},
+    }),
+    'Calib-Mi-DzDefault6': ('Calib-Mi-DzDefault', {
+        'S1': {'Lighting Model': 1, 'diffuse': [0.8, 0.4, 0.2], 'specular': [1.0, 1.0, 1.0], 'glossiness': 0.6},
+        'S2': {'Lighting Model': 2, 'glossiness': 0.6},
+        'S3': {'Lighting Model': 2, 'Subsurface Scatter Color': [0.8, 0.4, 0.2], 'Subsurface Sheen Color': [0.6, 0.6, 0.4], 'Subsurface Thickness': 0.6},
+        'S4': {'Lighting Model': 3, 'glossiness': 0.6},
+        'S5': {'Lighting Model': 4, 'specular_strength': 1.0, 'glossiness': 0.6},
+        'S6': {'Lighting Model': 5, 'diffuse': [0.2, 0.4, 0.8], 'glossiness': 0.6},
+        'S7': {'Subsurface Scatter Color': [0.8, 0.4, 0.2], 'Subsurface Sheen Color': [0.6, 0.6, 0.4], 'Subsurface Thickness': 0.6},
+        'S8': {'specular': [0.0, 0.0, 0.0], 'glossiness': 0.0},
+    }),
+    # What the first three left open: the weight under a specular colour
+    # map, refraction white without a map / coloured with one, what Matte
+    # keeps, a glossiness map with a coloured specular or at strength 0,
+    # tiling on bump and normal maps.
+    'Calib-Mi-DzDefault7': ('Calib-Mi-DzDefault', {
+        'S1': {'specular': (TILES, [0.6, 0.4, 0.2]), 'specular_strength': 0.5, 'glossiness': 0.6},
+        'S2': {'refraction_strength': 0.8, 'refraction': [1.0, 1.0, 1.0], 'ior': 1.4},
+        'S3': {'refraction_strength': (TILES, 0.8), 'refraction': [0.6, 0.8, 1.0], 'ior': 1.4},
+        'S4': {'Lighting Model': 4, 'specular': [0.8, 0.6, 0.4], 'specular_strength': 0.5, 'glossiness': 0.3, 'diffuse_strength': 0.5},
+        'S5': {'Lighting Model': 4, 'specular_strength': (TILES, 0.8), 'glossiness': (TILES, 0.6)},
+        'S6': {'glossiness': (TILES, 0.6), 'specular': [0.8, 0.6, 0.4], 'specular_strength': 0.5},
+        'S7': {'specular_strength': 0.0, 'glossiness': (TILES, 0.6)},
+        'S8': {'normal': (TILES, None), 'bump': (TILES, 0.5), 'u_scale': 2.0, 'v_offset': 0.4},
+    }),
+    # When refraction shares the glossy inputs: a white refraction under a
+    # coloured specular, a refraction colour equal to the specular's,
+    # refraction with a glossiness map, under Matte.
+    'Calib-Mi-DzDefault8': ('Calib-Mi-DzDefault', {
+        'S1': {'refraction_strength': 0.8, 'refraction': [1.0, 1.0, 1.0], 'specular': [0.8, 0.6, 0.4], 'ior': 1.4},
+        'S2': {'refraction_strength': 0.8, 'refraction': [1.0, 0.6, 0.4], 'specular': [1.0, 0.6, 0.4], 'ior': 1.4},
+        'S3': {'refraction_strength': 0.8, 'refraction': [0.6, 0.8, 1.0], 'glossiness': (TILES, 0.6), 'ior': 1.4},
+        'S4': {'Lighting Model': 4, 'refraction_strength': 0.8, 'refraction': [0.6, 0.8, 1.0], 'ior': 1.4, 'transparency': 0.6},
+        'S5': {'Lighting Model': 4, 'transparency': 0.6},
+        'S6': {'refraction_strength': 0.8, 'refraction': [0.6, 0.8, 1.0], 'ior': 1.4, 'transparency': 0.6},
+    }),
 })
+# Scenes also saved with every channel shown (skill mi-fixture: a hidden
+# channel and a shown one can reach Iray differently).
+SHOWN = {'Calib-Mi-DzDefault6'}
 
 # DAZ keeps a `color` channel (DAZ Default's, the scripted shaders') in 8
 # bits: 0.3 reaches Iray as 77/255 - give those multiples of 0.2.
-TYPES = {list: 'float_color', bool: 'bool', int: 'int', float: 'float'}
+TYPES = {list: 'float_color', bool: 'bool', int: 'int', float: 'float', type(None): 'image'}
 
 for name, (src, variants) in VARIANTS.items():
     d = json.load(gzip.open(os.path.join(scenes, src + '.duf')))
@@ -251,3 +317,11 @@ for name, (src, variants) in VARIANTS.items():
     out = os.path.join(scenes, name + '.duf')
     open(out, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
     print(out)
+    if name in SHOWN:
+        for m in d.get('material_library', []) + d['scene']['materials']:
+            for c in [v['channel'] for v in m.values() if isinstance(v, dict) and 'channel' in v] + \
+                    [c['channel'] for e in m.get('extra', []) for c in e.get('channels', []) or []]:
+                c.pop('visible', None)
+        out = os.path.join(scenes, name + '-Shown.duf')
+        open(out, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+        print(out)

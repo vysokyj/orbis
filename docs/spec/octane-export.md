@@ -780,12 +780,26 @@ DAZ Studio renders its old shaders in Iray as an Iray Uber material; the
 export converts them the same way on load (`usd::mesh::scene_materials`,
 `iray::as_uber`), so everything after sees Uber channels:
 
-- **DAZ Default** (`daz_default_as_uber`, Calib-Mi-DzDefault2): diffuse ×
-  diffuse_strength; glossy weight = the specular colour's strongest channel
-  (linear) × specular_strength, its hue the glossy colour, roughness
-  (1 − glossiness)^1.7; refraction at its strength, colour and IOR;
-  transparency as Cutout Opacity. Ambient, reflection and the lighting
-  model don't reach Iray.
+- **DAZ Default** (`daz_default_as_uber`, Calib-Mi-DzDefault2,
+  -DzDefault4 … -DzDefault8): diffuse × diffuse_strength (both maps; a
+  strength map attenuates the colour); glossy weight = the specular colour's
+  strongest channel (linear) × specular_strength, its hue the glossy colour,
+  a specular_strength map driving the weight; roughness
+  (1 − glossiness)^1.7. A **specular colour map** makes the whole colour
+  (map × value) the glossy colour (Glossy Color Effect 1) at weight
+  specular_strength alone. A **glossiness map** switches DAZ to Uber's
+  specular / glossiness mixing: Glossiness = map × value, squared
+  `gloss_to_rough`, Glossy Specular 0.04 as an 8-bit DAZ colour (0.0399472).
+  Lighting Model **Matte** drops the specular channels, maps included: a
+  white glossy layer at weight 1, roughness 1; the other lighting models
+  and the Subsurface group (shown or hidden) change nothing. Refraction at
+  its strength, colour and IOR (maps on either dropped), closed; it shares
+  the glossy inputs when its colour equals the glossy colour, else Share
+  Glossy Inputs off; a refracting material passes no transparency.
+  Transparency as Cutout Opacity, bump (factor = its value; bump_min / max
+  don't reach Iray), normal (factor 1) and displacement (min / max) with
+  their maps; u/v scale and offset as the tiling. Ambient, reflection and
+  their maps don't reach Iray, nor bump or displacement without a map.
 - **Scripted 3Delight shaders** (`studio/material/daz_shader`: UberSurface,
   HumanSurface, dzGlossy / dzMetal / dzPlastic / dzSkin / dzMatte / toon,
   …; `legacy_shader_as_uber`, Calib-Mi-Legacy, -Legacy2). DAZ Studio 6 has
@@ -3286,8 +3300,7 @@ to calibrate on ([calibration](../calibration.md#the-scenes)):
   [#30](https://github.com/vysokyj/orbis/issues/30), thin film
   [#31](https://github.com/vysokyj/orbis/issues/31), diffuse overlay
   maps [#71](https://github.com/vysokyj/orbis/issues/71), dispersion
-  [#33](https://github.com/vysokyj/orbis/issues/33), DAZ Default shader
-  [#41](https://github.com/vysokyj/orbis/issues/41), legacy 3Delight shaders
+  [#33](https://github.com/vysokyj/orbis/issues/33), legacy 3Delight shaders
   [#64](https://github.com/vysokyj/orbis/issues/64), brick / MDL shaders
   [#21](https://github.com/vysokyj/orbis/issues/21), skin hue
   [#19](https://github.com/vysokyj/orbis/issues/19), eyes
