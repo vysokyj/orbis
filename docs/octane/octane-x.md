@@ -177,6 +177,12 @@ pure power (Calib-Skin, 2026-11-07).
   fake_shadows, refractionAlpha, bump, bumpHeight, normal, displacement,
   smooth, smoothShadowTerminator, roundEdges, priority, emission, matte,
   customAov…, layer. No `index4` (the export's IOR pin for glass, #9).
+- **Thin walls transmit unblurred in every material** (probe 136): the
+  roughness on Universal's Thin Wall (`transmissionType` 2), the Specular
+  material's (`thinWall`, IOR pin `ior`), Standard Surface's (`thinWall`,
+  `roughnessExtra` too) and OpenPBR's (`thinWall`; pins `transmission`,
+  `transmissionColor`, `roughness`, `ior`) blurs only the reflection.
+  Universal's Specular transmission at IOR 1 doesn't blur either.
 - **Daylight environment (14)** (probe 97): `sundir` (float3, default
   node 30 = sun direction; direction *towards* the sun), `turbidity` (2 –
   15, 2.4), `power` (1), `sunIntensity` (1, sun only), `northoffset` (−1 …

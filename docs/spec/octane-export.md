@@ -1363,8 +1363,9 @@ leaves out, #15):
   maps stay at power 1 (B5, B6, B8 match Iray at Normal Map 1).
 - **Thin-walled refraction with its own inputs** (Share Glossy Inputs off:
   the cornea, the tear film) takes the glossy layer's roughness, not the
-  refraction's — a thin wall's straight-through transmission doesn't blur
-  —, its Top Coat its own. Why: at the refraction's 0 the cornea mirrored
+  refraction's — Octane's Thin Wall transmission ignores roughness, so the
+  pin shapes only the reflection, which in Iray is the glossy layer's (see
+  **Thin Walled** under Refraction) —, its Top Coat its own. Why: at the refraction's 0 the cornea mirrored
   the room over the iris (a dark band across it, a hard highlight); at the
   gloss's 0.07 the iris shows Iray's veil — Calib-Eye pupil 0.43 → 0.89,
   iris 0.57 – 0.74 → 0.79 – 0.83 × Iray, sclera 0.97 / 1.13 (#20). Until
@@ -1742,6 +1743,26 @@ leaves out, #15):
   Hair's strands (thin-walled, refraction 0.106) lost their whole gloss in
   Faithful - Calib-Strand-T2-Dome's C5 / D5 0.36 / 0.44 x Iray, with the
   gloss 0.62 / 0.56 as Enhanced (#79).
+  **The view through a rough thin wall stays sharp** — a known limit,
+  not a rule: Iray blurs it, Octane can't (#136). DAZ's `refraction_base`
+  transmits through `simple_glossy_bsdf` at the glossy (or its own)
+  roughness whether thin-walled or not, and Iray 2021.0 dropped the × 7
+  on the Phong exponent it used to give thin-walled transmission (release
+  notes): Calib-MetalRefr's R2 (glossy roughness 0.2) shows the floor's
+  back edge smeared away. Octane renders every thin-walled transmission
+  unblurred (probe 136): Universal's Thin Wall at pin 0.2 and 0.5 (the
+  manual: "no roughness for transmission"), Universal's Specular
+  transmission at IOR 1 (microfacets between equal media don't scatter;
+  at 1.05 it bends like a lens), the Specular material's `thinWall`,
+  Standard Surface's `thinWall` with `roughnessExtra` 0.5, OpenPBR's
+  `thinWall` at roughness 0.5. Calib-MetalRefr's X4 (0.88 × Iray, 0.67
+  without the glossy layer, its neighbours 1.10 – 1.14) is that blur: it
+  sits before the floor's corner, its deficit is in the quarter that
+  sees the floor (0.78 / 0.55), and Octane's straight-through background
+  Gaussian-blurred (σ 16 px, a check, not a rule) brings -g0's X4 to
+  0.94 × Iray (pixel rms 17 → 5.5 ‰); R2's edge wants σ 24 – 32 px (its
+  floor edge is farther behind: the blur is angular). Over an even
+  background (R2, X2) the blur moves the mean by ≤ 4 %.
   **Dispersion** (`dispersion_enable`: refraction and Abbe > 0, the .mi
   export) → `dispersion_coefficient_B` = Iray's Abbe number as is, in
   Universal's default dispersion mode 1 (Abbe number), not on thin walls.

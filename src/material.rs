@@ -3730,10 +3730,13 @@ impl Ocs<'_> {
         // "Share Glossy Inputs" is off, then its own (Calib-Glass: Refraction
         // Color and Roughness did nothing while shared; unshared, roughness
         // 0.3 frosted the sphere). Universal has one roughness: a mostly
-        // refractive surface gets the refraction's — unless thin-walled,
-        // whose straight-through transmission the roughness doesn't blur: it
-        // keeps the glossy layer's (the cornea and tear film: their sharp
-        // refraction's 0 mirrored the room over the iris, Calib-Eye #20).
+        // refractive surface gets the refraction's — unless thin-walled:
+        // Octane's Thin Wall transmission ignores roughness (every material,
+        // probe 136), so the pin shapes only the reflection, which in Iray
+        // is the glossy layer's (`refraction_base`'s Fresnel layer). Iray
+        // does blur the view through it (#136), Octane can't. The cornea
+        // and tear film: their sharp refraction's 0 mirrored the room over
+        // the iris, Calib-Eye #20.
         let own_refraction = refraction > 0.0 && mat.float("Share Glossy Inputs").unwrap_or(1.0) == 0.0;
         let refraction_rough = own_refraction && refraction >= 0.5 && !thin;
         let (rough_ch, rough, inverted) = if refraction_rough {
@@ -3772,8 +3775,8 @@ impl Ocs<'_> {
         if let Some(dl) = active_dual_lobe.filter(|_| !lobe2_free && rough_ch.and_then(|c| mat.image(c)).is_none()) {
             rough = dl.blended_roughness(rough);
         }
-        // A mostly refractive body (not thin-walled: its transmission
-        // doesn't blur) refracts through Beckmann (`GLASS_BRDF`), shared
+        // A mostly refractive body (not thin-walled: Octane's thin wall
+        // transmits unblurred whatever the lobe) refracts through Beckmann (`GLASS_BRDF`), shared
         // roughness or its own; other glosses by `phong_brdf` — Beckmann,
         // or GGX energy preserving when a dielectric lobe on the node (the
         // gloss unless the surface is all metal, lobe 2 of a dual lobe, a
