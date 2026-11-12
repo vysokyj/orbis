@@ -1824,3 +1824,22 @@ fn binary_layer_holds_what_the_text_one_says() {
     assert!(b.contains("def PointInstancer \"Hair_copies\""), "{b}");
     assert_eq!(a, b);
 }
+
+#[test]
+fn line_tessellation_sides_come_from_the_scene_modifier() {
+    let scene = |sides: Option<i64>| {
+        let modifiers = match sides {
+            Some(n) => json!([{"id": "Line Tessellation-1", "url": "#Line%20Tessellation", "parent": "#Hair%20A",
+                "extra": [{"type": "studio/modifier/line_tessellation"}, {"type": "studio_modifier_channels", "channels": [
+                    {"channel": {"id": "Viewport Line Tessellation Sides", "type": "int", "current_value": 0}},
+                    {"channel": {"id": "Render Line Tessellation Sides", "type": "int", "current_value": n}}]}]}]),
+            None => json!([{"id": "Smooth", "parent": "#Hair%20A", "extra": [{"type": "studio/modifier/smoothing"}]}]),
+        };
+        Library::new(vec![], json!({"scene": {"modifiers": modifiers}}))
+    };
+    // Prisms and ribbons are surfaces; one side or no modifier: Iray's fibres.
+    assert_eq!(mesh::line_tessellation_sides(&mut scene(Some(3)), "Hair A"), Some(3));
+    assert_eq!(mesh::line_tessellation_sides(&mut scene(Some(1)), "Hair A"), Some(1));
+    assert_eq!(mesh::line_tessellation_sides(&mut scene(None), "Hair A"), None);
+    assert_eq!(mesh::line_tessellation_sides(&mut scene(Some(3)), "Other"), None);
+}

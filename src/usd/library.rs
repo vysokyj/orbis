@@ -62,11 +62,13 @@ pub(super) struct Library {
     pub(super) uv_sets: HashMap<String, Option<Rc<UvSet>>>,
     /// The scene's image gammas (`daz_material::scene_image_gammas`), once.
     pub(super) image_gammas: Option<Rc<HashMap<String, f32>>>,
+    /// Meters per unit of DAZ's hair line widths (`Tuning::line_width_scale`).
+    pub(super) line_width_scale: f32,
 }
 
 impl Library {
     pub(super) fn new(dirs: Vec<PathBuf>, duf: Value) -> Self {
-        Library { dirs, duf, files: HashMap::new(), topologies: HashMap::new(), uv_sets: HashMap::new(), image_gammas: None }
+        Library { dirs, duf, files: HashMap::new(), topologies: HashMap::new(), uv_sets: HashMap::new(), image_gammas: None, line_width_scale: super::mesh::LINE_WIDTH_SCALE }
     }
 
     /// Split a DSON URL into (decoded file path, decoded fragment id); an

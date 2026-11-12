@@ -135,6 +135,10 @@ pub struct Material {
     pub open: bool,
     /// On strand hair (curves), not a mesh.
     pub strands: bool,
+    /// Strands DAZ hands Iray as its `hair` primitive (fibres): no Line
+    /// Tessellation, or one of fewer than 2 sides. Iray drops a surface
+    /// BSDF's transmission on them.
+    pub fibres: bool,
     /// A DAZ brick shader's MDL materials, as `module::name` (e.g.
     /// `nvidia::metal_examples::cast_iron`): what its graph renders with.
     pub mdl: Vec<String>,

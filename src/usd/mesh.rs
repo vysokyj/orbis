@@ -308,16 +308,43 @@ pub(super) struct Mesh {
 }
 
 /// Meters per unit of DAZ's hair line widths (`Line Start Width` /
-/// `Line End Width`, which DAZ labels in mm) — 2× that: Calib-Eye's
-/// close-up covers the background as Iray's at 2× (0.47 vs 0.43; 1× 0.28,
-/// 4× 0.63), and Calib-Hair's fringe and sides match Iray's fullness. The
-/// earlier 4× was fitted on guide-only strands (the missing PR hairs).
+/// `Line End Width`, which DAZ labels in mm) where no variant says
+/// otherwise (`Tuning::line_width_scale`) — 2× the unit, the width the
+/// Octane Hair material's shares were fitted at: Calib-Eye's close-up
+/// covers the background as Iray's at 2× (0.47 vs 0.43; 1× 0.28, 4× 0.63).
+/// Iray's own strands are 1× (DAZ's .mi, #79).
 pub(super) const LINE_WIDTH_SCALE: f32 = 0.002;
+
+/// The sides of DAZ's Line Tessellation modifier on a strand node at
+/// render time (`Render Line Tessellation Sides`: the scene's value, else
+/// a scene-local definition's; library files are read without their
+/// modifiers, so a value the scene leaves out counts as tessellated, as
+/// product hair is), None without the modifier. Under 2 sides
+/// DAZ hands Iray the strands as `hair` fibres, else as ribbons (2) or
+/// prisms (`make-strand-scenes.py`, DAZ's .mi).
+pub(super) fn line_tessellation_sides(lib: &mut Library, node_id: &str) -> Option<i64> {
+    const CHANNEL: &str = "Render Line Tessellation Sides";
+    let is_tessellation = |m: &Value| m.get("extra").and_then(Value::as_array).into_iter().flatten().any(|e| e.get("type").and_then(Value::as_str) == Some("studio/modifier/line_tessellation"));
+    let sides = |m: &Value, key: &str| {
+        m.get("extra").and_then(Value::as_array).into_iter().flatten().filter_map(|e| e.get("channels").and_then(Value::as_array)).flatten().find_map(|c| {
+            let c = c.get("channel")?;
+            (c.get("id").and_then(Value::as_str) == Some(CHANNEL)).then(|| c.get(key).and_then(Value::as_i64)).flatten()
+        })
+    };
+    let modifier = lib.duf.pointer("/scene/modifiers").and_then(Value::as_array).into_iter().flatten().find(|m| is_tessellation(m) && ref_id(m.get("parent")).as_deref() == Some(node_id)).cloned()?;
+    if let Some(n) = sides(&modifier, "current_value") {
+        return Some(n);
+    }
+    let def = modifier.get("url").and_then(Value::as_str).and_then(|u| lib.entry(u, "modifier_library"));
+    Some(def.as_ref().and_then(|d| sides(d, "current_value").or_else(|| sides(d, "value"))).unwrap_or(2))
+}
 
 /// One `Mesh` (curves) per material group of a strand-hair figure, its
 /// strands' widths tapering from root to tip as DAZ's hair shader sets them.
 pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DumpNode, names: &mut HashSet<String>) -> Vec<Mesh> {
     let materials = scene_materials(lib, &n.instance_id);
+    let fibres = line_tessellation_sides(lib, &n.id).is_none_or(|sides| sides < 2);
+    let scale = lib.line_width_scale;
     let mut by_group: Vec<Vec<&Vec<u32>>> = vec![Vec::new(); fig.material_groups.len().max(1)];
     for (k, strand) in fig.polylines.iter().enumerate() {
         let g = fig.polyline_materials.get(k).copied().unwrap_or(0) as usize;
@@ -332,7 +359,7 @@ pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DumpNode, names:
         }
         let group = fig.material_groups.get(g).cloned().unwrap_or_else(|| "Hair".into());
         let mat = materials.get(&group).cloned();
-        let width = |id: &str, default: f32| mat.as_ref().and_then(|m| m.float(id)).unwrap_or(default) * LINE_WIDTH_SCALE;
+        let width = |id: &str, default: f32| mat.as_ref().and_then(|m| m.float(id)).unwrap_or(default) * scale;
         let (root, tip) = (width("Line Start Width", 0.1), width("Line End Width", 0.05));
         let mut mesh = Mesh {
             label: format!("{} {group}", n.label),
@@ -350,7 +377,7 @@ pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DumpNode, names:
             mesh.face_counts.push(s.len() as u32);
         }
         mesh.subsets = vec![(group, (0..strands.len() as u32).collect())];
-        mesh.materials = vec![mat.map(|m| Rc::new(crate::daz_material::Material { strands: true, ..(*m).clone() }))];
+        mesh.materials = vec![mat.map(|m| Rc::new(crate::daz_material::Material { strands: true, fibres, ..(*m).clone() }))];
         mesh.curve_widths = Some(widths);
         out.push(mesh);
     }

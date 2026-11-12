@@ -58,7 +58,11 @@ Weight) over a hair-coloured glossy (Glossy Layer Weight) over a
 `diffuse_transmission_bsdf` in the Transmission Color, by plain weights. On
 untessellated fibres (Iray `hair`) the transmission is lost (black, also
 Uber's translucency); on tessellated strands (ribbons, prisms) it passes
-(Calib-Strand-UberT / -T3, #79). DAZ sometimes fails to re-import the
+(Calib-Strand-UberT / -T3, #79). The glossies (Anisotropy 1 by default)
+are sharp across the strand and flat along it, on fibres and prisms
+alike; a prism's flat faces return 0 - 0.24 of what a fibre does to a
+front camera under a 45° sun (Calib-Strand-UberG / -T3: Uber's weighted
+gloss at Glossy Anisotropy 1, Rotations 0.25 is the same lobe). DAZ sometimes fails to re-import the
 module for a later scene of a session: the material renders black (#94).
 
 ### Strand geometry as Iray gets it

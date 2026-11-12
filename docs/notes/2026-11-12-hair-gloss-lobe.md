@@ -3,7 +3,7 @@
 Follows [hair shader parts](2026-11-11-hair-shader-parts.md). A first
 Faithful mapping (the MDL's layers as two Mix materials: a metal per
 glossy over a Universal with the diffuse transmission, strands at 1×
-width; not committed) rendered against Iray.
+width) rendered against Iray.
 
 ## 1. The layers on fibres
 
@@ -76,12 +76,35 @@ Faithful exports, Octane / Iray:
   same way (UberG rot 0: 0.37 / 0.21 / 0.21 on fibres, vertical lit where
   Iray's is dark): existing code, same cause.
 
+## 5. The measured share (the user's choice of three)
+
+Prism meshes, a measured share, or no gloss lobes: the share. Iray's
+strands over the export's rough metal on curves, white gloss alone: fibres
+0.49 / 0.52 / 0.53 / 0.71 (G / H / I / J), prisms 0 / 0.08 / 0.13 / 0.08 →
+`HAIR_FIBRE_GLOSS_SHARE` 0.55, `HAIR_PRISM_GLOSS_SHARE` 0.10, on the
+metals' colours (the Mix weights stay: scaled weights would hand the
+difference to the transmission). Octane / Iray after it:
+
+- fibres: Calib-Strand-Hair whole 1.11 / 1.01 / 0.99 / 0.91, gloss alone
+  1.24 / 1.05 / 1.06 / 0.93, highlight 1.02 / 0.93 / 0.88 / 0.85; -HairW
+  white gloss 1.12 / 1.00 / 0.88 / 0.81, 0.5 of it 1.10 / 0.96 / 0.92 /
+  0.86;
+- prisms (-HairW-T3 against the Uber stand-ins): white gloss - / 1.53 /
+  0.75 / 1.65, gloss 0.5 over white transmission 0.94 / 0.70 / 0.43 / 0.67.
+  The dense patch shows the price: a dimmed metal absorbs what Iray's
+  gloss sends on into the hair. With the full metal that column was 3.0 /
+  2.3 / 1.7 / 2.5.
+- Calib-Hair (faithful-final, 256 samples, 1× width): crown 0.84 (RGB
+  0.78 / 0.85 / 0.91), top tuft 1.01, side 0.95; the crown's r / g 1.13
+  (Iray 1.23, the Hair material at 2× 1.01). Calib-Eye: lashes and brows
+  read as Iray's, the brows a little lighter.
+
 ## Left
 
-- How Faithful renders the glossy lobes of tessellated hair: round curves
-  cannot draw a flat-faced, flat-along lobe. Prism meshes instead of
-  curves, a measured prism share on the metal, or leaving the lobes out
-  (6 % on Calib-Hair) - undecided.
+- The share's two weak points: energy (the dimmed metal absorbs in deep
+  hair) and direction (DAZ's prisms all face one way; one sun measured).
+  UberG-T3 under the dome, the side and the back sun would say.
+- The export's Uber weighted anisotropic gloss on strands (section 4).
 - Clean references of the hair shader itself on prisms (#94).
 
 ## Process

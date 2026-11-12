@@ -69,6 +69,8 @@ field of `Tuning`, set per variant in one table (`Variant::tuning`,
 | `daylight_power` | 2.7 | 2.864 | 2.7 | 2.864 |
 | `daylight_extinction` | 0 | 0.200 | 0 | 0.200 |
 | `max_transmission` | 1 | 1 | 0.75 | 0.75 |
+| `strand_hair` | Hair material | the MDL's layers | Hair material | Hair material |
+| `line_width_scale` | 0.002 (2×) | 0.001 (1×) | 0.002 | 0.002 |
 
 Calibrated on the same 17 scenes in each variant (lights, Sun-Sky at
 18:00, noon and steered, HDRI, tone, PBRSkin, Glossy, SSS, Glass, Mixing,
@@ -314,16 +316,25 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   Clothing refines with the figure and isn't touched.
 - **Strand hair** from the dump's `polylines` as one `BasisCurves` per
   material group, per-vertex `widths` tapering `Line Start Width` →
-  `Line End Width` (DAZ labels them mm), at **2× that** (`LINE_WIDTH_SCALE`
-  = 0.002 m per unit). Why: on Calib-Eye's close-up the strands cover the
-  background as Iray's at 2× (0.47 vs Iray's 0.43; 1×: 0.28, 4×: 0.63), and
-  Calib-Hair's fringe and sides match Iray's fullness (0.98 / 1.13 before
-  the albedo refit below, 0.65–0.93 after it); at 1× the sky shows through
-  (grey-blue hair). The earlier 4× was fitted on
-  guide-only strands — it made the strands visibly thick close up (#16).
-  Iray's own strands are 1× (DAZ's .mi: fibre radius, ribbon width and
-  prism size all follow the width in mm), so the 2× is a fit against
-  Iray's shapes (flat ribbons, prisms), not a unit (#79).
+  `Line End Width` (DAZ labels them mm) × `Tuning::line_width_scale`:
+  **1×** (0.001 m per unit) in Faithful + Final, **2×** in the other
+  variants. Why 1×: Iray's own strands are 1× (DAZ's .mi: fibre radius,
+  ribbon width and prism size all follow the width in mm; strand counts
+  equal the dump's), and on sparse patches Iray's coverage follows 1×
+  down to 0.15 px, Octane's curves against Iray's fibres 0.91 – 1.00 at
+  equal width (#79, notes 2026-11-11 strand width). Why 2× elsewhere: the
+  Hair material's albedo shares (below) were fitted at it — on Calib-Eye's
+  close-up a 15 % contrast threshold "covered" the background as Iray's at
+  2× (0.47 vs 0.43; 1×: 0.28, 4×: 0.63); it stays until that material's
+  inputs are redone (#79). The earlier 4× was fitted on guide-only strands
+  (#16).
+- **Line Tessellation**: the scene's modifier on the strand node (`Render
+  Line Tessellation Sides`) says how DAZ hands the strands to Iray: fewer
+  than 2 sides or no modifier → Iray's `hair` fibres (`Material::fibres`),
+  else ribbons (2) or prisms. The export always writes round curves; the
+  flag only steers the hair shader's layers (dForce hair, Faithful). A
+  value the scene leaves out counts as tessellated (library files are
+  read without their modifiers).
 - A `Material` per (mesh, group) under `/Scene/Materials/<mesh>_<group>` (a
   constant `UsdPreviewSurface`) — overridden by the Octane material inputs
   below.
@@ -2560,6 +2571,9 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
 
 ### dForce hair — Hair material (147)
 
+(`Tuning::strand_hair` = Hair material: every variant but Faithful +
+Final, whose mapping follows below.)
+
 albedo = 0.046 × the hair colour + 0.110 × the transmission colour
 (`HAIR_COLOUR_SHARE`, `HAIR_TRANSMISSION_SHARE`; each its map's linear
 mean × tint), at the root (Hair Root / Root Transmission Color) and at the
@@ -2618,6 +2632,62 @@ blond; -tipbg: + bias 0.2 / gain 0.7; local): hair mean 0.94 / 0.92 ×
 Iray in luminance, the dark crown 1.20 / 1.19 ×, the blond top tuft 1.03 /
 1.03 × (linear medians); tipbg / tip in Octane 0.98 × Iray's ratio (hair
 mean; crown 0.75 vs 0.80) — the bent blend lands where Iray's does.
+
+#### Faithful + Final: the MDL's layers (#79)
+
+`dual_lobe_hair.mdl` is no hair BSDF: `weighted_layer`(Highlight Weight,
+a glossy in the highlight colour, `weighted_layer`(Glossy Layer Weight, a
+glossy in the hair colour, the base)), the base DAZ wires in a
+`diffuse_transmission_bsdf` tinted by the Transmission Color — plain
+weights, no Fresnel, no diffuse reflection. Written as that
+(`Ocs::hair_layers`):
+
+- two **Mix materials** (19), `amount` = Highlight Weight, then Glossy
+  Layer Weight; `material1` each a Universal metal in the layer's colour to
+  the edge (as weighted mixing's gloss), `material2` what lies under it;
+- the base a Universal with albedo and specular 0, **`transmission`** =
+  the Transmission Color, `transmissionType` 1 (diffuse);
+- every colour root → tip along the strand (the Gradient on W above);
+- roughness: the MDL's (channel squared, `conditional_square_roughness`)
+  through `anisotropy_conversion` with Anisotropy (default 1) on the Phong
+  curve, as Uber's gloss; Cutout Opacity on each node; `separation` has no
+  pin.
+- **Fibres** (no tessellation): no transmission, a black base. Why: Iray
+  drops a surface BSDF's transmission on its `hair` primitive
+  (Calib-Strand-UberT, -HairW: exactly black; prisms pass it).
+- **The glossies' colours × a measured share**: 0.10 on tessellated
+  strands (`HAIR_PRISM_GLOSS_SHARE`), 0.55 on fibres
+  (`HAIR_FIBRE_GLOSS_SHARE`). Why: the lobe is sharp across the strand and
+  flat along it (Anisotropy 1), and Octane applies no anisotropy on curves
+  (`rotation`, a negative `anisotropyTexture`: the same picture), so the
+  metal there is rough both ways. Iray's fibres return 0.49 / 0.52 / 0.53
+  / 0.71 of that (thick strand / sparse / dense / vertical;
+  Calib-Strand-HairW, -UberG), its prisms — three flat faces, each one
+  fan — 0 / 0.08 / 0.13 / 0.08 (Calib-Strand-UberG-T3: Uber's weighted
+  gloss, the same MDL lobe, equal to the hair shader's on fibres within
+  4 %). The weights stay, so the transmission keeps its share.
+
+Checked, Octane / Iray (linear luminance per object; Calib-Strand rows:
+thick, sparse, dense, sparse vertical):
+
+| | thick | sparse | dense | vertical |
+|---|---|---|---|---|
+| prisms, white transmission (vs UberT-T3) | 1.12 | 1.23 | 1.25 | 0.99 |
+| prisms, transmission 0.5 | 1.16 | 1.10 | 1.07 | 0.85 |
+| prisms, white gloss alone (vs UberG-T3) | (Iray ≈ 0) | 1.53 | 0.75 | 1.65 |
+| prisms, gloss 0.5 over white transmission | 0.94 | 0.70 | 0.43 | 0.67 |
+| fibres, whole shader at Calib-Hair's values | 1.11 | 1.01 | 0.99 | 0.91 |
+| fibres, hair gloss / highlight alone | 1.24 / 1.02 | 1.05 / 0.93 | 1.06 / 0.88 | 0.93 / 0.85 |
+| fibres, white gloss / 0.5 of it | 1.12 / 1.10 | 1.00 / 0.96 | 0.88 / 0.92 | 0.81 / 0.86 |
+
+**Calib-Hair** (dForce Corporate Hair, prisms; local): crown 0.84 (R / G /
+B 0.78 / 0.85 / 0.91), top tuft 1.01, side 0.95 × Iray; r / g on the
+crown 1.13 against Iray's 1.23 (the Hair material's: 1.01). Open (#79):
+the share dims the metal, so light Iray's gloss sends on between the
+strands is absorbed — a heavy gloss over the transmission, many strands
+deep, falls to 0.43; and DAZ's prisms all face one way, so the share was
+measured under one sun (45°, front). The clean references of the hair
+shader itself on prisms wait on #94 (Uber stood in).
 
 **OmniHair** ("OmniHair Root-Tip Blend", a brick graph on
 `OmniSurface::OmniHairBase`: Chiang's hair BSDF, as Octane's Hair is) →
