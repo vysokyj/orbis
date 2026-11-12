@@ -69,8 +69,8 @@ field of `Tuning`, set per variant in one table (`Variant::tuning`,
 | `daylight_power` | 2.7 | 2.864 | 2.7 | 2.864 |
 | `daylight_extinction` | 0 | 0.200 | 0 | 0.200 |
 | `max_transmission` | 1 | 1 | 0.75 | 0.75 |
-| `strand_hair` | Hair material | the MDL's layers | Hair material | Hair material |
-| `line_width_scale` | 0.002 (2×) | 0.001 (1×) | 0.002 | 0.002 |
+| `strand_hair` | Hair material, pile albedo | the MDL's layers | Hair material, fitted shares | Hair material, fitted shares |
+| `line_width_scale` | 0.001 (1×) | 0.001 (1×) | 0.002 (2×) | 0.002 (2×) |
 
 Calibrated on the same 17 scenes in each variant (lights, Sun-Sky at
 18:00, noon and steered, HDRI, tone, PBRSkin, Glossy, SSS, Glass, Mixing,
@@ -317,13 +317,12 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
 - **Strand hair** from the dump's `polylines` as one `BasisCurves` per
   material group, per-vertex `widths` tapering `Line Start Width` →
   `Line End Width` (DAZ labels them mm) × `Tuning::line_width_scale`:
-  **1×** (0.001 m per unit) in Faithful + Final, **2×** in the other
-  variants. Why 1×: Iray's own strands are 1× (DAZ's .mi: fibre radius,
+  **1×** (0.001 m per unit) in Final, **2×** in Preview. Why 1×: Iray's own strands are 1× (DAZ's .mi: fibre radius,
   ribbon width and prism size all follow the width in mm; strand counts
   equal the dump's), and on sparse patches Iray's coverage follows 1×
   down to 0.15 px, Octane's curves against Iray's fibres 0.91 – 1.00 at
-  equal width (#79, notes 2026-11-11 strand width). Why 2× elsewhere: the
-  Hair material's albedo shares (below) were fitted at it — on Calib-Eye's
+  equal width (#79, notes 2026-11-11 strand width). Why 2× in Preview: the
+  Hair material's fitted albedo shares (below) were fitted at it — on Calib-Eye's
   close-up a 15 % contrast threshold "covered" the background as Iray's at
   2× (0.47 vs 0.43; 1×: 0.28, 4×: 0.63); it stays until that material's
   inputs are redone (#79). The earlier 4× was fitted on guide-only strands
@@ -2571,8 +2570,9 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
 
 ### dForce hair — Hair material (147)
 
-(`Tuning::strand_hair` = Hair material: every variant but Faithful +
-Final, whose mapping follows below.)
+(`Tuning::strand_hair`. This section's fitted shares: the two Preview
+variants. Enhanced + Final keeps the Hair material with the pile albedo,
+Faithful + Final writes the MDL's layers — both below.)
 
 albedo = 0.046 × the hair colour + 0.110 × the transmission colour
 (`HAIR_COLOUR_SHARE`, `HAIR_TRANSMISSION_SHARE`; each its map's linear
@@ -2632,6 +2632,48 @@ blond; -tipbg: + bias 0.2 / gain 0.7; local): hair mean 0.94 / 0.92 ×
 Iray in luminance, the dark crown 1.20 / 1.19 ×, the blond top tuft 1.03 /
 1.03 × (linear medians); tipbg / tip in Octane 0.98 × Iray's ratio (hair
 mean; crown 0.75 vs 0.80) — the bent blend lands where Iray's does.
+
+#### Enhanced + Final: the pile albedo (#79)
+
+Octane's Hair (a fibre BSDF: its own reflection, the light through the
+strand, the backlit glow) stays; its inputs come from the shader's MDL
+instead of fitted shares:
+
+- **what one strand scatters** (`hair_strand_albedo`): the two glossies
+  reflect ρ = hw · highlight + (1 − hw) · gw · hair colour; the rest
+  enters through the diffuse transmission, w = (1 − hw)(1 − gw), tinted,
+  and meets the strand's far side from within, where the same layers
+  send it out (w · tint again) or back in (ρ): A = ρ + (w · tint)² / (1 −
+  ρ). Why tint²: a single thick prism in Iray returns 0.25 – 0.27 of a
+  white one at tint 0.5, 0.36 – 0.37 at 0.60, 0.56 – 0.59 at 0.76
+  (Calib-Strand-UberT-T3). On Iray's fibres (no tessellation) the
+  transmission is lost: A = ρ.
+- **`albedo`** = the reflectance of a deep pile of scatterers of that
+  albedo (`pile_reflectance`: van de Hulst's similarity form, isotropic,
+  s = √(1 − A), (1 − s)(1 − 0.139 s) / (1 + 1.17 s)) — Octane's Hair
+  albedo is the colour after many bounces. Why: Iray's dense patch returns
+  0.094 / 0.142 / 0.280 of its white one at A 0.25 / 0.36 / 0.58, the
+  form's 0.059 / 0.092 / 0.182 × 1.54 – 1.59 throughout (3000 strands are
+  not a deep pile: the white patch lets light out of its back); Octane's
+  Hair on the same patch returns 1.3 – 1.9 × its albedo of its white one.
+  Root and tip each, blended along the strand as above.
+- **`specular`** 1. Why: it scales every lobe of the Hair material, not
+  its reflection (at 0 the hair is black whatever the albedo); as the
+  glossy weight (0.29 on Calib-Hair) it was the hair's overall brightness.
+- roughness both ways from `base_roughness`, as before; width 1×.
+- No albedo matches Iray strand by strand: one white Iray strand equals
+  Hair at albedo ≈ 0.2 on a sparse patch and ≈ 0.7 on a dense one — the
+  fibre BSDF forwards light where Iray's diffuse transmission spreads it.
+  The pile is what a head of hair shows.
+
+**Calib-Hair** (local): crown 1.45, top tuft 1.22, side 1.65 × Iray; r / g
+1.25 / 0.86 / 1.27 against Iray's 1.23 / 0.85 / 1.21 (the fitted shares
+at 2×: 1.01 on the crown). The hue is the derivation's; the level is
+Octane's own (its reflection on top of the albedo, light forwarded
+through the sides) and is left: subtracting the material's reflection at
+albedo 0 (0.025 in albedo units) lowered it to 1.31 / 1.18 / 1.54 and
+reddened the crown to r / g 1.32. Calib-Eye's lashes and brows read as
+Iray's.
 
 #### Faithful + Final: the MDL's layers (#79)
 

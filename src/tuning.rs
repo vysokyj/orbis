@@ -127,8 +127,8 @@ impl Variant {
                 daylight_power: SUN_SKY_POWER,
                 daylight_extinction: 0.0,
                 max_transmission: 1.0,
-                strand_hair: StrandHair::OctaneHair,
-                line_width_scale: 0.002,
+                strand_hair: StrandHair::HairPile,
+                line_width_scale: 0.001,
             },
             (Faithful, Final) => Tuning {
                 kernel: Kernel::PathTracing,
@@ -193,8 +193,9 @@ mod tests {
                 let t = Variant::new(look, mode).tuning();
                 let layers = (look, mode) == (Look::Faithful, OctaneMode::Final);
                 assert_eq!(t.strand_hair == StrandHair::MdlLayers, layers, "{look:?} {mode:?}");
-                // The Hair material's shares were fitted at 2x.
-                assert_eq!(t.line_width_scale, if layers { 0.001 } else { 0.002 }, "{look:?} {mode:?}");
+                // The Hair material's fitted shares (Preview) were fitted at 2x.
+                assert_eq!(t.strand_hair == StrandHair::OctaneHair, mode == OctaneMode::Preview, "{look:?} {mode:?}");
+                assert_eq!(t.line_width_scale, if mode == OctaneMode::Final { 0.001 } else { 0.002 }, "{look:?} {mode:?}");
             }
         }
     }

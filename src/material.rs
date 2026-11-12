@@ -3134,12 +3134,15 @@ impl Ocs<'_> {
         let (tip, tip_t) = (colour("Hair Tip Color"), colour("Tip Transmission Color"));
         let (hl_root, hl_tip) = (colour("Highlight Root Color"), colour("Tip Highlight Color"));
         let hw = mat.float("Highlight Weight").unwrap_or(0.11).clamp(0.0, 1.0);
-        let albedo = |c: [f32; 3], t: [f32; 3], h: [f32; 3]| hair_albedo(c, t, h, hw);
+        let pile = self.strand_hair == StrandHair::HairPile;
+        let gloss = mat.float("Glossy Layer Weight").unwrap_or(if pile { 0.5 } else { 1.0 }).clamp(0.0, 1.0);
+        let albedo = |c: [f32; 3], t: [f32; 3], h: [f32; 3]| if pile { hair_pile_albedo(c, t, h, hw, gloss, mat.fibres) } else { hair_albedo(c, t, h, hw) };
         self.value_pin(i, "hairMode", 57, 2, "0"); // albedo
         let (bias, gain) = (mat.float("Root To Tip Bias").unwrap_or(0.5), mat.float("Root to Tip Gain").unwrap_or(0.5));
         self.hair_albedo_pin(i, albedo(root, root_t, hl_root), albedo(tip, tip_t, hl_tip), bias, gain);
-        let gloss = mat.float("Glossy Layer Weight").unwrap_or(1.0).clamp(0.0, 1.0);
-        self.rgb_pin(i, "specular", [0, 1, 2].map(|k| (1.0 - hw) * gloss + hw * 0.5 * (hl_root[k] + hl_tip[k])));
+        // `specular` scales every lobe of Octane's Hair, not its
+        // reflection: with the pile albedo it stays whole.
+        self.rgb_pin(i, "specular", if pile { [1.0; 3] } else { [0, 1, 2].map(|k| (1.0 - hw) * gloss + hw * 0.5 * (hl_root[k] + hl_tip[k])) });
         let rough = mat.float("base_roughness").unwrap_or(0.2).clamp(0.0, 1.0);
         self.float_pin(i, "roughness", rough);
         self.float_pin(i, "roughnessV", rough);
@@ -3310,7 +3313,7 @@ impl Ocs<'_> {
         if mat.channel("Hair Root Color").is_some() {
             return match self.strand_hair {
                 StrandHair::MdlLayers => self.hair_layers(indent, name, mat),
-                StrandHair::OctaneHair => self.hair(indent, name, mat),
+                StrandHair::OctaneHair | StrandHair::HairPile => self.hair(indent, name, mat),
             };
         }
         if let Some(metal) = mdl_metal(mat) {
@@ -4679,6 +4682,41 @@ fn hair_albedo(hair: [f32; 3], transmission: [f32; 3], highlight: [f32; 3], high
     let hw = highlight_weight;
     [0, 1, 2].map(|k| (1.0 - hw) * (HAIR_COLOUR_SHARE * hair[k] + HAIR_TRANSMISSION_SHARE * transmission[k]) + hw * HAIR_HIGHLIGHT_SHARE * highlight[k])
 }
+/// What one strand of Blended Dual Lobe Hair scatters of the light that
+/// meets it, by the shader's MDL (`dual_lobe_hair.mdl`, plain weights): the
+/// two glossies reflect ρ = hw · highlight + (1 − hw) · gw · hair; the rest
+/// enters through the diffuse transmission, w = (1 − hw)(1 − gw), tinted,
+/// and meets the strand's far side from within, where the same layers send
+/// it out (w · tint again) or back in (ρ): (w · tint)² / (1 − ρ). A single
+/// thick prism in Iray returns tint² of a white one (Calib-Strand-UberT-T3:
+/// 0.25 – 0.27 at 0.5, 0.36 – 0.37 at 0.60, 0.56 – 0.59 at 0.76). Iray's
+/// fibres lose the transmission.
+fn hair_strand_albedo(hair: [f32; 3], transmission: [f32; 3], highlight: [f32; 3], hw: f32, gw: f32, fibres: bool) -> [f32; 3] {
+    [0, 1, 2].map(|k| {
+        let rho = (hw * highlight[k] + (1.0 - hw) * gw * hair[k]).clamp(0.0, 1.0);
+        let through = (1.0 - hw) * (1.0 - gw) * transmission[k];
+        let passed = if fibres || rho >= 1.0 { 0.0 } else { through * through / (1.0 - rho) };
+        (rho + passed).clamp(0.0, 1.0)
+    })
+}
+
+/// Octane's Hair `albedo` is the hair's colour after many bounces: the
+/// reflectance of a deep pile of scatterers of single-scattering albedo
+/// `a`, isotropic (van de Hulst's similarity form, s = √(1 − a)). Iray's
+/// dense patch follows it: 0.094 / 0.142 / 0.280 of the white patch at
+/// strand albedos 0.25 / 0.36 / 0.58, the form's 0.059 / 0.092 / 0.182 ×
+/// 1.54 – 1.59 (the white patch, 3000 strands, isn't deep enough to
+/// return everything).
+fn pile_reflectance(a: f32) -> f32 {
+    let s = (1.0 - a.clamp(0.0, 1.0)).sqrt();
+    (1.0 - s) * (1.0 - 0.139 * s) / (1.0 + 1.17 * s)
+}
+
+/// The Hair albedo at one end of the strand under `StrandHair::HairPile`.
+fn hair_pile_albedo(hair: [f32; 3], transmission: [f32; 3], highlight: [f32; 3], hw: f32, gw: f32, fibres: bool) -> [f32; 3] {
+    hair_strand_albedo(hair, transmission, highlight, hw, gw, fibres).map(pile_reflectance)
+}
+
 /// Segments that sample DAZ's root-to-tip blend into the Hair albedo's
 /// Gradient when its bias / gain bend it (`hair_albedo_pin`).
 const HAIR_BLEND_POINTS: usize = 16;
@@ -5649,9 +5687,13 @@ impl From<&crate::tuning::Tuning> for Shading {
 /// How DAZ's Blended Dual Lobe Hair renders on strands.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum StrandHair {
-    /// Octane's Hair material (147), a fibre BSDF: `Ocs::hair`.
+    /// Octane's Hair material (147), a fibre BSDF, its albedo two fitted
+    /// shares of the shader's colours at 2x strand width: `Ocs::hair`.
     #[default]
     OctaneHair,
+    /// Octane's Hair material, its albedo the colour a deep pile of the
+    /// shader's strands shows (`hair_pile_albedo`): `Ocs::hair`.
+    HairPile,
     /// The shader's own three layers, as DAZ's MDL stacks them, on
     /// Universal materials: `Ocs::hair_layers`.
     MdlLayers,
@@ -8416,6 +8458,33 @@ mod tests {
         assert!(!f.contains("<pin name='transmission'>") && f.matches("type='130'").count() == 3, "{f}");
         // The default shading keeps Octane's Hair.
         assert!(material_inputs(&[("Hair".into(), mat(chs), 0.0)], &[], HashMap::new(), 4000, SkinShader::None).0.contains("type='147'"));
+    }
+
+    #[test]
+    fn hair_pile_albedo_follows_the_strand_s_energy() {
+        // A white strand scatters everything: a white pile. Gloss alone
+        // (no transmission): its weight is the strand's albedo.
+        let (w, k) = ([1.0f32; 3], [0.0f32; 3]);
+        assert!((hair_strand_albedo(w, w, w, 0.0, 0.5, false)[0] - 1.0).abs() < 1e-6);
+        assert!((hair_strand_albedo(w, k, w, 0.0, 0.25, false)[0] - 0.25).abs() < 1e-6);
+        // The transmission's tint counts twice (in and out): 0.5 -> 0.25.
+        assert!((hair_strand_albedo(k, [0.5; 3], k, 0.0, 0.0, false)[0] - 0.25).abs() < 1e-6);
+        // Iray's fibres lose it.
+        assert_eq!(hair_strand_albedo(k, w, k, 0.0, 0.0, true), [0.0; 3]);
+        assert!((pile_reflectance(1.0) - 1.0).abs() < 1e-6 && pile_reflectance(0.0) == 0.0);
+        assert!((pile_reflectance(0.25) - 0.0586).abs() < 1e-3, "{}", pile_reflectance(0.25));
+        // In the export: no fitted shares, the whole specular.
+        let hair = Rc::new(Material { strands: true, ..(*mat(json!([
+            {"channel": {"id": "Hair Root Color", "current_value": [0, 0, 0]}},
+            {"channel": {"id": "Hair Tip Color", "current_value": [0, 0, 0]}},
+            {"channel": {"id": "Root Transmission Color", "current_value": [1, 1, 1]}},
+            {"channel": {"id": "Tip Transmission Color", "current_value": [1, 1, 1]}},
+            {"channel": {"id": "Highlight Weight", "current_value": 0.0}},
+            {"channel": {"id": "Glossy Layer Weight", "current_value": 0.5}},
+        ]))).clone() });
+        let x = material_inputs(&[("Hair".into(), hair, 0.0)], &[], HashMap::new(), 4000, Shading { strand_hair: StrandHair::HairPile, ..Shading::default() }).0;
+        let a = pile_reflectance(0.25);
+        assert!(x.contains("type='147'") && x.contains(&format!(">{0} {0} {0}<", num(a))) && x.contains(">1 1 1<"), "{x}");
     }
 
     #[test]

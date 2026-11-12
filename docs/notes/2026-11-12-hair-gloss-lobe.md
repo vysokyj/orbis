@@ -164,12 +164,39 @@ Hair at albedo about 0.2 on the sparse row and about 0.7 on the dense one:
 no albedo maps Iray's strand onto Hair's at every depth - the fibre BSDF
 forwards light where Iray's diffuse transmission spreads it.
 
+## 8. Enhanced: the pile albedo
+
+From section 7, no albedo equals Iray's strand at every depth, so the
+albedo takes the meaning Octane gives it: the colour after many bounces.
+
+- Iray's strand, from the transmission columns of Calib-Strand-UberT-T3
+  per channel (white, 0.5, blond = 0.76 / 0.60 / 0.49 linear), R / R white:
+  thick prism 0.27 / 0.37 / 0.59 at tint 0.5 / 0.60 / 0.76 - tint², in and
+  out; sparse 0.24 / 0.33 / 0.53; dense 0.094 / 0.142 / 0.280; vertical
+  0.26 / 0.36 / 0.56.
+- Strand albedo A = ρ + (w · tint)² / (1 − ρ) (ρ the glossies, w the
+  transmission's weight; the far side reflects back in by ρ).
+- Dense against van de Hulst's isotropic pile at A = tint²: 0.059 / 0.092
+  / 0.182, measured 1.59 / 1.54 / 1.54 × that - one factor, the white
+  patch's finite depth. Octane's Hair on the patch: albedo 0.1 / 0.25 /
+  0.5 return 0.16 - 0.25 / 0.38 - 0.51 / 0.76 - 0.78 of its white.
+- So `albedo` = pile(A), `specular` 1, width 1×. Calib-Hair (enhanced-
+  final, 256 samples): crown 1.45, top tuft 1.22, side 1.65 × Iray, r / g
+  1.25 / 0.86 / 1.27 (Iray 1.23 / 0.85 / 1.21).
+- Tried and dropped: the Hair material's own reflection subtracted from
+  the albedo (albedo 0 returns 0.031 / 0.053 of the white dense patch
+  under the dome / front sun, 0.025 in albedo units): 1.31 / 1.18 / 1.54,
+  crown r / g 1.32 - redder than Iray for 10 % of level.
+
 ## Left
 
 - Direction: under one hard light the gloss lands where a round rough
   strand sends it (front sun 12 - 17 × on prisms' gloss alone, vertical
   strands under the dome 0.43 - 0.46). Prism meshes would draw it.
 - The export's Uber weighted anisotropic gloss on strands (section 4).
+- Enhanced's level on Calib-Hair (1.22 - 1.65); the two Preview variants
+  keep the fitted shares at 2×; Uber strand hair at 1× (its gloss rules
+  were fitted at 2×).
 - Clean references of the hair shader itself on prisms (#94).
 
 ## Process
