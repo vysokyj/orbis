@@ -60,7 +60,11 @@ The -UberT scenes hold the same rows with Iray Uber standing in for the
 shader's parts (materials 6 - 9: Translucency Weight 1 white / 0.5 / blond,
 and a glossy layer 0.25 over the blond): the export already writes Uber on
 strands as a Universal material, so they show what a Universal on curves
-does with a diffuse transmission.
+does with a diffuse transmission. The -UberG scenes do that for the
+shader's glossy lobe (materials 10 - 13, weighted mixing: a white gloss
+alone, anisotropy 1 along the hair shader's tangent / along Uber's own /
+isotropic, and 0.5 of it over a white translucency): Uber renders reliably
+where the hair shader's module fails to re-import (#94).
 
 How DAZ hands a polyline to Iray depends on the hair's Line Tessellation
 modifier (its .mi export reads the Viewport sides, the render the Render
@@ -80,7 +84,8 @@ Morgan's hair in Calib-Hair-Teens), Calib-Strand-Sparse / -Sparse-T2 /
 -HairW (the hair shader's sets as fibres), -Hair-T3 / -HairW-T3 (as prisms,
 dForce Corporate Hair's shape), -Hair-Back / -Hair-T3-Back (set `blond`,
 the sun turned behind the strands: what comes through them), -UberT /
--UberT-T3 (Uber's translucency on the same rows). Existing scenes are kept (--force
+-UberT-T3 (Uber's translucency on the same rows), -UberG / -UberG-T3
+(Uber's weighted gloss on them). Existing scenes are kept (--force
 rewrites them); written to "My Library/Scenes" and copied into
 calib/scenes. --tess-probe <dir> writes row A at several sides into <dir>
 (scratch, for the .mi). --mohawk <DAZ library> writes Calib-Mi-Mohawk-T2
@@ -146,6 +151,8 @@ MORGAN_BASE = {'Diffuse Overlay Weight': 0.05, 'Diffuse Overlay Weight Squared':
                'Translucency Color': [0.8039216, 0.7647059, 0.6862745], 'Invert Transmission Normal': True,
                'SSS Reflectance Tint': [0.682353, 0.6666667, 0.6156863],
                'Refraction Index': 1.794118, 'Refraction Weight': 0.1061947, 'Abbe': 7.522124, 'Thin Walled': True}
+# Weighted mixing, the gloss alone: white, dForce Corporate Hair's base_roughness.
+WEIGHTED = {'Base Mixing': 2, 'Diffuse Weight': 0.0, 'Glossy Weight': 1.0, 'Glossy Color': [1.0, 1.0, 1.0], 'Glossy Roughness': 0.298913}
 MATERIALS = {
     1: ('diffuse', [0.5, 0.5, 0.5], {}),
     2: ('gloss iso', BLACK, GLOSS),
@@ -160,6 +167,16 @@ MATERIALS = {
     9: ('gloss over translucent blond', [1.0, 1.0, 1.0],
         {'Translucency Weight': 1.0, 'Translucency Color': [0.8862745, 0.7960784, 0.7254902], 'Glossy Layered Weight': 0.25,
          'Glossy Color': [0.8235294, 0.7882353, 0.7176471], 'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.298913}),
+    # Uber as the hair shader's glossy lobe (-UberG): weighted mixing is the
+    # same `weighted_layer` of a `simple_glossy_bsdf` through
+    # `anisotropy_conversion`; the hair shader hands it `texture_tangent_v`,
+    # Uber `texture_tangent_u`, a quarter turn apart.
+    10: ('weighted gloss aniso along v', BLACK, {**WEIGHTED, 'Glossy Anisotropy': 1.0, 'Glossy Anisotropy Rotations': 0.25}),
+    11: ('weighted gloss aniso along u', BLACK, {**WEIGHTED, 'Glossy Anisotropy': 1.0, 'Glossy Anisotropy Rotations': 0.0}),
+    12: ('weighted gloss iso', BLACK, {**WEIGHTED, 'Glossy Anisotropy': 0.0}),
+    13: ('weighted gloss 0.5 over translucent white', [1.0, 1.0, 1.0],
+         {**WEIGHTED, 'Diffuse Weight': 0.5, 'Glossy Weight': 0.5, 'Translucency Weight': 1.0, 'Translucency Color': [1.0, 1.0, 1.0],
+          'Glossy Anisotropy': 1.0, 'Glossy Anisotropy Rotations': 0.25}),
 }
 THICK = 20.0                     # Line Start / End Width of rows A
 THIN = (0.2, 0.1)                # Morgan's
@@ -469,3 +486,4 @@ for _name, _kw in (('', {}), ('-T3', {'tess': 3})):
     build('Calib-Strand-HairW' + _name, rows='GHIJ', hair='white', **_kw)
     build('Calib-Strand-Hair' + _name + '-Back', rows='GHIJ', hair='blond', sun_y=180.0, **_kw)
     build('Calib-Strand-UberT' + _name, rows='GHIJ', mats=(6, 7, 8, 9), **_kw)
+    build('Calib-Strand-UberG' + _name, rows='GHIJ', mats=(10, 11, 12, 13), **_kw)
