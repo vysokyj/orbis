@@ -136,6 +136,34 @@ against a prism's 0.87 coverage). **Taken: energy preserving, no share**
 it: whole shader 1.88 / 1.62 / 1.64 / 1.45, white gloss 2.06 / 2.51 / 3.43
 / 1.41.
 
+## 7. Octane's Hair material against its albedo (for Enhanced)
+
+Probe (a temporary build, not committed): Calib-Strand-HairW / -Dome's
+curves at 1× width as Hair (147), `specular` 1, roughness 0.3 both ways,
+grey `albedo` per column, two renders of four columns; 256 samples. Sums:
+
+| albedo | 0 | 0.1 | 0.25 | 0.5 | 0.7 | 0.85 | 0.95 | 1 |
+|---|---|---|---|---|---|---|---|---|
+| dome, G thick | 86 | 449 | 590 | 682 | 821 | 761 | 719 | 718 |
+| dome, H sparse | 154 | 773 | 1090 | 1326 | 1552 | 1481 | 1426 | 1429 |
+| dome, I dense | 122 | 647 | 1502 | 2990 | 3245 | 3457 | 3628 | 3936 |
+| dome, J vertical | 97 | 351 | 509 | 623 | 725 | 681 | 669 | 673 |
+| front sun, G | 150 | 346 | 443 | 411 | 428 | 532 | 534 | 433 |
+| front sun, H | 281 | 831 | 1279 | 1293 | 1407 | 1733 | 1769 | 1409 |
+| front sun, I | 389 | 1824 | 3786 | 5784 | 6692 | 8079 | 8119 | 7402 |
+| front sun, J | 14 | 43 | 65 | 80 | 83 | 86 | 86 | 87 |
+
+(0.7 - 1 are the second render; the steps at 0.5 → 0.7 and 0.95 → 1 on
+the single-scattering rows are between renders and columns, a few %.)
+A single strand's return saturates by albedo 0.25 - 0.5 (the rest goes
+through it); many strands deep it keeps rising. Iray's white strand for
+scale (prisms): under the dome a white gloss returns 375 / 810 / 870 /
+929, a white transmission about 1080 on the sparse row; front sun, white
+transmission 902 / 1888 / 6674 / 1174. So one white Iray strand equals
+Hair at albedo about 0.2 on the sparse row and about 0.7 on the dense one:
+no albedo maps Iray's strand onto Hair's at every depth - the fibre BSDF
+forwards light where Iray's diffuse transmission spreads it.
+
 ## Left
 
 - Direction: under one hard light the gloss lands where a round rough
