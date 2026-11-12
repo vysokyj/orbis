@@ -99,11 +99,48 @@ difference to the transmission). Octane / Iray after it:
   (Iray 1.23, the Hair material at 2× 1.01). Calib-Eye: lashes and brows
   read as Iray's, the brows a little lighter.
 
+## 6. The share does not survive another light
+
+Calib-Strand-UberG / -T3 under the dome (Calib-Aniso's HDRI), the sun
+turned 60° (-Side) and 180° (-Back); Iray Server 2000 samples (51 - 66 s).
+Iray over the export's plain-GGX metal on curves, the hair lobe (column 1),
+G / H / I / J:
+
+| | front sun | side sun | back sun | dome |
+|---|---|---|---|---|
+| fibres | 0.52 / 0.60 / 0.66 / 0.72 | 0.69 / 1.01 / 1.14 / 0.95 | 3.78 / 2.27 / 1.70 / 8.80 | 2.09 / 1.95 / 1.89 / 3.51 |
+| prisms | 0.00 / 0.09 / 0.16 / 0.09 | 0.00 / 0.33 / 0.46 / 0.18 | 1.12 / 0.31 / 0.67 / 2.93 | 1.33 / 1.54 / 1.25 / 3.84 |
+
+The isotropic column stays at 0.95 - 1.07 on fibres under every light
+(the curve is the fibre). The lobe's share is the light's direction, not a
+property: 0.10 was the front sun's. Under the dome Iray returns *more*
+than the metal - plain GGX at roughness 1 loses about half.
+
+Probes (Calib-Strand-HairW-Dome / -T3-Dome, new, Octane only; the Uber
+references above): GGX energy preserving, full colour, against the 0.10 /
+0.55 shares -
+
+| Octane / Iray | energy preserving | shares |
+|---|---|---|
+| dome, fibres, gloss alone | 0.81 / 0.89 / 1.06 / 0.46 | 0.33 / 0.33 / 0.31 / 0.18 |
+| dome, prisms, gloss alone | 1.28 / 1.12 / 1.61 / 0.43 | 0.13 / 0.13 / 0.14 / 0.06 |
+| dome, prisms, 0.5 over transmission | 1.47 / 1.39 / 1.65 / 1.16 | 0.62 / 0.49 / 0.33 / 0.50 |
+| front sun, prisms, gloss alone | - / 16.7 / 14.1 / 12.0 | - / 1.53 / 0.75 / 1.65 |
+| front sun, prisms, 0.5 over transmission | 3.33 / 2.87 / 2.67 / 2.92 | 0.94 / 0.70 / 0.43 / 0.66 |
+
+Calib-Hair (HDRI-lit): shares crown 0.84 (r / g 1.13), top 1.01, side
+0.95; energy preserving 1.22 (r / g 1.21, Iray 1.23), 1.13, 1.23 - the
+hue exact, the level uniform and the transmission's own (a round curve
+against a prism's 0.87 coverage). **Taken: energy preserving, no share**
+(the shares of section 5 are out of the code). Front sun on fibres with
+it: whole shader 1.88 / 1.62 / 1.64 / 1.45, white gloss 2.06 / 2.51 / 3.43
+/ 1.41.
+
 ## Left
 
-- The share's two weak points: energy (the dimmed metal absorbs in deep
-  hair) and direction (DAZ's prisms all face one way; one sun measured).
-  UberG-T3 under the dome, the side and the back sun would say.
+- Direction: under one hard light the gloss lands where a round rough
+  strand sends it (front sun 12 - 17 × on prisms' gloss alone, vertical
+  strands under the dome 0.43 - 0.46). Prism meshes would draw it.
 - The export's Uber weighted anisotropic gloss on strands (section 4).
 - Clean references of the hair shader itself on prisms (#94).
 
@@ -114,3 +151,6 @@ difference to the transmission). Octane / Iray after it:
 - When a shader's module fails in Iray, the same MDL building block in a
   shader that loads (Uber's weighted mixing) is a reference without
   restarts; equal sums on the shared columns prove the stand-in.
+- A constant measured on one light is a fit to that light: the dome is
+  the reference for an amount, a single sun for a direction. The share
+  looked explained (flat faces) and still failed the second light.

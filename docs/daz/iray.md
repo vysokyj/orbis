@@ -61,8 +61,10 @@ Uber's translucency); on tessellated strands (ribbons, prisms) it passes
 (Calib-Strand-UberT / -T3, #79). The glossies (Anisotropy 1 by default)
 are sharp across the strand and flat along it, on fibres and prisms
 alike; a prism's flat faces return 0 - 0.24 of what a fibre does to a
-front camera under a 45° sun (Calib-Strand-UberG / -T3: Uber's weighted
-gloss at Glossy Anisotropy 1, Rotations 0.25 is the same lobe). DAZ sometimes fails to re-import the
+front camera under a 45° sun, 0.63 - 1.09 under a dome (DAZ's prisms all
+face one way; Calib-Strand-UberG / -T3 and their -Dome / -Side / -Back:
+Uber's weighted gloss at Glossy Anisotropy 1, Rotations 0.25 is the same
+lobe). DAZ sometimes fails to re-import the
 module for a later scene of a session: the material renders black (#94).
 
 ### Strand geometry as Iray gets it

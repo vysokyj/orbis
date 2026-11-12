@@ -486,6 +486,7 @@ for _name, _kw in (('', {}), ('-T3', {'tess': 3})):
     build('Calib-Strand-Hair' + _name, rows='GHIJ', hair='blond', **_kw)
     build('Calib-Strand-HairW' + _name, rows='GHIJ', hair='white', **_kw)
     build('Calib-Strand-Hair' + _name + '-Back', rows='GHIJ', hair='blond', sun_y=180.0, **_kw)
+    build('Calib-Strand-HairW' + _name + '-Dome', rows='GHIJ', hair='white', dome=True, **_kw)
     build('Calib-Strand-UberT' + _name, rows='GHIJ', mats=(6, 7, 8, 9), **_kw)
     build('Calib-Strand-UberG' + _name, rows='GHIJ', mats=(10, 11, 12, 13), **_kw)
     # The glossy lobe under other lights: DAZ's prisms all face one way.

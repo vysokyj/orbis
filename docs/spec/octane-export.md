@@ -2655,17 +2655,23 @@ weights, no Fresnel, no diffuse reflection. Written as that
 - **Fibres** (no tessellation): no transmission, a black base. Why: Iray
   drops a surface BSDF's transmission on its `hair` primitive
   (Calib-Strand-UberT, -HairW: exactly black; prisms pass it).
-- **The glossies' colours × a measured share**: 0.10 on tessellated
-  strands (`HAIR_PRISM_GLOSS_SHARE`), 0.55 on fibres
-  (`HAIR_FIBRE_GLOSS_SHARE`). Why: the lobe is sharp across the strand and
-  flat along it (Anisotropy 1), and Octane applies no anisotropy on curves
-  (`rotation`, a negative `anisotropyTexture`: the same picture), so the
-  metal there is rough both ways. Iray's fibres return 0.49 / 0.52 / 0.53
-  / 0.71 of that (thick strand / sparse / dense / vertical;
-  Calib-Strand-HairW, -UberG), its prisms — three flat faces, each one
-  fan — 0 / 0.08 / 0.13 / 0.08 (Calib-Strand-UberG-T3: Uber's weighted
-  gloss, the same MDL lobe, equal to the hair shader's on fibres within
-  4 %). The weights stay, so the transmission keeps its share.
+- **The glossies are GGX energy preserving** (`brdf` 6), full colour.
+  Why: the lobe is sharp across the strand and flat along it (Anisotropy
+  1), and Octane applies no anisotropy on curves (`rotation`, a negative
+  `anisotropyTexture`: the same picture) — only the long axis's roughness
+  shows, 1 here, where plain GGX loses half the light. Under the dome,
+  where the lobe's direction averages out, the energy-preserving metal
+  returns what Iray's lobe does: white gloss alone 0.81 / 0.89 / 1.06 on
+  fibres, 1.28 / 1.12 / 1.61 on prisms (thick / sparse / dense;
+  Calib-Strand-HairW-Dome / -T3-Dome against Uber's weighted gloss,
+  Calib-Strand-UberG-Dome / -T3-Dome — the same MDL lobe, equal to the
+  hair shader's on fibres within 4 %). **No share of the colour**: Iray's
+  strands over a plain-GGX metal on curves return 0.09 / 0.16 (prisms,
+  sparse / dense) under a 45° front sun, 0.33 / 0.46 under a side sun,
+  1.54 / 1.25 under the dome — DAZ's prisms all face one way, so each
+  flat face's fan meets the camera or misses it with the light. A share
+  fitted to the front sun (0.10) rendered the dome's gloss 0.13 × and
+  Calib-Hair's crown 0.84 ×, browner (r / g 1.13 vs Iray's 1.23).
 
 Checked, Octane / Iray (linear luminance per object; Calib-Strand rows:
 thick, sparse, dense, sparse vertical):
@@ -2674,19 +2680,24 @@ thick, sparse, dense, sparse vertical):
 |---|---|---|---|---|
 | prisms, white transmission (vs UberT-T3) | 1.12 | 1.23 | 1.25 | 0.99 |
 | prisms, transmission 0.5 | 1.16 | 1.10 | 1.07 | 0.85 |
-| prisms, white gloss alone (vs UberG-T3) | (Iray ≈ 0) | 1.53 | 0.75 | 1.65 |
-| prisms, gloss 0.5 over white transmission | 0.94 | 0.70 | 0.43 | 0.67 |
-| fibres, whole shader at Calib-Hair's values | 1.11 | 1.01 | 0.99 | 0.91 |
-| fibres, hair gloss / highlight alone | 1.24 / 1.02 | 1.05 / 0.93 | 1.06 / 0.88 | 0.93 / 0.85 |
-| fibres, white gloss / 0.5 of it | 1.12 / 1.10 | 1.00 / 0.96 | 0.88 / 0.92 | 0.81 / 0.86 |
+| dome, prisms: white gloss alone | 1.28 | 1.12 | 1.61 | 0.43 |
+| dome, prisms: gloss 0.5 over white transmission | 1.47 | 1.39 | 1.65 | 1.16 |
+| dome, fibres: white gloss alone | 0.81 | 0.89 | 1.06 | 0.46 |
+| dome, fibres: 0.5 of it | 0.92 | 0.92 | 1.06 | 0.46 |
+| front sun, prisms: white gloss alone | (Iray ≈ 0) | 16.7 | 14.1 | 12.0 |
+| front sun, prisms: gloss 0.5 over white transmission | 3.33 | 2.87 | 2.67 | 2.92 |
+| front sun, fibres: whole shader at Calib-Hair's values | 1.88 | 1.62 | 1.64 | 1.45 |
+| front sun, fibres: white gloss alone | 2.06 | 2.51 | 3.43 | 1.41 |
 
-**Calib-Hair** (dForce Corporate Hair, prisms; local): crown 0.84 (R / G /
-B 0.78 / 0.85 / 0.91), top tuft 1.01, side 0.95 × Iray; r / g on the
-crown 1.13 against Iray's 1.23 (the Hair material's: 1.01). Open (#79):
-the share dims the metal, so light Iray's gloss sends on between the
-strands is absorbed — a heavy gloss over the transmission, many strands
-deep, falls to 0.43; and DAZ's prisms all face one way, so the share was
-measured under one sun (45°, front). The clean references of the hair
+**Calib-Hair** (dForce Corporate Hair, prisms, HDRI-lit; local): crown
+1.22 (R / G / B 1.20 / 1.23 / 1.22), top tuft 1.13, side 1.23 × Iray; r /
+g 1.21 / 0.85 / 1.20 against Iray's 1.23 / 0.85 / 1.21 (the Hair material
+on the crown: 1.01). The level is the transmission's (1.1 – 1.25 above): a
+round curve covers what a prism's 0.87 does. Open (#79): under a single
+hard light the gloss lands where a round rough strand sends it, not
+where Iray's flat faces do — sun-lit hair's gloss is too bright head-on
+(the front-sun rows) and vertical strands under the dome too dark (0.43 –
+0.46); prism meshes would draw it. The clean references of the hair
 shader itself on prisms wait on #94 (Uber stood in).
 
 **OmniHair** ("OmniHair Root-Tip Blend", a brick graph on

@@ -3163,9 +3163,11 @@ impl Ocs<'_> {
     /// turn). On Iray's fibres (`Material::fibres`) the transmission is
     /// lost: a black base. `separation` (the lobes' normals tilted along
     /// the tangent) has no pin here. Octane draws no anisotropy on curves:
-    /// the glossies' colours × what Iray's strands return of such a metal
-    /// (`HAIR_PRISM_GLOSS_SHARE`, `HAIR_FIBRE_GLOSS_SHARE`), the weights
-    /// as they are, so the transmission keeps its share.
+    /// the lobe shows at its long axis's roughness, so the metals are GGX
+    /// energy preserving - under the dome, where direction averages out,
+    /// that returns what Iray's lobe does (plain GGX at roughness 1 lost
+    /// half). Under one sun the lobe's direction is Iray's own: no share
+    /// of the colour fits two lights (#79).
     fn hair_layers(&mut self, indent: usize, name: &str, mat: &Material) {
         let mut colour = |ch: &str| -> [f32; 3] {
             let tint = mat.color(ch).unwrap_or([1.0; 3]);
@@ -3182,7 +3184,6 @@ impl Ocs<'_> {
         let gw = mat.float("Glossy Layer Weight").unwrap_or(0.5).clamp(0.0, 1.0);
         let aniso = Anisotropy::of(mat.float("Anisotropy").unwrap_or(1.0), mat.float("Anisotropy Rotations").unwrap_or(0.0));
         let opacity = mat.float("Cutout Opacity").unwrap_or(1.0).clamp(0.0, 1.0);
-        let share = if mat.fibres { HAIR_FIBRE_GLOSS_SHARE } else { HAIR_PRISM_GLOSS_SHARE };
         let layers = [("highlight", hw, ends[0], mat.float("highlight_roughness").unwrap_or(0.1)), ("gloss", gw, ends[1], mat.float("base_roughness").unwrap_or(0.2))];
         let mut i = indent;
         for (k, (part, weight, (root, tip), rough)) in layers.into_iter().enumerate() {
@@ -3195,13 +3196,12 @@ impl Ocs<'_> {
             let j = i + 2;
             let _ = writeln!(self.out, "{:j$}<node id='{gid}' type='130' name='{} {part}'>", "", esc(name));
             let _ = writeln!(self.out, "{:j$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
-            let (root, tip) = (root.map(|c| c * share), tip.map(|c| c * share));
             self.hair_colour_pin(j + 1, "albedo", root, tip, blend.0, blend.1);
             self.hair_colour_pin(j + 1, "edgeTint", root, tip, blend.0, blend.1);
             self.float_pin(j + 1, "metallic", 1.0);
             let r = rough.clamp(0.0, 1.0).powi(2);
-            self.gloss_brdf = Some(phong_brdf(&[]));
-            self.aniso_brdf_pin(j + 1, aniso.saturates(r));
+            self.gloss_brdf = Some(BRDF_GGX_EP);
+            self.brdf_pin(j + 1);
             self.gloss_roughness_pins(j + 1, mat, None, r, RoughCurve::Phong, aniso);
             self.gloss_brdf = None;
             if opacity < 1.0 {
@@ -4655,19 +4655,6 @@ fn omni_hair(mat: &Material) -> Option<OmniHair> {
         opacity: if mat.float("Enable Opacity").unwrap_or(0.0) > 0.0 { mat.float("Cutout Opacity").unwrap_or(1.0) } else { 1.0 },
     })
 }
-
-/// What Iray's strands return of the hair shader's glossy lobe, per unit
-/// of what the export's metal on a round curve returns (`hair_layers`).
-/// The lobe is sharp across the strand and flat along it (Anisotropy 1);
-/// Octane applies no anisotropy on curves, so the metal there is rough
-/// both ways. On tessellated strands (ribbons, prisms) each flat face
-/// sends one fan: Calib-Strand-UberG-T3's white gloss against the curves,
-/// 0.08 sparse / 0.13 dense / 0.08 vertical (a single thick prism: 0).
-/// A round fibre's normals sweep the fan around: -UberG / -HairW, 0.52 /
-/// 0.53 / 0.71 (thick 0.49). Not a material property: the missing
-/// anisotropy and the flat faces, measured on the lobe alone (#79).
-const HAIR_PRISM_GLOSS_SHARE: f32 = 0.10;
-const HAIR_FIBRE_GLOSS_SHARE: f32 = 0.55;
 
 /// Octane Hair albedo from Iray's Blended Dual Lobe hair: its hair colour
 /// and, more, its transmission colour (root / tip means, linear) — fitted on
@@ -8410,13 +8397,13 @@ mod tests {
         let amounts: Vec<&str> = x.match_indices("<pin name='amount'>").map(|(k, _)| x[k..].split("type='6'>").nth(1).unwrap().split('<').next().unwrap()).collect();
         assert_eq!(amounts, ["0.05", "0.25"]);
         let part = |from: &str, to: &str| &x[x.find(from).unwrap()..x.find(to).unwrap()];
-        // The highlight: white × the prisms' share to the edge, a metal,
+        // The highlight: white to the edge, a metal (GGX energy preserving),
         // Iray's roughness 0.5² = 0.25.
         let highlight = part("name='Hair highlight'", "name='Hair under the highlight'");
-        assert!(highlight.contains("<pin name='edgeTint'>") && highlight.contains(">0.1 0.1 0.1<") && highlight.contains("<pin name='metallic'>"), "{highlight}");
-        assert!(highlight.contains(&format!("type='6'>{}<", num(phong_pin(0.25)))), "{highlight}");
+        assert!(highlight.contains("<pin name='edgeTint'>") && highlight.contains(">1 1 1<") && highlight.contains("<pin name='metallic'>"), "{highlight}");
+        assert!(highlight.contains(&format!("type='6'>{}<", num(phong_pin(0.25)))) && highlight.contains("<pin name='brdf'>"), "{highlight}");
         let gloss = part("name='Hair gloss'", "name='Hair transmission'");
-        assert!(gloss.contains(">0.1 0 0<") && !gloss.contains("<pin name='transmission'>"), "{gloss}");
+        assert!(gloss.contains(">1 0 0<") && !gloss.contains("<pin name='transmission'>"), "{gloss}");
         // The base: no albedo, no specular, the tint (root to tip) transmitted diffusely.
         let base = &x[x.find("name='Hair transmission'").unwrap()..];
         assert!(base.contains("<pin name='albedo'>") && base.contains("<pin name='specular'>") && base.matches(">0 0 0<").count() >= 2, "{base}");
@@ -8426,7 +8413,7 @@ mod tests {
         // Iray's fibres lose the transmission: a black base.
         let fibres = Rc::new(Material { strands: true, fibres: true, ..(*mat(chs.clone())).clone() });
         let f = material_inputs(&[("Hair".into(), fibres, 0.0)], &[], HashMap::new(), 4000, shading).0;
-        assert!(!f.contains("<pin name='transmission'>") && f.matches("type='130'").count() == 3 && f.contains(">0.55 0 0<"), "{f}");
+        assert!(!f.contains("<pin name='transmission'>") && f.matches("type='130'").count() == 3, "{f}");
         // The default shading keeps Octane's Hair.
         assert!(material_inputs(&[("Hair".into(), mat(chs), 0.0)], &[], HashMap::new(), 4000, SkinShader::None).0.contains("type='147'"));
     }
