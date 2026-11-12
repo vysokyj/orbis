@@ -85,7 +85,8 @@ Morgan's hair in Calib-Hair-Teens), Calib-Strand-Sparse / -Sparse-T2 /
 dForce Corporate Hair's shape), -Hair-Back / -Hair-T3-Back (set `blond`,
 the sun turned behind the strands: what comes through them), -UberT /
 -UberT-T3 (Uber's translucency on the same rows), -UberG / -UberG-T3
-(Uber's weighted gloss on them). Existing scenes are kept (--force
+(Uber's weighted gloss on them; -Dome / -Side / -Back: under the dome, the
+sun turned 60 and 180 degrees). Existing scenes are kept (--force
 rewrites them); written to "My Library/Scenes" and copied into
 calib/scenes. --tess-probe <dir> writes row A at several sides into <dir>
 (scratch, for the .mi). --mohawk <DAZ library> writes Calib-Mi-Mohawk-T2
@@ -487,3 +488,7 @@ for _name, _kw in (('', {}), ('-T3', {'tess': 3})):
     build('Calib-Strand-Hair' + _name + '-Back', rows='GHIJ', hair='blond', sun_y=180.0, **_kw)
     build('Calib-Strand-UberT' + _name, rows='GHIJ', mats=(6, 7, 8, 9), **_kw)
     build('Calib-Strand-UberG' + _name, rows='GHIJ', mats=(10, 11, 12, 13), **_kw)
+    # The glossy lobe under other lights: DAZ's prisms all face one way.
+    build('Calib-Strand-UberG' + _name + '-Dome', rows='GHIJ', mats=(10, 11, 12, 13), dome=True, **_kw)
+    build('Calib-Strand-UberG' + _name + '-Side', rows='GHIJ', mats=(10, 11, 12, 13), sun_y=60.0, **_kw)
+    build('Calib-Strand-UberG' + _name + '-Back', rows='GHIJ', mats=(10, 11, 12, 13), sun_y=180.0, **_kw)
