@@ -940,13 +940,26 @@ leaves out, #15):
   0.98, C3 1.01 1.00 0.95 → 0.83 0.97 1.00 (C1, effect 0, is 0.87 1.00
   1.01); Calib-Map-Effect E1 0.81 1.12 1.19 → 0.74 1.04 1.07, E2 0.95 0.96
   0.93 → 0.97 1.04 1.06; Calib-Thin's -bce cards unchanged (#27, #45, #52).
-  A **partial refraction** (Refraction Weight < 0.5) keeps the
-  translucency: Iray's refraction is a weighted layer over diffuse and
-  translucency, so both keep 1 − Refraction Weight; the translucency then
-  holds Universal's one transmission (the refraction's own goes; its IOR
-  and gloss stay). Morgan Hair (w 0.059, effect 2, refraction 0.106):
-  transmission 0 → 0.30 × Tc. The Genesis EyeSocket is such a material: its
-  caruncle rendered 4.6 × Iray, now 1.00 (Calib-Eye, #20). Found by
+  A **partial refraction** keeps the translucency: Iray's refraction is a
+  weighted layer over diffuse and translucency (`metallic_layered_base`),
+  so both keep 1 − Refraction Weight and both transmissions stay. In Base
+  Mixing 0 (not PBRSkin) a translucent material with 0 < Refraction Weight
+  < 1 is the same Mix as a refractive metal's (**Refraction on a
+  metal**): the refraction (its own transmission, IOR and gloss) at
+  Refraction Weight over the material without it (the translucency at its full share). Why: as one node
+  Universal's one transmission held either the translucency's (refraction
+  < 0.5) or the refraction's; Calib-MetalRefr-TL (thin-walled, w 0.5, Tc
+  0.9 / 0.6 / 0.4) R1 (refraction 0.3) 0.51 × Iray (R G B 0.55 0.48 0.60),
+  R2 (0.7) 0.90; as the Mix 1.04 (1.03 1.05 1.04) and 1.07, beside the same
+  spheres without translucency (1.01 / 1.04) and its metal spheres (1.10 –
+  1.13, unchanged) (#135). A closed solid (-TL-Solid) waits for its Iray
+  reference (#134). Where the material stays one node (Base Mixing 1,
+  PBRSkin, inside another Mix) a refraction below 0.5 leaves Universal's
+  transmission to the translucency (the refraction's own goes; its IOR
+  and gloss stay). Morgan Hair (Base Mixing 1, w 0.059, effect 2,
+  refraction 0.106): transmission 0 → 0.30 × Tc. The Genesis EyeSocket's
+  caruncle rendered 4.6 × Iray, now 1.00 (Calib-Eye, #20; the Mix leaves
+  its export unchanged). Found by
   switching the EyeSocket's other channels off one at a time in Iray on the
   cards (SSS Amount / Direction / Tint, Transmitted Color, its gloss, Top
   Coat, Invert Transmission Normal: no change). An **open sheet** that isn't
@@ -1475,7 +1488,9 @@ leaves out, #15):
   Iray refracts r whatever the metal and its metal keeps 1 − r.
   Universal's `transmission` belongs to its dielectric, which the
   metallic blend scales away: as one node the metal swallowed the
-  refraction.
+  refraction. A translucent non-metal under a partial refraction takes
+  the same Mix (the layer is the same; one node kept only one of the two
+  transmissions, #135: see translucency).
 
   Why (#129): Calib-MetalRefr (enhanced-final, Y over each sphere's disc,
   red metal base, white refraction): metal 0.75 / 0.3 at refraction 0.3

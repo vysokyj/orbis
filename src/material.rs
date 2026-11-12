@@ -1748,6 +1748,10 @@ impl Ocs<'_> {
     /// metallic blend scales away: as one node Calib-MetalRefr's X2 (metal
     /// 0.75, refraction 0.7) rendered 0.18 × Iray, X1 (0.3) 0.48, its
     /// green / blue (the background through it) 0.16 / 0.34 (#129).
+    /// A translucent non-metal under a partial refraction likewise (the
+    /// layer is the same): as one node Universal's one `transmission` held
+    /// either the translucency's or the refraction's, Calib-MetalRefr-TL's
+    /// R1 (refraction 0.3) rendered 0.51 × Iray, R2 (0.7) 0.89 (#135).
     fn refractive_metal_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
@@ -3374,7 +3378,10 @@ impl Ocs<'_> {
             }
         }
         let base_mixing_0 = mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0;
-        if self.refraction_override.is_none() && self.metal_override.is_none() && !self.in_backscatter_mix && metal && refractive && base_mixing_0 && !crate::iray::is_pbrskin(mat) {
+        // A partial refraction over a translucency splits the same way
+        // (#135): one node keeps only one of their two transmissions.
+        let partial_over_translucency = translucency > 0.0 && refraction_weight < 1.0;
+        if self.refraction_override.is_none() && self.metal_override.is_none() && !self.in_backscatter_mix && (metal || partial_over_translucency) && refractive && base_mixing_0 && !crate::iray::is_pbrskin(mat) {
             return self.refractive_metal_material(indent, name, mat, area_m2, skin);
         }
         if self.metal_override.is_none() && !self.in_backscatter_mix && metal && translucency > 0.0 && !refractive && !(is_eye(name) && crate::iray::is_pbrskin(mat)) && mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0 {
@@ -3416,8 +3423,11 @@ impl Ocs<'_> {
         // Iray's refraction is a weighted layer over the diffuse and
         // translucency (DAZ's MDL): a partial one (Morgan Hair's 0.106)
         // leaves the translucency its share, 1 − Refraction Weight
-        // (`diffuse_weight` below). Universal has one transmission: the
-        // translucency takes it while the surface is mostly diffuse.
+        // (`diffuse_weight` below). Universal has one transmission: where
+        // the material stays one node (Base Mixing 1, PBRSkin, inside
+        // another Mix; Base Mixing 0 splits it, `refractive_metal_material`,
+        // #135) the translucency takes it while the surface is mostly
+        // diffuse.
         let transmit = if metal || refraction >= 0.5 || eye_volume { 0.0 } else { translucency.min(self.max_transmission) };
         // Base Color Effect 1 / 2 on that diffuse: the diffuse thinned to
         // its colour's mono, the translucency the rest
@@ -7831,15 +7841,16 @@ mod tests {
 
     #[test]
     fn a_partial_refraction_keeps_the_translucency() {
-        // Morgan Hair: translucent, thin-walled, Refraction Weight 0.106 —
-        // the translucency holds the transmission at (1 − r) of its share.
-        let card = |r: f32| {
+        // Iray's refraction is a weighted layer over the diffuse and the
+        // translucency: both transmissions stay.
+        let card = |r: f32, mixing: i32| {
             let m = mat(json!([
                 {"channel": {"id": "diffuse", "current_value": [0.8, 0.8, 0.8]}},
                 {"channel": {"id": "Translucency Weight", "current_value": 0.4}},
                 {"channel": {"id": "Translucency Color", "current_value": [1.0, 1.0, 1.0]}},
                 {"channel": {"id": "Thin Walled", "current_value": true}},
                 {"channel": {"id": "Refraction Weight", "current_value": r}},
+                {"channel": {"id": "Base Mixing", "current_value": mixing}},
             ]));
             material_inputs(&[("Card".into(), m, 1.0)], &[], HashMap::new(), 7000, SkinShader::None).0
         };
@@ -7847,12 +7858,31 @@ mod tests {
             let p = &x[x.find("<pin name='transmission'>").unwrap()..];
             p[p.find("type='8'>").unwrap() + 9..].split(' ').next().unwrap().parse::<f32>().unwrap()
         };
-        let x = card(0.1);
+        let part = |x: &str, name: &str| {
+            let p = &x[x.find(&format!("name='{name}'>")).unwrap()..];
+            p[..p[1..].find("type='130'").map_or(p.len(), |e| e + 1)].to_string()
+        };
+        // Base Mixing 0: a Mix at r of the refraction (its own transmission,
+        // Thin Wall) and the rest (the translucency's whole share) (#135).
+        for r in [0.1, 0.8] {
+            let x = card(r, 0);
+            assert!(x.contains("type='19' name='Card'"), "{x}");
+            let amount = &x[x.find("<pin name='amount'>").unwrap()..];
+            assert!(amount[..amount.find("</pin>").unwrap()].contains(&format!(">{}<", num(r))), "{x}");
+            let refr = part(&x, "Card refraction");
+            assert!((t(&refr) - 1.0).abs() < 1e-3 && refr.contains("<pin name='transmissionType'>"), "{refr}");
+            let base = part(&x, "Card base");
+            assert!((t(&base) - 0.4).abs() < 1e-3, "{base}");
+        }
+        // One node (Base Mixing 1, Morgan Hair's strands, refraction 0.106):
+        // the translucency holds the transmission at (1 − r) of its share.
+        let x = card(0.1, 1);
+        assert!(!x.contains("type='19'"), "{x}");
         assert_eq!(x.matches("<pin name='transmission'>").count(), 1, "{x}");
         assert!((t(&x) - 0.4 * 0.9).abs() < 1e-3, "{}", t(&x));
         assert!(x.contains("<pin name='transmissionType'>") && x.matches("<pin name='transmissionType'>").count() == 1);
         // A mostly refractive surface keeps its refraction instead.
-        let g = card(0.8);
+        let g = card(0.8, 1);
         assert!((t(&g) - 0.8).abs() < 1e-3, "{}", t(&g));
     }
 
