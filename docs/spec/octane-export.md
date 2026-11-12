@@ -331,7 +331,15 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   Line Tessellation Sides`) says how DAZ hands the strands to Iray: fewer
   than 2 sides or no modifier → Iray's `hair` fibres (`Material::fibres`),
   else ribbons (2) or prisms. The export always writes round curves; the
-  flag only steers the hair shader's layers (dForce hair, Faithful). A
+  flag steers the hair shader's layers (dForce hair, Faithful) and an Uber
+  translucency: on fibres Iray loses the diffuse transmission (black), so
+  Faithful + Final writes none there; the other variants keep it (Look:
+  a strand that passes light). Why: Morgan's Strands material on fibres
+  (Calib-Strand-UberM, -Dome: whole / no gloss / no translucency / no
+  refraction, a thick strand, a sparse and a dense patch) 0.44 - 0.47 x
+  Iray under the sun with the transmission (Universal's highlight goes
+  when a transmission joins the dielectric specular), 0.83 - 1.14 without;
+  every part 0.76 - 1.14, under the dome 0.91 - 1.07 (#79). A
   value the scene leaves out counts as tessellated (library files are
   read without their modifiers).
 - A `Material` per (mesh, group) under `/Scene/Materials/<mesh>_<group>` (a

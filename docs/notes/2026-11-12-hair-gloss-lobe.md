@@ -232,6 +232,60 @@ written. Iray's own parts are unknown: Calib-Strand-UberM{,-T2}{,-Dome}
 (materials 5, 14 - 16: whole, no gloss, no translucency, no refraction;
 rows G - J) are generated for an Iray batch.
 
+## 10. Morgan's material part by part (Calib-Strand-UberM)
+
+Iray batch (4 scenes, 2000 samples): materials 5 / 14 / 15 / 16 (whole, no
+gloss, no translucency, no refraction) on rows G (one thick strand), H
+(300 sparse), I (3000 dense), J (sparse, vertical); fibres and ribbons
+(-T2), sun and dome. Octane / Iray, Faithful + Final after section 9:
+
+| | whole | no gloss | no transl. | no refr. |
+|---|---|---|---|---|
+| fibres, sun G / H / I / J | 0.47 / 0.48 / 0.48 / 1.15 | 1.17 / 1.13 / 1.12 / 1.11 | 0.88 / 0.82 / 0.79 / 0.92 | 0.50 / 0.48 / 0.49 / 1.17 |
+| fibres, dome | 1.27 / 1.20 / 1.19 / 1.27 | 1.49 / 1.33 / 1.21 / 1.44 | 1.07 / 0.97 / 0.91 / 0.98 | 1.23 / 1.16 / 1.16 / 1.31 |
+| ribbons, sun | 0.97 / 0.83 / 0.51 / 0.74 | 1.01 / 0.82 / 0.55 / 0.77 | 1.25 / 2.61 / 2.07 / 0.74 | 0.99 / 0.87 / 0.57 / 0.77 |
+| ribbons, dome | 0.92 / 0.85 / 0.62 / 0.90 | 0.65 / 0.53 / 0.42 / 0.65 | 1.43 / 1.01 / 0.78 / 1.26 | 1.08 / 0.79 / 0.64 / 0.88 |
+
+**Fibres.** Without the translucency Octane matches; with it the gloss
+and the translucency together fail under the sun (0.47), each alone not.
+Iray's fibres lose the transmission (section 1), Octane's curves pass it -
+and a Universal with a transmission under its dielectric specular (IOR
+5.63) loses the highlight: the same export without the transmission pin
+renders the whole material 1.14 / 0.92 / 0.83 / 0.96 x Iray. Rule:
+Faithful + Final writes no Uber translucency on fibres. After it every
+cell of the fibre scenes is 0.76 - 1.14 (sun) and 0.91 - 1.07 (dome);
+Calib-Strand-UberT's translucent fibres are black as Iray's, its gloss
+over them 1.00 - 1.22. Enhanced keeps the transmission (0.44 - 0.47 under
+the sun, 1.10 - 1.21 under the dome): the highlight it loses is Octane's
+own, open.
+
+**Ribbons** (Morgan's shape) keep their transmission in Iray. Tried on
+the export (project.ocs edited), each cell against Iray's same cell:
+
+| whole, G / H / I / J | sun | dome | B / R sun, dome (Iray 0.59, 0.80) |
+|---|---|---|---|
+| as exported | 0.92 / 0.77 / 0.47 / 0.70 | 0.88 / 0.80 / 0.59 / 0.84 | 0.62, 0.93 |
+| a' = a / (1 + t), t' = sqrt(t (1 - a'^2)) | 1.00 / 0.93 / 0.62 / 0.78 | 1.07 / 0.99 / 0.73 / 1.10 | 0.81, 1.18 |
+| the gloss as a coating | 2.23 / 1.81 / 1.09 / 0.70 | 0.87 / 0.80 / 0.58 / 0.87 | 0.66, 0.94 |
+| both | 2.32 / 1.96 / 1.24 / 0.78 | 1.07 / 0.99 / 0.73 / 1.14 | 0.74, 1.18 |
+
+The second row is "a ribbon is one sheet, a curve a closed tube": light
+crosses a curve's surface twice (a thick prism returns tint^2, section 1 of
+[hair-shader-parts](2026-11-11-hair-shader-parts.md)), so the tube gets
+the transmission whose two crossings pass what one sheet does. It lifts
+the level to Iray's on the single strand and the sparse patches, but the
+hue goes cooler than Iray's (0.81 against 0.59) where the gloss is on,
+while without gloss it is right (dome 1.09 against 1.05, as exported 0.85).
+A coating in place of the specular brings back the highlight a round
+strand has under the sun - which Iray's flat ribbons mirror away (2.2 x) -
+and changes nothing under the dome. Neither went into the export: the hue
+says a part is still missing, and the real Morgan Hair (Calib-Hair-Teens,
+local, Faithful + Final after section 9) is not dark: crown 1.21 / 1.49 /
+1.43, hilite 0.95 / 0.84 / 0.80, middle 1.53 / 1.81 / 1.76, lengths 1.06 /
+1.25 / 1.21, tips 0.64 / 0.92 / 0.63 x Iray (R / G / B) - more
+transmission would add to it. `transmissionType` 1 against 3 there: 7 %
+darker, every patch.
+
 ## Left
 
 - Direction: under one hard light the gloss lands where a round rough
@@ -245,6 +299,13 @@ rows G - J) are generated for an Iray batch.
 
 ## Process
 
+- **Columns are places.** A horizontal strand's highlight depends on where
+  along the frame it sits, so one material moved to another column is
+  another measurement: a probe that put "the whole material, variant X" in
+  column 2 and read it against Iray's column 1 showed a highlight coming
+  back (0.97 against 0.42) that the export then did not have (0.40). Only
+  the same cell compares; a variant goes into every column, or the cell
+  keeps its own material.
 - Look at the thick strand's picture before trusting sums: the tube
   against the line named the cause in one crop.
 - When a shader's module fails in Iray, the same MDL building block in a

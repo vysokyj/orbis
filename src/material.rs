@@ -3589,7 +3589,11 @@ impl Ocs<'_> {
             }
         }
 
-        if transmit > 0.0 {
+        // Iray's untessellated fibres lose a diffuse transmission (black:
+        // Calib-Strand-UberT); Faithful + Final follows it, the other
+        // variants keep the light the strand passes on (Look).
+        let lost_on_fibres = mat.fibres && self.strand_hair == StrandHair::MdlLayers;
+        if transmit > 0.0 && !lost_on_fibres {
             let tc = mat.color("Translucency Color").unwrap_or([1.0; 3]);
             // An open sheet that isn't thin-walled (a leaf or grass card)
             // passes twice as much in Iray: Calib-Leaf's card 0.48 × Iray at
@@ -3612,7 +3616,8 @@ impl Ocs<'_> {
                 None => self.rgb_pin(i, "transmission", tc.map(|c| c * share)),
             }
             // Diffuse (1), or Thin Wall (Diffuse) (3) for a thin-walled sheet:
-            // Calib-SSS rendered the two alike on closed spheres.
+            // Calib-SSS rendered the two alike on closed spheres (and on
+            // strands: Calib-Strand-UberM, Morgan Hair within 7 %).
             self.value_pin(i, "transmissionType", 57, 2, if thin { "3" } else { "1" });
         }
 
@@ -8494,6 +8499,15 @@ mod tests {
             {"channel": {"id": "Thin Walled", "current_value": true}},
         ]));
         assert!(strands > 3.0, "{strands}");
+        let chs = json!([
+            {"channel": {"id": "Translucency Weight", "current_value": 0.5}},
+            {"channel": {"id": "Thin Walled", "current_value": true}},
+        ]);
+        // Iray's fibres lose it: none in Faithful + Final, kept elsewhere.
+        let fibres = Rc::new(Material { strands: true, fibres: true, ..(*mat(chs)).clone() });
+        let faithful = Shading { strand_hair: StrandHair::MdlLayers, ..Shading::default() };
+        assert!(!material_inputs(&[("M".into(), fibres.clone(), 0.0)], &[], HashMap::new(), 4000, faithful).0.contains("<pin name='transmission'>"));
+        assert!(material_inputs(&[("M".into(), fibres, 0.0)], &[], HashMap::new(), 4000, Shading::default()).0.contains("<pin name='transmission'>"));
     }
 
     #[test]
