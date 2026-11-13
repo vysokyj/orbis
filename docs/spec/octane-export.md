@@ -941,7 +941,12 @@ leaves out, #15):
   tint the colour at full intensity (÷ its strongest channel), and the
   translucency takes the rest. So the albedo is (1 − w)·D × m / max(D),
   the transmission Tc × (1 − (1 − w)·m) in place of w; D is the diffuse
-  colour × its map's mean, as DAZ hands it to Iray — with the SSS
+  colour × its map's mean (over the texels the material's faces cover:
+  `UvCoverage`, a 128² grid of the map's UV square, each face in its own
+  UDIM tile; a tiled or offset map, or no UVs, leaves out the near-black
+  texels only — a white fill between UV islands, Monique 8's, read 2 – 4 ×
+  her painted skin, #82; skin keeps the near-black rule, below), as DAZ
+  hands it to Iray — with the SSS
   Reflectance Tint multiplied in when the effect's channel is saved shown
   (`iray.rs`, Calib-Mi-SSSTint; Morgan Hair's tint 0.68 / 0.67 / 0.62
   takes its diffuse to 0.43 / 0.41 / 0.34 ×, the 1.6 – 2.3 × its strands
@@ -2348,7 +2353,12 @@ rule is Enhanced's, with no fitted hue in either.
     back in: the series 1 / (1 − (1 − w) · D · A), `k` = a · A;
   - Base Color Effect's **shares** (`base_color_effect_shares` with the
     diffuse map's mean colour): `a` × m / max, t = 1 − (1 − w)·m (effect 0:
-    t = w).
+    t = w). The skin's map means (this one and `skin_walk_weight`'s
+    Translucency Color mean) leave out only near-black texels, not what
+    the faces' UVs don't cover (#82): over the coverage Monique's
+    Translucency Color mean halves and her front renders 0.89 / 0.83 /
+    0.94 × Iray (#86's step 8), Angel's effect-1 diffuse share drops
+    10 – 15 %; which mean the held skin rules want is open in #82.
   Why: Calib-Skin's Iray variants split the skin into its parts. A white
   diffuse map (dwhite) raised Monique's skin 2.4 / 4.3 / 7.1 ×, a white
   translucency map (tcwhite) 6.7 / 10.7 / 13.6 ×; with the Octane renders

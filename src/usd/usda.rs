@@ -494,6 +494,40 @@ pub(super) fn uv_scales(meshes: &[Mesh]) -> crate::material::UvScales {
     sums.into_iter().filter(|(_, (a, uv))| *a > 0.0 && *uv > 0.0).map(|(k, (a, uv))| (k, (a / uv).sqrt())).collect()
 }
 
+/// Each material's UV coverage (`material::UvCoverage`): the cells of
+/// its maps its faces cover, over every mesh it is bound to. Strands
+/// (no UVs) and materials without UVs get none.
+pub(super) fn uv_coverages(meshes: &[Mesh]) -> crate::material::UvCoverages {
+    let mut covers: HashMap<*const crate::daz_material::Material, crate::material::UvCoverage> = HashMap::new();
+    for m in meshes.iter().filter(|m| m.curve_widths.is_none()) {
+        let Some((vals, idx)) = m.uvs.as_ref() else { continue };
+        let mut starts = Vec::with_capacity(m.face_counts.len());
+        let mut at = 0usize;
+        for &c in &m.face_counts {
+            starts.push(at);
+            at += c as usize;
+        }
+        let uv = |corner: usize| vals[idx[corner] as usize].map(|v| v as f64);
+        for (i, (_, faces)) in m.subsets.iter().enumerate() {
+            let Some(Some(mat)) = m.materials.get(i) else { continue };
+            let cover = covers.entry(Rc::as_ptr(mat)).or_default();
+            for &f in faces {
+                let (s, c) = (starts[f as usize], m.face_counts[f as usize] as usize);
+                if c < 3 {
+                    continue;
+                }
+                // The face's tile: the one its UV centroid lies in.
+                let centre = (0..c).map(|k| uv(s + k)).fold([0.0; 2], |a, p| [a[0] + p[0], a[1] + p[1]]);
+                let tile = [(centre[0] / c as f64).floor(), (centre[1] / c as f64).floor()];
+                for k in 1..c - 1 {
+                    cover.add_triangle([uv(s), uv(s + k), uv(s + k + 1)], tile);
+                }
+            }
+        }
+    }
+    covers.into_iter().filter(|(_, c)| !c.is_empty()).map(|(k, c)| (k, Rc::new(c))).collect()
+}
+
 /// Total UV area of some faces of a mesh (fan triangulation); `None`
 /// without UVs.
 pub(super) fn faces_uv_area(m: &Mesh, faces: &[u32]) -> Option<f64> {

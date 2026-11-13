@@ -180,6 +180,7 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     // big scene's (60 M points) held beside a text copy of itself peaked
     // at 23 GB.
     let uv = uv_scales(&meshes);
+    let uv_covers = uv_coverages(&meshes);
     let mut environment = scene_environment(&mut lib);
     let ground_y = environment.as_ref().map_or(0.0, |e| ground_height(e, &meshes));
     let name = scene.file_stem().and_then(|s| s.to_str()).unwrap_or("scene");
@@ -194,7 +195,7 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
         progress.report(60, "translating the materials");
         let layered = crate::daz_material::layered_images(&lib.duf);
         let tuning = opts.variant().tuning();
-        let (inputs, mut textures) = crate::material::material_inputs_scaled(&materials, &uv, &lib.dirs, layered, 200_000, &tuning);
+        let (inputs, mut textures) = crate::material::material_inputs_scaled(&materials, &uv, &uv_covers, &lib.dirs, layered, 200_000, &tuning);
         if let Some(s) = environment.as_mut().and_then(|e| e.sun_sky.as_mut()) {
             s.tune(&tuning);
         }

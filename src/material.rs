@@ -264,33 +264,48 @@ impl Textures {
     /// A DAZ image's mean colour, linear (sRGB-decoded): strands carry no
     /// UVs, so a hair map can't be mapped onto them.
     fn mean_colour(&mut self, dirs: &[PathBuf], daz_path: &str) -> Option<[f32; 3]> {
-        self.mean(dirs, daz_path, false)
+        self.mean(dirs, daz_path, None)
     }
 
-    /// The mean colour over the map's painted texels: near-black ones (the
-    /// empty space between a figure map's UV islands) left out.
-    fn mean_covered_colour(&mut self, dirs: &[PathBuf], daz_path: &str) -> Option<[f32; 3]> {
-        self.mean(dirs, daz_path, true)
+    /// The mean colour over the map's texels the surface shows: the cells
+    /// its faces' UVs cover (`cover`, #82); without them (no UVs, a tiled
+    /// or offset map) the texels that aren't near-black (the empty space
+    /// between a figure map's UV islands, if it is black).
+    fn mean_covered_colour(&mut self, dirs: &[PathBuf], daz_path: &str, cover: Option<&UvCoverage>) -> Option<[f32; 3]> {
+        self.mean(dirs, daz_path, Some(cover.filter(|c| !c.is_empty())))
     }
 
-    fn mean(&mut self, dirs: &[PathBuf], daz_path: &str, covered: bool) -> Option<[f32; 3]> {
-        let key = format!("{}{daz_path}", if covered { "covered:" } else { "" });
+    /// `covered`: None = every texel, Some(None) = the non-black ones,
+    /// Some(Some(c)) = the cells `c` covers.
+    fn mean(&mut self, dirs: &[PathBuf], daz_path: &str, covered: Option<Option<&UvCoverage>>) -> Option<[f32; 3]> {
+        let key = match covered {
+            None => daz_path.to_string(),
+            Some(None) => format!("covered:{daz_path}"),
+            Some(Some(c)) => format!("uv:{:p}:{daz_path}", c as *const UvCoverage),
+        };
         if let Some(c) = self.means.get(&key) {
             return *c;
         }
         let rel = daz_path.trim_start_matches('/');
         let mean = dirs.iter().map(|d| d.join(rel)).find(|p| p.is_file()).and_then(|f| {
-            let img = image::open(&f).map_err(|e| tracing::warn!(file = %f.display(), error = %e, "Octane export: hair map unreadable")).ok()?;
-            let small = img.thumbnail(64, 64).to_rgb8();
+            let img = image::open(&f).map_err(|e| tracing::warn!(file = %f.display(), error = %e, "Octane export: map unreadable")).ok()?;
             let lin = |c: u8| {
                 let c = c as f32 / 255.0;
                 if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
             };
             let mut sum = [0.0f32; 3];
             let mut n = 0.0f32;
-            for p in small.pixels().filter(|p| !covered || p.0.iter().map(|c| *c as u32).sum::<u32>() >= 30) {
+            let mut add = |p: &image::Rgb<u8>| {
                 (0..3).for_each(|k| sum[k] += lin(p[k]));
                 n += 1.0;
+            };
+            if let Some(Some(c)) = covered {
+                let m = UvCoverage::N as u32;
+                let grid = img.resize_exact(m, m, image::imageops::FilterType::Triangle).to_rgb8();
+                grid.enumerate_pixels().filter(|(x, y, _)| c.covers(*x as usize, *y as usize)).for_each(|(_, _, p)| add(p));
+            } else {
+                let small = img.thumbnail(64, 64).to_rgb8();
+                small.pixels().filter(|p| covered.is_none() || p.0.iter().map(|c| *c as u32).sum::<u32>() >= 30).for_each(&mut add);
             }
             Some(sum.map(|s| s / n.max(1.0)))
         });
@@ -1300,6 +1315,8 @@ struct Ocs<'a> {
     gloss_brdf: Option<&'static str>,
     /// The current material's UV scale (m per UV unit, `UvScales`).
     uv_scale: Option<f64>,
+    /// The texels the current material's faces cover (`UvCoverages`).
+    uv_cover: Option<std::rc::Rc<UvCoverage>>,
     /// DAZ's per-map settings (`ImageMod`, #77) of the channel whose image
     /// is being written (`with_map`): `image_pin` places the image by them
     /// and the material's tiling, and applies their value range and grey
@@ -3041,13 +3058,20 @@ impl Ocs<'_> {
         // Faithful shows all of it as a plain diffuse (#19). The Genesis 8
         // base skin (mono SSS, Base Color Effect 1) too since #83.
         let (d, tc) = (mat.image("diffuse").map(str::to_string), mat.image("Translucency Color").map(str::to_string));
-        let d_mean = d.as_deref().and_then(|t| self.textures.mean_covered_colour(self.dirs, t));
+        // The skin's means stay on the near-black rule, not the faces' UV
+        // coverage (#82): over the coverage Monique's Translucency Color
+        // mean halves (torso 0.62 -> 0.28 red), S with it, and her front
+        // rendered 0.89 / 0.83 / 0.94 x Iray against 1.00 / 0.96 / 1.07
+        // (#86, docs/notes/2026-11-08-skin-walk-weight.md, step 8); Angel's
+        // Base Color Effect 1 diffuse share would drop 10 - 15 %. The skin
+        // rules are held (#19 / #57): which mean they want is open in #82.
+        let d_mean = d.as_deref().and_then(|t| self.textures.mean_covered_colour(self.dirs, t, None));
         let (a, b, k) = skin_albedo(mat, translucency, d_mean);
         // Enhanced: the random walk's weight S (`skin_walk_weight`), the
         // base and the walk's colours split so that Octane's blend gives the
         // same colour back (`Textures::derived_skin`).
         let split = (!iray).then(|| {
-            let tc_mean = tc.as_deref().and_then(|t| self.textures.mean_covered_colour(self.dirs, t));
+            let tc_mean = tc.as_deref().and_then(|t| self.textures.mean_covered_colour(self.dirs, t, None));
             skin_walk_weight(skin_crossing(mat, translucency, d_mean), tc_mean)
         });
         let key = format!("skin:{d:?}:{tc:?}:{:?}:{split:?}", (a, b, k));
@@ -3319,6 +3343,16 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
+    /// The current material's UV coverage for one channel's map, where
+    /// the map lies on the UVs as they are: no material tiling or offset,
+    /// none of the map's own (`ImageMod`).
+    fn map_cover(&self, mat: &Material, channel: &str) -> Option<std::rc::Rc<UvCoverage>> {
+        let tiles = [mat.float("Horizontal Tiles"), mat.float("Vertical Tiles")].map(|t| t.filter(|t| *t > 0.0).unwrap_or(1.0));
+        let offsets = [mat.float("Horizontal Offset"), mat.float("Vertical Offset")].map(|o| o.unwrap_or(0.0));
+        let plain = tiles == [1.0, 1.0] && offsets == [0.0, 0.0] && mat.image_mod(channel).placement() == ImageMod::default();
+        self.uv_cover.clone().filter(|_| plain)
+    }
+
     fn universal(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
         if let Some(h) = omni_hair(mat) {
             return self.omni_hair(indent, name, &h);
@@ -3450,7 +3484,10 @@ impl Ocs<'_> {
         // Calib-ColorEffect's C3 as effect 0 0.48 / 0.85 / 0.99 (#27).
         let (diffuse_share, transmit_share) = if transmit > 0.0 {
             let mut colour = mat.base_color();
-            if let Some(mean) = mat.image("diffuse").map(str::to_string).and_then(|t| self.textures.mean_covered_colour(self.dirs, &t)) {
+            // The map's mean over the texels the faces cover (#82): a white
+            // fill between UV islands isn't the surface's colour.
+            let cover = self.map_cover(mat, "diffuse");
+            if let Some(mean) = mat.image("diffuse").map(str::to_string).and_then(|t| self.textures.mean_covered_colour(self.dirs, &t, cover.as_deref())) {
                 colour = [0, 1, 2].map(|k| colour[k] * mean[k]);
             }
             let (d, t) = base_color_effect_shares(mat.float("Base Color Effect").unwrap_or(0.0) as i32, colour, transmit);
@@ -5627,7 +5664,7 @@ fn ies_projection_rotation(frame: &[[f64; 3]; 3]) -> [f64; 3] {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -5865,7 +5902,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, dome_groun
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -6089,7 +6126,7 @@ fn environment_texture_at(
     first_id: u32,
     origin: Option<[f64; 3]>,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -6186,7 +6223,78 @@ pub fn material_inputs(
     first_id: u32,
     shading: impl Into<Shading>,
 ) -> (String, Textures) {
-    material_inputs_scaled(materials, &UvScales::new(), dirs, layered, first_id, shading)
+    material_inputs_scaled(materials, &UvScales::new(), &UvCoverages::new(), dirs, layered, first_id, shading)
+}
+
+/// Each material's UV coverage (`usd::uv_coverages`), keyed by the
+/// material.
+pub type UvCoverages = HashMap<*const Material, std::rc::Rc<UvCoverage>>;
+
+/// Which texels of a map a material's faces cover: a `N` × `N` grid over
+/// UV 0 … 1, row 0 at v 1 (an image's top row). A figure map's fill
+/// between its UV islands, black or white (Monique 8's diffuse maps, #82),
+/// is never shown, so a map's mean (`Textures::mean_covered_colour`) is
+/// taken over these cells only. Each face is moved into one UV tile (the
+/// one its first corner lies in): DAZ's per-surface maps for a UDIM-laid
+/// figure (Genesis 8's 1001 – 1005) each fill one tile.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UvCoverage {
+    cells: Vec<bool>,
+}
+
+impl Default for UvCoverage {
+    fn default() -> Self {
+        UvCoverage { cells: vec![false; UvCoverage::N * UvCoverage::N] }
+    }
+}
+
+impl UvCoverage {
+    /// Grid cells per side (a 4096 px map: 32 px per cell).
+    pub const N: usize = 128;
+
+    /// Mark the cells whose centre a UV triangle covers; a triangle smaller
+    /// than a cell marks the cell its centroid is in. `tile` is the UV tile
+    /// (lower left corner) the triangle is moved out of.
+    pub fn add_triangle(&mut self, t: [[f64; 2]; 3], tile: [f64; 2]) {
+        let n = Self::N as f64;
+        // Grid coordinates: x = u · N, y = (1 − v) · N.
+        let p = t.map(|[u, v]| [(u - tile[0]) * n, (1.0 - (v - tile[1])) * n]);
+        let edge = |a: [f64; 2], b: [f64; 2], c: [f64; 2]| (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+        let area = edge(p[0], p[1], p[2]);
+        let cell = |x: f64, y: f64| (x.floor() as i64, y.floor() as i64);
+        let mut mark = |x: i64, y: i64| {
+            if (0..Self::N as i64).contains(&x) && (0..Self::N as i64).contains(&y) {
+                self.cells[y as usize * Self::N + x as usize] = true;
+            }
+        };
+        let centroid = [(p[0][0] + p[1][0] + p[2][0]) / 3.0, (p[0][1] + p[1][1] + p[2][1]) / 3.0];
+        let (cx, cy) = cell(centroid[0], centroid[1]);
+        mark(cx, cy);
+        if area == 0.0 {
+            return;
+        }
+        let lo = |k: usize| p.iter().map(|q| q[k]).fold(f64::INFINITY, f64::min).floor().max(0.0) as i64;
+        let hi = |k: usize| p.iter().map(|q| q[k]).fold(f64::NEG_INFINITY, f64::max).ceil().min(n) as i64;
+        for y in lo(1)..hi(1) {
+            for x in lo(0)..hi(0) {
+                let c = [x as f64 + 0.5, y as f64 + 0.5];
+                let w = [edge(p[1], p[2], c), edge(p[2], p[0], c), edge(p[0], p[1], c)];
+                if w.iter().all(|w| w * area.signum() >= 0.0) {
+                    mark(x, y);
+                }
+            }
+        }
+    }
+
+    /// Whether the cell at column `x`, row `y` is covered.
+    pub fn covers(&self, x: usize, y: usize) -> bool {
+        self.cells[y * Self::N + x]
+    }
+
+    /// Whether no cell is covered.
+    pub fn is_empty(&self) -> bool {
+        !self.cells.iter().any(|c| *c)
+    }
 }
 
 /// Each material's UV scale: meters of surface per UV unit
@@ -6194,10 +6302,12 @@ pub fn material_inputs(
 pub type UvScales = HashMap<*const Material, f64>;
 
 /// [`material_inputs`] with the materials' UV scales, which set their bump
-/// strength ([`Ocs::bump_power`]).
+/// strength ([`Ocs::bump_power`]), and UV coverages, over which a map's
+/// mean is taken ([`UvCoverage`]).
 pub fn material_inputs_scaled(
     materials: &[crate::usd::BoundMaterial],
     uv_scales: &UvScales,
+    uv_covers: &UvCoverages,
     dirs: &[PathBuf],
     layered: HashMap<String, crate::layered_image::LayeredImage>,
     first_id: u32,
@@ -6208,7 +6318,7 @@ pub fn material_inputs_scaled(
     // materials' channels give each its own, "auto" ones aren't listed.
     let own_gammas = materials.iter().flat_map(|(_, m, _)| m.channels.values()).filter_map(|c| Some((c.image.clone()?, c.gamma?))).collect();
     let mut textures = Textures { layered, own_gammas, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, strand_hair, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, strand_hair, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -6221,9 +6331,11 @@ pub fn material_inputs_scaled(
         w.pin_open(4, "input");
         w.film = Film::of(mat);
         w.uv_scale = uv_scales.get(&std::rc::Rc::as_ptr(mat)).copied();
+        w.uv_cover = uv_covers.get(&std::rc::Rc::as_ptr(mat)).cloned();
         w.universal(5, name, mat, *area, skin);
         w.film = None;
         w.uv_scale = None;
+        w.uv_cover = None;
         w.pin_close(4);
         w.out.push_str("   </node>\n");
     }
@@ -7973,6 +8085,45 @@ mod tests {
     }
 
     #[test]
+    fn uv_coverage_marks_the_faces_tile_with_v_up() {
+        // A quad over u 0 … 0.5, v 0 … 0.5 of UDIM tile 1002 (u 1 … 2): the
+        // grid's left half of its bottom half (row 0 is v 1).
+        let mut c = UvCoverage::default();
+        let n = UvCoverage::N;
+        c.add_triangle([[1.0, 0.0], [1.5, 0.0], [1.5, 0.5]], [1.0, 0.0]);
+        c.add_triangle([[1.0, 0.0], [1.5, 0.5], [1.0, 0.5]], [1.0, 0.0]);
+        let covered = (0..n).flat_map(|y| (0..n).map(move |x| (x, y))).filter(|&(x, y)| c.covers(x, y)).count();
+        assert_eq!(covered, n * n / 4);
+        assert!(c.covers(0, n - 1) && c.covers(n / 2 - 1, n / 2) && !c.covers(n / 2, n - 1) && !c.covers(0, n / 2 - 1));
+        // A triangle smaller than a cell still marks its own.
+        let mut d = UvCoverage::default();
+        d.add_triangle([[0.3, 0.3], [0.3001, 0.3], [0.3, 0.3001]], [0.0, 0.0]);
+        assert!(!d.is_empty());
+    }
+
+    #[test]
+    fn covered_mean_leaves_out_a_white_fill() {
+        // A figure-like map: painted on its left half, white fill on the
+        // right (Monique 8's diffuse maps, #82). The near-black rule counts
+        // the fill; the faces' UV coverage doesn't.
+        let dir = tempfile::tempdir().unwrap();
+        let img = image::RgbImage::from_fn(256, 256, |x, _| if x < 128 { image::Rgb([200, 100, 50]) } else { image::Rgb([255, 255, 255]) });
+        img.save(dir.path().join("skin.png")).unwrap();
+        let dirs = [dir.path().to_path_buf()];
+        let mut c = UvCoverage::default();
+        c.add_triangle([[0.0, 0.0], [0.45, 0.0], [0.45, 1.0]], [0.0, 0.0]);
+        c.add_triangle([[0.0, 0.0], [0.45, 1.0], [0.0, 1.0]], [0.0, 0.0]);
+        let mut tex = Textures::default();
+        let painted = [200u8, 100, 50].map(|v| ((v as f32 / 255.0 + 0.055) / 1.055).powf(2.4));
+        let m = tex.mean_covered_colour(&dirs, "/skin.png", Some(&c)).unwrap();
+        assert!((0..3).all(|k| (m[k] - painted[k]).abs() < 1e-3), "{m:?} {painted:?}");
+        let old = tex.mean_covered_colour(&dirs, "/skin.png", None).unwrap();
+        assert!(old[2] > 0.45, "{old:?}");
+        // No coverage (no UVs): the old rule.
+        assert_eq!(tex.mean_covered_colour(&dirs, "/skin.png", Some(&UvCoverage::default())), Some(old));
+    }
+
+    #[test]
     fn base_color_effect_shares_follow_diffuse_base() {
         // Effect 0 leaves 1 − w / w.
         assert_eq!(base_color_effect_shares(0, [0.1, 0.3, 0.6], 0.5), (1.0, 0.5));
@@ -8169,7 +8320,7 @@ mod tests {
             ch.extend(extra.as_array().unwrap().iter().cloned());
             let m = mat(serde_json::Value::Array(ch));
             let scales: UvScales = scale.map(|s| (std::rc::Rc::as_ptr(&m), s)).into_iter().collect();
-            let (x, _) = material_inputs_scaled(&[("Ball".into(), m, 1.0)], &scales, &dirs, HashMap::new(), 9000, SkinShader::None);
+            let (x, _) = material_inputs_scaled(&[("Ball".into(), m, 1.0)], &scales, &UvCoverages::new(), &dirs, HashMap::new(), 9000, SkinShader::None);
             let b = &x[x.find("<pin name='bump'>").expect(&x)..];
             let p = &b[b.find("<pin name='power'>").unwrap()..];
             p[p.find("type='6'>").unwrap() + 9..].split('<').next().unwrap().parse().unwrap()
@@ -8846,7 +8997,7 @@ mod tests {
     #[test]
     fn mdl_metal_roughness_is_the_long_axis() {
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.02, 0.4), rough_v: (String::new(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;
@@ -8871,7 +9022,7 @@ mod tests {
         image::GrayImage::from_fn(16, 16, |x, _| image::Luma([(x * 8) as u8])).save(dir.path().join("b.png")).unwrap();
         let dirs = [dir.path().to_path_buf()];
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.06, 0.4), rough_v: (String::new(), 0.06, 0.4), bump: ("b.png".into(), 1.5), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         assert!(w.out.contains("<pin name='normal'>") && !w.out.contains("<pin name='bump'>"), "{}", w.out);
