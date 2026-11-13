@@ -74,6 +74,9 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-WeightedBack (#155): backscattering under weighted mixing
   (weight 0 / 0.5 / 1, no gloss, weights summing to 1, a rough lobe) and
   its Base Mixing 1 / 0 twins - for the .mi and Iray.
+- Calib-RefrBack, Calib-Mi-RefrBack, -Shown (#157): backscattering under
+  a partial refraction in Base Mixing 0 / 1 (ties, closed / thin-walled,
+  metal; .mi only: refraction 0.3 / 0.7, translucency) - .mi and Iray.
 - Calib-DualLobeGlossy (#106): the glossy layer over the dual lobe, each
   alone and both together (weight, roughness, reflectivity, Top Coat).
 - Calib-DualLobeWeighted (#121): the dual lobe under weighted mixing
@@ -1648,6 +1651,51 @@ uber_spheres('Calib-WeightedBack', [0.45, 0.05, 0.04], WB, [
     ('B7 mode 1 b0.5', {'Base Mixing': 1, 'Glossy Layered Weight': 0.5, 'Glossiness': 0.7, 'Backscattering Glossiness': 0.7}),
     ('B8 mode 0 b0.5', {'Base Mixing': 0, 'Glossy Layered Weight': 0.5}),
 ])
+
+# --- Backscattering under a partial refraction (#157): in
+# `metallic_layered_base` (Base Mixing 0 and 1) the refraction is a
+# `weighted_layer` at Refraction Weight over the metal over the
+# backscattering over the diffuse, so the lobe keeps (1 - refraction) of
+# its share. Calib-RefrBack (Iray): ties without backscattering and
+# without refraction, refraction 0.5 x backscattering 0.5 / 1, Base
+# Mixing 1, closed and thin-walled, a metal. Inputs unshared so the
+# lobe's green splits from the red diffuse and the white gloss by colour.
+# Calib-Mi-RefrBack (.mi only, closed): refraction 0.3 / 0.7 x
+# backscattering 0.5 / 1 in modes 0 and 1, translucency, metal, thin
+# wall. -Shown twin for the .mi.
+RB = {'Base Mixing': 0, 'Refraction Weight': 0.5, 'Refraction Index': 1.5, 'Glossy Layered Weight': 0.5, 'Glossy Roughness': 0.3,
+      'Glossy Color': [1.0, 1.0, 1.0], 'Share Glossy Inputs': False, 'Backscattering Color': [0.3, 0.9, 0.4],
+      'Refraction Color': [1.0, 1.0, 1.0], 'Backscattering Roughness': 0.3, 'Backscattering Weight': 0.5, 'Thin Walled': False}
+RB1 = {'Base Mixing': 1, 'Glossiness': 0.7, 'Backscattering Glossiness': 0.7, 'Refraction Glossiness': 1.0}
+uber_spheres('Calib-RefrBack', [0.45, 0.05, 0.04], RB, [
+    ('R1 r0.5 b0', {'Backscattering Weight': 0.0}),
+    ('R2 r0 b0.5', {'Refraction Weight': 0.0}),
+    ('R3 r0.5 b0.5', {}),
+    ('R4 r0.5 b1', {'Backscattering Weight': 1.0}),
+    ('R5 mode 1 r0.5 b0.5', RB1),
+    ('R6 r0.5 b0.5 thin', {'Thin Walled': True}),
+    ('R7 mode 1 r0.5 b0.5 thin', {**RB1, 'Thin Walled': True}),
+    ('R8 r0.5 b0.5 metal 0.6', {'Metallic Weight': 0.6}),
+])
+uber_spheres('Calib-Mi-RefrBack', [0.45, 0.05, 0.04], RB, [
+    ('Q1 r0.3 b0.5', {'Refraction Weight': 0.3}),
+    ('Q2 r0.7 b1', {'Refraction Weight': 0.7, 'Backscattering Weight': 1.0}),
+    ('Q3 mode 1 r0.3 b0.5', {**RB1, 'Refraction Weight': 0.3}),
+    ('Q4 mode 1 r0.7 b1', {**RB1, 'Refraction Weight': 0.7, 'Backscattering Weight': 1.0}),
+    ('Q5 r0.5 b0.5 translucency 0.5', {'Translucency Weight': 0.5, 'Translucency Color': [0.9, 0.6, 0.4]}),
+    ('Q6 r0.3 b0.5 metal 0.6 translucency 0.5', {'Refraction Weight': 0.3, 'Metallic Weight': 0.6, 'Translucency Weight': 0.5, 'Translucency Color': [0.9, 0.6, 0.4]}),
+    ('Q7 mode 1 r0.5 b0.5 translucency 0.5', {**RB1, 'Translucency Weight': 0.5, 'Translucency Color': [0.9, 0.6, 0.4]}),
+    ('Q8 r0.5 b0.5 shared', {'Share Glossy Inputs': True}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for m in d['material_library']:
+        for e in m.get('extra', []):
+            for c in e.get('channels', []) or []:
+                c['channel'].pop('visible', None)
+    p = os.path.join(out_dir, 'Calib-Mi-RefrBack-Shown.duf')
+    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    print(p)
 
 # --- Top Coat Bump (#61): DAZ's MDL gives the coat its own normal
 # (`calc_mix_layer_normal`): the Top Coat Bump (height or normal map, by Top

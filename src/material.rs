@@ -2051,6 +2051,9 @@ impl Ocs<'_> {
     /// layer is the same): as one node Universal's one `transmission` held
     /// either the translucency's or the refraction's, Calib-MetalRefr-TL's
     /// R1 (refraction 0.3) rendered 0.51 × Iray, R2 (0.7) 0.89 (#135).
+    /// And a backscattering surface under a partial refraction (Base
+    /// Mixing 0 / 1): the refraction lies over `bsdf_w_backscattering`
+    /// too, so the base part holds the backscattering Mix (#157).
     fn refractive_metal_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
@@ -3826,7 +3829,16 @@ impl Ocs<'_> {
         if !self.in_flake_mix && !self.in_backscatter_mix && flake_share(mat) > 0.0 {
             return self.flake_mix_material(indent, name, mat, area_m2, skin);
         }
-        if !self.in_backscatter_mix && backscatter_weight(mat) > 0.0 && (backscatter_shares(backscatter_metal(mat), backscatter_weight(mat)).0 > 0.0 || (metallic_map(mat) && !crate::iray::is_pbrskin(mat))) {
+        // Backscattering under a partial refraction (Base Mixing 0 / 1):
+        // `metallic_layered_base` lays the refraction at its weight over
+        // the metal over the backscattering, so the refraction's Mix goes
+        // outside and the backscattering Mix into its base part (at
+        // refraction 0); the refraction part (1) has none (#157).
+        let back = if refraction_weight >= 1.0 { 0.0 } else { backscatter_weight(mat) };
+        if self.refraction_override.is_none() && self.metal_override.is_none() && !self.in_backscatter_mix && back > 0.0 && refractive && !crate::iray::is_pbrskin(mat) {
+            return self.refractive_metal_material(indent, name, mat, area_m2, skin);
+        }
+        if !self.in_backscatter_mix && back > 0.0 && (backscatter_shares(backscatter_metal(mat), back).0 > 0.0 || (metallic_map(mat) && !crate::iray::is_pbrskin(mat))) {
             return self.backscatter_mix_material(indent, name, mat, area_m2, skin);
         }
         if !self.in_mix {
@@ -4613,12 +4625,21 @@ fn backscatter_metal_amounts(w: f32, b: f32) -> (f32, f32) {
 /// Iray's Backscattering Weight for the layered base's backscattering
 /// Mix (`backscatter_mix_material`): Base Mixing 0 and 1, both
 /// `metallic_layered_base` (DAZ converts glossiness mode to it and passes
-/// the backscattering: Calib-MetalTL-Back K7, #155), not on refraction.
+/// the backscattering: Calib-MetalTL-Back K7, #155), none under a full
+/// refraction (DAZ switches it off: Calib-Mi-WeightedRefr3 U5 / U6, #154).
+/// Under a partial one DAZ passes it (Calib-Mi-RefrBack, Calib-RefrBack,
+/// #157): the refraction's Mix lies over it (`refractive_metal_material`),
+/// so the Mix here sees only the part without the refraction.
 /// Weighted mixing (2) holds it in its gloss part instead
 /// (`weighted_backscatter_weight`).
 fn backscatter_weight(mat: &Material) -> f32 {
-    if weighted_mixing(mat) || mat.float("Refraction Weight").unwrap_or(0.0) > 0.0 {
+    if weighted_mixing(mat) {
         return 0.0;
+    }
+    match iray(mat) {
+        Some(u) if !u.bool("backscattering_enable").unwrap_or(false) => return 0.0,
+        None if mat.float("Refraction Weight").unwrap_or(0.0) >= 1.0 => return 0.0,
+        _ => {}
     }
     mat.float("Backscattering Weight").unwrap_or(0.0).clamp(0.0, 1.0)
 }
@@ -9776,6 +9797,9 @@ mod tests {
             ("translucent metal under backscattering", [metal_tl(), vec![backscatter()]].concat(), SkinShader::None, "19", 3),
             ("weighted coat over flakes over a backscattering translucent metal", [metal_tl(), vec![flakes(), backscatter()], weighted_coat()].concat(), SkinShader::None, "19", 5),
             ("refractive metal", vec![ch("Metallic Weight", json!(0.75)), ch("Refraction Weight", json!(0.7))], SkinShader::None, "19", 1),
+            ("backscattering under a partial refraction", vec![backscatter(), ch("Refraction Weight", json!(0.5))], SkinShader::None, "19", 2),
+            ("glossiness mixing with backscattering under a partial refraction", vec![ch("Base Mixing", json!(1)), backscatter(), ch("Refraction Weight", json!(0.5))], SkinShader::None, "19", 2),
+            ("backscattering under a full refraction", vec![backscatter(), ch("Refraction Weight", json!(1.0))], SkinShader::None, "130", 0),
             ("partial refraction over a translucent metal", [metal_tl(), vec![ch("Refraction Weight", json!(0.3))]].concat(), SkinShader::None, "19", 3),
             ("weighted coat over a translucent metal", [metal_tl(), weighted_coat()].concat(), SkinShader::None, "19", 3),
             ("anisotropic coat", aniso_coat(), SkinShader::None, "19", 2),

@@ -46,7 +46,10 @@ Found beyond it:
   the diffuse stays (Calib-WeightedRefr W1 - W8, Calib-Mi-WeightedRefr3
   U1 / U2 / U4, #154). A full refraction also switches
   `backscattering_enable` off, in every mode (Calib-Mi-WeightedRefr2 V5,
-  -3 U5 / U6).
+  -3 U5 / U6); a partial one keeps it, in Base Mixing 0 and 1 too
+  (Calib-Mi-RefrBack Q1 - Q8, Calib-RefrBack R3 - R8, #157), and a
+  full backscattering under it still switches the diffuse off (Q2 / Q4,
+  R4).
 - **Metal hue:** `metallic_directional_color_enable` only for a coloured
   base; a grey metal has no directional tint.
 - **Dual Lobe Specular Weight** goes to both `dual_lobe_specular_weight`

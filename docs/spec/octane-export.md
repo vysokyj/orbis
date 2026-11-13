@@ -1851,8 +1851,8 @@ leaves out, #15):
   from 0.04 to 0.20; missing, Octane rendered them 0.12 – 0.36 × Iray, now
   0.88 – 1.12 (coverage 0.5: 1.05 – 1.35, 0.3: 0.72 – 0.88); Calib-Map-
   Misc's gold flakes 0.50 → ~1 (#30).
-- **Backscattering** (Base Mixing 0 and 1, not refractive; weighted
-  mixing above) → a Mix material
+- **Backscattering** (Base Mixing 0 and 1, not under a full refraction;
+  weighted mixing above) → a Mix material
   at amount = Backscattering Weight: the surface and a retro-reflector —
   a metal in Glossy Color (or Backscattering Color with Share Glossy
   Inputs off) × (2 + r²) / (2 + 2 r²), Beckmann (brdf 1) at roughness
@@ -1875,7 +1875,17 @@ leaves out, #15):
   passes the backscattering (Calib-MetalTL-Back K7's `.mi`), its
   roughness from 1 − Backscattering Glossiness, no metal (DAZ drops it);
   the export had left it out ("not calibrated there"). Awaiting Iray: K7,
-  Calib-WeightedBack's tie spheres.
+  Calib-WeightedBack's tie spheres. **Under a partial refraction**
+  (0 < Refraction Weight < 1, #157) the refraction's Mix (refractive
+  metal, above: the refraction part at Refraction Weight, no metal, no
+  backscattering) lies outside, and this Mix is its base part (at
+  refraction 0), so the lobe keeps (1 − refraction) of its share: DAZ
+  passes `backscattering_enable` there in both modes, closed or
+  thin-walled, with a metal or translucency (Calib-Mi-RefrBack(-Shown),
+  Calib-RefrBack `.mi`), and `metallic_layered_base` lays the refraction
+  over the metal over the backscattering. A full refraction switches it
+  off (#154). Until then the export dropped the lobe under any
+  refraction. Awaiting Iray: Calib-RefrBack.
 
   Why (metal): DAZ's MDL lays the metal (`bsdf_w_metal`) over
   `bsdf_w_backscattering`, so a metal hides the backscattering as it
