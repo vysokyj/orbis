@@ -335,9 +335,22 @@ impl Material {
     /// A colour channel, linear: DAZ keeps colours as entered and Iray
     /// decodes them (`colour_to_linear`) — passed on as-is, a 0.73 grey floor
     /// rendered 1.5× too bright in Octane (Calib-HDRI).
+    /// PBRSkin's `color` channels go through 8 bits first
+    /// (`colour_is_8bit`).
     pub fn color(&self, id: &str) -> Option<[f32; 3]> {
         let a = self.channel(id)?.value.as_array()?;
-        Some([0, 1, 2].map(|i| colour_to_linear(a.get(i).and_then(Value::as_f64).unwrap_or(0.0) as f32)))
+        let q = self.colour_is_8bit(id);
+        Some([0, 1, 2].map(|i| {
+            let c = a.get(i).and_then(Value::as_f64).unwrap_or(0.0) as f32;
+            colour_to_linear(if q { colour_8bit(c) } else { c })
+        }))
+    }
+
+    /// Whether DAZ keeps the channel's colour in 8 bits: one of PBRSkin's
+    /// `color`-typed channels (`PBRSKIN_8BIT_COLOURS`). Iray Uber types
+    /// all its colours `float_color`.
+    pub fn colour_is_8bit(&self, id: &str) -> bool {
+        PBRSKIN_8BIT_COLOURS.contains(&id) && crate::iray::is_pbrskin(self)
     }
 
     pub fn image(&self, id: &str) -> Option<&str> {
@@ -455,6 +468,13 @@ pub fn colour_to_linear(c: f32) -> f32 {
 pub fn colour_8bit(c: f32) -> f32 {
     (c.clamp(0.0, 1.0) * 255.0).round() / 255.0
 }
+
+/// The channels `PBRSkin.dsf` types `color`, which DAZ hands Iray
+/// rounded to 8 bits (to the nearest step, then the gamma):
+/// Calib-PBRSkin-Makeup's and Calib-PBRSkin-Colour8's `.mi`. Its
+/// `float_color` ones (`diffuse`, Translucency and Transmitted Color) keep
+/// their floats; Line Preview Color and Material ID don't reach Iray.
+pub const PBRSKIN_8BIT_COLOURS: [&str; 4] = ["Makeup Base Color", "Top Coat Color", "Metallic Flakes Color", "SSS Color"];
 
 /// Whether any string in `v` is `needle`.
 fn json_contains(v: &Value, needle: &str) -> bool {
@@ -633,6 +653,22 @@ mod tests {
 
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn pbrskin_color_channels_go_through_8_bits() {
+        // Calib-PBRSkin-Colour8: 0.199 reaches Iray as 51 / 255, a
+        // `float_color` (Translucency Color) and Uber's Top Coat Color keep
+        // the float.
+        let ch = |extra: serde_json::Value| json!({"extra": [{"channels": extra}]});
+        let colour = |id: &str| json!({"channel": {"id": id, "current_value": [0.199, 0.402, 0.703]}});
+        let skin = ch(json!([{"channel": {"id": "Dual Lobe Specular Enable", "current_value": true}}, {"channel": {"id": "Specular Lobe 2 Roughness Mult", "current_value": 0.4}}, colour("Top Coat Color"), colour("Translucency Color")]));
+        let skin = Material::from_dson(&skin, &HashMap::new());
+        let uber = Material::from_dson(&ch(json!([colour("Top Coat Color")])), &HashMap::new());
+        let to = |c: [f32; 3]| c.map(|x| (x * 1e5).round() / 1e5);
+        assert_eq!(to(skin.color("Top Coat Color").unwrap()), to([51.0f32, 103.0, 179.0].map(|x| (x / 255.0).powf(2.2))));
+        assert_eq!(to(skin.color("Translucency Color").unwrap()), to([0.199f32, 0.402, 0.703].map(|x| x.powf(2.2))));
+        assert_eq!(to(uber.color("Top Coat Color").unwrap()), to([0.199f32, 0.402, 0.703].map(|x| x.powf(2.2))));
+    }
 
     #[test]
     fn custom_shader_channels_stand_in_for_uber_ones() {

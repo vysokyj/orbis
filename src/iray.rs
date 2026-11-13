@@ -483,19 +483,16 @@ impl Channels<'_> {
         }
     }
 
-    /// A colour channel, linear.
+    /// A colour channel, linear; a `color`-typed one (PBRSkin's Makeup
+    /// Base, Top Coat, Metallic Flakes and SSS Color,
+    /// `Material::colour_is_8bit`) rounded to 8 bits first.
     fn color(&self, id: &str, default: [f32; 3]) -> [f32; 3] {
+        let q = self.0.colour_is_8bit(id);
         match self.value(id).and_then(Value::as_array) {
-            Some(a) => [0, 1, 2].map(|i| (a.get(i).and_then(Value::as_f64).unwrap_or(0.0) as f32).max(0.0).powf(COLOUR_GAMMA)),
-            None => default,
-        }
-    }
-
-    /// A `color`-typed channel (DAZ keeps it in 8 bits, Makeup Base
-    /// Color), linear: rounded to 8 bits, then the material gamma.
-    fn color_8bit(&self, id: &str, default: [f32; 3]) -> [f32; 3] {
-        match self.value(id).and_then(Value::as_array) {
-            Some(a) => [0, 1, 2].map(|i| crate::daz_material::colour_8bit(a.get(i).and_then(Value::as_f64).unwrap_or(0.0) as f32).powf(COLOUR_GAMMA)),
+            Some(a) => [0, 1, 2].map(|i| {
+                let c = a.get(i).and_then(Value::as_f64).unwrap_or(0.0) as f32;
+                (if q { crate::daz_material::colour_8bit(c) } else { c }).max(0.0).powf(COLOUR_GAMMA)
+            }),
             None => default,
         }
     }
@@ -1135,7 +1132,7 @@ pub fn pbrskin(mat: &Material) -> BTreeMap<&'static str, Arg> {
     out.insert("pbr_material.metallic_makeup_enable", Arg::Bool(on("Makeup Metallicity Enable")));
     // A `color` channel (8 bits in DAZ, unlike `diffuse`'s `float_color`):
     // 0.1 / 0.3 reach Iray as (26 / 255)^2.2, (77 / 255)^2.2.
-    let makeup = ch.color_8bit("Makeup Base Color", [1.0; 3]);
+    let makeup = ch.color("Makeup Base Color", [1.0; 3]);
     out.insert("pbr_material.makeup_color", ch.map("Makeup Base Color", MapKind::Colour, makeup).map_or(Arg::Color(makeup), Arg::Map));
     out.insert("pbr_material.makeup_roughness_mult", Arg::Float(ch.float("Makeup Roughness Mult", 1.0)));
     out.insert("pbr_material.detail_weight", Arg::Float(ch.float("Detail Weight", 1.0)));
@@ -1166,6 +1163,9 @@ pub fn pbrskin(mat: &Material) -> BTreeMap<&'static str, Arg> {
     out.insert("pbr_add_metallicflakes.metallic_flakes_density", Arg::Float(ch.float("Metallic Flakes Density", 0.2)));
     out.insert("pbr_add_metallicflakes.metallic_flakes_color", ch.color_or_map("Metallic Flakes Color", [1.0; 3], 1.0));
     out.insert("pbr_add_volume.sub_surface_enable", Arg::Bool(on("Sub Surface Enable")));
+    // Top Coat, Metallic Flakes and SSS Color are `color` channels too: 8
+    // bits (Calib-PBRSkin-Colour8); Translucency and Transmitted Color keep
+    // their floats.
     out.insert("pbr_add_volume.sub_surface_scattering_color", Arg::Color(ch.color("SSS Color", [0.5; 3])));
     out.insert("pbr_add_volume.scattering_distance_of_measurement", Arg::Float(ch.float("Scattering Measurement Distance", 0.015)));
     out.insert("pbr_add_volume.transmitted_color", Arg::Color(ch.color("Transmitted Color", [0.0; 3])));

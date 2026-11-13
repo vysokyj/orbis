@@ -14,6 +14,9 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-PBRSkin-Makeup, -Makeup-TL: PBRSkin's Makeup layer (weight, a
   weight map, roughness mult, the metal's tint; over translucency, a top
   coat and the subsurface skin path), one change per sphere (#142).
+- Calib-PBRSkin-Colour8: off-grid values on PBRSkin's `color` channels
+  (Top Coat, Metallic Flakes, SSS, Makeup Base) and its `float_color`
+  ones, for the .mi: which DAZ keeps in 8 bits (#152).
 - Calib-Tone-*: Iray tone mapping off the calibrated defaults — Burn
   Highlights, Crush Blacks, Gamma — to check the tone LUT's curve (#14),
   fitted so far on Gladiator alone.
@@ -2292,6 +2295,32 @@ pbr_spheres('Calib-PBRSkin-Makeup-TL', [
     ('L6 skin', MK_RED, {**MK_DL, **MK_SKIN}),
     ('L7 skin makeup w0.5', MK_RED, {**MK_DL, **MK_SKIN, **MK, 'Makeup Weight': 0.5}),
     ('L8 skin makeup map', MK_RED, {**MK_DL, **MK_SKIN, **MK, **MK_MAP}),
+])
+
+# --- PBRSkin's 8-bit colours (#152): PBRSkin.dsf types Makeup Base, Top
+# Coat, SSS and Metallic Flakes Color as `color` (DAZ keeps 8 bits, #142),
+# diffuse, Translucency and Transmitted Color as `float_color`. Off-grid
+# values on each, two triples per `color` channel: CB_LO's fractions are
+# all < 0.5 (31.4, 116.3, 201.2 / 255), CB_HI's above (50.7, 102.5,
+# 179.3), so the .mi tells rounding from truncation. A `.mi`-only scene.
+# (DL and RED are redefined above for other scenes: spelled out here.)
+CB_DL = {'Dual Lobe Specular Enable': True, 'Dual Lobe Specular Weight': 1.0, 'Dual Lobe Specular Reflectivity': 0.5,
+         'Specular Lobe 1 Roughness': 0.4, 'Specular Lobe 2 Roughness Mult': 0.4, 'Dual Lobe Specular Ratio': 0.15}
+CB_LO = [0.123, 0.456, 0.789]
+CB_HI = [0.199, 0.402, 0.703]
+CB_TC = {'Top Coat Enable': True, 'Top Coat Weight': 0.5, 'Top Coat Reflectivity': 0.5, 'Top Coat Roughness': 0.2}
+CB_FL = {'Metallic Flakes Enable': True, 'Metallic Flakes Weight': 0.5, 'Metallic Flakes Density': 0.3}
+CB_SKIN = {'Translucency Enable': True, 'Translucency Weight': 0.8, 'Sub Surface Enable': True,
+           ('diffuse', 'image'): MAPS + 'calib-disp-white.png'}
+pbr_spheres('Calib-PBRSkin-Colour8', [
+    ('C1 top coat lo', CB_HI, {**CB_DL, **CB_TC, 'Top Coat Color': CB_LO}),
+    ('C2 top coat hi', CB_LO, {**CB_DL, **CB_TC, 'Top Coat Color': CB_HI}),
+    ('C3 flakes lo', CB_HI, {**CB_DL, **CB_FL, 'Metallic Flakes Color': CB_LO}),
+    ('C4 flakes hi', CB_LO, {**CB_DL, **CB_FL, 'Metallic Flakes Color': CB_HI}),
+    ('C5 sss lo transmitted hi', CB_HI, {**CB_DL, **CB_SKIN, 'SSS Color': CB_LO, 'Translucency Color': CB_HI, 'Transmitted Color': CB_HI}),
+    ('C6 sss hi transmitted lo', CB_LO, {**CB_DL, **CB_SKIN, 'SSS Color': CB_HI, 'Translucency Color': CB_LO, 'Transmitted Color': CB_LO}),
+    ('C7 makeup lo', CB_HI, {**CB_DL, 'Makeup Enable': True, 'Makeup Weight': 0.5, 'Makeup Base Color': CB_LO}),
+    ('C8 makeup hi', CB_LO, {**CB_DL, 'Makeup Enable': True, 'Makeup Weight': 0.5, 'Makeup Base Color': CB_HI}),
 ])
 
 # Scene dumps: scripts/dev/daz-dump.sh (DAZ evaluates each scene headless).

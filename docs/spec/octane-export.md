@@ -842,7 +842,15 @@ both).
 
 DAZ keeps a `color`-typed channel (DAZ Default's, the scripted shaders') in
 8 bits: a generated 0.3 reaches Iray as 77/255 (saved scenes are already
-quantised).
+quantised). PBRSkin types four of its colours `color` - Makeup Base, Top
+Coat, Metallic Flakes and SSS Color - and DAZ hands them to Iray rounded to
+the nearest 1/255, then the gamma (Calib-PBRSkin-Colour8's `.mi`: 0.199 /
+0.402 / 0.703 reach Iray as 51 / 103 / 179 ÷ 255, 0.123 / 0.456 / 0.789 as
+31 / 116 / 201); the export reads them the same way on both sides
+(`Material::colour_is_8bit`). Its `float_color` ones (`diffuse`,
+Translucency and Transmitted Color) and all of Iray Uber's colours keep
+their floats. The rounding moves an encoded value by at most 0.5/255, a
+linear one by about 0.43 % / c relative (4 % at 0.1, under 1 % above 0.45).
 
 **Not mapped: DAZ doesn't pass them** (their .mi equals the twin's without
 them; the Uber test also fails on any argument DAZ passes that `src/iray.rs`
