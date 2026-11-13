@@ -68,6 +68,9 @@ where the hair shader's module fails to re-import (#94).
 The -UberM scenes take Morgan's Strands material apart (materials 5, 14 -
 16: whole, without its gloss, without its translucency, without its
 refraction) on fibres and on ribbons (-T2, Morgan's shape), sun and dome.
+-UberM-Edge-T2 (-Dome) put the same strands in the same places with each
+ribbon turned 65 degrees about its strand (node and geometry turned against
+each other), as Calib-Hair-Teens shows Morgan's ribbons (#99).
 
 How DAZ hands a polyline to Iray depends on the hair's Line Tessellation
 modifier (its .mi export reads the Viewport sides, the render the Render
@@ -367,7 +370,22 @@ def tessellation(d, oid, sides):
                   {'type': 'studio_modifier_channels', 'channels': [{'channel': {'id': c['channel']['id'], 'type': 'int', 'current_value': c['channel']['current_value']}} for c in chans(sides)]}]})
 
 
-def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None, hair=None, mats=None):
+def turned(g, axis, deg):
+    """The geometry turned by -deg about its strands' axis (x or y), for a
+    node turned by +deg: the strands stay where they were in the world, only
+    the object's frame - and with it a ribbon's normal, the object's +z made
+    perpendicular to the strand - turns (-Edge scenes)."""
+    c, s = math.cos(math.radians(-deg)), math.sin(math.radians(-deg))
+    def rot(v):
+        x, y, z = v
+        if axis == 'x':  # y -> z positive
+            return [x, y * c - z * s, y * s + z * c]
+        return [x * c + z * s, y, -x * s + z * c]  # about y: z -> x positive
+    g['vertices']['values'] = [[round(q, 4) for q in rot(v)] for v in g['vertices']['values']]
+    return g
+
+
+def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None, hair=None, mats=None, turn=None):
     d = copy.deepcopy(base)
     d['asset_info']['id'] = f'/Scenes/{name}.duf'
     d['asset_info']['contributor'] = {'author': '', 'email': '', 'website': ''}
@@ -408,10 +426,15 @@ def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None, h
         else:
             g, uv = strands_geometry(gid, patch(ord(kind[-1]) * 10 + k, 3000, kind[-1]))
             widths = THIN
+        axis = 'y' if kind == 'patch-y' else 'x'
+        if turn and kind != 'tube':
+            g = turned(g, axis, turn)
         d['geometry_library'].append(g)
         d['uv_set_library'].append(uv)
         nl = copy.deepcopy(template_node)
         nl.update({'id': oid, 'name': oid, 'label': label})
+        if turn and kind != 'tube':
+            next(c for c in nl['rotation'] if c['id'] == axis)['current_value'] = turn
         if tess is not None and kind != 'tube':
             nl['type'] = 'figure'  # DAZ runs a modifier stack on figures only
         for c in nl['translation']:
@@ -503,3 +526,8 @@ for _name, _kw in (('', {}), ('-T3', {'tess': 3})):
 for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
     build('Calib-Strand-UberM' + _name, rows='GHIJ', mats=(5, 14, 15, 16), **_kw)
     build('Calib-Strand-UberM' + _name + '-Dome', rows='GHIJ', mats=(5, 14, 15, 16), dome=True, **_kw)
+# Morgan's ribbons as Calib-Hair-Teens shows them, about 65 degrees from
+# face-on (#99): the same strands in the world as -UberM-T2, only the
+# ribbons' normal turned about each strand.
+build('Calib-Strand-UberM-Edge-T2', rows='GHIJ', mats=(5, 14, 15, 16), tess=2, turn=65.0)
+build('Calib-Strand-UberM-Edge-T2-Dome', rows='GHIJ', mats=(5, 14, 15, 16), tess=2, turn=65.0, dome=True)
