@@ -163,10 +163,10 @@ impl Curve {
     }
 }
 
-/// An NVIDIA dielectric's layer stack on a closed solid: a reflect-only
-/// coat (weight, curve, roughness) over a tinted base lobe (its own
-/// scatter mode and roughness) of the material's IOR. Roughness is MDL's
-/// for `Libbsdf`, Beckmann α for `Smith`.
+/// An NVIDIA dielectric's layer stack on a closed solid (or a thin-walled
+/// one): a reflect-only coat (weight, curve, roughness) over a tinted base
+/// lobe (its own scatter mode and roughness) of the material's IOR.
+/// Roughness is MDL's for `Libbsdf`, Beckmann α for `Smith`.
 #[derive(Clone, Copy)]
 pub struct Stack {
     pub weight: f64,
@@ -175,26 +175,43 @@ pub struct Stack {
     pub base: Scatter,
     pub base_rough: f64,
     pub ior: f64,
+    /// MDL's `thin_walled`: a transmission doesn't bend and there is no
+    /// inside — both faces are the outside's (the curve and Fresnel at the
+    /// IOR from outside, MDL spec 13.1). `libbsdf` transmits the
+    /// reflection mirrored through the surface (as rough as the reflection);
+    /// Octane's Thin Wall passes the ray straight on, unblurred and
+    /// unweighted ("no refraction and no roughness for transmission", #136).
+    pub thin: bool,
 }
 
 /// One microfacet lobe at h: the direction, its weight (sampled h ∝ D (n·h):
 /// |k1·h| G / (|n·k1| |n·h|)) or None when it dies, and whether it refracted.
-fn lobe(model: Model, rough: f64, n: V, v: V, h: V, eta: f64, mode: Scatter, rng: &mut Rng) -> Option<(V, f64, bool)> {
+#[allow(clippy::too_many_arguments)]
+fn lobe(model: Model, rough: f64, n: V, v: V, h: V, eta: f64, mode: Scatter, thin: bool, rng: &mut Rng) -> Option<(V, f64, bool)> {
+    if thin && mode == Scatter::Transmit && matches!(model, Model::Smith) {
+        // Octane's Thin Wall: straight on, unweighted, whatever the facet.
+        return Some((scale(v, -1.0), 1.0, true));
+    }
     let vh = dot(v, h);
     let (nv, nh) = (dot(n, v), dot(n, h));
     if vh <= 0.0 || nh <= 0.0 || nv <= 0.0 {
         return None;
     }
-    let ct2 = 1.0 - (1.0 - vh * vh) / (eta * eta);
+    // A thin wall's transmission doesn't bend: never total reflection.
+    let e = if thin { 1.0 } else { eta };
+    let ct2 = 1.0 - (1.0 - vh * vh) / (e * e);
     let refract = match mode {
         Scatter::Reflect => false,
         Scatter::ReflectTransmit => rng.next() >= fresnel(eta, vh),
         Scatter::Transmit => ct2 >= 0.0,
     };
-    let l = if refract {
-        add(scale(v, -1.0 / eta), scale(h, vh / eta - ct2.max(0.0).sqrt()))
+    let reflected = add(scale(h, 2.0 * vh), scale(v, -1.0));
+    let l = if !refract {
+        reflected
+    } else if thin {
+        add(reflected, scale(n, -2.0 * dot(n, reflected)))
     } else {
-        add(scale(h, 2.0 * vh), scale(v, -1.0))
+        add(scale(v, -1.0 / eta), scale(h, vh / eta - ct2.max(0.0).sqrt()))
     };
     let nl = dot(n, l);
     if (refract && nl >= 0.0) || (!refract && nl <= 0.0) {
@@ -203,7 +220,7 @@ fn lobe(model: Model, rough: f64, n: V, v: V, h: V, eta: f64, mode: Scatter, rng
     let g = match model {
         Model::Libbsdf => {
             let (g1, g2) = (vcav(nh, vh, nv), vcav(nh, dot(l, h).abs(), nl.abs()));
-            if refract { (g1 + g2 - 1.0).max(0.0) } else { g1.min(g2) }
+            if refract && !thin { (g1 + g2 - 1.0).max(0.0) } else { g1.min(g2) }
         }
         Model::Smith => smith_g1(nv, rough) * smith_g1(nl, rough),
     };
@@ -237,31 +254,33 @@ fn sphere_paths_disk(model: Model, s: &Stack, disk: f64) -> Vec<(f64, i32)> {
         for _ in 0..DEPTH {
             let n = if inside { scale(p, -1.0) } else { p };
             let v = scale(d, -1.0);
-            let eta = if inside { 1.0 / s.ior } else { s.ior };
+            // A thin wall is met from outside on either face.
+            let outside = !inside || s.thin;
+            let eta = if outside { s.ior } else { 1.0 / s.ior };
             let nk1 = dot(n, v).clamp(0.0, 1.0);
             let h = sample_h(model, s.base_rough, n, &mut rng);
             let hc = if shared { h } else { sample_h(model, s.coat_rough, n, &mut rng) };
             let ev = match model {
                 Model::Libbsdf => {
-                    let p_layer = s.weight * s.curve.eval(inside, nk1);
+                    let p_layer = s.weight * s.curve.eval(!outside, nk1);
                     if rng.next() < p_layer {
-                        lobe(model, s.coat_rough, n, v, hc, eta, Scatter::Reflect, &mut rng).map(|(l, w, _)| (l, w * s.weight * s.curve.eval(inside, dot(v, hc)) / p_layer, false, false))
+                        lobe(model, s.coat_rough, n, v, hc, eta, Scatter::Reflect, s.thin, &mut rng).map(|(l, w, _)| (l, w * s.weight * s.curve.eval(!outside, dot(v, hc)) / p_layer, false, false))
                     } else {
-                        lobe(model, s.base_rough, n, v, h, eta, s.base, &mut rng).map(|(l, w, refr)| {
+                        lobe(model, s.base_rough, n, v, h, eta, s.base, s.thin, &mut rng).map(|(l, w, refr)| {
                             let nk2 = match s.curve {
                                 Curve::Fresnel(_) if refr => 2.0 * dot(v, h) * dot(n, h) - nk1,
                                 _ => dot(n, l).abs(),
                             };
-                            let base = 1.0 - s.weight * s.curve.eval(inside, nk1).max(s.curve.eval(inside, nk2));
+                            let base = 1.0 - s.weight * s.curve.eval(!outside, nk1).max(s.curve.eval(!outside, nk2));
                             (l, w * base / (1.0 - p_layer), refr, true)
                         })
                     }
                 }
                 Model::Smith => {
-                    if rng.next() < s.weight * s.curve.eval(inside, dot(v, hc)) {
-                        lobe(model, s.coat_rough, n, v, hc, eta, Scatter::Reflect, &mut rng).map(|(l, w, _)| (l, w, false, false))
+                    if rng.next() < s.weight * s.curve.eval(!outside, dot(v, hc)) {
+                        lobe(model, s.coat_rough, n, v, hc, eta, Scatter::Reflect, s.thin, &mut rng).map(|(l, w, _)| (l, w, false, false))
                     } else {
-                        lobe(model, s.base_rough, n, v, h, eta, s.base, &mut rng).map(|(l, w, refr)| (l, w, refr, true))
+                        lobe(model, s.base_rough, n, v, h, eta, s.base, s.thin, &mut rng).map(|(l, w, refr)| (l, w, refr, true))
                     }
                 }
             };
@@ -319,9 +338,14 @@ pub fn tint_factor(iray: &Stack, octane: &Stack, tint: [f32; 3]) -> [f32; 3] {
 /// `lobe_albedo` is what Iray's base lobe alone (no coat, white) keeps in
 /// the furnace over the sphere's inner disk (r < 0.75 of the silhouette,
 /// as measured), and the `libbsdf` model meets it with an extra tint τ on
-/// every base event before the stack is traced (#115).
+/// every base event before the stack is traced (#115). A thin-walled
+/// sphere's measured profile is flat to the rim (Calib-Furnace-ArchGlass2
+/// H4 / H5, #147), so there the disk stands for the whole silhouette and τ
+/// is solved on it: at refr_gloss 0 `libbsdf`'s thin model rises towards
+/// the rim (0.43 → 0.58) where Iray stays at 0.386, and τ solved on the
+/// disk left the whole sphere 1.13 × Iray's.
 pub fn tint_factor_measured(iray: &Stack, octane: &Stack, lobe_albedo: f64, tint: [f32; 3]) -> [f32; 3] {
-    let lobe = sphere_paths_disk(Model::Libbsdf, &Stack { weight: 0.0, ..*iray }, 0.75);
+    let lobe = sphere_paths_disk(Model::Libbsdf, &Stack { weight: 0.0, ..*iray }, if iray.thin { 1.0 } else { 0.75 });
     let tau = if albedo(&lobe, 1.0) <= lobe_albedo { 1.0 } else { solve(|t| albedo(&lobe, t), lobe_albedo) };
     let ip = sphere_paths(Model::Libbsdf, iray);
     let op = sphere_paths(Model::Smith, octane);
@@ -363,7 +387,7 @@ pub fn interp(table: &[(f64, f64)], x: f64) -> f64 {
 /// normal weights) with coat weight `weight` and IOR `ior`. At most 1.
 pub fn resin_tint_factor(rough: f32, alpha: f32, weight: f32, ior: f32, tint: [f32; 3]) -> [f32; 3] {
     let (rough, alpha, weight, ior) = (rough.max(0.0) as f64, alpha.max(0.0) as f64, weight.clamp(0.0, 1.0) as f64, (ior as f64).max(1.0001));
-    let stack = |r: f64| Stack { weight, curve: Curve::Fresnel(ior), coat_rough: r, base: Scatter::ReflectTransmit, base_rough: r, ior };
+    let stack = |r: f64| Stack { weight, curve: Curve::Fresnel(ior), coat_rough: r, base: Scatter::ReflectTransmit, base_rough: r, ior, thin: false };
     tint_factor(&stack(rough), &stack(alpha), tint)
 }
 
@@ -403,7 +427,7 @@ mod tests {
         // Calib-Furnace-ArchGlass: refr_gloss 0.2 (r_t 0.5), reflectivity
         // 0.6 - the Fresnel term's critical angle loses more than Schlick's.
         let sch = Curve::Schlick { r0: 0.2, r90: 1.0, exponent: 5.0 };
-        let iray = |curve| Stack { weight: 0.6, curve, coat_rough: 0.0, base: Scatter::Transmit, base_rough: 0.5, ior: 1.5 };
+        let iray = |curve| Stack { weight: 0.6, curve, coat_rough: 0.0, base: Scatter::Transmit, base_rough: 0.5, ior: 1.5, thin: false };
         let octane = |s: Stack| Stack { curve: Curve::Fresnel(2.618), ..s };
         let ks = tint_factor_measured(&iray(sch), &octane(iray(sch)), 0.614, [1.0; 3]);
         let kf = tint_factor_measured(&iray(Curve::Fresnel(1.5)), &octane(iray(Curve::Fresnel(1.5))), 0.614, [1.0; 3]);
@@ -411,5 +435,21 @@ mod tests {
         // The lobe's measured loss only lowers it.
         assert!(tint_factor(&iray(sch), &octane(iray(sch)), [1.0; 3])[0] > ks[0]);
         assert_eq!(interp(&[(0.0, 0.5), (1.0, 1.0)], 0.5), 0.75);
+    }
+
+    #[test]
+    fn a_thin_wall_does_not_bend() {
+        // Octane's Thin Wall passes the light straight on through both
+        // walls; `libbsdf`'s near-smooth thin wall keeps it too, its rough
+        // one loses to v-cavities masking (no total reflection to trap it).
+        let s = |r: f64| Stack { weight: 0.0, curve: Curve::Fresnel(1.5), coat_rough: r, base: Scatter::Transmit, base_rough: r, ior: 1.5, thin: true };
+        let (iray, octane) = furnace_albedo(&s(0.02), &s(0.7), 0.8);
+        assert!((octane - 0.64).abs() < 1e-9 && (iray - 0.64).abs() < 0.02, "{iray} {octane}");
+        assert!(furnace_albedo(&s(0.5), &s(0.5), 1.0).0 < 0.9);
+        // A coat on a thin wall reflects off both faces at the IOR from
+        // outside; the tint then makes up only what the lobe loses.
+        let coated = Stack { weight: 0.6, ..s(0.0) };
+        let k = tint_factor_measured(&coated, &coated, 0.505, [1.0; 3]);
+        assert!((0.6..0.8).contains(&k[0]), "{k:?}");
     }
 }

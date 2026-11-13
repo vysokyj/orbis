@@ -909,6 +909,9 @@ struct MdlDielectric {
     /// Architectural's Enable Absorption inside the glass: σa (1/m per
     /// channel, `arch_absorption`).
     absorption: Option<[f32; 3]>,
+    /// Architectural's `thin_walled` glass: Universal's Thin Wall
+    /// (`transmissionType` 2) — no bending, no volume (#147).
+    thin: bool,
     metallic: bool,
     opacity: f32,
     /// Architectural: its roughness rules (`arch_reflection_rough`,
@@ -957,7 +960,7 @@ fn resin_lobe_albedo(r: f32, weight: f32, ior: f32, tint: [f32; 3]) -> [f32; 3] 
     use crate::mdl_layer::{Curve, Scatter, Stack};
     let (r, weight, ior) = (r.max(0.0) as f64, weight.clamp(0.0, 1.0) as f64, (ior as f64).max(1.0001));
     let pin = phong_pin(r as f32) as f64;
-    let stack = |rough: f64| Stack { weight, curve: Curve::Fresnel(ior), coat_rough: rough, base: Scatter::ReflectTransmit, base_rough: rough, ior };
+    let stack = |rough: f64| Stack { weight, curve: Curve::Fresnel(ior), coat_rough: rough, base: Scatter::ReflectTransmit, base_rough: rough, ior, thin: false };
     crate::mdl_layer::tint_factor_measured(&stack(r), &stack(pin * pin), crate::mdl_layer::interp(&RESIN_LOBE, r), tint)
 }
 
@@ -1013,6 +1016,7 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
         refraction: None,
         aniso: None,
         absorption: None,
+        thin: false,
         metallic: false,
         opacity: 1.0,
         fitted_pins: module == "architectural",
@@ -1088,7 +1092,11 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
                     let c = |ch: &str, v: f32| mat.float(ch).unwrap_or(v) as f64;
                     (c("brdf_0_degree_refl2", 0.2), c("brdf_90_degree_refl2", 1.0), c("brdf_curve", 5.0))
                 });
-                let k = arch_glass_albedo(refr, refr_gloss, refr_ior, weight, d.roughness, d.ior, curve, colour);
+                // `thin_walled`: the MDL's `material.thin_walled` — no
+                // bending, no volume (so no absorption), the IOR still the
+                // layer's Fresnel (#147).
+                d.thin = mat.float("thin_walled").unwrap_or(0.0) > 0.0;
+                let k = arch_glass_albedo(refr, refr_gloss, refr_ior, weight, d.roughness, d.ior, curve, d.thin, colour);
                 d.transmission = Some([0, 1, 2].map(|i| colour[i] * transparency * k[i]));
                 d.albedo = MdlAlbedo::Colour(diffuse.map(|c| c * (1.0 - transparency)));
                 d.refraction = Some((refr, refr_ior));
@@ -1162,7 +1170,7 @@ const ARCH_GLASS_ROUGH: f32 = 3.7;
 /// reflectivity 0.6 0.85, with the Fresnel term 0.73 (the critical angle in
 /// `fresnel_layer`'s weights).
 #[allow(clippy::too_many_arguments)]
-fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, refl_rough: f32, coat_ior: f32, curve: Option<(f64, f64, f64)>, colour: [f32; 3]) -> [f32; 3] {
+fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, refl_rough: f32, coat_ior: f32, curve: Option<(f64, f64, f64)>, thin: bool, colour: [f32; 3]) -> [f32; 3] {
     use crate::mdl_layer::{Curve, Scatter, Stack};
     let ior = (refr_ior as f64).max(1.0001);
     let iray = Stack {
@@ -1172,9 +1180,11 @@ fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, ref
         base: Scatter::Transmit,
         base_rough: refr as f64,
         ior,
+        thin,
     };
     let octane = Stack { curve: Curve::Fresnel((coat_ior as f64).max(1.0001)), ..iray };
-    crate::mdl_layer::tint_factor_measured(&iray, &octane, crate::mdl_layer::interp(&ARCH_GLASS_LOBE, refr_gloss as f64), colour)
+    let lobe = if thin { &ARCH_GLASS_THIN_LOBE[..] } else { &ARCH_GLASS_LOBE[..] };
+    crate::mdl_layer::tint_factor_measured(&iray, &octane, crate::mdl_layer::interp(lobe, refr_gloss as f64), colour)
 }
 
 /// What Iray's architectural transmit lobe alone keeps (reflectivity 0,
@@ -1188,6 +1198,14 @@ fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, ref
 /// predicts the coated spheres (refr_gloss 0.2 under reflectivity 0.6:
 /// Schlick 0.657 v Iray 0.655, Fresnel term 0.421 v 0.416).
 const ARCH_GLASS_LOBE: [(f64, f64); 5] = [(0.0, 0.512), (0.2, 0.614), (0.4, 0.938), (0.6, 0.964), (1.0, 1.0)];
+
+/// `ARCH_GLASS_LOBE` for a thin-walled sphere (two walls, no bending):
+/// Calib-Furnace-ArchGlass2 H5 / H4 (refr_gloss 0 / 0.2, Iray Server 5000,
+/// #116), flat over the rings — at 0.2 `libbsdf`'s thin model keeps a
+/// flat 0.82 (Iray / model 0.61 at every ring), so the loss there is
+/// one constant per wall. Above 0.2 not measured: the closed spheres'
+/// values stand in (G3 – G1, ≤ 6 % lost; #149).
+const ARCH_GLASS_THIN_LOBE: [(f64, f64); 5] = [(0.0, 0.386), (0.2, 0.505), (0.4, 0.938), (0.6, 0.964), (1.0, 1.0)];
 
 /// mental ray's glossiness → MDL roughness by the MDL SDK's
 /// `base::architectural_gloss_to_rough` (`base.mdl`): √(2 · 2^(−4 − 14 g)),
@@ -2105,6 +2123,11 @@ impl Ocs<'_> {
             self.rgb_pin(i, "transmission", t);
             self.float_pin(i, "coatingIor", m.ior);
             self.float_pin(i, "ior", refr_ior);
+            if m.thin {
+                // Thin Wall: no bending; unblurred whatever the roughness,
+                // Octane's limit (#136).
+                self.value_pin(i, "transmissionType", 57, 2, "2");
+            }
             if let Some(sigma) = m.absorption {
                 self.absorption_pin(i, sigma);
             }
@@ -6834,11 +6857,30 @@ mod tests {
         // reflection at its 0.2 → IOR 2.62).
         let rr = architectural_gloss_to_rough(0.2) * ARCH_GLASS_ROUGH;
         assert_eq!(pin(&x, "roughness"), num(rr.sqrt()), "{x}");
-        let k = arch_glass_albedo(rr, 0.2, 1.5, 0.6, 0.0, (1.0 + 0.2f32.sqrt()) / (1.0 - 0.2f32.sqrt()), Some((0.2, 1.0, 5.0)), [1.0; 3]);
+        let k = arch_glass_albedo(rr, 0.2, 1.5, 0.6, 0.0, (1.0 + 0.2f32.sqrt()) / (1.0 - 0.2f32.sqrt()), Some((0.2, 1.0, 5.0)), false, [1.0; 3]);
         assert!((0.8..0.92).contains(&k[0]), "{k:?}");
         assert_eq!(pin(&x, "transmission"), format!("{} {} {}", num(k[0]), num(k[1]), num(k[2])), "{x}");
         assert_eq!(pin(&x, "ior"), num(1.5), "{x}");
         assert!(x.contains("<pin name='coating'>") && x.contains("<pin name='transmission'>"), "{x}");
+        assert!(!x.contains("<pin name='transmissionType'>"), "{x}");
+        // thin_walled (#147): Thin Wall, no medium even with Enable
+        // Absorption; the IOR stays (the coating's Fresnel). Reflectivity
+        // 0: two unblurred walls of k each keep Iray's flat thin sphere,
+        // k² = 0.505 at refr_gloss 0.2, 0.386 at 0 (`ARCH_GLASS_THIN_LOBE`).
+        for (gloss, keeps) in [(0.2f32, 0.505f32), (0.0, 0.386)] {
+            let thin = arch(json!([
+                {"channel": {"id": "transparency", "current_value": 1}},
+                {"channel": {"id": "refr_gloss", "current_value": gloss}},
+                {"channel": {"id": "reflectivity", "current_value": 0}},
+                {"channel": {"id": "thin_walled", "type": "bool", "current_value": true}},
+                {"channel": {"id": "refr_falloff_on", "type": "bool", "current_value": true}},
+            ]));
+            let (t, _) = material_inputs(&[("Thin".into(), thin, 1.0)], &[], HashMap::new(), 9650, SkinShader::None);
+            assert_eq!(pin(&t, "transmissionType"), "2", "{t}");
+            assert!(!t.contains("<pin name='medium'>"), "{t}");
+            let k: f32 = pin(&t, "transmission").split(' ').next().unwrap().parse().unwrap();
+            assert!((k * k - keeps).abs() < 0.01, "{gloss}: {k}");
+        }
         let aniso = arch(json!([
             {"channel": {"id": "refl_gloss", "current_value": 0.3}},
             {"channel": {"id": "anisotropy", "current_value": 4}},

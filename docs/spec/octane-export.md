@@ -2289,6 +2289,25 @@ leaves out, #15):
     passes all four (Calib-Mi-Arch, the test checks σa); Octane darkened
     the 10 cm sphere and blacked out the 2 – 3 cm ones (sanity render, no
     Iray reference needed: the MDL states the medium).
+    **thin_walled** (with transparency) → Universal's Thin Wall
+    (`transmissionType` 2): the MDL's `material.thin_walled` — no bending,
+    no volume (no absorption), the IOR still the layer's Fresnel (the
+    coating keeps it, MDL spec 13.1) — and k solved on a thin-walled
+    sphere: Iray = `libbsdf`'s thin wall (the transmission the reflection
+    mirrored through the surface, both faces the outside's) with the lobe's
+    loss measured on thin spheres (`ARCH_GLASS_THIN_LOBE`, by refr_gloss 0
+    / 0.2: 0.386 / 0.505, Calib-Furnace-ArchGlass2 H5 / H4, reflectivity 0;
+    above 0.2 the closed spheres' values stand in until measured, #149),
+    τ solved over the whole silhouette (Iray's thin profile is flat to the
+    rim; `libbsdf`'s at refr_gloss 0 rises 0.43 → 0.58); Octane = the
+    coating over a wall that passes the ray straight on, unweighted (no
+    roughness for Thin Wall transmission, #136 — a rough thin wall stays
+    sharp). Reflectivity 0: k = √ of the thin sphere, 0.72 / 0.62. Why:
+    the glass went out as a refracting solid and H4 / H5 rendered as the
+    closed H2 / H3 (0.729 → 0.507 centre to rim v Iray's flat 0.52 / 0.39);
+    now Octane / Iray 1.02 / 1.01 on the disk, 0.99 – 1.03 per ring
+    (enhanced-final, denoised; #147). The IOR-dependence of the closed
+    lobe's τ (#148) doesn't reach a thin wall: its lobe never refracts.
     Calib-NVIDIA3 (Iray 5000, Octane 1024; floor 1.04), disk before →
     after: glossiness 0.15 0.97 → 1.05, 0.3 0.89 → 1.01, 0.5 1.01 → 1.05,
     0.7 1.04 → 1.05; glass refr_gloss 1 1.04, 0.6 1.06 → 1.01, 0.2 1.67 →
