@@ -1317,9 +1317,18 @@ leaves out, #15):
   — the weight, no Fresnel. → a Mix material (19): `amount` = Top Coat
   Weight (or its map), `material1` a Universal metal in Top Coat Color at
   the top coat's roughness (`weighted_coat_material`), `material2` the
-  surface without its coat; the mix carries the displacement. Calib-TopCoat
+  surface without its coat; the mix carries the displacement. It is the
+  outermost Mix: a flake or backscattering Mix lies in its `material2`,
+  and their nodes carry no Universal coating. Calib-TopCoat
   weighted 1 / 0.4: 1.03 – 1.05 × Iray (as a coating 0.05 – 0.10; Iray's
   weight-1 sphere is a chrome mirror).
+
+  Why (outermost): DAZ's `add_top_coat` wraps everything below, metallic
+  flakes and the base's backscattering included; nested inside them the
+  coat covered only their surface's share, and the flake and backscatter
+  metals got a Fresnel coating at IOR 1.5 instead of the weighted mirror
+  (#102). Derived from the layer stack, not rendered: no calibration
+  scene combines the two.
 - **Top Coat Bump** (#61) → the coat's own surface detail: Universal
   `coatingBump` / `coatingNormal`, the weighted coat's metal and the
   anisotropic coat's Specular Layer on their `bump` / `normal`
@@ -1702,7 +1711,8 @@ leaves out, #15):
   (`edgeTint` the same, roughness 0.5: the flakes' scattered normals) at
   Flakes Weight × 0.4 × density^1.3 over the surface; the top coat lies
   over both. Size, strength, the flakes' roughness and thin film aren't
-  mapped. The flake Mix is the outermost of the Mixes under the coat: a
+  mapped. The flake Mix is the outermost of the Mixes under the coat (a
+  weighted coat's Mix lies around it): a
   backscattering Mix lies in its surface (`material2`), so the
   backscatter takes (1 − flake share) of its amount.
 

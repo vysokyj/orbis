@@ -1541,7 +1541,8 @@ impl Ocs<'_> {
     /// under the same top coat, at `flake_share` (`material1`), and the
     /// surface without them (`material2`) (#30). `add_metal_flakes` wraps
     /// the whole base material, so a backscattering Mix lies inside
-    /// `material2`, not around this one (#122).
+    /// `material2`, not around this one (#122); a weighted coat's Mix
+    /// lies around it, and its nodes carry no coating then (#102).
     fn flake_mix_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
@@ -1575,7 +1576,10 @@ impl Ocs<'_> {
         self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
         self.in_flake_mix = false;
         self.pin_close(i);
-        self.displacement_pin(i, mat);
+        // Under a weighted coat the coat Mix carries it.
+        if !self.in_coat_mix {
+            self.displacement_pin(i, mat);
+        }
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
@@ -1678,7 +1682,9 @@ impl Ocs<'_> {
         self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
         self.in_backscatter_mix = false;
         self.pin_close(i);
-        self.displacement_pin(i, mat);
+        if !self.in_coat_mix {
+            self.displacement_pin(i, mat);
+        }
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
@@ -1868,7 +1874,9 @@ impl Ocs<'_> {
     /// `amount` = the weight or its map) and the surface without its coat
     /// (`material2`). As Universal's coating (Fresnel by IOR) Calib-TopCoat's
     /// weighted spheres rendered 0.05 – 0.10 × Iray: Iray's at weight 1 is a
-    /// chrome mirror, Octane's plain lacquered red (#25).
+    /// chrome mirror, Octane's plain lacquered red (#25). `add_top_coat`
+    /// wraps everything below, so the flake and backscattering Mixes lie in
+    /// `material2` (#102).
     fn weighted_coat_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
@@ -3401,17 +3409,19 @@ impl Ocs<'_> {
         if layered_coat {
             return self.layered_coat_material(indent, name, mat, area_m2, skin);
         }
+        // The weighted coat outermost: DAZ's `add_top_coat` lies over
+        // everything below, flakes and backscattering included (#102).
+        if !self.in_coat_mix && !self.in_flake_mix && !self.in_backscatter_mix && weighted_top_coat(mat) {
+            return self.weighted_coat_material(indent, name, mat, area_m2, skin);
+        }
         // Flakes outside the backscattering: DAZ's `add_metal_flakes` wraps
         // the whole base material (metal, backscattering, diffuse), so the
         // flakes hide the backscattering as they hide the rest (#122).
-        if !self.in_flake_mix && !self.in_backscatter_mix && !self.in_coat_mix && flake_share(mat) > 0.0 {
+        if !self.in_flake_mix && !self.in_backscatter_mix && flake_share(mat) > 0.0 {
             return self.flake_mix_material(indent, name, mat, area_m2, skin);
         }
-        if !self.in_backscatter_mix && !self.in_coat_mix && backscatter_shares(backscatter_metal(mat), backscatter_weight(mat)).0 > 0.0 {
+        if !self.in_backscatter_mix && backscatter_shares(backscatter_metal(mat), backscatter_weight(mat)).0 > 0.0 {
             return self.backscatter_mix_material(indent, name, mat, area_m2, skin);
-        }
-        if !self.in_coat_mix && weighted_top_coat(mat) {
-            return self.weighted_coat_material(indent, name, mat, area_m2, skin);
         }
         if !self.in_mix {
             if let Some(weights) = weighted_gloss(mat) {
@@ -8747,6 +8757,40 @@ mod tests {
         let backscatter = x.find("Ball base backscatter'>").expect(&x);
         assert!(flakes < backscatter);
         assert!(x.matches("type='19'").count() == 2);
+    }
+
+    #[test]
+    fn a_weighted_top_coat_lies_over_the_flakes_and_the_backscattering() {
+        // DAZ's `add_top_coat` wraps everything below, flakes included, and
+        // a Layering Mode 1 coat is a weighted mirror, not a Fresnel
+        // coating: the coat Mix is the outer node, the flake and
+        // backscattering Mixes in its `material2`, and none of their
+        // nodes carries Universal's coating (#102).
+        let m = mat(json!([
+            {"channel": {"id": "diffuse", "current_value": [0.8, 0.6, 0.2]}},
+            {"channel": {"id": "Metallic Flakes Weight", "current_value": 1.0}},
+            {"channel": {"id": "Backscattering Weight", "current_value": 0.5}},
+            {"channel": {"id": "Top Coat Weight", "current_value": 0.4}},
+            {"channel": {"id": "Top Coat Layering Mode", "current_value": 1}},
+        ]));
+        let f = flake_share(&m);
+        let x = material_inputs(&[("Ball".into(), m, 1.0)], &[], HashMap::new(), 5000, SkinShader::None).0;
+        let amounts: Vec<f32> = x
+            .match_indices("<pin name='amount'>")
+            .map(|(p, _)| {
+                let v = &x[p..];
+                v[v.find("type='6'>").unwrap() + 9..].split('<').next().unwrap().parse().unwrap()
+            })
+            .collect();
+        assert_eq!(amounts.len(), 3, "{x}");
+        assert!((amounts[0] - 0.4).abs() < 1e-6, "{x}");
+        assert!((amounts[1] - f).abs() < 1e-6, "{x}");
+        assert!((amounts[2] - 0.5).abs() < 1e-6, "{x}");
+        let (coat, flakes, backscatter) = (x.find("Ball top coat'>").expect(&x), x.find("Ball base flakes'>").expect(&x), x.find("Ball base base backscatter'>").expect(&x));
+        assert!(x.find("name='Ball'>").unwrap() < coat && coat < flakes && flakes < backscatter, "{x}");
+        assert!(!x.contains("<pin name='coating'>"), "{x}");
+        assert_eq!(x.matches("type='19'").count(), 3);
+        assert_eq!(x.matches("<node ").count(), x.matches("</node>").count());
     }
 
     #[test]
