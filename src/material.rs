@@ -2318,7 +2318,7 @@ impl Ocs<'_> {
             None => self.base_bump(mat).map(|(a, f, m)| (a, Some(f), m)),
         };
         let baked = match (&layer, &base) {
-            (None, Some(_)) => return self.base_detail_pins(i, mat, normal_pin, bump_pin),
+            (None, Some(_)) => return self.surface_detail_pins(i, mat, normal_pin, bump_pin, false),
             (None, None) => return,
             (Some((l, lf, lm)), Some((b, bf, bm))) if lm == bm => {
                 let bg = mat.image_gamma(if bf.is_some() { "Bump Strength" } else { "Normal Map" });
@@ -2403,6 +2403,15 @@ impl Ocs<'_> {
     /// can't be read, go in as Octane's own: the normal map on
     /// `normal_pin`, the height map on `bump_pin` at `bump_power`.
     fn base_detail_pins(&mut self, i: usize, mat: &Material, normal_pin: &str, bump_pin: &str) {
+        self.surface_detail_pins(i, mat, normal_pin, bump_pin, true);
+    }
+
+    /// `base_detail_pins`, with PBRSkin's Detail Normal Map blended onto
+    /// the normal when `detail` (`detail_normal_pin`; the Top Coat's normal
+    /// doesn't take it: `pbr_add_clearcoat` blends its bump onto the plain
+    /// `state::normal()`).
+    fn surface_detail_pins(&mut self, i: usize, mat: &Material, normal_pin: &str, bump_pin: &str, detail: bool) {
+        let detail = if detail { self.pbr_detail(mat) } else { None };
         let nm = self.channel_map(mat, "Normal Map").map(|(a, m)| (a, m.placement()));
         let bump = self.base_bump(mat);
         if let Some((b, f, bm)) = &bump {
@@ -2413,13 +2422,13 @@ impl Ocs<'_> {
                     None => self.textures.detail_normal(height, None),
                 };
                 if let Some(asset) = baked {
-                    return self.with_map(*bm, |w| w.image_pin(i, normal_pin, &asset, false, 1.0, 1.0));
+                    return self.normal_pin(i, normal_pin, Some((asset, *bm)), detail);
                 }
             }
         }
-        if let Some((a, m)) = nm {
-            let a = self.linear_normal_map(&a, mat.image_gamma("Normal Map"));
-            self.with_map(m, |w| w.image_pin(i, normal_pin, &a, false, 1.0, 1.0));
+        let base = nm.map(|(a, m)| (self.linear_normal_map(&a, mat.image_gamma("Normal Map")), m));
+        if base.is_some() || detail.is_some() {
+            self.normal_pin(i, normal_pin, base, detail);
         }
         if let Some((a, f, m)) = bump {
             let g = self.textures.map_gamma(&a, mat.image_gamma("Bump Strength"));
@@ -2428,6 +2437,54 @@ impl Ocs<'_> {
                 w.image_pin(i, bump_pin, &a, true, g, p);
             });
         }
+    }
+
+    /// PBRSkin's Detail Normal Map (`Material::pbr_detail_normal`) as a
+    /// linear normal map: its weight, the asset and its placement.
+    fn pbr_detail(&mut self, mat: &Material) -> Option<(f32, String, ImageMod)> {
+        let (w, placement) = mat.pbr_detail_normal()?;
+        let (a, _) = self.channel_map(mat, "Detail Normal Map")?;
+        let a = self.linear_normal_map(&a, mat.image_gamma("Detail Normal Map"));
+        Some((w, a, placement))
+    }
+
+    /// A tangent-space normal map (linear) on `pin` at its placement, with
+    /// PBRSkin's detail normal blended onto it when there is one: an OSL
+    /// texture (117, `detail_normal_osl`) of the two maps, each image
+    /// node with its own UV transform — the detail tiled as DAZ tiles it
+    /// (10 × 10 on the Genesis 9 skins), which a bake into the base map
+    /// would need at ten times its resolution. No base map: the detail
+    /// onto the flat normal.
+    fn normal_pin(&mut self, i: usize, pin: &str, base: Option<(String, ImageMod)>, detail: Option<(f32, String, ImageMod)>) {
+        let Some((w, da, dm)) = detail else {
+            if let Some((a, m)) = base {
+                self.with_map(m, |s| s.image_pin(i, pin, &a, false, 1.0, 1.0));
+            }
+            return;
+        };
+        let id = self.id();
+        self.pin_open(i, pin);
+        let j = i + 1;
+        let _ = writeln!(self.out, "{:j$}<node id='{id}' type='117' name='detail normal'>", "");
+        let _ = writeln!(self.out, "{:j$} <attr name='shaderCode' type='10'>{}</attr>", "", esc(&detail_normal_osl(w)));
+        // The shader's inputs are dynamic pins: an .ocs names their type
+        // (`dynamicType`, 5 = texture, as Octane saves them), else Octane
+        // compiles the shader on load and gives them their defaults
+        // instead (probe octane-probe-oslpins.lua, #140).
+        let mut input = |s: &mut Self, name: &str, a: &str, m: ImageMod| {
+            let at = s.out.len();
+            s.with_map(m, |s| s.image_pin(j + 1, name, a, false, 1.0, 1.0));
+            let (plain, typed) = (format!("<pin name='{name}'>"), format!("<pin name='{name}' dynamicType='5'>"));
+            if let Some(k) = s.out[at..].find(&plain) {
+                s.out.replace_range(at + k..at + k + plain.len(), &typed);
+            }
+        };
+        if let Some((a, m)) = base {
+            input(self, "base", &a, m);
+        }
+        input(self, "detail", &da, dm);
+        let _ = writeln!(self.out, "{:j$}</node>", "");
+        self.pin_close(i);
     }
 
     /// A normal map as Octane reads it: linear, whatever the `gamma` pin
@@ -4356,6 +4413,37 @@ fn retro_albedo(r: f32) -> f32 {
 /// α = r / √(4 + r²) — roughness 0.21 at r 0.09, 0.49 at r 0.49.
 fn retro_roughness(r: f32) -> f32 {
     (r / (4.0 + r * r).sqrt()).sqrt().clamp(0.0, 1.0)
+}
+
+/// `normal_pin`'s shader: PBRSkin's `pbr_detail_normal` — the detail
+/// normal at weight `w` (MDL `base::blend_normals`: a linear blend between
+/// the unperturbed normal and the detail, normalised) blended onto the
+/// base by reoriented normal mapping (`detail_normal::blend_normals`),
+/// both inputs and the output tangent-space normals in the 0..1 encoding
+/// (`tangent_space_normal_texture`: 2c − 1, |z|).
+fn detail_normal_osl(w: f32) -> String {
+    format!(
+        "shader OrbisDetailNormal(color base = color(0.5, 0.5, 1.0), color detail = color(0.5, 0.5, 1.0), output color c = color(0.5, 0.5, 1.0)) {{
+    vector b = vector(base[0], base[1], base[2]) * 2.0 - 1.0;
+    b[2] = abs(b[2]);
+    b = normalize(b);
+    vector d = vector(detail[0], detail[1], detail[2]) * 2.0 - 1.0;
+    d[2] = abs(d[2]);
+    d = normalize(mix(vector(0.0, 0.0, 1.0), normalize(d), {}));
+    vector n1 = b + vector(0.0, 0.0, 1.0);
+    vector n2 = vector(-d[0], -d[1], d[2]);
+    vector r = normalize(n1 * dot(n1, n2) / n1[2] - n2);
+    c = color(r[0], r[1], r[2]) * 0.5 + 0.5;
+}}
+",
+        osl_float(w)
+    )
+}
+
+/// A float as an OSL literal (always with a decimal point).
+fn osl_float(v: f32) -> String {
+    let s = num(v);
+    if s.contains('.') || s.contains('e') { s } else { format!("{s}.0") }
 }
 
 /// `retro_normal_pin`'s shader: the direction to the viewer as a
@@ -6654,6 +6742,52 @@ mod tests {
             };
             let nx = img.get_pixel(30, 4)[0] as f32 / 255.0 * 2.0 - 1.0;
             assert!((nx + want).abs() < 0.005, "{gamma:?}: {nx} vs {}", -want);
+        }
+    }
+
+    /// PBRSkin's Detail Normal Map (#140): an OSL texture on `normal`
+    /// blending the tiled detail onto the base normal map at Detail
+    /// Weight; off under Detail Enable false, in mode 0 or at weight 0.
+    #[test]
+    fn pbrskin_detail_normal_blends_in_osl() {
+        let dir = tempfile::tempdir().unwrap();
+        image::RgbImage::from_pixel(8, 8, image::Rgb([128, 128, 255])).save(dir.path().join("n.png")).unwrap();
+        image::RgbImage::from_pixel(8, 8, image::Rgb([160, 128, 250])).save(dir.path().join("d.png")).unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let skin = |enable: bool, mode: u32, w: f32, base: bool| {
+            let mut ch = vec![
+                json!({"channel": {"id": "Detail Enable", "current_value": enable}}),
+                json!({"channel": {"id": "Detail Weight", "current_value": w}}),
+                json!({"channel": {"id": "Detail Normal Map", "current_value": 1, "image_file": "/d.png"}}),
+                json!({"channel": {"id": "Detail Normal Map Mode", "current_value": mode}}),
+                json!({"channel": {"id": "Detail Horizontal Tiles", "current_value": 4}}),
+                json!({"channel": {"id": "Detail Vertical Tiles", "current_value": 5}}),
+            ];
+            if base {
+                ch.push(json!({"channel": {"id": "Bump Enable", "current_value": true}}));
+                ch.push(json!({"channel": {"id": "Normal Map", "current_value": 1, "image_file": "/n.png"}}));
+            }
+            let mut m = Material::from_dson(&json!({"extra": [{"channels": ch}]}), &HashMap::new());
+            for c in ["Detail Normal Map", "Normal Map"] {
+                if let Some(c) = m.channels.get_mut(c) {
+                    c.gamma = Some(1.0);
+                }
+            }
+            material_inputs(&[("Skin".into(), Rc::new(m), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None).0
+        };
+        let x = skin(true, 1, 0.5, true);
+        let n = &x[x.find("<pin name='normal'>").expect(&x)..];
+        assert!(n.contains("type='117' name='detail normal'") && n.contains("OrbisDetailNormal") && n.contains("normalize(d), 0.5)"), "{x}");
+        let (b, d) = (n.find("<pin name='base' dynamicType='5'>").expect(n), n.find("<pin name='detail' dynamicType='5'>").expect(n));
+        assert!(n[b..d].contains("n.png") && !n[b..d].contains("name='transform'"), "base untiled: {n}");
+        assert!(n[d..].contains("d.png") && n[d..].contains("<attr name='scale' type='8'>0.25 0.2 1</attr>"), "detail tiled 4 x 5: {n}");
+        // No base normal: the detail alone, onto the flat normal.
+        let x = skin(true, 1, 1.0, false);
+        let n = &x[x.find("<pin name='normal'>").expect(&x)..];
+        assert!(n.contains("OrbisDetailNormal") && n.contains("normalize(d), 1.0)") && !n.contains("<pin name='base'"), "{x}");
+        for (enable, mode, w) in [(false, 1, 0.5), (true, 0, 0.5), (true, 1, 0.0)] {
+            let x = skin(enable, mode, w, true);
+            assert!(!x.contains("OrbisDetailNormal") && x.contains("n.png"), "{enable} {mode} {w}: {x}");
         }
     }
 

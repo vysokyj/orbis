@@ -266,7 +266,7 @@ impl Material {
             "Top Coat Weight" => "Top Coat Enable",
             "Bump Strength" | "Normal Map" => "Bump Enable",
             "Metallic Flakes Weight" => "Metallic Flakes Enable",
-            "Detail Weight" => "Detail Enable",
+            "Detail Weight" | "Detail Normal Map" => "Detail Enable",
             "Makeup Weight" => "Makeup Enable",
             "SSS Amount" => "Sub Surface Enable",
             _ => return false,
@@ -294,6 +294,28 @@ impl Material {
         }
         let w = self.float_as_saved("Detail Weight").unwrap_or(1.0).clamp(0.0, 1.0);
         1.0 + (self.float_as_saved("Detail Specular Roughness Mult").unwrap_or(1.0).max(0.0) - 1.0) * w
+    }
+
+    /// PBRSkin's Detail Normal Map (`pbr_skin.mdl`'s `pbr_detail_normal`)
+    /// under Detail Enable, in Detail Normal Map Mode 1 (a tangent-space
+    /// normal map; mode 0 reads it as a height map, not exported): its
+    /// Detail Weight and its placement — the map's own (`image_mod`) with
+    /// the Detail Tiles and Offsets on it, as the material's tiles lie on
+    /// a map's (`iray::Channels::map`; Calib-PBRSkin-Occlusion O8: 4 × 4
+    /// tiles reach Iray as the transform's scale 4). None at weight 0.
+    pub fn pbr_detail_normal(&self) -> Option<(f32, ImageMod)> {
+        self.image("Detail Normal Map")?;
+        if self.float_as_saved("Detail Normal Map Mode").map_or(1, |m| m.round() as i32) != 1 {
+            return None;
+        }
+        let w = self.float_as_saved("Detail Weight").unwrap_or(1.0).clamp(0.0, 1.0);
+        let f = |id: &str, d: f32| self.float_as_saved(id).unwrap_or(d);
+        let dt = [f("Detail Horizontal Tiles", 10.0), f("Detail Vertical Tiles", 10.0)].map(|t| if t > 0.0 { t } else { 1.0 });
+        let doff = [f("Detail Horizontal Offset", 0.0), f("Detail Vertical Offset", 0.0)];
+        let im = self.image_mod("Detail Normal Map").placement();
+        let pt = im.tiles_or_one();
+        let placement = ImageMod { tiles: [dt[0] * pt[0], dt[1] * pt[1]], tiling_offset: [doff[0] * pt[0] + im.tiling_offset[0], doff[1] * pt[1] + im.tiling_offset[1]], ..im };
+        (w > 0.0).then_some((w, placement))
     }
 
     fn float_as_saved(&self, id: &str) -> Option<f32> {

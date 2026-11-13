@@ -1123,6 +1123,16 @@ pub fn pbrskin(mat: &Material) -> BTreeMap<&'static str, Arg> {
     // Lobe 1's roughness × lerp(1, this, Detail Weight) under Detail Enable
     // (Calib-PBRSkin-Occlusion O7 / O8).
     out.insert("pbr_material.roughness_detail", Arg::Float(ch.float("Detail Specular Roughness Mult", 1.0)));
+    // The Detail Normal Map (`pbr_detail_normal`, Calib-PBRSkin-Occlusion
+    // O8): blended onto the base normal at Detail Weight, tiled by the
+    // Detail Tiles (the transform's scale) — `Material::pbr_detail_normal`.
+    if let Some((w, pl)) = mat.pbr_detail_normal() {
+        if let Some(m) = ch.map("Detail Normal Map", MapKind::Normal, [ch.float("Detail Normal Map", 1.0); 3]) {
+            let tiling = [pl.tiles[0], pl.tiles[1], pl.tiling_offset[0], -pl.tiling_offset[1]];
+            out.insert("pbr_detail_normal.normal_detail", Arg::Map(Map { tiling, ..m }));
+            out.insert("pbr_detail_normal.detail_weight", Arg::Float(w));
+        }
+    }
     // A map passes as is (Calib-PBRSkin-Occlusion O6).
     out.insert("pbr_material.occlusion_weight", ch.float_or_map("Ambient Occlusion Weight", 1.0));
     out.insert("pbr_material.specular_occlusion_facing", Arg::Float(ch.float("Specular Occusion Facing", 0.6)));
@@ -2336,7 +2346,11 @@ mod tests {
         let func = m.split('(').next().unwrap_or(m).rsplit("::").next().unwrap_or(m).to_string();
         for (k, a) in v["args"].as_object().into_iter().flatten() {
             match a["mdl"].as_str() {
-                Some(n) if (n.contains("pbr_") || n.contains("::add_")) && !n.contains("normal") => flatten_pbr(a, out),
+                Some(n) if (n.contains("pbr_") || n.contains("::add_")) && (!n.contains("normal") || n.contains("pbr_detail_normal")) => flatten_pbr(a, out),
+                // A normal map: the whole texture call (`fixture_map`).
+                Some(n) if n.starts_with("base::tangent_space_normal_texture") => {
+                    out.insert(format!("{func}.{k}"), a.clone());
+                }
                 Some(n) if n.starts_with("daz_3d::basic::pass_") && !a["args"]["v"].is_object() => {
                     out.insert(format!("{func}.{k}"), a["args"]["v"].clone());
                 }
@@ -2358,8 +2372,18 @@ mod tests {
         // defaults only, extracted by scripts/dev/daz-defaults.py.
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let defaults: serde_json::Map<String, Value> = serde_json::from_str(&std::fs::read_to_string(root.join("calib/references/daz-defaults/PBRSkin.json")).unwrap()).unwrap();
-        let channels: Vec<Value> = defaults.into_iter().map(|(id, v)| serde_json::json!({"channel": {"id": id, "current_value": v}})).collect();
-        let base = Material::from_dson(&serde_json::json!({"extra": [{"channels": channels}]}), &HashMap::new());
+        // With its `default_image_gamma`s: what an unlisted map reaches Iray
+        // at (`scene_image_gammas`; the Detail Normal Map's 1, O8).
+        let gammas: serde_json::Map<String, Value> = serde_json::from_str(&std::fs::read_to_string(root.join("calib/references/daz-defaults/PBRSkin-gammas.json")).unwrap()).unwrap();
+        let channels: Vec<Value> = defaults
+            .into_iter()
+            .map(|(id, v)| match gammas.get(&id) {
+                Some(g) => serde_json::json!({"channel": {"id": id, "current_value": v, "default_image_gamma": g}}),
+                None => serde_json::json!({"channel": {"id": id, "current_value": v}}),
+            })
+            .collect();
+        let definition = serde_json::json!({"extra": [{"channels": channels}]});
+        let base = Material::from_dson(&definition, &HashMap::new());
         let (mut checked, mut wrong) = (0, Vec::new());
         for f in std::fs::read_dir(root.join("calib/references/mi")).unwrap() {
             let f = f.unwrap().path();
@@ -2372,12 +2396,14 @@ mod tests {
                     label.insert(g["id"].as_str().unwrap_or("").to_string(), n["label"].as_str().unwrap_or("").to_string());
                 }
             }
+            let image_gammas = crate::daz_material::scene_image_gammas(&doc, &HashMap::new(), |u| u.contains("PBRSkin.dsf").then(|| definition.clone()));
             for m in doc.pointer("/scene/materials").and_then(Value::as_array).into_iter().flatten() {
                 if !m["url"].as_str().is_some_and(|u| u.contains("PBRSkin.dsf")) {
                     continue;
                 }
                 let mut mat = base.clone();
                 mat.merge(m, &HashMap::new());
+                mat.resolve_gammas(&image_gammas);
                 let node = &label[m["geometry"].as_str().unwrap().rsplit('#').next().unwrap()];
                 for g in m["groups"].as_array().into_iter().flatten().filter_map(Value::as_str) {
                     let key = format!("{node}/{g}");

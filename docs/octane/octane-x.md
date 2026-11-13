@@ -254,6 +254,14 @@ Octane X runs Lua scripts from its **Script** menu.
   `"camera:dofrandom"` (float[2], a point on the unit square for the
   lens); `point("camera", …)` / `transform("camera", "world", …)` use the
   camera's frame (−Z forward, +Y up). Checked by probe (#39).
+- **OSL texture** (NT_TEX_OSL, 117): attribute `shaderCode`; the
+  shader's inputs become dynamic pins (`color` a texture pin, type 5).
+  In an `.ocs` such a pin must carry its type,
+  `<pin name='detail' dynamicType='5'>` (int 3, float 2, as Octane's
+  own vectron.orbx writes its OSL geometry's), else Octane compiles the
+  shader on load and gives the pins their default colours, dropping the
+  connected nodes (`octane-probe-oslpins.lua`, #140). The output colour on
+  a material's `normal` pin reads as a tangent-space normal map (0..1).
 - Thin lens `lensShift`: x as a fraction of the image width, y of its
   height (positive = the view moves right / up).
 - Useful calls: `octane.node.create{type=…, graphOwner=…}`, `setAttribute`,

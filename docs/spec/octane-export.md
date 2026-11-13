@@ -1086,8 +1086,32 @@ leaves out, #15):
   (`Material::detail_roughness_mult`; a map on the multiplier counts by
   its value). DAZ hands all of these over as saved
   (Calib-PBRSkin-Occlusion's `.mi`, a map on the occlusion weight as the
-  map). The Detail Normal Map (tiled, blended onto the base normal at
-  Detail Weight by `base::blend_normals`) is not exported yet (#140).
+  map).
+- **PBRSkin Detail Normal Map** (#140, from `pbr_skin.mdl`'s
+  `pbr_detail_normal`, no fit): under `Detail Enable`, in `Detail Normal
+  Map Mode` 1 (a tangent-space normal map), the detail map — tiled by
+  `Detail Horizontal / Vertical Tiles` (on its own per-map tiles, its
+  offsets as the material's on a map's; DAZ's default 10 × 10) — is
+  blended onto the base normal (the Normal Map, Bump Strength's height
+  map, or both baked, **height maps as normal maps** below) by
+  `base::blend_normals`: the detail at `Detail Weight` as a linear blend
+  between the unperturbed normal and the detail, normalised, then
+  reoriented normal mapping onto the base. It goes in **procedurally**:
+  an OSL texture (117) on `normal` with the base and the detail as two
+  image textures, each with its own UV transform, doing that blend
+  (`detail_normal_osl`); not baked, because the tiles would need the base
+  map at tiles × its resolution (a 4K map at 10 × 10 tiles: 40K), against
+  the texture budget, and a capped bake would lose the detail it is for.
+  The inputs are dynamic pins, written with `dynamicType='5'` (without
+  it Octane compiles the shader on load and leaves them at their default
+  colours: no detail). The Top Coat doesn't take it (`pbr_add_clearcoat`
+  blends its own bump onto the plain normal). DAZ hands Iray the map at
+  its definition's `default_image_gamma` 1, its weight and the tiles as
+  the transform's scale (Calib-PBRSkin-Occlusion O8's `.mi`). Known
+  input: O8's shading normal (Info kernel, `octane-probe-bumptilt.lua`)
+  through the OSL is the same map baked 4 × 4 by hand to 0.18° RMS
+  (8.61° vs 8.62° tilt). Mode 0 (the map as a height map) and a map on
+  the weight aren't exported (the weight counts by its value).
 - **Glossy layer over a dual lobe** (#106): DAZ's MDL has both in the
   stack at once — the dual lobe over the diffuse (`dl_diffuse_bsdf`), the
   glossy layer's custom curve over that (`metallic_layered_base`), each
