@@ -3667,7 +3667,8 @@ impl Ocs<'_> {
             // A closed solid with Iray's volume under it: the light it passes
             // back out scales with the volume's diffusion reflectance, as on
             // skin (`volume_factor`), × `PROP_VOLUME_LEVEL`. Calib-SSSColor's
-            // spheres (Victoria 8's volume, SSS Color grey / blue / deep)
+            // spheres (Victoria 8's volume, SSS Color grey / blue / deep;
+            // the spread follows where each sphere stands, #87)
             // 0.84 – 1.05 × Iray, before 1.05 – 2.68; mono 1.40 – 1.54
             // (before 1.40 – 1.69: Iray's mono spheres darker than Rd says,
             // unlike its figures), SSS Reflectance Tint, unread, 1.34 (#28).
@@ -4961,16 +4962,15 @@ fn reference_volume_albedo() -> [f32; 3] {
 /// on props (Universal's diffuse transmission): skin takes the derived
 /// A(α) (`skin_albedo`, #19).
 ///
-/// The square root is still a fit (#83): Iray's Calib-SSSColor spheres
-/// don't follow any function of α alone. Mono SSS Amount 2 (clamped to 1:
-/// α 0.99 / 0.84 / 0.78, σs 67 / cm) renders darker than chromatic grey (α
-/// 0.99 / 0.80 / 0.74, σs 53 / cm): how much passes through the sphere
-/// counts, a thickness the albedo doesn't carry. With the clamp (#105) the
-/// two mono spheres agree (1.13 / 1.29 / 1.31 and 1.11 / 1.29 / 1.22 ×
-/// Iray, before 1.26 / 1.53 / 1.59 for Amount 2); still above the
-/// chromatic ones. A(α) / A(α₀), right on figures,
-/// spread the spheres 0.58 – 2.26 × Iray against the root's 0.71 – 1.61.
-/// The derived rule needs the volume itself (a random walk on props, #87).
+/// The square root and `PROP_VOLUME_LEVEL` are still fits (#83), and
+/// the spread they leave is the export's, not Iray's (#87): Iray's sphere
+/// is DAZ's MDL to 0.93 – 0.98 (`scripts/dev/prop-volume-mc.py` at each
+/// sphere's own light), a local diffuser, while the medium-less diffuse
+/// transmission here lights the whole ball from inside, so its ratio
+/// follows the sphere's place in the scene (V1 0.71, V7 — V1's material —
+/// 1.07 in red). Octane's scattering medium is the same physics per
+/// channel but leaks a saturated σ across channels (spectral): red 0.56 –
+/// 0.63 × Iray on Calib-SSSColor. The rule waits for Calib-PropVol-*.
 fn volume_factor(mat: &Material) -> [f32; 3] {
     let alpha = volume_albedo(mat);
     let reference = reference_volume_albedo();

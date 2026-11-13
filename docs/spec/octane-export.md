@@ -912,13 +912,26 @@ leaves out, #15):
   volume under it (Transmitted Color set; ~313 installed materials) has its
   `transmission` × the skin's volume factor (`volume_factor`, Rd(α) /
   Rd(α₀))^0.5 per channel) × 0.7 (`PROP_VOLUME_LEVEL`). Both are fits
-  (#83): Iray's spheres follow no function of α alone — mono SSS Amount 2
-  (clamped to 1 as DAZ passes it, below: α 0.99 / 0.84 / 0.78, σs 67 /
-  cm) renders darker than chromatic grey
-  (α 0.99 / 0.80 / 0.74, σs 53 / cm), so how much passes through the
-  sphere counts; skin's derived A(α) / A(α₀) in place of the root spread
-  them 0.58 – 2.26 × Iray (the root 0.71 – 1.61, per channel); a derived
-  rule needs the volume itself (#87). Calib-SSSColor's
+  (#83), and the spread they leave is not the volume's (#87,
+  docs/notes/2026-11-13-prop-volume.md): Iray's closed translucent sphere
+  is exactly DAZ's MDL — a Lambertian wall ((1 − w) b reflected, w Tc
+  transmitted, both ways) around a homogeneous σa / σs volume. A Monte
+  Carlo of that (`scripts/dev/prop-volume-mc.py`) over each sphere's own
+  light (Octane's plain diffuse 0.5 at the same place) predicts every
+  Calib-SSSColor sphere 0.93 – 0.98 of Iray, as its plain diffuse sphere
+  (0.95 – 0.96). The 15 cm spheres are hundreds of mean free paths: no
+  thickness acts there, and mono Amount 2 is not darker than grey for its
+  volume — V7 (V1's material at another place) is 0.63 × V1 in Iray. The
+  export's hollow transmitter (no medium: the light that enters lights
+  the whole ball) misses that falloff, so its ratio follows the sphere's
+  place (V1 0.71, V7 1.07 in red). Octane's scattering medium (59) with
+  Iray's σa / σs under the diffuse transmission is the same physics per
+  channel (red over a grey medium 0.94 – 1.02 of the Monte Carlo) and
+  removes the place's spread (red 0.56 – 0.63 on all seven), but Octane
+  is spectral: a saturated σ (Transmitted Color 0.98 / 0.48 / 0.35, green
+  and blue 36 × red's σa) leaks into red, which loses 20 – 60 % (worse
+  where the red volume is thinner). Not shipped until Calib-PropVol-*
+  (a thickness series, Iray batch on #87) shows the rule for thin solids. Calib-SSSColor's
   spheres with SSS Color grey / blue / deep 0.84 – 1.05 × Iray, before 1.05 –
   2.68; mono 1.40 – 1.54 (before 1.40 – 1.69; Iray's mono spheres are darker
   than Rd says, its figures weren't), SSS Reflectance Tint 1.34 (unread,

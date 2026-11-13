@@ -71,6 +71,11 @@ a plane under an HDRI) that each change one thing, written beside it.
   (Calib-WeightedTL is -Thin's twin in fact). The closed twins: Calib-SSS-Solid,
   -WeightedTL-Solid, -DualLobeWeightedTL-Solid, -MetalRefr-Solid,
   -MetalRefr-TL-Solid.
+- Calib-PropVol-Chromatic / -Grey / -Mono, -Parts, -Parts-x100 (#87):
+  closed translucent spheres with Iray's volume, both measurement
+  distances × 1 … 1000 (the same volume in a ball 1 / k the size), and one
+  part off at a time (Tc / base white, no absorption / scattering, w,
+  SSS Direction) dense and thin; scripts/dev/prop-volume-mc.py predicts them.
 - Calib-DOF-*: depth of field, focus at 1.5 m with the spheres at ~4.6 m,
   f/4, f/8, f/16 — to check Iray's 10x aperture.
 
@@ -433,10 +438,13 @@ def uber_spheres(name, colour, plain, variants):
         lib['label'] = label
         labels.append(label)
         m = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[n['id']])
-        m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': colour}}
+        # `_base`: this sphere's own plain base colour (no map).
+        own = over.get('_base', colour)
+        over = {k: v for k, v in over.items() if k != '_base'}
+        m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': own}}
         lm = mlib[m['url'].lstrip('#')]
         lm['extra'] = copy.deepcopy(base_extra)
-        lm.setdefault('diffuse', {'channel': {'id': 'diffuse', 'type': 'float_color'}})['channel']['current_value'] = colour
+        lm.setdefault('diffuse', {'channel': {'id': 'diffuse', 'type': 'float_color'}})['channel']['current_value'] = own
         ch = next(e for e in lm['extra'] if e['type'] == 'studio_material_channels')['channels']
         for k, v in {'Base Mixing': 0, 'Metallic Weight': 0.0, 'Dual Lobe Specular Weight': 0.0, 'Top Coat Weight': 0.0,
                      'Translucency Weight': 0.0, 'Refraction Weight': 0.0, 'Thin Walled': True, **plain, **over}.items():
@@ -698,6 +706,38 @@ uber_spheres('Calib-SSSColor', [0.8, 0.55, 0.45], SKIN_VOLUME, [
     ('V7 tint blue', {'SSS Reflectance Tint': [0.7, 0.85, 1.0]}),
     ('V8 no translucency', {'Translucency Weight': 0.0}),
 ])
+# The prop's volume against its thickness (#87): Calib-SSSColor's spheres
+# are 15 cm, hundreds of mean free paths, so the volume there is a
+# semi-infinite medium. Both measurement distances × k is the same volume
+# in a sphere 1 / k the size (sigma scales as 1 / k): a thickness series
+# without new geometry. k 1 is Calib-SSSColor's V1 / V2 / V6, so each
+# series also repeats one Calib-SSSColor sphere at another position.
+def prop_volume_scaled(k, over=None):
+    return {'Transmitted Measurement Distance': 0.125 * k, 'Scattering Measurement Distance': 0.015 * k, **(over or {})}
+PV_SCALES = [1, 3, 10, 30, 100, 300, 1000]
+for name, over in [('Calib-PropVol-Chromatic', {}), ('Calib-PropVol-Grey', {'SSS Color': [0.7, 0.7, 0.7]}),
+                   ('Calib-PropVol-Mono', {'SSS Mode': 0, 'SSS Amount': 0.5})]:
+    uber_spheres(name, [0.8, 0.55, 0.45], {**SKIN_VOLUME, **over}, [
+        *[(f'P{j + 1} distance x{k}', prop_volume_scaled(k)) for j, k in enumerate(PV_SCALES)],
+        # The volume off (an empty closed sphere): what the wall alone does.
+        ('P8 no volume', {'Transmitted Color': [0.0, 0.0, 0.0], 'SSS Amount': 0.0}),
+    ])
+# One part off at a time, at k 1 (dense) and k 100 (thin): the wall's
+# tints (Translucency Color white, base colour white), the volume's
+# absorption (Transmitted Color white: sigma_a 0, nothing lost inside) or
+# scattering (SSS Amount 0: absorption alone), the weight, the phase.
+PV_PARTS = [
+    ('Q1 tc white', {'Translucency Color': [1.0, 1.0, 1.0]}),
+    ('Q2 base white', {'_base': [1.0, 1.0, 1.0]}),
+    ('Q3 no absorption', {'Transmitted Color': [1.0, 1.0, 1.0]}),
+    ('Q4 no scattering', {'SSS Amount': 0.0}),
+    ('Q5 translucency 0.5', {'Translucency Weight': 0.5}),
+    ('Q6 translucency 1', {'Translucency Weight': 1.0}),
+    ('Q7 direction 0.6', {'SSS Direction': 0.6}),
+    ('Q8 direction -0.6', {'SSS Direction': -0.6}),
+]
+for name, k in [('Calib-PropVol-Parts', 1), ('Calib-PropVol-Parts-x100', 100)]:
+    uber_spheres(name, [0.8, 0.55, 0.45], {**SKIN_VOLUME, **prop_volume_scaled(k)}, PV_PARTS)
 # Colour effects (#27): 0 Scatter Only, 1 Scatter & Transmit, 2 Scatter & Transmit Intensity
 TR = {'Translucency Weight': 0.5, 'Translucency Color': [0.9, 0.6, 0.4], 'Thin Walled': True}
 uber_spheres('Calib-ColorEffect', [0.3, 0.5, 0.8], TR, [
