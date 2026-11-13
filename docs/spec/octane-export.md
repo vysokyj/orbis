@@ -3396,6 +3396,8 @@ a shadow catcher (145) in a placement 1 mm below Iray's ground height
 (`GROUND_DROP`; Manual: `Ground Origin Y`; Auto: the lowest point of the
 visible geometry, strands included, which DAZ hands Iray 0.001 cm lower -
 `iray::DomeSetup::ground_y`, Calib-Env-Mi-GroundAuto-Low / -LowHidden, #119;
+never above 0: floating geometry keeps the ground at 0, Draw Ground on or
+off - Calib-Env-Mi-GroundAuto-High / -High-Off, #150;
 instances' copies don't count - Calib-Env-Mi-GroundAuto-Instance: a copy
 down to -60 cm, DAZ's ground at -0.001, #125; a hidden target is left out
 with its copies, -InstanceHidden, #130), in the geometry

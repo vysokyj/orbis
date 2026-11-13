@@ -469,6 +469,9 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     let mut e = SceneEnvironment { map: None, intensity: 1.0, tint: [1.0; 3], rotation_deg: 0.0, orientation_deg: [0.0; 3], scene_only: false, ground_shadow: Some(1.0), ground_origin_y: None, draw_dome: true, scene_lights: true, sun_sky: None, ground_fog: None, dome_ground: None };
     assert!((ground_height(&e, &[low]) + 0.03).abs() < 1e-6);
     assert_eq!(ground_height(&e, &[]), 0.0);
+    // Never above 0 (#150): spheres floating 15 cm up, no floor - DAZ's ground at 0.
+    let floating = Mesh { points: vec![[0.0, 0.15, 0.0], [0.0, 0.45, 0.0]], ..Default::default() };
+    assert_eq!(ground_height(&e, &[floating]), 0.0);
     // Instances (#125): a copy 0.6 m down doesn't lower DAZ's ground
     // (Calib-Env-Mi-GroundAuto-Instance).
     let floor = || Mesh { points: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 1.0]], ..Default::default() };

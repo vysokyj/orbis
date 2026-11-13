@@ -10,7 +10,8 @@ argument) and copied into calib/scenes; existing scenes are kept (--force).
 - Calib-Env-*   environment: tint, dome rotation / orientation, lighting blur / resolution,
                 intensity, ground, matte fog, ground fog, dome modes (#37, #65); Calib-Env-Mi-*
                 for DAZ's .mi export only (every fog / dome channel off its default, #37);
-                Calib-Env-Mi-GroundAuto-*: where the auto ground sits (#119), with instances (#125);
+                Calib-Env-Mi-GroundAuto-*: where the auto ground sits (#119), with instances (#125),
+                above 0 (#150);
                 Calib-L-Mi-SunSky-Look: Sun-Sky's horizon blur, tint, glow, night colour (#15)
 - Calib-RS-*    render settings: caustics, path length, firefly, bloom, pixel filter, spectral (#43);
                 Calib-RS-Mi-* for DAZ's .mi export only (triangle filter, SSS path length, bloom settings)
@@ -270,6 +271,17 @@ for name, hidden in (('GroundAuto-Low', False), ('GroundAuto-LowHidden', True)):
         n = next(n for n in d['scene']['nodes'] if n.get('url') == '#pSphere%2810v0000%2948_24-7')
         n.setdefault('extra', []).append({'type': 'studio_node_channels', 'version': 5,
                                           'channels': [{'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}}]})
+    save(d, f'Calib-Env-Mi-{name}')
+
+# The auto ground above 0 (#150): the floor hidden, the spheres' bottoms the lowest point
+# (15 cm, as in the Calib-Furnace-* scenes, whose ground-off .mi has the ground at 0) -
+# with Draw Ground on and off: is the auto ground held at or under 0, and only with it off?
+for name, ground in (('GroundAuto-High', True), ('GroundAuto-High-Off', False)):
+    d = copy.deepcopy(load('Calib-Tone-Default'))
+    set_channel(node_channels(d, 'Environment Options'), 'Draw Ground', ground)
+    n = next(n for n in d['scene']['nodes'] if n.get('url') == '#pPlane%2811sg000%291')
+    n.setdefault('extra', []).append({'type': 'studio_node_channels', 'version': 5,
+                                      'channels': [{'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}}]})
     save(d, f'Calib-Env-Mi-{name}')
 
 # The auto ground with a DAZ instance node (#125): the sphere's instance node (as

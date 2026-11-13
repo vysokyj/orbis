@@ -146,7 +146,9 @@ hides it. Height: `Ground Origin Y` when `Ground Position Mode` is Manual,
 else (Auto, default) the scene's lowest point: the world bounding box's
 minimum y over the visible geometry (a hidden node doesn't count; strand
 hair counts by its vertices), and the .mi's `environment_dome_ground_position`
-is 0.001 cm below it (-0.001 over a floor at 0). `Ground Shadow Intensity`
+is 0.001 cm below it (-0.001 over a floor at 0), but never above 0: with
+the floor hidden and everything floating, the ground stays at 0, Draw Ground
+on or off (Calib-Env-Mi-GroundAuto-High). `Ground Shadow Intensity`
 scales the shadow; Iray keeps the sky's fill in a full shadow (an umbra at
 ~11 % of the lit ground in one HDRI scene).
 

@@ -225,13 +225,14 @@ impl SceneEnvironment {
 /// (Calib-Env-Mi-GroundAuto-Instance: a copy down to -60 cm, DAZ's ground
 /// at -0.001; #125) — a mesh's own points are where the node itself is
 /// drawn; a hidden target is left out with its copies (-InstanceHidden,
-/// #130).
+/// #130). Never above 0: DAZ holds the auto ground at the world origin when
+/// everything floats (Calib-Env-Mi-GroundAuto-High, #150).
 pub(super) fn ground_height(env: &SceneEnvironment, meshes: &[Mesh]) -> f64 {
     if let Some(y) = env.ground_origin_y {
         return y * f64::from(CM);
     }
     let lowest = meshes.iter().flat_map(|m| m.points.iter().map(|p| p[1])).fold(f32::INFINITY, f32::min);
-    if lowest.is_finite() { f64::from(lowest) } else { 0.0 }
+    if lowest.is_finite() { f64::from(lowest).min(0.0) } else { 0.0 }
 }
 
 /// The scene's Iray environment, if it saved an "Environment Options" node.

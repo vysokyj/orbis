@@ -1452,8 +1452,12 @@ impl DomeSetup {
     /// a sphere's bottom at -60 cm under a floor at 0, -60.001 shown, -0.001
     /// hidden); strand hair counts by its vertices (Calib-Strand: fibres down
     /// to -45 cm, no floor, -45.001), and so does every floor at 0 (-0.001).
+    /// Never above 0 (#150): geometry that floats (the floor hidden, the
+    /// spheres' bottoms at 15 cm) gets the ground at 0, Draw Ground on or off
+    /// (Calib-Env-Mi-GroundAuto-High / -High-Off, Calib-Furnace-ArchGlass3).
+    /// A lowest point in (0, 0.001) cm is not covered by any fixture.
     pub fn ground_y(&self, lowest_cm: f64) -> f64 {
-        self.ground_origin_y.unwrap_or(lowest_cm - AUTO_GROUND_DROP_CM)
+        self.ground_origin_y.unwrap_or((lowest_cm - AUTO_GROUND_DROP_CM).min(0.0))
     }
 }
 
