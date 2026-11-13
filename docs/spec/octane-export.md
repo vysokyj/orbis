@@ -1008,9 +1008,20 @@ leaves out, #15):
   (or on the `coating` over a dual lobe), **the IOR of that F0** on `ior`
   (`coatingIor`), per texel with a map — as on the skin and the dual lobe,
   and as Base Mixing 1's Glossy Specular (#100). Universal's Fresnel at
-  that IOR is the physical one: per angle and over the hemisphere it is
-  Schlick's within 1 – 8 % from r 0.25 up (hemispherical 0.99 / 1.07 /
-  1.07 × at r 0.25 / 0.5 / 1), but below it rises later — 0.79 × at r
+  that IOR is the physical one: equal head-on and over the hemisphere
+  within 1 – 8 % from r 0.25 up (0.99 / 1.07 / 1.07 × at r 0.25 / 0.5 /
+  1), but **not per angle**: 1.12 – 1.30 × Schlick's at 45 – 60°, 0.87 –
+  0.96 past 80° (`scripts/dev/gloss-split.py fresnel`). No one IOR draws
+  Schlick's shape, and Octane's is the physical dielectric — kept (#137).
+  It is what made a gloss's excess over Iray depend on where the sphere
+  stands: under Calib-DualLobeGlossy's low sun the highlight's half angle
+  between view and light runs 35° → 62° from sphere 1 to 8, and the same
+  glossy layer (r 0.5, Glossy Roughness 0.5) is 1.11 → 1.20 × Iray over the
+  frame's 1.08 (the dual lobe alone 1.06 → 1.22), against a single-scatter
+  sun model of both lobes (`gloss-split.py sun`: `libbsdf`'s Phong /
+  v-cavities / Schlick against Beckmann / Smith / Fresnel) of 1.07 → 1.30
+  (1.08 → 1.38); the sky's share dilutes the measured trend. Below r 0.25
+  it rises later — 0.79 × at r
   0.1, nothing at r 0 (IOR 1), where Iray's curve still reaches 1 at
   grazing. That residual is left, not fitted: Calib-Glossy's r 0 sphere
   shows no gloss in Octane (Iray's: 27 % of r 0.5's on the sphere's core).
