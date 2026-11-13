@@ -1829,6 +1829,31 @@ leaves out, #15):
   8.3 / 5.4; Calib-Glass R6 6.4 = Iray, was 6.7), the clear spheres
   1.02 – 1.04 as before. What is left at 0.36 (~5 % over the scene's
   1.03) is Smith vs v-cavities shadowing; Octane has no v-cavities.
+  **Its level is derived** (`uber_glass_level`, #118): the transmission
+  colour × k per channel, k solved so a closed sphere of the material in
+  a white furnace keeps under Octane's model what it keeps under
+  `libbsdf`'s (`mdl_layer::tint_factor`, as resin's, no measured term).
+  Iray: DAZ's `refraction_base` — without a glossy layer
+  `scatter_transmit`; shared inputs with the full reflection one
+  `scatter_reflect_transmit` lobe; split (Share Glossy Inputs off, or a
+  partial glossy layer) `fresnel_layer` of weight 1 (or Glossy Layered
+  Weight) at the IOR, its reflection at the glossy roughness, over the
+  transmit lobe; Phong + v-cavities. Octane: as exported — Beckmann at the
+  Phong pin, Smith, specular the layered weight (0 without one). Not under
+  a roughness map, not on thin walls. Why: the Uber's rough transmission
+  *is* `libbsdf`'s, ring for ring (Calib-Furnace-UberGlass: Iray /
+  `libbsdf` disk 0.99 at transmit r 0.354 / 0.6, reflect_transmit r 0.25 /
+  0.5; #116, #117) — unlike NVIDIA's `mdl 1.0` modules, whose lobes stay
+  measured (`ARCH_GLASS_LOBE`). Decomposed on its disk (r < 0.75), Octane
+  / Iray before → after: r 0.218 1.01 → 1.01, r 0.354 1.04 → 1.02, r 0.6
+  1.13 → 1.05, reflect_transmit r 0.25 1.03 → 1.02, r 0.5 1.14 → 1.06 (k
+  0.997 / 0.990 / 0.964 / 0.997 / 0.964); Smith over `libbsdf` was 1.02 /
+  1.10 / 1.01 / 1.08 of it. What is left is Octane over its own Smith model
+  (1.01 / 1.01 / 1.01 / 1.04, #148) and Iray 1 % under `libbsdf` — not
+  folded into k. Calib-Dispersion-Rough's frosted spheres (no Abbe, r
+  0.36, inner disk): shared 1.09 → 1.06, own 1.07 → 1.05 × Iray (k 0.985 /
+  0.990; under the HDRI, the clear ones 1.01 – 1.04 unchanged);
+  Calib-Glass R6 (r 0.09) k 1.
   **Thin Walled** → `transmissionType` 2 (Thin wall), no volume. Iray shows
   a thin-walled glass sphere without any reflection — invisible; Octane's
   thin wall keeps its Fresnel reflection, kept as the more plausible

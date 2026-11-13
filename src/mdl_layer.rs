@@ -447,6 +447,20 @@ mod tests {
     }
 
     #[test]
+    fn uber_rough_glass_loses_what_v_cavities_lose() {
+        // Calib-Furnace-UberGlass (#118): Iray is `libbsdf` per ring; Octane's
+        // Smith keeps more the rougher the lobe (disk 1.10 × at r 0.6).
+        let s = |base, rough: f64| Stack { weight: 0.0, curve: Curve::Fresnel(1.5), coat_rough: rough, base, base_rough: rough, ior: 1.5, thin: false };
+        let alpha = |r: f64| pin2(r as f32) as f64;
+        let k = |base, r| tint_factor(&s(base, r), &Stack { base: Scatter::Transmit, weight: if base == Scatter::Transmit { 0.0 } else { 1.0 }, ..s(base, alpha(r)) }, [1.0; 3])[0];
+        assert!(k(Scatter::Transmit, 0.051) > 0.999);
+        let (k354, k6) = (k(Scatter::Transmit, 0.354), k(Scatter::Transmit, 0.6));
+        assert!((0.98..0.995).contains(&k354) && (0.95..0.975).contains(&k6), "{k354} {k6}");
+        let k5 = k(Scatter::ReflectTransmit, 0.5);
+        assert!((0.95..0.975).contains(&k5), "{k5}");
+    }
+
+    #[test]
     fn a_thin_wall_does_not_bend() {
         // Octane's Thin Wall passes the light straight on through both
         // walls; `libbsdf`'s near-smooth thin wall keeps it too, its rough

@@ -1190,6 +1190,51 @@ fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, ref
     crate::mdl_layer::tint_factor_measured(&iray, &octane, crate::mdl_layer::interp(lobe, refr_gloss as f64), ARCH_GLASS_LOBE_IOR, colour)
 }
 
+/// Rough Uber glass's transmission colour × this (per channel): a closed
+/// sphere of the material keeps in Octane what it keeps under Iray in a
+/// white furnace (`mdl_layer::tint_factor`, #118). Derived, nothing
+/// measured: the Uber's rough transmission *is* `libbsdf`'s, ring for ring
+/// (Calib-Furnace-UberGlass, #116 / #117 — unlike NVIDIA's `mdl 1.0`
+/// modules, `ARCH_GLASS_LOBE`). Iray: DAZ's `refraction_base` — without a
+/// glossy layer `scatter_transmit` (no reflection); shared inputs with the
+/// full reflection one `scatter_reflect_transmit` lobe; split (Share Glossy
+/// Inputs off, or a partial glossy layer) `fresnel_layer` of weight 1 (or
+/// Glossy Layered Weight) at the IOR, its reflection at the glossy
+/// roughness, over the transmit lobe; Phong of exponent 2 / r², v-cavities.
+/// Octane: what the export writes — Beckmann at `phong_pin` for both,
+/// Smith, the reflection at specular = the layered weight (0 without one),
+/// physical layering. `rough` is Iray's lobe roughness (squared), `own` the
+/// refraction's own inputs. The rest of what Octane renders over its Smith
+/// model (~4 % at α 0.5, #148) isn't in it.
+fn uber_glass_level(u: &crate::iray::Uber, rough: f32, own: bool, colour: [f32; 3]) -> [f32; 3] {
+    use crate::mdl_layer::{Curve, Scatter, Stack};
+    let reflects = u.bool("refraction_reflection_enable").unwrap_or(true);
+    let full = u.bool("full_refraction_reflection_enable").unwrap_or(false);
+    let layered_weight = u.float("glossy_layered_weight").unwrap_or(1.0).clamp(0.0, 1.0) as f64;
+    let ior = (u.float("glossy_ior").unwrap_or(1.5) as f64).max(1.0001);
+    let r = rough.max(0.0) as f64;
+    let split = own || (reflects && !full);
+    let iray = if split && reflects {
+        let weight = if full { 1.0 } else { layered_weight };
+        let coat_rough = if own { u.float("glossy_roughness").map_or(r, |g| g.max(0.0) as f64) } else { r };
+        Stack { weight, curve: Curve::Fresnel(ior), coat_rough, base: Scatter::Transmit, base_rough: r, ior, thin: false }
+    } else {
+        let base = if reflects && !split { Scatter::ReflectTransmit } else { Scatter::Transmit };
+        Stack { weight: 0.0, curve: Curve::Fresnel(ior), coat_rough: r, base, base_rough: r, ior, thin: false }
+    };
+    let alpha = (phong_pin(rough) as f64).powi(2);
+    let octane = Stack {
+        weight: if reflects { layered_weight } else { 0.0 },
+        curve: Curve::Fresnel(ior),
+        coat_rough: alpha,
+        base: Scatter::Transmit,
+        base_rough: alpha,
+        ior,
+        thin: false,
+    };
+    crate::mdl_layer::tint_factor(&iray, &octane, colour)
+}
+
 /// What Iray's architectural transmit lobe alone keeps (reflectivity 0,
 /// white) in the furnace, over the sphere's inner disk, by refr_gloss:
 /// Calib-Furnace-ArchGlass G5 – G1 (Iray Server 5000, #115). Measured, not
@@ -3989,7 +4034,14 @@ impl Ocs<'_> {
             // A translucency (`transmit`) holds Universal's one transmission.
             if transmit == 0.0 {
                 let colour = mat.color(if own_refraction { "Refraction Color" } else { "Glossy Color" }).unwrap_or([1.0; 3]);
-                self.rgb_pin(i, "transmission", colour.map(|c| c * refraction));
+                // Rough glass at the level a closed sphere keeps in Iray
+                // (`uber_glass_level`, #118); a roughness map keeps 1.
+                let mapped = rough_ch.and_then(|c| mat.image(c)).is_some();
+                let level = match iray(mat) {
+                    Some(u) if glass && !mapped && rough > 0.0 => uber_glass_level(&u, rough, own_refraction, colour),
+                    _ => [1.0; 3],
+                };
+                self.rgb_pin(i, "transmission", [0, 1, 2].map(|k| colour[k] * level[k] * refraction));
             }
             let gloss_ior = spec_ior.filter(|_| refraction < 0.5);
             let ior = gloss_ior.unwrap_or_else(|| mat.float("Refraction Index").unwrap_or(1.5));
