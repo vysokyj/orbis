@@ -2366,9 +2366,10 @@ impl Ocs<'_> {
     }
 
     /// A scattering medium (59; probe 105) on `medium`: absorption and
-    /// scattering coefficients (1/m per channel) as colours × one `scale`.
-    /// The phase stays isotropic (SSS Direction isn't mapped).
-    fn scattering_pin(&mut self, indent: usize, sigma_a: [f32; 3], sigma_s: [f32; 3]) {
+    /// scattering coefficients (1/m per channel) as colours × one `scale`,
+    /// the phase a Schlick node (60) at Henyey-Greenstein g, as the Volume
+    /// medium's.
+    fn scattering_pin(&mut self, indent: usize, sigma_a: [f32; 3], sigma_s: [f32; 3], g: f32) {
         let scale = sigma_a.iter().chain(&sigma_s).copied().fold(0.0f32, f32::max).max(1e-6);
         let id = self.id();
         self.pin_open(indent, "medium");
@@ -2378,6 +2379,15 @@ impl Ocs<'_> {
         self.rgb_pin(i + 1, "absorption", sigma_a.map(|s| s / scale));
         self.value_pin(i + 1, "invertAbsorption", 11, 1, "0");
         self.rgb_pin(i + 1, "scattering", sigma_s.map(|s| s / scale));
+        if g != 0.0 {
+            let pid = self.id();
+            self.pin_open(i + 1, "phase");
+            let j = i + 2;
+            let _ = writeln!(self.out, "{:j$}<node id='{pid}' type='60'>", "");
+            self.value_pin(j + 1, "scattering_direction", 6, 8, &format!("{} 0 0", num(g)));
+            let _ = writeln!(self.out, "{:j$}</node>", "");
+            self.pin_close(i + 1);
+        }
         let _ = writeln!(self.out, "{:i$}</node>", "");
         self.pin_close(indent);
     }
@@ -3966,13 +3976,21 @@ impl Ocs<'_> {
                 // Thin Wall (2): no bending — Iray's thin-walled glass sphere
                 // showed the background straight through (Calib-Glass).
                 self.value_pin(i, "transmissionType", 57, 2, "2");
-            } else if let Some(sigma_s) = scattering(mat) {
-                self.scattering_pin(i, absorption(mat).unwrap_or([0.0; 3]), sigma_s);
-            } else if let Some(sigma) = absorption(mat) {
+            }
+            let scatters = transmit <= 0.0 && !thin && scattering(mat).is_some();
+            if let Some(sigma_s) = scattering(mat).filter(|_| scatters) {
+                self.scattering_pin(i, absorption(mat).unwrap_or([0.0; 3]), sigma_s, scattering_direction(mat));
+            } else if let Some(sigma) = absorption(mat).filter(|_| transmit <= 0.0 && !thin) {
                 self.absorption_pin(i, sigma);
             }
-            // Let light through for shadows (the iris behind a cornea).
-            self.value_pin(i, "fake_shadows", 11, 1, "1");
+            // Let light through for shadows (the iris behind a cornea) -
+            // not into a scattering medium: there the shadow rays of every
+            // scattering vertex took the light in straight, without the
+            // surface's refraction and Fresnel, and the sphere glowed 1.2 -
+            // 1.5 x DAZ's MDL in a white furnace, more the more it scatters
+            // (Calib-Furnace-RefrVol-*, #104). Without them Octane's medium
+            // is the MDL's volume to 1 - 2 %.
+            self.value_pin(i, "fake_shadows", 11, 1, if scatters { "0" } else { "1" });
         }
 
         // Surface detail.
@@ -4546,10 +4564,11 @@ fn absorption(mat: &Material) -> Option<[f32; 3]> {
 /// Iray's volume scattering coefficient per channel (1/m), as DAZ passes
 /// it (`add_uber_volume`, the .mi export): chromatic (`SSS Mode` 1) −ln(SSS
 /// Color) / `Scattering Measurement Distance`, else `SSS Amount` / that
-/// distance (cm; [`mono_sss_amount`]), × `REFRACTIVE_SCATTERING_SCALE`. None
-/// without SSS. Missing on a refractive volume, Calib-Map-Misc's (SSS
-/// Amount 0.3 at 0.5 cm under a blue-grey absorption) rendered 0.67 ×
-/// Iray; at the full σs 1.47, × 0.5 / 0.25 / 0.1 1.14 / 0.93 / 0.79 (#28).
+/// distance (cm; [`mono_sss_amount`]), unscaled. None without SSS. With
+/// the phase ([`scattering_direction`]) and no fake shadows Octane's
+/// medium is the MDL's volume (Calib-Furnace-RefrVol-*, `refr-volume-mc.py`);
+/// Calib-Map-Misc's X7 0.94 × Iray. The 0.3 fitted on X7 before (#28)
+/// stood in for its missing g 0.4 and the fake shadows' extra light (#104).
 fn scattering(mat: &Material) -> Option<[f32; 3]> {
     if let Some(u) = iray(mat) {
         // What DAZ passes: the amount (mono, clamped to 1) or the SSS
@@ -4560,7 +4579,7 @@ fn scattering(mat: &Material) -> Option<[f32; 3]> {
         let distance_m = u.float("scattering_distance_of_measurement")?;
         let amount = u.color("sub_surface_scattering_amount")?;
         let log = u.bool("logarithmic_scatter_enable")?;
-        let sigma = amount.map(|a| if log { -a.clamp(1e-4, 1.0).ln() } else { a.max(0.0) } / distance_m * REFRACTIVE_SCATTERING_SCALE);
+        let sigma = amount.map(|a| if log { -a.clamp(1e-4, 1.0).ln() } else { a.max(0.0) } / distance_m);
         return sigma.iter().any(|s| *s > 0.0).then_some(sigma);
     }
     mat.float("SSS Amount")?;
@@ -4572,13 +4591,15 @@ fn scattering(mat: &Material) -> Option<[f32; 3]> {
         Some(mono) => [mono / distance_m; 3],
         None => mat.color("SSS Color")?.map(|c| -c.clamp(1e-4, 1.0).ln() / distance_m),
     };
-    let sigma = sigma.map(|x| x * REFRACTIVE_SCATTERING_SCALE);
     sigma.iter().any(|s| *s > 0.0).then_some(sigma)
 }
 
-/// See `scattering`: one sphere's fit — Octane's medium behind a
-/// refractive surface scatters more light back out than Iray's.
-const REFRACTIVE_SCATTERING_SCALE: f32 = 0.3;
+/// The refractive volume's Henyey-Greenstein g: SSS Direction, as DAZ
+/// passes it (`sub_surface_scattering_direction`, the `anisotropic_vdf`'s
+/// `directional_bias` in `add_uber_volume`), clamped as the skin's.
+fn scattering_direction(mat: &Material) -> f32 {
+    iray(mat).and_then(|u| u.float("sub_surface_scattering_direction")).unwrap_or_else(|| mat.float("SSS Direction").unwrap_or(0.0)).clamp(-0.95, 0.95)
+}
 
 /// Paths per channel for the eye ball's escape (`eye_volume::escape`):
 /// ±0.005 at 20 000, a few ms per eye.
@@ -7869,6 +7890,20 @@ mod tests {
         // −ln(0.5^2.2) / 0.05 m = 30.5 per m in R and G, none in B.
         let medium = &bx[bx.find("<pin name='medium'>").expect("absorption medium")..];
         assert!(medium.contains("type='58'") && medium.contains("30.49") && medium.contains("1 1 0"), "{medium}");
+        assert!(bx[bx.find("<pin name='fake_shadows'>").unwrap()..][..120].contains(">1<"), "glass keeps fake shadows: {bx}");
+        // With SSS: Iray's σs unscaled (0.3 / 0.005 m = 60 per m), the
+        // phase at SSS Direction, no fake shadows (#104).
+        let milky = mat(json!([
+            {"channel": {"id": "Refraction Weight", "current_value": 1}},
+            {"channel": {"id": "Thin Walled", "current_value": false}},
+            {"channel": {"id": "SSS Amount", "current_value": 0.3}},
+            {"channel": {"id": "Scattering Measurement Distance", "current_value": 0.5}},
+            {"channel": {"id": "SSS Direction", "current_value": 0.4}},
+        ]));
+        let (mx, _) = material_inputs(&[("Milky".into(), milky, 1.0)], &dirs, HashMap::new(), 8987, SkinShader::None);
+        let medium = &mx[mx.find("<pin name='medium'>").expect("scattering medium")..];
+        assert!(medium.contains("type='59'") && medium.contains(">60.0000") && medium.contains("<pin name='phase'>") && medium.contains(">0.4 0 0<"), "{medium}");
+        assert!(mx[mx.find("<pin name='fake_shadows'>").unwrap()..][..120].contains(">0<"), "{mx}");
         // Thin-walled: no bending, no volume.
         let pane = mat(json!([
             {"channel": {"id": "Refraction Weight", "current_value": 1}},

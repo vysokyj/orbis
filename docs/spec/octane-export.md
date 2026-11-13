@@ -1782,10 +1782,21 @@ leaves out, #15):
   3× crops (OSL's dP/du is per face).
 - **Scattering in a refractive volume** (SSS Amount / SSS Color with
   refraction, not thin-walled) → a scattering medium (59) with Iray's σa
-  and σs (as DAZ passes them: −ln(SSS Color) / d chromatic, SSS Amount
-  clamped to 0 – 1 / d mono, d in m) × 0.3 for σs; the phase stays isotropic. Why: missing,
-  Calib-Map-Misc's milky sphere rendered 0.67 × Iray, at the full σs
-  1.47, × 0.3 ~1.0 — one sphere's fit (#28). Translucent props keep
+  and σs as DAZ passes them (−ln(SSS Color) / d chromatic, SSS Amount
+  clamped to 0 – 1 / d mono, d in m), unscaled; the phase a Schlick node
+  (60) at g = **SSS Direction** (`add_uber_volume`'s `anisotropic_vdf`
+  bias); `fake_shadows` **off** on that material (glass with absorption
+  alone keeps it). Why: with fake shadows every scattering vertex's
+  shadow ray took the light in straight, past the refraction and the
+  inner Fresnel / total reflection; in a white furnace the spheres
+  rendered 1.2 – 1.5 × DAZ's MDL (a Monte Carlo of the sphere,
+  `refr-volume-mc.py`), more the more they scatter. Without them Octane
+  is the MDL to 1 – 2 % on a grey volume (Calib-Furnace-RefrVol-Grey,
+  -SSSColor; g ±0.6 / 0.4 included); a saturated absorption loses
+  ~10 % in its weak channels (Octane is spectral, as #87's props).
+  Calib-Map-Misc's X7 0.94 × Iray (0.88 / 0.98 / 0.87). The σs × 0.3
+  fitted on X7 before (#28) stood in for its missing g 0.4 (~1.35 ×)
+  and the fake shadows (#104). Translucent props keep
   `volume_factor`; SSS Reflectance Tint isn't passed to Iray by DAZ at
   all (the .mi export), so it has nothing to map.
 - **Refraction** (glass, water) → `transmission` = Refraction Weight ×

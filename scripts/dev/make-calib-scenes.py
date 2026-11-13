@@ -76,6 +76,11 @@ a plane under an HDRI) that each change one thing, written beside it.
   distances × 1 … 1000 (the same volume in a ball 1 / k the size), and one
   part off at a time (Tc / base white, no absorption / scattering, w,
   SSS Direction) dense and thin; scripts/dev/prop-volume-mc.py predicts them.
+- Calib-Furnace-RefrVol-Grey / -Chroma / -SSSColor, Calib-RefrVol (#104):
+  closed refracting spheres with Iray's volume - SSS amount, direction,
+  density, grey against chromatic absorption, chromatic scattering - in
+  the white dome (scripts/dev/refr-volume-mc.py predicts them) and X7's
+  material under the HDRI.
 - Calib-DOF-*: depth of field, focus at 1.5 m with the spheres at ~4.6 m,
   f/4, f/8, f/16 — to check Iray's 10x aperture.
 
@@ -2065,6 +2070,67 @@ for name, path_len in (('Calib-Furnace-UberGlass', None), ('Calib-Furnace-UberGl
         if path_len:
             render_option(d, 'Max Path Length', path_len)
         open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+# Scattering inside a refracting solid (#104): Calib-Map-Misc's X7 (a
+# closed sphere, Refraction Weight 1, Transmitted Color 0.5 / 0.7 / 0.9 at
+# 2 cm, mono SSS Amount 0.3 at 0.5 cm, SSS Direction 0.4) is the one
+# sphere REFRACTIVE_SCATTERING_SCALE was fitted on. In the white dome
+# (Calib-Furnace-UberGlass's) a sphere's radiance over the dome's is the
+# share of the light entering there that comes out again, which
+# scripts/dev/refr-volume-mc.py computes from the MDL's volume (Fresnel at
+# IOR 1.5, HG at SSS Direction). One component per sphere: the amount,
+# the phase, the absorption's density; -Grey has X7's red absorption in all
+# three channels, -Chroma X7's own (its red the same in RGB: the
+# difference is a spectral renderer's leak); -SSSColor chromatic scattering
+# (logarithmic SSS Color) and the scattering's density. Calib-RefrVol: X7's
+# material under the HDRI (gloss 0.3 as Map-Misc), one part changed at a
+# time, the lossless one included (invisible in a furnace).
+RV = {'Thin Walled': False, 'Refraction Weight': 1.0, 'Refraction Index': 1.5, 'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.5,
+      'Share Glossy Inputs': True, 'Transmitted Measurement Distance': 2.0, 'SSS Mode': 0, 'Scattering Measurement Distance': 0.5,
+      'SSS Direction': 0.0}
+RV_GREY, RV_CHROMA = [0.5, 0.5, 0.5], [0.5, 0.7, 0.9]
+RV_PARTS = [
+    ('1 absorption only', {'SSS Amount': 0.0}),
+    ('2 amount 0.1', {'SSS Amount': 0.1}),
+    ('3 amount 0.3', {'SSS Amount': 0.3}),
+    ('4 amount 1', {'SSS Amount': 1.0}),
+    ('5 direction -0.6', {'SSS Amount': 0.3, 'SSS Direction': -0.6}),
+    ('6 direction 0.6', {'SSS Amount': 0.3, 'SSS Direction': 0.6}),
+    ('7 direction 0.4', {'SSS Amount': 0.3, 'SSS Direction': 0.4}),
+    ('8 absorption 10 cm', {'SSS Amount': 0.3, 'Transmitted Measurement Distance': 10.0}),
+]
+for name, tc, tag in (('Calib-Furnace-RefrVol-Grey', RV_GREY, 'G'), ('Calib-Furnace-RefrVol-Chroma', RV_CHROMA, 'C')):
+    uber_spheres(name, [1.0, 1.0, 1.0], {**RV, 'Glossy Roughness': 0.0, 'Transmitted Color': tc},
+                 [(tag + label, over) for label, over in RV_PARTS])
+    if made[-1][0]:
+        d = load(made[-1][0])
+        furnace_dome(d)
+        open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+SSS_COLOR = {'SSS Mode': 1, 'SSS Amount': 1.0}
+uber_spheres('Calib-Furnace-RefrVol-SSSColor', [1.0, 1.0, 1.0], {**RV, 'Glossy Roughness': 0.0, 'Transmitted Color': RV_GREY}, [
+    ('S1 colour grey 0.5', {**SSS_COLOR, 'SSS Color': [0.5, 0.5, 0.5]}),
+    ('S2 colour blue', {**SSS_COLOR, 'SSS Color': [0.3, 0.5, 0.8]}),
+    ('S3 colour orange', {**SSS_COLOR, 'SSS Color': [0.8, 0.5, 0.3]}),
+    ('S4 grey direction -0.6', {**SSS_COLOR, 'SSS Color': [0.5, 0.5, 0.5], 'SSS Direction': -0.6}),
+    ('S5 grey direction 0.6', {**SSS_COLOR, 'SSS Color': [0.5, 0.5, 0.5], 'SSS Direction': 0.6}),
+    ('S6 amount 1 at 0.1 cm', {'SSS Amount': 1.0, 'Scattering Measurement Distance': 0.1}),
+    ('S7 amount 0.3 at 2.5 cm', {'SSS Amount': 0.3, 'Scattering Measurement Distance': 2.5}),
+    ('S8 amount 0.3 at 12.5 cm', {'SSS Amount': 0.3, 'Scattering Measurement Distance': 12.5}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    furnace_dome(d)
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+X7 = {**RV, 'Glossy Roughness': 0.3, 'Transmitted Color': RV_CHROMA, 'SSS Amount': 0.3, 'SSS Direction': 0.4}
+uber_spheres('Calib-RefrVol', [0.6, 0.1, 0.05], X7, [
+    ('R1 X7', {}),
+    ('R2 direction 0', {'SSS Direction': 0.0}),
+    ('R3 direction -0.6', {'SSS Direction': -0.6}),
+    ('R4 absorption grey', {'Transmitted Color': RV_GREY}),
+    ('R5 no absorption', {'Transmitted Color': [1.0, 1.0, 1.0]}),
+    ('R6 absorption only', {'SSS Amount': 0.0}),
+    ('R7 amount 1', {'SSS Amount': 1.0}),
+    ('R8 amount 0.1', {'SSS Amount': 0.1}),
+])
 # Calib-Furnace-ArchGlass2 (#116): the transmit lobe alone (reflectivity 0)
 # with the Firefly Filter off - refr_gloss 0.6 / 0.2 / 0 again, thin-walled
 # at 0.2 and 0 (no refraction), IOR 1.2 and 2.0 at 0.2, refr_color 0.5 at
