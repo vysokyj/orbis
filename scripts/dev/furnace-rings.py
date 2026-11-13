@@ -32,9 +32,9 @@ event at cos = sqrt(1 - r^2) with whatever happens inside. In a
 thin-walled sphere both walls are met at that cosine: its rings are the
 per-event loss as a function of the angle.
 
-Spheres: centres / half-axes measured on the Iray references (spans along
-y 561 and the centre columns; the off-axis spheres are wider under the
-perspective camera).
+Spheres: centres / half-axes projected from the render's scene
+(scripts/dev/sphere_discs.py, #146; printed first); the off-axis spheres
+are wider under the perspective camera, so rings are elliptic.
 """
 import argparse
 import os
@@ -42,10 +42,6 @@ import sys
 
 import numpy as np
 
-SPHERES = [  # (x0, x1, y0, y1) spans of the silhouette
-    (373.5, 472.5, 514, 607), (529, 625, 514, 607), (683, 777, 514, 607), (836.5, 929, 514, 607),
-    (990, 1082, 514, 607), (1142, 1236, 514, 607), (1294, 1390, 514, 607), (1446, 1545, 514, 607),
-]
 RINGS = [(i / 10, (i + 1) / 10) for i in range(9)]
 
 
@@ -58,15 +54,17 @@ def lum(png):
 def measure(png):
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import octane_pass
+    import sphere_discs
     src, label = octane_pass.pick(png)
     L = lum(src)
+    discs, dsrc = sphere_discs.discs(png, L.shape)
+    print(sphere_discs.describe(discs, dsrc))
     bg = np.median(L[100:300, 100:300])
     yy, xx = np.mgrid[0:L.shape[0], 0:L.shape[1]]
     print(f'{src} [{label}]  dome {bg:.4f}')
     print('sphere  disk<0.75  ' + ' '.join(f'{a:.1f}-{b:.1f}' for a, b in RINGS))
-    for k, (x0, x1, y0, y1) in enumerate(SPHERES):
-        cx, cy, rx, ry = (x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2
-        r = np.hypot((xx - cx) / rx, (yy - cy) / ry)
+    for k, d in enumerate(discs):
+        r = sphere_discs.dist(d, L.shape, (yy, xx))
         disk = L[r < 0.75].mean() / bg
         rings = [L[(r >= a) & (r < b)].mean() / bg for a, b in RINGS]
         print(f'{k + 1:>6}  {disk:9.3f}  ' + ' '.join(f'{v:7.3f}' for v in rings))

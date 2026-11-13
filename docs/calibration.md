@@ -190,6 +190,12 @@ where a script maps that folder as an MDL directory (`daz-export-mi.dsa`,
    says which per render; `raw*` marks a denoised pass that should exist
    and doesn't (grain-sensitive numbers not comparable). `ORBIS_PASS=raw`
    / `denoised` forces one (#139).
+   Spheres: every per-sphere number reads the discs
+   `scripts/dev/sphere_discs.py` projects from the scene's own geometry
+   (its dump, else the `.duf`'s primitives) through its camera — rows top
+   to bottom, left to right, elliptic off axis — and each report prints
+   them with their source (#146; the Calib-Glossy-based finders before it
+   split one sphere in two or sat on the highlight).
    **Per variant** — `scripts/dev/calib-variants.sh [-s samples]
    <variant>… -- <scene>…` (`enhanced-final`, `faithful-final`,
    `enhanced-preview`, `faithful-preview` or `all`) re-exports the scenes

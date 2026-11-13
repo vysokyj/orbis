@@ -14,9 +14,11 @@ variant with the denoiser on, the raw image for one without; `raw*` = a
 denoised pass was expected and is missing); the report says per scene which
 one it read, and Iray's Post Denoiser (renders.tsv):
 
-- sphere scenes (Calib-PBRSkin, -Glossy, -SSS, -Tone-*, -DOF-*, -SpecMode, …): each sphere,
-  found in Calib-Glossy's Iray render (the spheres are red there), and the
-  floor in front;
+- sphere scenes (every scene with spheres but the light scenes: Calib-PBRSkin,
+  -Glossy, -SSS, -MetalRefr, -Furnace-*, -Tone-*, …): each sphere's middle
+  square (±0.6 of its half-axes), the disc projected from the scene's own
+  geometry and camera (scripts/dev/sphere_discs.py, #146; it is printed
+  under the table), and the floor in front;
 - light scenes (Calib-L-*): floor front / left / right, the cubes, the
   sphere; spot profiles (Calib-L-Spot-s*): the radial profile, normalised;
 - anything else: the whole frame.
@@ -28,6 +30,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import octane_pass
+import sphere_discs
 
 home = os.path.expanduser('~/Library/Caches/orbis/calib')
 iray_dir = os.path.join(home, 'iray')
@@ -46,26 +49,6 @@ def load(p):
 
 def lin(a):
     return a ** 2.2
-
-
-def sphere_boxes():
-    """Bounding boxes of the eight spheres, left to right, from the red
-    spheres of Calib-Glossy's Iray render."""
-    a = load(os.path.join(iray_dir, 'Calib-Glossy.png'))
-    red = (a[..., 0] > 1.6 * a[..., 1]) & (a[..., 0] > 0.12)
-    cols = np.flatnonzero(red.any(0))
-    groups, start = [], cols[0]
-    for c0, c1 in zip(cols[:-1], cols[1:]):
-        if c1 - c0 > 5:
-            groups.append((start, c0)); start = c1
-    groups.append((start, cols[-1]))
-    boxes = []
-    for x0, x1 in groups:
-        rows = np.flatnonzero(red[:, x0:x1 + 1].any(1))
-        # The middle of the sphere (avoid the rim and the floor contact).
-        cx, cy, rx, ry = (x0 + x1) / 2, (rows[0] + rows[-1]) / 2, (x1 - x0) / 2, (rows[-1] - rows[0]) / 2
-        boxes.append((int(cy - ry * .6), int(cy + ry * .6), int(cx - rx * .6), int(cx + rx * .6)))
-    return boxes
 
 
 LIGHT_REGIONS = {'floor front': (880, 980, 860, 1060), 'floor left': (880, 980, 300, 500),
@@ -97,8 +80,7 @@ def spot_profile(a):
     return out / np.nanmax(out[:2])
 
 
-boxes = sphere_boxes() if os.path.exists(os.path.join(iray_dir, 'Calib-Glossy.png')) else []
-rows = []
+rows, disc_lines = [], {}
 # Octane renders, variants (`<scene>__<hypothesis>`, scripts/dev/orbx-variants.py)
 # against their scene's Iray reference.
 for opath in sorted(glob.glob(os.path.join(oct_dir, 'Calib-*.png'))):
@@ -111,6 +93,7 @@ for opath in sorted(glob.glob(os.path.join(oct_dir, 'Calib-*.png'))):
     if o.shape != i.shape:
         o = np.asarray(Image.fromarray((o * 255).astype(np.uint8)).resize(i.shape[1::-1])).astype(float) / 255
     cells = []
+    ds, dsrc = sphere_discs.discs(name, i.shape)
     if name.startswith('Calib-L-Spot-s'):
         pi, po = spot_profile(i), spot_profile(o)
         cells.append('profile Octane / Iray by 2° from the axis: ' + ' '.join(
@@ -119,10 +102,12 @@ for opath in sorted(glob.glob(os.path.join(oct_dir, 'Calib-*.png'))):
         for k, box in LIGHT_REGIONS.items():
             r = ratio(o, i, box)
             cells.append(f'{k} {r:.2f}' if r else f'{k} –')
-    elif boxes and any(name.startswith(p) for p in ('Calib-PBRSkin', 'Calib-Glossy', 'Calib-Tone', 'Calib-DOF', 'Calib-SSS', 'Calib-Glass', 'Calib-Mixing', 'Calib-NVIDIA', 'Calib-TopCoat', 'Calib-SpecMode', 'Calib-ColorEffect', 'Calib-CoatEffect', 'Calib-ThinFilm', 'Calib-FilmIOR')):
-        rs = [ratio(o, i, b) for b in boxes]
+    elif ds:
+        disc_lines[name.split('__')[0]] = sphere_discs.describe(ds, dsrc)
+        rs = [ratio(o, i, sphere_discs.box(d)) for d in ds]
         cells.append('spheres ' + ' '.join(f'{r:.2f}' if r else '–' for r in rs))
-        fr = ratio(o, i, (boxes[0][1] + 60, boxes[0][1] + 140, 700, 1220))
+        y1 = sphere_discs.box(ds[0])[1]
+        fr = ratio(o, i, (y1 + 60, y1 + 140, 700, 1220))
         cells.append(f'floor {fr:.2f}' if fr else 'floor –')
     else:
         r = ratio(o, i, (0, i.shape[0], 0, i.shape[1]))
@@ -143,3 +128,7 @@ print(octane_pass.summary([r[1] for r in rows]) + '.\n')
 print('| scene | Octane pass | Iray denoiser | Octane / Iray |\n|---|---|---|---|')
 for name, pass_label, iray_dn, cells in rows:
     print(f'| {name} | {pass_label} | {iray_dn} | {"; ".join(cells)} |')
+if disc_lines:
+    print('\nSpheres per scene, left to right as in the table (centre px, half-axes x by y):\n')
+    for scene, line in sorted(disc_lines.items()):
+        print(f'- {scene}: {line}')

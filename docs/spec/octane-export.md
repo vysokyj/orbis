@@ -96,8 +96,8 @@ Leaf, Hair; `scripts/dev/calib-variants.sh all`), Octane / Iray:
 - **Skin** in Preview (Universal): Calib-PBRSkin 0.86 – 1.16, Final's
   OpenPBR 1.06 – 1.29 (before #19's rule). Faithful's skin: Calib-Skin
   under the front lamp 0.80 – 1.04 in red (see Skin). **Hair** 1.04 (Final) / 1.06 (Preview).
-- Shared misses, not variant-bound: Calib-Glass sphere 4 2.8 × in all
-  four; Preview's Glass sphere 7 0.81 and Mixing sphere 8 0.76 (Final
+- Shared misses, not variant-bound: Calib-Glass sphere 4 2.4 × in all
+  four (the 2.8 read through the split boxes, #146); Preview's Glass sphere 7 0.81 and Mixing sphere 8 0.76 (Final
   0.95 / 1.04).
 
 ## Inputs
@@ -1024,8 +1024,9 @@ leaves out, #15):
   It is what made a gloss's excess over Iray depend on where the sphere
   stands: under Calib-DualLobeGlossy's low sun the highlight's half angle
   between view and light runs 35° → 62° from sphere 1 to 8, and the same
-  glossy layer (r 0.5, Glossy Roughness 0.5) is 1.11 → 1.20 × Iray over the
-  frame's 1.08 (the dual lobe alone 1.06 → 1.22), against a single-scatter
+  glossy layer (r 0.5, Glossy Roughness 0.5) is 1.12 → 1.29 × Iray over the
+  frame's 1.08 (the dual lobe alone 1.07 → 1.24; on the sphere's projected,
+  elliptic disc, #146), against a single-scatter
   sun model of both lobes (`gloss-split.py sun`: `libbsdf`'s Phong /
   v-cavities / Schlick against Beckmann / Smith / Fresnel) of 1.07 → 1.30
   (1.08 → 1.38); the sky's share dilutes the measured trend. Below r 0.25
@@ -1037,7 +1038,10 @@ leaves out, #15):
   2r − 1 as a coating, which dimmed (or doubled) the grazing reflection
   too: Calib-Glossy's gloss, split from the red diffuse by colour and over
   the matching diffuse ratio, r 0.25 0.86 → 1.03, r 1 1.35 → 1.07, r 0.5
-  1.05 (unchanged); the r 1 sphere 1.25 → 1.17 × Iray. **Not under weighted mixing** (Base
+  1.05 (unchanged); the r 1 sphere 1.25 → 1.17 × Iray. (Those discs sat
+  on the highlight; on the projected discs, #146, the current export's
+  gloss is r 0.25 1.09, r 1 1.04, r 0.5 1.07 over the diffuse ratio, the
+  r 1 sphere 1.12.) **Not under weighted mixing** (Base
   Mixing 2), neither the value nor its map: DAZ's `normalized_base` has no
   `glossy_reflectivity` (its gloss is a plain glossy BSDF at Glossy
   Weight), and DAZ's `.mi` export hands Iray none —
@@ -1177,13 +1181,15 @@ leaves out, #15):
   dual lobe's roughness until #106 (a weighted mix's gloss too). Why:
   dropping the dual lobe left 15 of 348 installed dual-lobe skin
   materials without it (one also with a Top Coat). Against Iray
-  (Calib-DualLobeGlossy) both layers together come out 1.17 – 1.27 ×
-  (Top Coat 1.39, dual lobe W 0.5 1.48) where each alone is 1.12; Octane's
+  (Calib-DualLobeGlossy) both layers together come out 1.17 – 1.21 ×
+  (Top Coat 1.26, dual lobe W 0.5 1.33) where each alone is 1.17 / 1.12
+  (on the projected discs, #146; the highlight-centred discs had read
+  1.17 – 1.27, 1.39, 1.48); Octane's
   coating takes only 2 % of the layers under it. Split per sphere (-dl /
-  -gloss / -bare, layer = scene − bare): Iray's stack takes 3 - 6 % of
-  the two layers, Octane's 1 - 2.5 % (Top Coat: 26 / 24 %), so the
+  -gloss / -bare, layer = scene − bare): Iray's stack takes 1 - 4 % of
+  the two layers, Octane's 0 - 4 % (Top Coat: 27 / 26 %), so the
   stacking holds; the excess is each layer alone at that sphere's light
-  (the same gloss 1.21 / 1.33 / 1.66 at spheres 1 / 3 / 8, the diffuse
+  (the same gloss 1.21 / 1.26 / 1.40 at spheres 1 / 3 / 8, the diffuse
   1.08 everywhere; #137). On the OpenPBR skin the coat over the dual lobe
   rises as Iray's (dual lobe added: face 1.37 vs 1.34); with a Top Coat
   the fallback loses the dual lobe (face 0.79 × Iray; #138).
@@ -1673,7 +1679,9 @@ leaves out, #15):
   0.5 metal without gloss 1.51 → 1.06, a Reflectivity 1 metal 2.14 →
   1.28; Calib-DataGamma's metal 0.5 1.41 → 1.09; Calib-PBRSkin's 0.75 /
   0.9 metals 1.24 / 1.01 → 1.02 / 0.93. The metallic map at gamma 1
-  (G5) 1.38 → 1.43 (#59).
+  (G5) 1.38 → 1.43 (#59). (Measured on discs centred on the highlight; on
+  the projected discs, #146, the current export renders Calib-Map-Metal's
+  seven metal spheres 1.13 – 1.15 × Iray, the specular-mode one 1.06.)
 - **Metallic Weight under 0.05** (no map) is left out: the GSOV4 jacket's
   0.0107 turned Octane's gloss off — black velvet (0.02× Iray) beside the
   same leather's trousers.

@@ -9,8 +9,9 @@
       (g) in both renderers, g's Octane / Iray, the bare scene's Octane /
       Iray (the frame's offset), and where the gloss peaks on the sphere
       (offset / radius, theta_d = the half angle between view and light at
-      a peak, where n = h). Discs are found in the Iray render of <bare>
-      itself (all spheres matte), not from Calib-Glossy (#146). Gamma 2.2
+      a peak, where n = h). Discs: projected from <scene>'s geometry
+      (scripts/dev/sphere_discs.py, printed first), else found in the Iray
+      render of <bare> (all spheres matte), never in a glossy render (#146). Gamma 2.2
       decode; Octane in the export's own pass (scripts/dev/octane_pass.py:
       the `denoised/` twin when the variant denoises, #139), named first.
   gloss-split.py fresnel
@@ -46,25 +47,6 @@ def load(p, octane=False):
     return (np.asarray(Image.open(p).convert('RGB')).astype(float) / 255) ** 2.2
 
 
-def find_discs(img):
-    """The red spheres of a matte render: (cx, cy, r) left to right."""
-    red = (img[..., 0] > 2.5 * img[..., 1]) & (img[..., 0] > 0.02)
-    cols = np.flatnonzero(red.sum(0) > 5)
-    groups, start = [], cols[0]
-    for c0, c1 in zip(cols[:-1], cols[1:]):
-        if c1 - c0 > 3:
-            groups.append((start, c0))
-            start = c1
-    groups.append((start, cols[-1]))
-    discs = []
-    for x0, x1 in groups:
-        if x1 - x0 < 20:
-            continue
-        rows = np.flatnonzero(red[:, x0:x1 + 1].sum(1) > 2)
-        discs.append(((x0 + x1) / 2, (rows[0] + rows[-1]) / 2, (rows[-1] - rows[0]) / 2))
-    return discs
-
-
 def fresnel(n, c):
     c = np.clip(c, 0, 1)
     ct = np.sqrt(np.maximum(1 - (1 - c * c) / (n * n), 0))
@@ -78,8 +60,11 @@ def ior_of(f0):
 
 
 def measure(od, idir, scene, bare, region):
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import sphere_discs
     bI = load(os.path.join(idir, bare + '.png'))
-    discs = find_discs(bI)
+    discs, dsrc = sphere_discs.discs(scene, bI.shape, matte=bI)
+    print(sphere_discs.describe(discs, dsrc))
     yy, xx = np.mgrid[0:bI.shape[0], 0:bI.shape[1]]
     out = {}
     for name, d in (('O', od), ('I', idir)):
@@ -91,15 +76,16 @@ def measure(od, idir, scene, bare, region):
         gmap = np.apply_along_axis(lambda v: np.convolve(v, k, 'same'), 0, gmap)
         gmap = np.apply_along_axis(lambda v: np.convolve(v, k, 'same'), 1, gmap)
         rows = []
-        for cx, cy, r in discs:
-            dist = np.hypot(xx - cx, yy - cy) / r
+        for disc in discs:
+            cx, cy, r = disc.cx, disc.cy, disc.ry
+            dist = sphere_discs.dist(disc, bI.shape, (yy, xx))
             m = {'disc': dist < 0.9, 'core': dist < 0.7, 'rim': (dist >= 0.7) & (dist < 0.95)}[region]
             s, b = S[m].mean(0), B[m].mean(0)
             a = (s[0] - s[1]) / (b[0] - b[1])
             pk = np.where(dist < 0.93, gmap, -1)
             j = np.argmax(pk)
             py, px = divmod(j, pk.shape[1])
-            rows.append((a, s[0] - a * b[0], b @ Y, pk.flat[j], (px - cx) / r, (cy - py) / r))
+            rows.append((a, s[0] - a * b[0], b @ Y, pk.flat[j], (px - cx) / disc.rx, (cy - py) / r))
         out[name] = rows
     print(f'{scene} over {bare} [{region}], {len(discs)} spheres')
     print('sph  bare O/I | diffuse kept O I | gloss O I  O/I | peak O/I at (dx, dy) theta_d')

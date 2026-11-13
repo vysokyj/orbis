@@ -26,8 +26,8 @@ the spheres' view of each other are left out.
 --inner: the wall seen from inside at another IOR (1: no internal
 reflection), a hypothesis knob.
 
---measure: per sphere of a render of a Calib-Furnace-* scene (found as
-what differs from the dome, left to right), the middle square's mean
+--measure: per sphere of a render of a Calib-Furnace-* scene (projected
+from the scene, scripts/dev/sphere_discs.py, #146), the middle square's mean
 linear RGB (gamma 2.2) over the dome's (the top rows): the same share,
 to set beside the Monte Carlo. Checked (#104): the exact semi-infinite
 albedo (Chandrasekhar's H, R 150 cm) within 1 %; Octane's scattering
@@ -128,29 +128,19 @@ def measure(paths):
     from PIL import Image
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import octane_pass
+    import sphere_discs
     for path in paths:
         src, label = octane_pass.pick(path)
         a = (np.asarray(Image.open(src).convert('RGB')).astype(float) / 255) ** 2.2
         bg = np.median(a[: a.shape[0] // 10].reshape(-1, 3), axis=0)
-        # The spheres: whatever differs from the dome, grouped by columns.
-        mask = np.abs(a - bg).max(-1) > 0.1 * max(bg.max(), 1e-3)
-        cols = np.flatnonzero(mask.sum(0) > 10)
-        groups, start = [], cols[0]
-        for c0, c1 in zip(cols[:-1], cols[1:]):
-            if c1 - c0 > 5:
-                groups.append((start, c0))
-                start = c1
-        groups.append((start, cols[-1]))
-        boxes = []
-        for x0, x1 in groups:
-            rows = np.flatnonzero(mask[:, x0:x1 + 1].sum(1) > 10)
-            cx, cy, r = (x0 + x1) / 2, (rows[0] + rows[-1]) / 2, (x1 - x0) / 2
-            boxes.append((int(cy - r * .6), int(cy + r * .6), int(cx - r * .6), int(cx + r * .6)))
+        discs, dsrc = sphere_discs.discs(path, a.shape)
+        boxes = [sphere_discs.box(d) for d in discs]
         cells = []
         for y0, y1, x0, x1 in boxes:
             m = a[y0:y1, x0:x1].reshape(-1, 3).mean(0) / np.maximum(bg, 1e-6)
             cells.append(' / '.join(f'{x:.3f}' for x in m))
         print(f'{os.path.basename(path)} [{label}] (dome {bg[0]:.3f})')
+        print('  ' + sphere_discs.describe(discs, dsrc))
         for k, c in enumerate(cells):
             print(f'  {k + 1}: {c}')
 
