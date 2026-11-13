@@ -274,7 +274,29 @@ impl Material {
         matches!(self.channel(gate).map(|c| &c.value), Some(Value::Bool(false)))
     }
 
+    /// A channel's value as Iray renders it: gated by its layer's switch
+    /// (`gated_off`), and PBRSkin's lobe 1 roughness × its Detail
+    /// multiplier (`detail_roughness_mult`) — DAZ hands the two to
+    /// `pbr_material` apart, the MDL multiplies them before squaring
+    /// (lobe 2 inherits it, a multiple of lobe 1's).
     pub fn float(&self, id: &str) -> Option<f32> {
+        let v = self.float_as_saved(id)?;
+        Some(if id == "Specular Lobe 1 Roughness" { v * self.detail_roughness_mult() } else { v })
+    }
+
+    /// PBRSkin's Detail roughness multiplier, `pbr_skin.mdl`'s
+    /// `roughness_detail_comp`: lerp(1, Detail Specular Roughness Mult,
+    /// Detail Weight) under Detail Enable, else 1. A map on the multiplier
+    /// or the weight is left out (their values only).
+    pub fn detail_roughness_mult(&self) -> f32 {
+        if !matches!(self.channel("Detail Enable").map(|c| &c.value), Some(Value::Bool(true))) {
+            return 1.0;
+        }
+        let w = self.float_as_saved("Detail Weight").unwrap_or(1.0).clamp(0.0, 1.0);
+        1.0 + (self.float_as_saved("Detail Specular Roughness Mult").unwrap_or(1.0).max(0.0) - 1.0) * w
+    }
+
+    fn float_as_saved(&self, id: &str) -> Option<f32> {
         if self.gated_off(id) {
             return Some(0.0);
         }

@@ -10,10 +10,11 @@ Environment Options	Environment Lighting Resolution|Environment Lighting Blur	no
 material: \?	ambient|ambient_strength|reflection|reflection_strength|Lighting Model	DAZ Default: doesn't reach Iray (Legacy shaders: DAZ Default; Calib-Mi-DzDefault2)
 material: \?	bump_min|bump_max|displacement_min|displacement_max|u_offset|u_scale|v_offset|v_scale|Scatter Color|Sheen Color	DAZ Default channels not mapped yet: #41
 material: Blended%20Dual%20Lobe%20Hair	strength	reaches nothing in Iray (dForce hair; Calib-Mi-Hair2)
-material: PBRSkin	Detail .*|Makeup .*|Specular Occlusion .*	PBRSkin Detail / Makeup / Specular Occlusion: #54
+material: PBRSkin	Detail (Normal Map.*|Horizontal .*|Vertical .*)	PBRSkin Detail Normal Map: #140
+material: PBRSkin	Makeup .*	PBRSkin Makeup: #142
 material: PBRSkin	Top Coat Bump Weight|Dual Lobe Specular Roughness Mult|Transmission Enable	PBRSkin mapped directly to OpenPBR: #57
 material: OOT%20Hairblending%20Hair	Top Coat Overlay Color	the top coat's overlay is not exported (Universal: OOT Hairblending 2)
-material: Cap	Cap .*	OOT hair cap shader: #54
+material: Cap	Cap .*	OOT hair cap shader: #141
 light	Intensity Scale	not passed by DAZ for non-photometric lights (Lights; Calib-L-Point-legacy)
 light	Shadow Type	not passed by DAZ (Lights: light options; Calib-L-Opt-*)
 render settings	Post Denoiser Available|Post Denoiser Enable|Max Samples|Rendering Converged Ratio|Max Time	Iray's sampling / denoiser, not the look (Render settings: not mapped)

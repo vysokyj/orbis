@@ -3306,6 +3306,9 @@ impl Ocs<'_> {
         self.float_pin(i, "ior", h.ior);
         self.float_pin(i, "roughness", h.roughness);
         self.float_pin(i, "roughnessV", h.azimuthal);
+        if h.offset != 0.0 {
+            self.float_pin(i, "offset", h.offset);
+        }
         if h.diffuse > 0.0 {
             self.float_pin(i, "diffuseAmount", h.diffuse);
             self.rgb_pin(i, "diffuse", h.diffuse_colour);
@@ -4018,7 +4021,9 @@ impl DualLobe {
             // roughness, roughness2 — lobe 2's a multiple of lobe 1's).
             Some(mult) => {
                 let p = |k: &str, d: f32| pbrskin(mat, k).unwrap_or(d);
-                (1.0 - p("pbr_material.roughness2_weight", mat.float("Dual Lobe Specular Ratio").unwrap_or(0.15)), p("pbr_material.roughness", mat.float("Specular Lobe 1 Roughness").unwrap_or(0.6)) * p("pbr_material.roughness2", mult))
+                // Lobe 1's roughness × its Detail multiplier, as the MDL's
+                // `roughness_comp` (`Material::detail_roughness_mult`).
+                (1.0 - p("pbr_material.roughness2_weight", mat.float("Dual Lobe Specular Ratio").unwrap_or(0.15)), pbrskin(mat, "pbr_material.roughness").map(|r| r * mat.detail_roughness_mult()).or_else(|| mat.float("Specular Lobe 1 Roughness")).unwrap_or(0.6) * p("pbr_material.roughness2", mult))
             }
             None => (mat.float("Dual Lobe Specular Ratio").unwrap_or(0.85), mat.float("Specular Lobe 2 Roughness").unwrap_or(0.0)),
         };
@@ -4027,6 +4032,14 @@ impl DualLobe {
         let u = iray(mat);
         let r = u.as_ref().and_then(|u| u.float("dual_lobe_specular_reflectivity")).or_else(|| pbrskin(mat, "pbr_material.specularlevel")).map(|f0| f0 / crate::iray::REFLECTIVITY_SCALE).or(r);
         let r2_squared = u.as_ref().and_then(|u| u.float("dual_lobe_specular_roughness_2")).unwrap_or(r2 * r2);
+        // PBRSkin's Specular Occlusion: its curve W (n + (g − n)(1 − cos)^5)
+        // with n = F0 · facing, g = grazing is exactly a Schlick curve at
+        // weight W · g and F0 n / g — the layer's weight and IOR.
+        if let Some((facing, grazing)) = specular_occlusion(mat) {
+            let f0 = crate::iray::REFLECTIVITY_SCALE * r.unwrap_or(0.5) * facing / grazing;
+            let weight = weight * grazing;
+            return Some(DualLobe { share: weight, lobe1: lobe1.clamp(0.0, 1.0), lobe2_roughness: r2_squared.clamp(0.0, 1.0), ior: Some(ior_from_f0(f0)), weight, f0 });
+        }
         Some(DualLobe {
             share: weight * reflectivity_share(r),
             lobe1: lobe1.clamp(0.0, 1.0),
@@ -4042,6 +4055,25 @@ impl DualLobe {
     fn blended_roughness(&self, lobe1_roughness: f32) -> f32 {
         self.lobe1 * lobe1_roughness + (1.0 - self.lobe1) * self.lobe2_roughness
     }
+}
+
+/// PBRSkin's Specular Occlusion (`pbr_skin.mdl`, `pbr_material`): under
+/// Specular Occlusion Enable (and the dual lobe) the lobes' custom curve
+/// reflects lerp(1, Facing, w) × its F0 head-on and lerp(1, Grazing, w) at
+/// grazing instead of 1, w = Ambient Occlusion Weight — as (facing,
+/// grazing). DAZ hands the three over as saved (Calib-PBRSkin-Occlusion's
+/// `.mi`); an occlusion map counts by its channel value (no per-texel
+/// curve; the library's mapped skins sit at Facing = Grazing = 1, which
+/// leaves the curve as is).
+fn specular_occlusion(mat: &Material) -> Option<(f32, f32)> {
+    if !crate::iray::is_pbrskin(mat) || mat.float("Specular Occlusion Enable").unwrap_or(0.0) <= 0.0 || mat.float("Dual Lobe Specular Weight").unwrap_or(0.0) <= 0.0 {
+        return None;
+    }
+    let w = pbrskin(mat, "pbr_material.occlusion_weight").or_else(|| mat.float("Ambient Occlusion Weight")).unwrap_or(1.0).clamp(0.0, 1.0);
+    let facing = pbrskin(mat, "pbr_material.specular_occlusion_facing").unwrap_or(0.6).clamp(0.0, 1.0);
+    let grazing = pbrskin(mat, "pbr_material.specular_occlusion_grazing").unwrap_or(0.1).clamp(0.0, 1.0);
+    let (f, g) = (1.0 + (facing - 1.0) * w, 1.0 + (grazing - 1.0) * w);
+    ((f, g) != (1.0, 1.0)).then_some((f, g.max(1e-4)))
 }
 
 /// Iray Base Mixing 1 (specular / glossiness): Glossy Specular is the gloss's
@@ -4604,6 +4636,14 @@ struct OmniHair {
     /// the same crown).
     roughness: f32,
     azimuthal: f32,
+    /// Octane's `offset` (the cuticle tilt, radians: 0.5 and 3 rendered
+    /// Calib-OmniHair-brown's crown yellow / grey, 0.0524 next to 0):
+    /// Specular Reflection Shift in degrees as such. OmniHairBase hands
+    /// MDL's `chiang_hair_bsdf` −shift (its positive angle tilts the scales
+    /// toward the root); Octane's positive offset is that same tilt — the
+    /// crown's Iray − Octane difference followed +3° (correlation 0.52)
+    /// and not −3° (0.21) (#54).
+    offset: f32,
     /// Its diffuse lobe ("Highlight" in DAZ).
     diffuse: f32,
     diffuse_colour: [f32; 3],
@@ -4694,6 +4734,7 @@ fn omni_hair(mat: &Material) -> Option<OmniHair> {
         ior: mat.float("IOR").unwrap_or(1.55).max(1.0 + 1e-5),
         roughness: roughness.clamp(0.0, 1.0),
         azimuthal: azimuthal.clamp(0.0, 1.0),
+        offset: mat.float("Specular Reflection Shift").unwrap_or(3.0).clamp(-90.0, 90.0).to_radians(),
         diffuse: mat.float("Highlight Weight").unwrap_or(0.0).clamp(0.0, 1.0),
         diffuse_colour: avg_colour("Highlight Root Color", "Tip Highlight Color"),
         opacity: if mat.float("Enable Opacity").unwrap_or(0.0) > 0.0 { mat.float("Cutout Opacity").unwrap_or(1.0) } else { 1.0 },
@@ -6401,6 +6442,10 @@ mod tests {
         assert!(omni_hair(&mat(json!([{"channel": {"id": "Hair Root Color", "current_value": [1, 1, 1]}}]))).is_none());
         let (x, _) = material_inputs(&[("Omni".into(), hair(0.65), 1.0)], &[], HashMap::new(), 9600, SkinShader::None);
         assert!(x.contains("type='147'") && x.contains("<pin name='roughnessV'>"), "{x}");
+        // Specular Reflection Shift (degrees, OmniHair's default 3) as
+        // Octane's offset in radians (#54).
+        assert!((brown.offset - 3f32.to_radians()).abs() < 1e-6);
+        assert!(x.contains("<pin name='offset'>") && x.contains(&format!(">{}<", num(3f32.to_radians()))), "{x}");
     }
 
     #[test]
@@ -7013,6 +7058,40 @@ mod tests {
         let dl = DualLobe::of(&pbr).unwrap();
         assert!((dl.lobe1 - 0.85).abs() < 1e-6 && (dl.lobe2_roughness - 0.04).abs() < 1e-6, "{dl:?}");
         assert!((dl.ior.unwrap() - ior_from_f0(0.08)).abs() < 1e-6, "reflectivity 1: F0 0.08");
+
+        // PBRSkin's Specular Occlusion (#54): the curve W (n + (g − n)(1 −
+        // cos)^5), n = 0.04 · lerp(1, 0.6, w), g = lerp(1, 0.1, w), as the
+        // weight W · g at F0 n / g; its Detail multiplies both lobes'
+        // roughness by lerp(1, mult, Detail Weight).
+        let occluded = |w: f32, detail: bool| {
+            mat(json!([
+                {"channel": {"id": "Dual Lobe Specular Enable", "current_value": true}},
+                {"channel": {"id": "Dual Lobe Specular Weight", "current_value": 1}},
+                {"channel": {"id": "Dual Lobe Specular Reflectivity", "current_value": 0.5}},
+                {"channel": {"id": "Specular Lobe 1 Roughness", "current_value": 0.4}},
+                {"channel": {"id": "Specular Lobe 2 Roughness Mult", "current_value": 0.5}},
+                {"channel": {"id": "Dual Lobe Specular Ratio", "current_value": 0.15}},
+                {"channel": {"id": "Specular Occlusion Enable", "current_value": true}},
+                {"channel": {"id": "Specular Occusion Facing", "current_value": 0.6}},
+                {"channel": {"id": "Specular Occlusion Grazing", "current_value": 0.1}},
+                {"channel": {"id": "Ambient Occlusion Weight", "current_value": w}},
+                {"channel": {"id": "Detail Enable", "current_value": detail}},
+                {"channel": {"id": "Detail Weight", "current_value": 0.5}},
+                {"channel": {"id": "Detail Specular Roughness Mult", "current_value": 0.2}},
+            ]))
+        };
+        let dl = DualLobe::of(&occluded(1.0, false)).unwrap();
+        assert!((dl.weight - 0.1).abs() < 1e-6 && (dl.share - 0.1).abs() < 1e-6 && (dl.f0 - 0.24).abs() < 1e-6, "{dl:?}");
+        assert!((dl.ior.unwrap() - ior_from_f0(0.24)).abs() < 1e-6);
+        let dl = DualLobe::of(&occluded(0.5, false)).unwrap();
+        assert!((dl.weight - 0.55).abs() < 1e-6 && (dl.f0 - 0.04 * 0.8 / 0.55).abs() < 1e-6, "{dl:?}");
+        assert!((dl.lobe2_roughness - 0.04).abs() < 1e-6, "no detail: (0.4 · 0.5)²: {dl:?}");
+        let detailed = occluded(0.0, true);
+        let dl = DualLobe::of(&detailed).unwrap();
+        assert!(dl.weight == 1.0 && dl.ior.is_none(), "occlusion weight 0 changes nothing: {dl:?}");
+        // lerp(1, 0.2, 0.5) = 0.6: lobe 1 0.24, lobe 2 0.12 (squared 0.0144).
+        assert!((detailed.float("Specular Lobe 1 Roughness").unwrap() - 0.24).abs() < 1e-6);
+        assert!((dl.lobe2_roughness - 0.0144).abs() < 1e-6, "{dl:?}");
 
         // Under a Top Coat the coating is the coat's; one blended lobe.
         let coated = mat(json!([

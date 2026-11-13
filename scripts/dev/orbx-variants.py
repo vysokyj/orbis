@@ -55,6 +55,7 @@ Hypotheses (by the Iray channels the variants stand for):
   in project.ocs (a kernel or post-processing pin, e.g. `node=100069=2.4`
   for path tracing's filter size); a vector's other components stay.
 - `hair=<k>,<s>`: every Hair material (147) at albedo × k and specular s.
+- `hair-offset=<v>`: every Hair material's `offset` (its cuticle tilt) v.
 - `twosided-x1`: two-sided emitters at the one-sided power (the export
   doubles it, `TWO_SIDED_POWER`, assuming Octane splits it over both faces).
 The channel values come from the scene materials' names (Calib-Glossy /
@@ -223,6 +224,16 @@ def apply(ocs, hyp):
             ocs = set_hair_pin(ocs, mat, 'albedo', ' '.join(f'{c * k:.6f}' for c in a))
             ocs = set_hair_pin(ocs, mat, 'specular', ' '.join([f'{s:.6f}'] * 3))
         return ocs
+    if hyp.startswith('hair-offset='):
+        # Every Hair material's `offset` pin (added: the export writes it
+        # only when non-zero), to tell its unit (#54).
+        v = hyp.split('=', 1)[1]
+        # An export that writes the pin: its value replaced.
+        ocs, n = re.subn(r"(<pin name='offset'>\s*<node[^>]*>\s*<attr name='value' type='6'>)[^<]*", lambda m: m.group(1) + v, ocs)
+        if n:
+            return ocs
+        head = re.compile(r"<node id='\d+' type='147' name='[^']*'>\s*<attr name='compatibilityVersion'[^\n]*\n")
+        return head.sub(lambda m: m.group(0) + f"       <pin name='offset'>\n        {value_node(31, 6, v)}\n       </pin>\n", ocs)
     if hyp.startswith('absorb-x'):
         k = float(hyp[len('absorb-x'):])
         pat = r"(<node id='\d+' type='58'>\s*<pin name='scale'>\s*<node[^>]*>\s*<attr name='value' type='9'>)([0-9.eE+-]+)"

@@ -1120,7 +1120,11 @@ pub fn pbrskin(mat: &Material) -> BTreeMap<&'static str, Arg> {
     out.insert("pbr_material.translucency_color", ch.color_or_map("Translucency Color", [1.0; 3], 1.0));
     out.insert("pbr_material.makeup_weight", Arg::Float(ch.float("Makeup Weight", 1.0)));
     out.insert("pbr_material.detail_weight", Arg::Float(ch.float("Detail Weight", 1.0)));
-    out.insert("pbr_material.occlusion_weight", Arg::Float(ch.float("Ambient Occlusion Weight", 1.0)));
+    // Lobe 1's roughness × lerp(1, this, Detail Weight) under Detail Enable
+    // (Calib-PBRSkin-Occlusion O7 / O8).
+    out.insert("pbr_material.roughness_detail", Arg::Float(ch.float("Detail Specular Roughness Mult", 1.0)));
+    // A map passes as is (Calib-PBRSkin-Occlusion O6).
+    out.insert("pbr_material.occlusion_weight", ch.float_or_map("Ambient Occlusion Weight", 1.0));
     out.insert("pbr_material.specular_occlusion_facing", Arg::Float(ch.float("Specular Occusion Facing", 0.6)));
     out.insert("pbr_material.specular_occlusion_grazing", Arg::Float(ch.float("Specular Occlusion Grazing", 0.1)));
     out.insert("pbr_add_clearcoat.top_coat_weight", Arg::Float(ch.float("Top Coat Weight", 0.5)));

@@ -8,6 +8,9 @@ a plane under an HDRI) that each change one thing, written beside it.
   specular at reflectivity 0.25 / 0.5 / weight 0.25, top coat alone, and the
   Gladio outfit's cloth and armour (#14 follow-up: Gladiator's red cloth
   rendered pink, its armour too bright).
+- Calib-PBRSkin-Occlusion: PBRSkin's Specular Occlusion (facing,
+  grazing, weight, a map) and Detail (roughness mult, a tiled normal
+  map), one change per sphere (#54).
 - Calib-Tone-*: Iray tone mapping off the calibrated defaults — Burn
   Highlights, Crush Blacks, Gamma — to check the tone LUT's curve (#14),
   fitted so far on Gladiator alone.
@@ -2061,5 +2064,38 @@ if os.path.exists(p2) and not os.path.exists(os.path.join(out_dir, 'Calib-Furnac
     d = load(p2)
     render_option(d, 'Max Path Length', 3)
     made.append((save(d, 'Calib-Furnace-Resin3'), None))
+
+# --- PBRSkin Specular Occlusion and Detail (#54): `pbr_material` scales the
+# dual lobe's custom curve by occlusion - head-on lerp(1, Facing, w) ×
+# specularlevel, grazing lerp(1, Grazing, w), w = Ambient Occlusion Weight
+# (a map on skins) - and its roughness by lerp(1, Detail Specular
+# Roughness Mult, Detail Weight), the Detail Normal Map blended onto the
+# base normal at Detail Weight (tiled by Detail Horizontal / Vertical
+# Tiles). A red dual-lobe base (reflectivity 0.5, roughness 0.4) with
+# one change per sphere; O1 is the reference without either.
+# (DL and RED are redefined above for other scenes: spelled out here.)
+OCC = {'Dual Lobe Specular Enable': True, 'Dual Lobe Specular Weight': 1.0, 'Dual Lobe Specular Reflectivity': 0.5,
+       'Specular Lobe 1 Roughness': 0.4, 'Specular Lobe 2 Roughness Mult': 0.4, 'Dual Lobe Specular Ratio': 0.15}
+SO = {'Specular Occlusion Enable': True}
+DT = {'Detail Enable': True}
+RED = [0.45, 0.05, 0.04]
+pbr_spheres('Calib-PBRSkin-Occlusion', [
+    ('O1 dual lobe', RED, OCC),
+    ('O2 occlusion default', RED, {**OCC, **SO, 'Specular Occusion Facing': 0.6, 'Specular Occlusion Grazing': 0.1, 'Ambient Occlusion Weight': 1.0}),
+    ('O3 occlusion grazing', RED, {**OCC, **SO, 'Specular Occusion Facing': 1.0, 'Specular Occlusion Grazing': 0.1, 'Ambient Occlusion Weight': 1.0}),
+    ('O4 occlusion facing', RED, {**OCC, **SO, 'Specular Occusion Facing': 0.25, 'Specular Occlusion Grazing': 1.0, 'Ambient Occlusion Weight': 1.0}),
+    ('O5 occlusion w0.5', RED, {**OCC, **SO, 'Specular Occusion Facing': 0.6, 'Specular Occlusion Grazing': 0.1, 'Ambient Occlusion Weight': 0.5}),
+    ('O6 occlusion grey map', RED, {**OCC, **SO, 'Specular Occusion Facing': 0.6, 'Specular Occlusion Grazing': 0.1, 'Ambient Occlusion Weight': 1.0,
+                                    ('Ambient Occlusion Weight', 'image'): MAPS + 'calib-disp-grey.png'}),
+    ('O7 detail rough 0.5', RED, {**OCC, **DT, 'Detail Weight': 1.0, 'Detail Specular Roughness Mult': 0.5}),
+    ('O8 detail normal w0.5', RED, {**OCC, **DT, 'Detail Weight': 0.5, 'Detail Specular Roughness Mult': 0.25, 'Detail Normal Map': 1.0,
+                                    ('Detail Normal Map', 'image'): BUMPS['dimples-n'], 'Detail Horizontal Tiles': 4.0, 'Detail Vertical Tiles': 4.0}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for i in d['image_library']:
+        if i['id'] in BUMPS.values():
+            i['map_gamma'] = 1
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
 
 # Scene dumps: scripts/dev/daz-dump.sh (DAZ evaluates each scene headless).

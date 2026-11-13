@@ -1022,6 +1022,23 @@ leaves out, #15):
   Iray's at correlation 0.93 – 0.999 (on 2 · r2² and the GGX curve 1.1 –
   2.4, 0.55 – 0.99). On a skin the ratio moves little: Victoria's forehead
   0.92 × with all of it on lobe 2, 1.00 on lobe 1 (Iray).
+- **PBRSkin Specular Occlusion and Detail roughness** (#54, from
+  `pbr_skin.mdl`, no fit): under `Specular Occlusion Enable` the dual
+  lobe's custom curve reflects n = F0 · lerp(1, Facing, w) head-on and
+  g = lerp(1, Grazing, w) at grazing (w = `Ambient Occlusion Weight`;
+  DAZ's channel is spelled `Specular Occusion Facing`) instead of F0 and
+  1. W (n + (g − n)(1 − cos)^5) is a Schlick curve at weight W · g and
+  F0 n / g, so both paths take that weight (the layer's whole share on
+  Universal) and the IOR of n / g (`specular_occlusion`). An occlusion
+  map counts by its value only (the library's mapped skins sit at
+  Facing = Grazing = 1, a no-op). Under `Detail Enable` lobe 1's
+  roughness is × lerp(1, `Detail Specular Roughness Mult`, `Detail
+  Weight`) before Iray squares it, lobe 2 inheriting it
+  (`Material::detail_roughness_mult`; a map on the multiplier counts by
+  its value). DAZ hands all of these over as saved
+  (Calib-PBRSkin-Occlusion's `.mi`, a map on the occlusion weight as the
+  map). The Detail Normal Map (tiled, blended onto the base normal at
+  Detail Weight by `base::blend_normals`) is not exported yet (#140).
 - **Glossy layer over a dual lobe** (#106): DAZ's MDL has both in the
   stack at once — the dual lobe over the diffuse (`dl_diffuse_bsdf`), the
   glossy layer's custom curve over that (`metallic_layered_base`), each
@@ -2811,6 +2828,11 @@ dyed 0.95, Wendy's settings 0.89, highlight 0.73. Octane's pheomelanin
 reads yellower than Iray's: brown and red come out golden where Iray's are
 reddish (red: g/r 0.85 v 0.72) — Chiang's coefficients (MDL's ÷ 1.21 /
 ÷ 1.83) and pheomelanin as a redness fraction were worse; open (#21).
+Specular Reflection Shift (degrees, default 3) → `offset` in radians, the
+same sign: Octane's offset is radians (0.5 and 3 turned the crown yellow /
+grey, 0.0524 stayed next to 0) and OmniHairBase hands MDL −shift, MDL's
+positive angle being the opposite tilt of Octane's — the crown's Iray −
+Octane difference followed +3° (correlation 0.52), not −3° (0.21) (#54).
 
 ### Emission
 
