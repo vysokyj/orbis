@@ -1001,13 +1001,24 @@ leaves out, #15):
   alike (0.48 / 0.90 × Iray at w; 0.81 at min(2w, 1)); doubled on Calib-SSS's
   spheres it overshot (1.25 – 1.38) - thin-walled shells, so a closed
   non-thin solid (w here) is unmeasured until Calib-SSS-Solid (#134). Opaque card 0.97.
-- **Glossy Reflectivity** r (0.5 = Universal's full specular) scales the
-  glossy weight by min(2r, 1); above 0.5 the excess 2r − 1 (× glossy weight, × glossy colour)
-  becomes a clear `coating` at the gloss's roughness, unless a Top Coat
-  takes that layer. Universal caps `specular` at 1 (2 renders as 1). Why:
-  Calib-Glossy, r 0 / 0.25 at the full default 2.42 / 1.54 × Iray, scaled
-  1.21 / 1.14; r 1 0.74 at specular 1 or 2, 1.08 with the coating — the
-  neighbours sit at 1.11 – 1.16. **Not under weighted mixing** (Base
+- **Glossy Reflectivity** r is the head-on reflectance of the glossy
+  layer's custom curve, Glossy Layered Weight × (F0 + (1 − F0)(1 − cos)^5),
+  F0 = 0.08 r × its map (`metallic_layered_base`; DAZ hands Iray the map ×
+  0.08 r at gamma 1, a store outfit's `.mi`): the weight on `specular`
+  (or on the `coating` over a dual lobe), **the IOR of that F0** on `ior`
+  (`coatingIor`), per texel with a map — as on the skin and the dual lobe,
+  and as Base Mixing 1's Glossy Specular (#100). Universal's Fresnel at
+  that IOR is the physical one: per angle and over the hemisphere it is
+  Schlick's within 1 – 8 % from r 0.25 up (hemispherical 0.99 / 1.07 /
+  1.07 × at r 0.25 / 0.5 / 1), but below it rises later — 0.79 × at r
+  0.1, nothing at r 0 (IOR 1), where Iray's curve still reaches 1 at
+  grazing. That residual is left, not fitted: Calib-Glossy's r 0 sphere
+  shows no gloss in Octane (Iray's: 27 % of r 0.5's on the sphere's core).
+  Until #100 r scaled the weight, min(2r, 1) at IOR 1.5 plus the excess
+  2r − 1 as a coating, which dimmed (or doubled) the grazing reflection
+  too: Calib-Glossy's gloss, split from the red diffuse by colour and over
+  the matching diffuse ratio, r 0.25 0.86 → 1.03, r 1 1.35 → 1.07, r 0.5
+  1.05 (unchanged); the r 1 sphere 1.25 → 1.17 × Iray. **Not under weighted mixing** (Base
   Mixing 2), neither the value nor its map: DAZ's `normalized_base` has no
   `glossy_reflectivity` (its gloss is a plain glossy BSDF at Glossy
   Weight), and DAZ's `.mi` export hands Iray none —
@@ -1074,9 +1085,9 @@ leaves out, #15):
   translucency — below; no refraction, no metal) the export keeps both, in Iray's order: the dual lobe on `specular` as
   under a Top Coat (the full share, both lobes at the ratio's roughness
   blend, IOR above r 0.5), the gloss as the `coating` — Glossy Color
-  (map) × weight (map) × min(2r, 1), `coatingRoughness` the Phong pin of
-  the glossy layer's own roughness (map included), `coatingIor` from F0 =
-  0.08 r above r 0.5 (no room for the excess coating), the base's bump /
+  (map) × weight (map), `coatingRoughness` the Phong pin of
+  the glossy layer's own roughness (map included), `coatingIor` the IOR of
+  F0 = 0.08 r × its map (per texel, as on `specular`, #100), the base's bump /
   normal on the coating's pins; no anisotropy (the coating has none). A
   Top Coat over both moves into a Layered material's Specular Layer
   (`layered_coat_material`), so the coating stays the gloss's. On OpenPBR

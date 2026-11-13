@@ -2886,32 +2886,30 @@ impl Ocs<'_> {
     /// Iray's glossy layer as Universal's `coating`, over a dual lobe on the
     /// `specular` (`gloss_over_dual_lobe`, #106): Glossy Color × the glossy
     /// layer's weight (`gloss_weight`: Glossy Weight under weighted mixing,
-    /// #128) × min(2r, 1) of Glossy Reflectivity as on `specular`
-    /// (or a colour / weight map), at the glossy layer's own roughness
-    /// (`glossy_layer_roughness`, its map too) on the node's curve; above
-    /// r 0.5 the IOR of F0 = 0.08 r as the dual lobe's (the coating has no
-    /// room left for `glossy_excess`). Iray's glossy layer takes the base's
+    /// #128; or a colour / weight map), at the glossy layer's own roughness
+    /// (`glossy_layer_roughness`, its map too) on the node's curve; the IOR
+    /// of F0 = 0.08 × Glossy Reflectivity (× its map) as on `specular`
+    /// (#100). Iray's glossy layer takes the base's
     /// bump (`combined_bump`): the coating its own pins, which Octane
     /// otherwise leaves flat (as for the Top Coat, `coat_bump_pins`).
     fn glossy_coating(&mut self, i: usize, mat: &Material, rough_ch: Option<&str>, rough: f32, curve: RoughCurve) {
         // The glossy layer's weight by Base Mixing (`gloss_weight_channel`).
         let glossy = gloss_weight(mat).min(1.0);
-        let r = glossy_reflectivity(mat);
-        let (colour, weight) = color_effect(mat, "Glossy Color Effect", mat.color("Glossy Color").unwrap_or([1.0; 3]), glossy * reflectivity_share(r));
+        let (colour, weight) = color_effect(mat, "Glossy Color Effect", mat.color("Glossy Color").unwrap_or([1.0; 3]), glossy);
         // Colour and weight maps both (#107; see `layer_colour_pin`).
         if !self.layer_colour_pin(i, "coating", mat, gloss_weight_channel(mat), "Glossy Color", weight, colour, true) {
             self.rgb_pin(i, "coating", colour.map(|c| c * weight));
         }
         self.roughness_pin_named(i, "coatingRoughness", mat, rough_ch, curve.apply(rough.clamp(0.0, 1.0)), curve, 1.0);
-        self.float_pin(i, "coatingIor", r.filter(|r| *r > 0.5).map_or(1.5, |r| ior_from_f0(crate::iray::REFLECTIVITY_SCALE * r)));
+        self.ior_pin(i, "coatingIor", mat, gloss_reflectivity_map(mat), gloss_f0(mat));
         self.base_detail_pins(i, mat, "coatingNormal", "coatingBump");
     }
 
     /// The skin's gloss on OpenPBR as Universal gets it (see `universal`):
-    /// Iray's squared roughness; the dual lobe's (or glossy layer's) weight ×
-    /// min(2r, 1) of its reflectivity — with the reflectivity's map (dark
-    /// under brows and make-up, where a uniform gloss shone blue-grey on the
-    /// dark skins; Twosret 1.31 → 1.16 × Iray, Calib-Skin); the Top Coat as
+    /// Iray's squared roughness; the dual lobe's (or glossy layer's) weight,
+    /// its reflectivity as the IOR of its F0 — with the reflectivity's map
+    /// (dark under brows and make-up, where a uniform gloss shone blue-grey
+    /// on the dark skins; Twosret 1.31 → 1.16 × Iray, Calib-Skin); the Top Coat as
     /// the coating, without OpenPBR's coat darkening (it took the base to
     /// 0.58 – 0.80 of Universal's on Calib-SSS's spheres, off it is 1.00).
     fn skin_gloss(&mut self, i: usize, mat: &Material, rough_ch: Option<&str>, rough: f32, inverted: bool) {
@@ -3006,10 +3004,7 @@ impl Ocs<'_> {
             Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, weight_pin, &asset, true, w.textures.map_gamma(&asset, mat.image_gamma(wch)), glossy.min(1.0))),
             None => self.float_pin(i, weight_pin, glossy.min(1.0)),
         }
-        let f0 = crate::iray::REFLECTIVITY_SCALE * glossy_reflectivity(mat).unwrap_or(0.5);
-        // Its map neither, under weighted mixing (`glossy_reflectivity`).
-        let rch = if weighted_mixing(mat) { "" } else { "Glossy Reflectivity" };
-        self.ior_pin(i, ior_pin, mat, rch, f0);
+        self.ior_pin(i, ior_pin, mat, gloss_reflectivity_map(mat), gloss_f0(mat));
     }
 
     /// A dielectric's IOR pin for head-on reflectance `f0` × the channel's
@@ -3696,6 +3691,7 @@ impl Ocs<'_> {
         // Iray's Top Coat: a clear dielectric layer over everything.
         let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
         let mut active_dual_lobe = None;
+        let mut gloss_on_specular = false;
         if weighted.is_some() && weighted_lobe.is_none() {
             self.rgb_pin(i, "specular", [0.0; 3]);
         } else if refraction == 0.0 && glossy <= 0.0 && dual_lobe.is_none() && mat.image(gloss_ch).is_none() {
@@ -3707,13 +3703,15 @@ impl Ocs<'_> {
             // nor sun on their surface in Iray.
             self.rgb_pin(i, "specular", [0.0; 3]);
         } else if glossy > 0.0 && !glossy_coat && weighted.is_none() {
-            // Iray's Glossy Reflectivity r scales the reflection (r 0.5 is
-            // the default, Universal's full specular); Octane matched it at
-            // specular × min(2r, 1) — Calib-Glossy, r 0 / 0.25: 2.42 / 1.54
-            // × Iray at Universal's default, 1.21 / 1.14 so, like the matte
-            // sphere's 1.13 (r 1: see `glossy_excess`).
-            let refl = if specular_mode { 1.0 } else { reflectivity_share(glossy_reflectivity(mat)) };
-            let weight = glossy.min(1.0) * refl * base_keep;
+            gloss_on_specular = true;
+            // Iray's glossy layer is a custom curve, Glossy Layered Weight ×
+            // (F0 + (1 − F0)(1 − cos)^5) with F0 = 0.08 × Glossy
+            // Reflectivity (× its map) in Base Mixing 0, Glossy Specular in
+            // 1: the weight here, the F0 as the IOR below (`gloss_ior`), as
+            // on the skin and the dual lobe (#100). As a share of the
+            // specular (min(2r, 1) at IOR 1.5, the excess over 1 a coating)
+            // r scaled the grazing reflection too, where Iray keeps 1.
+            let weight = glossy.min(1.0) * base_keep;
             // Base Mixing 1: Glossy Specular's hue tints the reflection too
             // (its strength is the IOR, `specular_ior`).
             let hue = if specular_mode { specular_hue(mat) } else { [1.0; 3] };
@@ -3861,14 +3859,13 @@ impl Ocs<'_> {
             self.aniso_brdf_pin(i, !oren_nayar && aniso.saturates(rough));
             if self.gloss_brdf.is_some() { RoughCurve::Phong } else { RoughCurve::Linear }
         };
-        let rough = if oren_nayar {
+        if oren_nayar {
             // No gloss to share it with: the diffuse's σ (see `base_flat`).
             self.value_pin(i, "diffuseBrdf", 57, 2, DIFFUSE_BRDF_OREN_NAYAR);
             self.float_pin(i, "roughness", sigma);
-            sigma
         } else {
-            self.gloss_roughness_pins(i, mat, rough_ch, rough, curve, aniso)
-        };
+            self.gloss_roughness_pins(i, mat, rough_ch, rough, curve, aniso);
+        }
 
         // Lobe 2 of a dual lobe specular as the coating (#26): Calib-DualLobe
         // at a ratio of 0.5 / 0.15 / 0 and lobe 2 roughness 0.6 showed one
@@ -3891,18 +3888,6 @@ impl Ocs<'_> {
             self.ior_pin(i, "ior", mat, "Dual Lobe Specular Reflectivity", dl.f0);
         }
 
-        // A Glossy Reflectivity above 0.5 reflects more than Universal's full
-        // specular, which caps at 1 (Calib-Glossy, r 1: 0.74 × Iray, also
-        // at specular 2); the excess 2r − 1 as a clear coating at the gloss's
-        // roughness brought it to 1.08, like its neighbours' 1.11 – 1.16.
-        // Over a metal only the base's share of it: Iray's gloss is inside
-        // the base (1 − w), none at all on a full metal (Calib-Map-Metal's
-        // Reflectivity 1 metal: 2.14 × Iray with it).
-        let excess = if specular_mode || glossy <= 0.0 || weighted.is_some() || glossy_coat { 0.0 } else { glossy.min(1.0) * glossy_excess(glossy_reflectivity(mat)) * (1.0 - metal_w.clamp(0.0, 1.0)) };
-        if coat <= 0.0 && excess > 0.0 {
-            self.rgb_pin(i, "coating", gloss_color.map(|c| c * excess));
-            self.float_pin(i, "coatingRoughness", rough.clamp(0.0, 1.0));
-        }
         if let Some((ch, r, _)) = gloss_coat_rough {
             self.glossy_coating(i, mat, ch, r, curve);
         }
@@ -3918,9 +3903,14 @@ impl Ocs<'_> {
 
         // Base Mixing 1 reflects Glossy Specular head-on (F0), as an IOR on
         // the dielectric layer — unless the surface is mostly refraction.
-        let spec_ior = (specular_mode && glossy > 0.0 && weighted.is_none()).then(|| specular_ior(mat));
+        // Base Mixing 0 alike: F0 = 0.08 × Glossy Reflectivity (× its map,
+        // per texel: DAZ hands Iray the map × 0.08 r, gamma 1, a store
+        // outfit's `.mi`), the IOR of that F0 (`gloss_ior`, #100).
+        let spec_ior = (specular_mode && glossy > 0.0 && weighted.is_none()).then(|| specular_ior(mat)).or_else(|| gloss_on_specular.then(|| ior_from_f0(gloss_f0(mat))));
         if refraction == 0.0 {
-            if let Some(n) = spec_ior {
+            if gloss_on_specular && !specular_mode {
+                self.ior_pin(i, "ior", mat, gloss_reflectivity_map(mat), gloss_f0(mat));
+            } else if let Some(n) = spec_ior {
                 self.float_pin(i, "ior", n);
             }
         }
@@ -4016,10 +4006,22 @@ pub(crate) fn round_corners(mat: &Material) -> Option<RoundCorners> {
     })
 }
 
-/// Universal's specular share for an Iray reflectivity r (default 0.5 → 1):
-/// min(2r, 1). See the glossy layer in `universal`.
-fn reflectivity_share(r: Option<f32>) -> f32 {
-    (2.0 * r.unwrap_or(0.5)).clamp(0.0, 1.0)
+/// The glossy layer's head-on reflectance in Base Mixing 0 (and the
+/// skin's): F0 = 0.08 × Glossy Reflectivity (r 0.5 when unset, under
+/// weighted mixing too, where the layer has no curve), its map left to
+/// `gloss_reflectivity_map`.
+fn gloss_f0(mat: &Material) -> f32 {
+    crate::iray::REFLECTIVITY_SCALE * glossy_reflectivity(mat).unwrap_or(0.5)
+}
+
+/// The channel whose map scales `gloss_f0` per texel: Glossy Reflectivity,
+/// none under weighted mixing (`glossy_reflectivity`).
+fn gloss_reflectivity_map(mat: &Material) -> &'static str {
+    if weighted_mixing(mat) {
+        ""
+    } else {
+        "Glossy Reflectivity"
+    }
 }
 
 /// Iray's dual lobe specular (skin's): two Phong lobes blended by Dual
@@ -4836,11 +4838,6 @@ fn blend_points(bias: f32, gain: f32) -> Vec<f32> {
 
 /// Meters per centimeter.
 const CM_PER_M_INV: f32 = 0.01;
-
-/// The reflectivity beyond Universal's full specular: 2r − 1 for r > 0.5.
-fn glossy_excess(r: Option<f32>) -> f32 {
-    (2.0 * r.unwrap_or(0.5) - 1.0).clamp(0.0, 1.0)
-}
 
 /// The scalar a map is scaled by for a grey Iray colour tint: its mean
 /// (white → 1).
@@ -7289,6 +7286,48 @@ mod tests {
         assert!(pin(&x, "ior").contains(&format!(">{n}<")) && pin(&x, "coatingIor").contains(&format!(">{n}<")), "{x}");
     }
 
+    /// Glossy Reflectivity reaches Universal as the IOR of its F0 too, a
+    /// map per texel (#100): Iray's glossy layer is the same custom curve,
+    /// Glossy Layered Weight · (F0 + (1 − F0)(1 − cos)^5), F0 = 0.08 r ×
+    /// map; the weight stays the layer's, no excess coating past r 0.5.
+    #[test]
+    fn glossy_reflectivity_as_ior_on_universal() {
+        let dir = tempfile::tempdir().unwrap();
+        image::GrayImage::from_pixel(2, 2, image::Luma([66])).save(dir.path().join("r.png")).unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let m = |map: bool, r: f32, mixing: u32| {
+            let mut refl = json!({"id": "Glossy Reflectivity", "current_value": r});
+            if map {
+                refl["image_file"] = json!("/r.png");
+            }
+            mat(json!([
+                {"channel": {"id": "Base Mixing", "current_value": mixing}},
+                {"channel": {"id": "Glossy Layered Weight", "current_value": 0.6}},
+                {"channel": {"id": "Glossy Weight", "current_value": 0.6}},
+                {"channel": refl},
+                {"channel": {"id": "Glossy Roughness", "current_value": 0.3}},
+            ]))
+        };
+        let pin = |x: &str, name: &str| {
+            let p = &x[x.find(&format!("<pin name='{name}'>")).unwrap_or_else(|| panic!("no {name}: {x}"))..];
+            let end = p.find("\n  <pin name=").unwrap_or(p.len());
+            p[..end].to_string()
+        };
+        for r in [0.0, 0.25, 1.0] {
+            let (x, _) = material_inputs(&[("Gloss".into(), m(false, r, 0), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+            assert!(pin(&x, "specular").contains(">0.6 0.6 0.6<"), "r {r}: the weight alone: {x}");
+            assert!(pin(&x, "ior").contains(&format!(">{}<", num(ior_from_f0(0.08 * r)))), "r {r}: {x}");
+            assert!(!x.contains("<pin name='coating'>"), "r {r}: no excess coating: {x}");
+        }
+        // Mapped: the IOR an image (n / 2 at power 2).
+        let (x, _) = material_inputs(&[("Gloss".into(), m(true, 1.0, 0), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+        let v = pin(&x, "ior");
+        assert!(v.contains("type='36'") && !v.contains(&format!(">{}<", num(1.5))), "a texture: {v}");
+        // Weighted mixing has no curve: neither the value nor the map.
+        let (x, _) = material_inputs(&[("Gloss".into(), m(true, 1.0, 2), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+        assert!(!x.contains("<pin name='ior'>") || !pin(&x, "ior").contains("type='36'"), "{x}");
+    }
+
     #[test]
     fn glossy_layer_over_dual_lobe() {
         // DAZ's MDL layers the glossy layer over the dual lobe over the
@@ -7318,7 +7357,7 @@ mod tests {
         assert!(!x.contains("<pin name='specular'>") && !x.contains(">0.75 0.75 0.75<"), "{x}");
         let blended = phong_pin(0.25 * 0.09 + 0.75 * 0.36);
         assert!(pin(&x, "roughness").contains(&format!(">{}<", num(blended))), "lobes blended {blended}: {x}");
-        // The gloss: 0.4 × min(2r, 1), r 1's F0 0.08 as the coating's IOR,
+        // The gloss: its weight 0.4, r 1's F0 0.08 as the coating's IOR,
         // Glossy Roughness 0.5 (squared) at the Phong pin.
         assert!(pin(&x, "coating").contains(">0.4 0.4 0.4<"), "{x}");
         assert!(pin(&x, "coatingRoughness").contains(&format!(">{}<", num(phong_pin(0.25)))), "{x}");
@@ -7709,16 +7748,6 @@ mod tests {
         let spec = &lx[lx.find("<pin name='specular'>").expect("gloss weight map")..];
         assert!(spec.contains("type='36'") && spec[..900].contains("<attr name='value' type='6'>0.33</attr>"), "{spec}");
         assert!(!lx.contains("<pin name='metallic'>"), "a trace of metallicity is left out: {lx}");
-        // Glossy Reflectivity 1: full specular plus the excess as a coating.
-        let shiny = mat(json!([
-            {"channel": {"id": "Glossy Layered Weight", "current_value": 1}},
-            {"channel": {"id": "Glossy Reflectivity", "current_value": 1}},
-            {"channel": {"id": "Glossy Roughness", "current_value": 0.3}},
-        ]));
-        let (sx, _) = material_inputs(&[("Shiny".into(), shiny, 1.0)], &dirs, HashMap::new(), 8900, SkinShader::None);
-        let coat = &sx[sx.find("<pin name='coating'>").expect("excess gloss as a coating")..];
-        assert!(coat[..300].contains("1 1 1"), "{coat}");
-        assert!(sx.contains("<pin name='coatingRoughness'>"), "{sx}");
         // Base Mixing 1: Glossy Specular 0.5 (linear 0.218) is F0 → IOR 2.75;
         // black reflects nothing head-on (IOR 1).
         for (gs, ior) in [(0.5, "2.74"), (0.0, "1")] {
