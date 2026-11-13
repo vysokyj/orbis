@@ -183,6 +183,13 @@ pure power (Calib-Skin, 2026-11-07).
   `roughnessExtra` too) and OpenPBR's (`thinWall`; pins `transmission`,
   `transmissionColor`, `roughness`, `ior`) blurs only the reflection.
   Universal's Specular transmission at IOR 1 doesn't blur either.
+- **Falloff Map (50) is evaluated per hit, with that hit's incoming ray**
+  (#117, orbx variant on Calib-Furnace-ArchGlass2): a Mix (38) of 1 → 0
+  by a Falloff (normal vs. eye ray, skew 1) on a closed glass sphere's
+  `transmission` in a white furnace rendered (1 − θ_in/90°)(1 − θ_out/90°)
+  with the exit's angle measured *inside* (θ_t, the refracted ray), not
+  the camera ray's angle twice: near-smooth, ring 0.8 – 0.9 0.206 v 0.212
+  (per hit) and 0.122 (camera ray); IOR 1.2 and the inverted map alike.
 - **Daylight environment (14)** (probe 97): `sundir` (float3, default
   node 30 = sun direction; direction *towards* the sun), `turbidity` (2 –
   15, 2.4), `power` (1), `sunIntensity` (1, sun only), `northoffset` (−1 …

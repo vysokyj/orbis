@@ -1,0 +1,28 @@
+// ORBIS calibration module (#117), written for ORBIS (GPL-3.0-or-later).
+// Resin's base lobe (scatter_reflect_transmit, closed, IOR 1.49) at
+// "mdl 1.0", r 0.25 / 0.5 / 0.75 / 1: the twins of Calib-Furnace-Resin2's
+// U3 - U6 (NVIDIA's 1.0 resin_polyurethane_matte, uncoated) - whether the
+// version alone makes `RESIN_LOBE`'s loss and its fall towards the rim.
+mdl 1.0;
+
+import df::*;
+
+export material resin_r025() = material(
+    ior: color(1.49),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect_transmit, tint: color(1.0), roughness_u: 0.25, roughness_v: 0.25)));
+
+export material resin_r05() = material(
+    ior: color(1.49),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect_transmit, tint: color(1.0), roughness_u: 0.5, roughness_v: 0.5)));
+
+export material resin_r075() = material(
+    ior: color(1.49),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect_transmit, tint: color(1.0), roughness_u: 0.75, roughness_v: 0.75)));
+
+export material resin_r1() = material(
+    ior: color(1.49),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect_transmit, tint: color(1.0), roughness_u: 1.0, roughness_v: 1.0)));

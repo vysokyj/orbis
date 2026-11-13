@@ -49,7 +49,10 @@ Hypotheses (by the Iray channels the variants stand for):
   material named /Scene/Materials/<material>… — `f` a float, `c` a grey
   colour, `r` an RGB colour (`r<r>,<g>,<b>`), `e` an enum (e.g. `hairMode`), `p` the texture on that pin at power × value, `x` the pin's
   colour (per channel with `x<r>,<g>,<b>`), or its texture's power, ×
-  value (e.g.
+  value, `o<head>,<grazing>,<skew>` a grey that a Falloff Map (normal
+  vs. eye ray) takes from `head` facing the ray to `grazing` at 90° as
+  (θ / 90°)^skew (#117: is the angle the camera ray's or each hit's?)
+  (e.g.
   `set=Genesis_8_Female_Cornea.coating=c0+Genesis_8_Female_Cornea.roughness=f0.07`).
 - `node=<id>=<value>[,<id>=<value>…]`: the value of any node by its id
   in project.ocs (a kernel or post-processing pin, e.g. `node=100069=2.4`
@@ -94,6 +97,22 @@ def value_node(typ, attr_type, value):
     next_id[0] += 1
     return (f"<node id='{next_id[0]}' type='{typ}'>\n"
             f"         <attr name='value' type='{attr_type}'>{value}</attr>\n        </node>")
+
+
+def falloff_mix(head, grazing, skew):
+    """A Mix texture (38) of two greys by a Falloff Map (50, normal vs.
+    eye ray): `head` facing the ray, `grazing` at 90°, (θ / 90°)^skew
+    between - the export's film-tint construction (#117)."""
+    next_id[0] += 1
+    mix = next_id[0]
+    next_id[0] += 1
+    fall = next_id[0]
+    return (f"<node id='{mix}' type='38'>\n<pin name='amount'>\n<node id='{fall}' type='50'>\n"
+            f"<pin name='normal'>{value_node(6, 8, '0 0 0')}</pin>\n"
+            f"<pin name='grazing'>{value_node(6, 8, '1 0 0')}</pin>\n"
+            f"<pin name='falloff index'>{value_node(6, 8, f'{skew} 0 0')}</pin>\n</node>\n</pin>\n"
+            f"<pin name='texture1'>{value_node(33, 8, f'{head} {head} {head}')}</pin>\n"
+            f"<pin name='texture2'>{value_node(33, 8, f'{grazing} {grazing} {grazing}')}</pin>\n</node>")
 
 
 def set_pin(ocs, material, pin, node_xml):
@@ -192,6 +211,9 @@ def apply(ocs, hyp):
                 ocs = set_pin(ocs, mat, pin, value_node(33, 8, v.replace(',', ' ')))
             elif kind == 'e':
                 ocs = set_pin(ocs, mat, pin, value_node(57, 2, v))
+            elif kind == 'o':
+                head, graze, skew = v.split(',')
+                ocs = set_pin(ocs, mat, pin, falloff_mix(head, graze, skew))
             elif kind == 'x':
                 c = albedo_of(ocs, mat, pin)
                 m = re.search(rf"name='/Scene/Materials/{re.escape(mat)}[^']*'", ocs)

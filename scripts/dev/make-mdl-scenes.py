@@ -29,6 +29,13 @@ material file with one Shader Mixer brick material per module material
 - Calib-Point-MdlAniso (#114): the same spheres without the dome, lit by a
   point light at the camera - the highlight's shape of the lobe at 1.0 /
   1.3: isotropic, anisotropic, and architectural's base:: roughness pair.
+- Calib-Furnace-MdlTir (#117): the closed transmit lobe at r 0.2, IOR 1.2 /
+  2.0, and thin-walled at r 0.2 / 0.4, each in "mdl 1.0" / "mdl 1.3" - the
+  rings say whether the legacy lobe's loss falls towards the rim with the
+  critical angle (total internal reflection) or is flat (a thin wall).
+- Calib-Furnace-MdlResin (#117): resin's base lobe (reflect_transmit, IOR
+  1.49) at r 0.25 / 0.5 / 0.75 / 1 in 1.0 / 1.3 - Calib-Furnace-Resin2
+  U3 - U6's twins.
 - Calib-Point-ArchAniso (#114): that light on NVIDIA's Architectural
   preset (its reflection only) at glossiness 0 / 0.15 / 0.3, isotropic
   and anisotropic - the scene the export maps (Octane side).
@@ -133,6 +140,21 @@ ANISO = [(f'S{k + 1} v{v} {what}', f'v{v.replace(".", "")}_pt_{mat}', f'orbis/or
          for k, (what, mat, v) in enumerate([(w, m, v) for w, m in (('iso r 0.2', 'iso_r02'), ('aniso u 0.4 v 0.1', 'aniso_u04_v01'),
                                                                     ('arch g 0 iso', 'arch_g0_iso'), ('arch g 0 aniso 4', 'arch_g0_a4'))
                                              for v in ('1.0', '1.3')])]
+# #117: is the angular loss of NVIDIA's 1.0 rough transmission (Iray /
+# libbsdf falls from the centre to the rim on closed spheres, flat on thin
+# walls, more with IOR and roughness) the legacy lobe's, and is it total
+# internal reflection? The closed transmit lobe at r 0.2 (#112's M7 / T3
+# are IOR 1.5) at IOR 1.2 / 2.0, and thin-walled at r 0.2 / 0.4 (no
+# refraction, no TIR), each at 1.0 / 1.3; resin's scatter_reflect_transmit
+# base at Calib-Furnace-Resin2's U3 - U6 roughnesses (IOR 1.49).
+TIR = [(f'X{k + 1} v{v} {what}', f'v{v.replace(".", "")}_tir_{mat}', f'orbis/orbis_tir_v{v.replace(".", "")}.mdl#{mat}')
+       for k, (what, mat, v) in enumerate([(w, m, v) for w, m in (('transmit r 0.2 ior 1.2', 'transmit_r02_ior12'),
+                                                                  ('transmit r 0.2 ior 2', 'transmit_r02_ior2'),
+                                                                  ('thin transmit r 0.2', 'thin_transmit_r02'),
+                                                                  ('thin transmit r 0.4', 'thin_transmit_r04'))
+                                           for v in ('1.0', '1.3')])]
+RESIN = [(f'R{k + 1} v{v} resin r {r}', f'v{v.replace(".", "")}_resin_r{R_NAME(r)}', f'orbis/orbis_resin_v{v.replace(".", "")}.mdl#resin_r{R_NAME(r)}')
+         for k, (v, r) in enumerate([(v, r) for v in ('1.0', '1.3') for r in (0.25, 0.5, 0.75, 1.0)])]
 # NVIDIA's architectural preset itself under the same light, its lobe alone
 # (diffuse black, reflectivity 1, Schlick 1 / 1: a white constant lobe): the
 # scene the export maps, so it has an Octane side. (label, channels).
@@ -160,7 +182,7 @@ for _, _, c, root in PATH_PROBE:
     open(os.path.join(d, c.split('/')[1].split('#')[0]), 'w').write(probe)
 
 os.makedirs(os.path.dirname(DSF), exist_ok=True)
-lib_mats = [brick_material(mid, c) for _, mid, c, *_ in PATH_PROBE + VERSION + LOBE + TRANSMIT + ANISO]
+lib_mats = [brick_material(mid, c) for _, mid, c, *_ in PATH_PROBE + VERSION + LOBE + TRANSMIT + ANISO + TIR + RESIN]
 dsf = {'file_version': '0.6.0.0',
        'asset_info': {'id': DSF_URL, 'type': 'material', 'contributor': {'author': 'ORBIS', 'email': '', 'website': ''}, 'revision': '1.0'},
        'material_library': lib_mats}
@@ -285,3 +307,5 @@ furnace_scene('Calib-Point-MdlAniso', ANISO, ev=9.0)
 # Architectural's glossiness 0.15 / 0.3 peak ~8x / ~50x above 0 (at EV 8.3
 # both clipped, glossiness 0 0.19): at EV 11.5 glossiness 0 ~0.02, 0.3 ~1.
 furnace_scene('Calib-Point-ArchAniso', ARCH_POINT, ev=11.5, arch=True)
+furnace_scene('Calib-Furnace-MdlTir', TIR)
+furnace_scene('Calib-Furnace-MdlResin', RESIN)

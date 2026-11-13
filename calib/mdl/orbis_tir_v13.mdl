@@ -1,0 +1,32 @@
+// ORBIS calibration module (#117), written for ORBIS (GPL-3.0-or-later).
+// A rough transmit-only lobe at "mdl 1.3": closed at IOR 1.2 / 2.0 (r 0.2;
+// the critical angle moves), thin-walled at IOR 1.5 (r 0.2 / 0.4; no
+// refraction, no total internal reflection). Rings of the furnace spheres:
+// is the angular loss of NVIDIA's 1.0 modules (#116, #117) total internal
+// reflection the legacy lobe loses (it grows with IOR and roughness, and
+// a thin wall's is flat)?
+mdl 1.3;
+
+import df::*;
+
+export material transmit_r02_ior12() = material(
+    ior: color(1.2),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.2, roughness_v: 0.2)));
+
+export material transmit_r02_ior2() = material(
+    ior: color(2.0),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.2, roughness_v: 0.2)));
+
+export material thin_transmit_r02() = material(
+    thin_walled: true,
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.2, roughness_v: 0.2)));
+
+export material thin_transmit_r04() = material(
+    thin_walled: true,
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.4, roughness_v: 0.4)));
