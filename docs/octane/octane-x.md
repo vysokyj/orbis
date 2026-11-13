@@ -177,6 +177,15 @@ pure power (Calib-Skin, 2026-11-07).
   fake_shadows, refractionAlpha, bump, bumpHeight, normal, displacement,
   smooth, smoothShadowTerminator, roundEdges, priority, emission, matte,
   customAov…, layer. No `index4` (the export's IOR pin for glass, #9).
+- **Mix (19) and Layered (143) pins; displacement** (probe 144): Mix
+  `amount`, `material1`, `material2`, `displacement`, `customAov`,
+  `customAovChannel` (`amount` 1 = all `material1`); Layered
+  `material1` (base), `customAov`, `customAovChannel` plus the dynamic
+  `Layer N` - no `displacement`; Composite (138) has one. Octane takes
+  a surface's displacement from its outermost material only: a Mix's
+  sub-materials' and an inner Mix's are ignored (never added to the
+  Mix's), and a Layered material's base's is ignored too (orbx variants
+  of Calib-Disp, 2026-11-13).
 - **Thin walls transmit unblurred in every material** (probe 136): the
   roughness on Universal's Thin Wall (`transmissionType` 2), the Specular
   material's (`thinWall`, IOR pin `ior`), Standard Surface's (`thinWall`,

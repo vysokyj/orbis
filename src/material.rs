@@ -1375,6 +1375,10 @@ struct Ocs<'a> {
     in_flake_mix: bool,
     /// Writing the surface under a backscattering lobe (`backscatter_mix_material`).
     in_backscatter_mix: bool,
+    /// Writing a sub-material of a Mix or Layered material: Octane takes a
+    /// surface's displacement from its outermost material alone, so the
+    /// nodes inside write none (`open_sub_materials`, #144).
+    nested: bool,
     /// Thin-walled glass at IOR 1 (`Tuning::thin_glass_ior_one`).
     thin_glass_ior_one: bool,
     /// `Tuning::max_transmission`.
@@ -1572,6 +1576,7 @@ impl Ocs<'_> {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
         let i = indent + 1;
+        let outer = self.open_sub_materials();
         self.float_pin(i, "amount", weights.amount.clamp(0.0, 1.0));
         // The gloss: a metal coloured by the glossy colour, the surface's
         // roughness and detail.
@@ -1614,9 +1619,7 @@ impl Ocs<'_> {
         self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
         self.in_mix = false;
         self.pin_close(i);
-        if !self.in_coat_mix {
-            self.displacement_pin(i, mat);
-        }
+        self.close_sub_materials(i, mat, outer);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
@@ -1635,6 +1638,7 @@ impl Ocs<'_> {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
         let i = indent + 1;
+        let outer = self.open_sub_materials();
         self.float_pin(i, "amount", flake_share(mat));
         self.pin_open(i, "material1");
         let fid = self.id();
@@ -1664,10 +1668,7 @@ impl Ocs<'_> {
         self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
         self.in_flake_mix = false;
         self.pin_close(i);
-        // Under a weighted coat the coat Mix carries it.
-        if !self.in_coat_mix {
-            self.displacement_pin(i, mat);
-        }
+        self.close_sub_materials(i, mat, outer);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
@@ -1736,6 +1737,7 @@ impl Ocs<'_> {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
         let i = indent + 1;
+        let outer = self.open_sub_materials();
         let r = iray(mat).and_then(|u| u.float("backscattering_roughness")).unwrap_or_else(|| iray_roughness(mat, mat.float("Backscattering Roughness").unwrap_or(0.0), false));
         self.float_pin(i, "amount", backscatter_shares(backscatter_metal(mat), backscatter_weight(mat)).0);
         self.pin_open(i, "material1");
@@ -1770,9 +1772,7 @@ impl Ocs<'_> {
         self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
         self.in_backscatter_mix = false;
         self.pin_close(i);
-        if !self.in_coat_mix {
-            self.displacement_pin(i, mat);
-        }
+        self.close_sub_materials(i, mat, outer);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
@@ -1795,6 +1795,7 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
         let i = indent + 1;
         let uber = !crate::iray::is_pbrskin(mat);
+        let outer = self.open_sub_materials();
         self.metal_amount_pin(i, mat);
         self.pin_open(i, "material1");
         if uber {
@@ -1827,7 +1828,7 @@ impl Ocs<'_> {
         self.pin_open(i, "material2");
         self.metal_part(i + 1, &format!("{name} base"), mat, area_m2, skin, 0.0);
         self.pin_close(i);
-        self.displacement_pin(i, mat);
+        self.close_sub_materials(i, mat, outer);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
@@ -1854,6 +1855,7 @@ impl Ocs<'_> {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
         let i = indent + 1;
+        let outer = self.open_sub_materials();
         self.weight_amount_pin(i, mat, "Makeup Weight", mk.weight);
         self.pin_open(i, "material1");
         self.makeup_layer_material(i + 1, &format!("{name} makeup"), mat, &layer, area_m2, mk);
@@ -1861,7 +1863,7 @@ impl Ocs<'_> {
         self.pin_open(i, "material2");
         self.universal(i + 1, &format!("{name} base"), &mk.base(mat), area_m2, skin);
         self.pin_close(i);
-        self.displacement_pin(i, mat);
+        self.close_sub_materials(i, mat, outer);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
@@ -1877,6 +1879,7 @@ impl Ocs<'_> {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
         let i = indent + 1;
+        let outer = self.open_sub_materials();
         self.metal_amount_pin(i, mat);
         self.pin_open(i, "material1");
         let mut tinted = layer.clone();
@@ -1891,6 +1894,7 @@ impl Ocs<'_> {
         self.pin_open(i, "material2");
         self.metal_part(i + 1, &format!("{name} diffuse"), layer, area_m2, SkinShader::None, 0.0);
         self.pin_close(i);
+        self.close_sub_materials(i, mat, outer);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
@@ -1930,6 +1934,7 @@ impl Ocs<'_> {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
         let i = indent + 1;
+        let outer = self.open_sub_materials();
         self.weight_amount_pin(i, mat, "Refraction Weight", mat.float("Refraction Weight").unwrap_or(0.0));
         self.pin_open(i, "material1");
         self.refraction_override = Some(1.0);
@@ -1942,7 +1947,7 @@ impl Ocs<'_> {
         self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
         self.refraction_override = None;
         self.pin_close(i);
-        self.displacement_pin(i, mat);
+        self.close_sub_materials(i, mat, outer);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
@@ -1979,8 +1984,30 @@ impl Ocs<'_> {
     /// Calib-Aniso's A7 (mode 0, anisotropy 1) rendered a sharp isotropic
     /// coat, 1.22 × Iray, where Iray draws a long streak (#23). The pins
     /// (probe of 2026-11-04): `pin_count`, the dynamic `Layer N` pins of
-    /// type 33.
+    /// type 33. The Layered material has no `displacement` pin and Octane
+    /// ignores its base's: a displaced surface's Layered material lies in
+    /// a Mix (19) at `amount` 1 that carries the displacement (Calib-Disp's
+    /// +5 cm sphere: 91 px wide under a Layered material, 124 px as
+    /// exported and in the Mix, its shading within 0.2 / 255; #144).
     fn layered_coat_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
+        if self.nested || !self.has_displacement(mat) {
+            return self.layered_coat_node(indent, name, mat, area_m2, skin);
+        }
+        let id = self.id();
+        let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
+        let i = indent + 1;
+        let outer = self.open_sub_materials();
+        // `amount` 1: all `material1`.
+        self.float_pin(i, "amount", 1.0);
+        self.pin_open(i, "material1");
+        self.layered_coat_node(i + 1, &format!("{name} layered"), mat, area_m2, skin);
+        self.pin_close(i);
+        self.close_sub_materials(i, mat, outer);
+        let _ = writeln!(self.out, "{:indent$}</node>", "");
+    }
+
+    /// The Layered material (143) of `layered_coat_material`.
+    fn layered_coat_node(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='143' name='{}'>", "", esc(name));
         let i = indent + 1;
@@ -1988,7 +2015,10 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:i$}<attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
         self.pin_open(i, "material1");
         self.in_layered_coat = true;
+        // Its base's displacement would be ignored: none.
+        let outer = self.open_sub_materials();
         self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
+        self.nested = !outer;
         self.in_layered_coat = false;
         self.pin_close(i);
         // The coat lies over the base's film.
@@ -2032,6 +2062,7 @@ impl Ocs<'_> {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
         let i = indent + 1;
+        let outer = self.open_sub_materials();
         let coat = mat.float("Top Coat Weight").unwrap_or(0.0).clamp(0.0, 1.0);
         let (colour, coat) = color_effect(mat, "Top Coat Color Effect", mat.color("Top Coat Color").unwrap_or([1.0; 3]), coat);
         match self.channel_map(mat, "Top Coat Weight") {
@@ -2075,7 +2106,7 @@ impl Ocs<'_> {
         self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
         self.in_coat_mix = false;
         self.pin_close(i);
-        self.displacement_pin(i, mat);
+        self.close_sub_materials(i, mat, outer);
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
@@ -2699,6 +2730,38 @@ impl Ocs<'_> {
         }
         let _ = writeln!(self.out, "{:i$}</node>", "");
         self.pin_close(indent);
+    }
+
+    /// Starts writing a Mix / Layered material's sub-materials: true when
+    /// this node is the surface's outermost material, the one whose
+    /// displacement Octane uses. Probe of 2026-11-13 (#144, Calib-Disp's
+    /// +5 cm sphere wrapped in variants): a Mix's sub-materials' and an
+    /// inner Mix's displacement are ignored (5 cm on the Mix and 10 cm on
+    /// its sub-materials rendered 5 cm, never added), and a Layered
+    /// material (no `displacement` pin) ignores its base's.
+    fn open_sub_materials(&mut self) -> bool {
+        !std::mem::replace(&mut self.nested, true)
+    }
+
+    /// Ends `open_sub_materials`: the displacement on the outermost node.
+    fn close_sub_materials(&mut self, indent: usize, mat: &Material, outer: bool) {
+        self.nested = !outer;
+        if outer {
+            self.displacement_pin(indent, mat);
+        }
+    }
+
+    /// Whether `displacement_pin` writes a displacement for `mat`.
+    fn has_displacement(&mut self, mat: &Material) -> bool {
+        displacement(mat).is_some_and(|d| self.textures.asset(self.dirs, &d.map).is_some())
+    }
+
+    /// The displacement of a leaf material node: none inside a Mix or
+    /// Layered material (`open_sub_materials`).
+    fn leaf_displacement_pin(&mut self, indent: usize, mat: &Material) {
+        if !self.nested {
+            self.displacement_pin(indent, mat);
+        }
     }
 
     /// The material's displacement (`displacement`) as an Octane vertex
@@ -3361,7 +3424,7 @@ impl Ocs<'_> {
 
         self.base_detail_pins(i, mat, "normal", "bump");
         self.round_edges_pin(i, mat);
-        self.displacement_pin(i, mat);
+        self.leaf_displacement_pin(i, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
             self.float_or_map(i, "opacity", mat, Some(mat.opacity_channel()), opacity);
@@ -4221,10 +4284,8 @@ impl Ocs<'_> {
         // Surface detail.
         self.base_detail_pins(i, mat, "normal", "bump");
         self.round_edges_pin(i, mat);
-        // In a weighted mix the mix material carries it.
-        if !self.in_mix && !self.in_coat_mix {
-            self.displacement_pin(i, mat);
-        }
+        // Inside a Mix / Layered material the outermost node carries it.
+        self.leaf_displacement_pin(i, mat);
 
         self.emission(i, mat, area_m2);
 
@@ -6049,7 +6110,7 @@ fn ies_projection_rotation(frame: &[[f64; 3]; 3]) -> [f64; 3] {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -6287,7 +6348,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, dome_groun
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -6511,7 +6572,7 @@ fn environment_texture_at(
     first_id: u32,
     origin: Option<[f64; 3]>,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -6703,7 +6764,7 @@ pub fn material_inputs_scaled(
     // materials' channels give each its own, "auto" ones aren't listed.
     let own_gammas = materials.iter().flat_map(|(_, m, _)| m.channels.values()).filter_map(|c| Some((c.image.clone()?, c.gamma?))).collect();
     let mut textures = Textures { layered, own_gammas, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one, max_transmission, strand_hair, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one, max_transmission, strand_hair, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -9319,6 +9380,75 @@ mod tests {
         assert_eq!(x.matches("<node ").count(), x.matches("</node>").count());
     }
 
+    /// Octane takes a surface's displacement from its outermost material
+    /// alone: a Mix's sub-materials' is ignored, and a Layered material
+    /// has no pin and ignores its base's (#144). Every Mix / Layered
+    /// construction writes it exactly once, on the outermost node - a Mix
+    /// at amount 1 around a displaced Layered material.
+    #[test]
+    fn displacement_is_written_once_on_the_outermost_material() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("t")).unwrap();
+        image::GrayImage::from_pixel(4, 4, image::Luma([200])).save(dir.path().join("t/d.png")).unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let disp = [
+            json!({"channel": {"id": "Displacement Strength", "current_value": 1.0, "image_file": "/t/d.png"}}),
+            json!({"channel": {"id": "Minimum Displacement", "current_value": 0.0}}),
+            json!({"channel": {"id": "Maximum Displacement", "current_value": 5.0}}),
+        ];
+        let ch = |id: &str, v: serde_json::Value| json!({"channel": {"id": id, "current_value": v}});
+        let base = || vec![ch("diffuse", json!([0.5, 0.4, 0.3])), ch("Glossy Layered Weight", json!(1.0))];
+        let flakes = || ch("Metallic Flakes Weight", json!(1.0));
+        let backscatter = || ch("Backscattering Weight", json!(0.5));
+        let weighted_coat = || vec![ch("Top Coat Weight", json!(0.4)), ch("Top Coat Layering Mode", json!(1))];
+        let aniso_coat = || vec![ch("Top Coat Weight", json!(0.5)), ch("Top Coat Roughness", json!(0.3)), ch("Top Coat Anisotropy", json!(0.5))];
+        let metal_tl = || vec![ch("Metallic Weight", json!(0.3)), ch("Translucency Weight", json!(0.85))];
+        let skin_map = || json!({"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/t/d.png"}});
+        let makeup = |w: f32, tint: Option<bool>| {
+            let mut v = vec![ch("Dual Lobe Specular Enable", json!(true)), ch("Dual Lobe Specular Weight", json!(1)), ch("Specular Lobe 2 Roughness Mult", json!(0.4)), ch("Makeup Enable", json!(true)), ch("Makeup Base Color", json!([0.1, 0.3, 0.8])), ch("Makeup Weight", json!(w))];
+            if let Some(t) = tint {
+                v.extend([ch("Metallicity Enable", json!(true)), ch("Metallic Weight", json!(0.6)), ch("Makeup Metallicity Enable", json!(t))]);
+            }
+            v
+        };
+        // (label, extra channels, skin shader, outermost node, Mix / Layered nodes)
+        let cases: Vec<(&str, Vec<serde_json::Value>, SkinShader, &str, usize)> = vec![
+            ("plain", vec![], SkinShader::None, "130", 0),
+            ("weighted mixing", vec![ch("Base Mixing", json!(2)), ch("Glossy Weight", json!(0.5))], SkinShader::None, "19", 1),
+            ("flakes", vec![flakes()], SkinShader::None, "19", 1),
+            ("backscattering", vec![backscatter()], SkinShader::None, "19", 1),
+            ("flakes over backscattering", vec![flakes(), backscatter()], SkinShader::None, "19", 2),
+            ("weighted coat over flakes and backscattering", [vec![flakes(), backscatter()], weighted_coat()].concat(), SkinShader::None, "19", 3),
+            ("weighted coat over weighted mixing", [vec![ch("Base Mixing", json!(2)), ch("Glossy Weight", json!(0.5))], weighted_coat()].concat(), SkinShader::None, "19", 2),
+            ("translucent metal", metal_tl(), SkinShader::None, "19", 2),
+            ("refractive metal", vec![ch("Metallic Weight", json!(0.75)), ch("Refraction Weight", json!(0.7))], SkinShader::None, "19", 1),
+            ("partial refraction over a translucent metal", [metal_tl(), vec![ch("Refraction Weight", json!(0.3))]].concat(), SkinShader::None, "19", 3),
+            ("weighted coat over a translucent metal", [metal_tl(), weighted_coat()].concat(), SkinShader::None, "19", 3),
+            ("anisotropic coat", aniso_coat(), SkinShader::None, "19", 2),
+            ("anisotropic coat over flakes", [aniso_coat(), vec![flakes()]].concat(), SkinShader::None, "19", 3),
+            ("skin under an anisotropic coat", [aniso_coat(), vec![skin_map(), ch("Translucency Weight", json!(0.5))]].concat(), SkinShader::OpenPbr, "19", 2),
+            ("skin", vec![skin_map(), ch("Translucency Weight", json!(0.5))], SkinShader::OpenPbr, "505", 0),
+            ("makeup", makeup(0.5, None), SkinShader::None, "19", 1),
+            ("makeup over a metal in the base colour", makeup(0.5, Some(false)), SkinShader::None, "19", 2),
+            ("full makeup over a metal in the base colour", makeup(1.0, Some(false)), SkinShader::None, "19", 1),
+        ];
+        for (label, extra, skin, outer, mixes) in cases {
+            let m = mat(json!([base(), disp.to_vec(), extra].concat()));
+            let (x, _) = material_inputs(&[("Ball".into(), m, 1.0)], &dirs, HashMap::new(), 9000, skin);
+            assert_eq!(x.matches("<pin name='displacement'>").count(), 1, "{label}: {x}");
+            assert_eq!(x.matches("type='19'").count() + x.matches("type='143'").count(), mixes, "{label}: {x}");
+            let lines: Vec<&str> = x.lines().collect();
+            let indent = |l: &str| l.len() - l.trim_start().len();
+            let top = lines.iter().position(|l| l.contains("name='Ball'>")).expect(label);
+            assert!(lines[top].contains(&format!("type='{outer}'")), "{label}: {}", lines[top]);
+            let d = lines.iter().position(|l| l.contains("<pin name='displacement'>")).unwrap();
+            // A pin of the outermost node: one level in, before it closes.
+            assert_eq!(indent(lines[d]), indent(lines[top]) + 1, "{label}: {x}");
+            let close = top + lines[top..].iter().position(|l| l.trim() == "</node>" && indent(l) == indent(lines[top])).unwrap();
+            assert!(top < d && d < close, "{label}: {x}");
+        }
+    }
+
     #[test]
     fn dforce_hair_shader_becomes_an_octane_hair_material() {
         let dir = tempfile::tempdir().unwrap();
@@ -9617,7 +9747,7 @@ mod tests {
     #[test]
     fn mdl_metal_roughness_is_the_long_axis() {
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.02, 0.4), rough_v: (String::new(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;
@@ -9642,7 +9772,7 @@ mod tests {
         image::GrayImage::from_fn(16, 16, |x, _| image::Luma([(x * 8) as u8])).save(dir.path().join("b.png")).unwrap();
         let dirs = [dir.path().to_path_buf()];
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.06, 0.4), rough_v: (String::new(), 0.06, 0.4), bump: ("b.png".into(), 1.5), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         assert!(w.out.contains("<pin name='normal'>") && !w.out.contains("<pin name='bump'>"), "{}", w.out);

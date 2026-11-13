@@ -1390,7 +1390,8 @@ leaves out, #15):
   — the weight, no Fresnel. → a Mix material (19): `amount` = Top Coat
   Weight (or its map), `material1` a Universal metal in Top Coat Color at
   the top coat's roughness (`weighted_coat_material`), `material2` the
-  surface without its coat; the mix carries the displacement. It is the
+  surface without its coat; the mix carries the displacement (Displacement,
+  below). It is the
   outermost Mix: a flake or backscattering Mix lies in its `material2`,
   and their nodes carry no Universal coating. Calib-TopCoat
   weighted 1 / 0.4: 1.03 – 1.05 × Iray (as a coating 0.05 – 0.10; Iray's
@@ -3123,8 +3124,31 @@ That radius makes no sense on a real prop, so it stays as it is.
 Iray Uber and PBRSkin displacement goes to the material's `displacement`
 pin as an Octane **vertex displacement** (97), as Iray displaces vertices.
 Only a map with a non-zero strength and range counts; Iray needs a map.
-In a weighted mix the mix material (19) carries it. Notes:
-[2026-10-29](../notes/2026-10-29-displacement.md).
+Notes: [2026-10-29](../notes/2026-10-29-displacement.md),
+[2026-11-13](../notes/2026-11-13-displacement-in-mixes.md).
+
+- **Once, on the outermost material** (`open_sub_materials`, #144):
+  whatever the nesting (weighted mixing, flakes, backscattering, the
+  weighted coat, translucent or refractive metal, PBRSkin's Makeup), the
+  outermost Mix (19) carries the displacement and no node inside it
+  does; a plain surface's Universal / OpenPBR node carries it itself.
+  A displaced surface under a Layered material (the anisotropic Top
+  Coat, a coat over a glossy layer over a dual lobe) gets a Mix at
+  `amount` 1 around it, `material1` the Layered material, that carries
+  it.
+
+  Why: Octane takes a surface's displacement from its outermost
+  material alone (orbx variants of Calib-Disp's +5 cm sphere, 2026-11-13):
+  on a Mix's sub-materials only it rendered undisplaced (91 px wide
+  against 124 px), 5 cm on the Mix and 10 cm on its sub-materials or on
+  an inner Mix rendered 5 cm, never added. The Layered material has no
+  `displacement` pin (`material1`, `customAov`, `customAovChannel` and
+  its `Layer N`) and ignores its base's: undisplaced. In the Mix at
+  amount 1 (all `material1`) it rendered 124 px, its shading within
+  0.2 / 255 of the plain node. Before, an anisotropic coat and a full
+  Makeup over a metal in the base colour lost their displacement; the
+  other Mixes wrote it twice or more, ignored inside (no calibration
+  scene changed).
 
 - **Amount.** Iray moves a vertex along its normal by Strength ×
   lerp(Minimum, Maximum, map) cm. Octane moves it by `amount` × (map −
