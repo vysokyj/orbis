@@ -53,7 +53,20 @@ Found beyond it:
   false in Base Mixing 0 and 1 alike, whatever Abbe or Thin Walled, and the
   MDL weights the refraction's reflection by the layered weight instead of 1
   (Calib-Mi-FullRefl, -Shown; Calib-Strand C5, #120). Without refraction the
-  flag stays on at any layered weight.
+  flag stays on at any layered weight. Off without gloss in Base Mixing 1
+  too (closed, thin-walled, partial: Calib-Mi-RefrNoGloss N2 - N4, #143);
+  Base Mixing 1 is `blm_layered`, so `metallic_layered_base` honours it.
+  Glossy Specular black at layered weight 1 is not "no gloss": the flag
+  stays on (N8), and `glossy_reflectivity` stays at the MDL's 0.04 where a
+  full refraction switches diffuse and gloss off.
+- **Weighted mixing (2) without gloss drops the refraction**: at Glossy
+  Weight 0 DAZ passes no `refraction_enable` / `refraction_weight`, leaves
+  `diffuse_enable` on and passes no reflection flags - Refraction Weight 1
+  or 0.5, closed or thin-walled (Calib-Mi-RefrNoGloss N5 - N7, -Shown
+  alike); Abbe still reaches `abbe_number`. `normalized_base`'s refraction
+  sits in the gloss part, so the surface is plain diffuse. (Where it is
+  passed, `normalized_base` calls `refraction_base(..., true, true, 1, ...)`:
+  the full Fresnel reflection whatever the flags.)
 - **Volume** (transmitted colour and distance, scattering distance,
   direction) is passed only inside a closed surface that lets light in
   (Refraction, Translucency or SSS Amount > 0, not Thin Walled);

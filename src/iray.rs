@@ -112,7 +112,12 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     };
     out.insert("diffuse_color", diffuse);
     let metallic = if mixing == 0 { ch.float("Metallic Weight", 0.0) } else { 0.0 };
-    let refraction = ch.float("Refraction Weight", 0.0);
+    // Weighted mixing (2) holds the refraction in its gloss part
+    // (`normalized_base`: refraction over the glossy BSDF, mixed in at
+    // Glossy Weight): without gloss DAZ passes no refraction at all, the
+    // surface stays diffuse (Calib-Mi-RefrNoGloss N5 - N7, #143).
+    let refraction_channel = ch.float("Refraction Weight", 0.0);
+    let refraction = if mixing == 2 && ch.float("Glossy Weight", 0.0) <= 0.0 { 0.0 } else { refraction_channel };
     let backscattering = ch.float("Backscattering Weight", 0.0);
     let translucency = ch.float("Translucency Weight", 0.0);
     // A layer at full weight covers the diffuse: DAZ switches it off.
@@ -146,8 +151,10 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     out.insert("glossy_roughness_enable", Arg::Bool(rough > 0.0));
     let reflectivity = match mixing {
         0 => REFLECTIVITY_SCALE * ch.float("Glossy Reflectivity", 0.5),
-        // Without gloss DAZ leaves it at the MDL default (Calib-Mi-SSSTint S6).
-        1 if weight <= 0.0 => 0.04,
+        // Without gloss DAZ leaves it at the MDL default (Calib-Mi-SSSTint
+        // S6), and where the gloss is off under a full refraction
+        // (Calib-Mi-RefrNoGloss N8: Glossy Specular black, else 0).
+        1 if weight <= 0.0 || !diffuse_on => 0.04,
         1 => ch.color("Glossy Specular", [0.04; 3]).into_iter().fold(0.0, f32::max),
         _ => 0.04,
     };
@@ -299,7 +306,9 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     out.insert("glossy_ior", Arg::Float(if refraction > 0.0 { ch.float("Refraction Index", 1.5) } else { 1.5 }));
     let abbe = ch.float("Abbe", 0.0);
     out.insert("dispersion_enable", Arg::Bool(refraction > 0.0 && abbe > 0.0));
-    out.insert("abbe_number", Arg::Float(if refraction > 0.0 { abbe } else { 55.0 }));
+    // (From the channel: DAZ passes it where weighted mixing drops the
+    // refraction, too.)
+    out.insert("abbe_number", Arg::Float(if refraction_channel > 0.0 { abbe } else { 55.0 }));
     let thin = ch.bool("Thin Walled", false);
     out.insert("thin_walled", Arg::Bool(thin));
     // The refraction reflects through the glossy layer: without gloss it

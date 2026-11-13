@@ -63,6 +63,9 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-Mi-FullRefl, -FullRefl-Shown (#120, .mi only): a refracting
   sphere with shared glossy inputs per mixing mode, Abbe, thin wall,
   layered weight - when DAZ sets full_refraction_reflection_enable.
+- Calib-Mi-RefrNoGloss, -Shown (#143, .mi only): refraction without gloss
+  per mixing mode, closed / thin-walled / partial, and Glossy Specular
+  black - what DAZ passes of the refraction and its reflection flags.
 - Calib-DualLobeGlossy (#106): the glossy layer over the dual lobe, each
   alone and both together (weight, roughness, reflectivity, Top Coat).
 - Calib-DualLobeWeighted (#121): the dual lobe under weighted mixing
@@ -1489,6 +1492,34 @@ if made[-1][0]:
             for c in e.get('channels', []) or []:
                 c['channel'].pop('visible', None)
     p = os.path.join(out_dir, 'Calib-Mi-FullRefl-Shown.duf')
+    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    print(p)
+
+# --- Refraction without gloss per mixing mode (#143, .mi only): DAZ's
+# `metallic_layered_base` (Base Mixing 0, 1) passes the refraction's
+# reflection flags on, `normalized_base` (2) calls `refraction_base` with
+# them fixed on. What DAZ hands Iray for a glass with the glossy layer off
+# (Glossy Layered Weight 0 / Glossy Weight 0 / Glossy Specular black),
+# closed and thin-walled, whole and partial.
+NG = {'Refraction Weight': 1.0, 'Refraction Index': 1.5, 'Glossy Layered Weight': 0.0, 'Glossy Weight': 0.0, 'Glossy Roughness': 0.3,
+      'Glossiness': 0.6, 'Share Glossy Inputs': True, 'Thin Walled': False, 'Abbe': 0.0}
+uber_spheres('Calib-Mi-RefrNoGloss', [0.7, 0.5, 0.4], NG, [
+    ('N1 mode 0', {'Base Mixing': 0}),
+    ('N2 mode 1', {'Base Mixing': 1}),
+    ('N3 mode 1 thin walled', {'Base Mixing': 1, 'Thin Walled': True}),
+    ('N4 mode 1 refraction 0.5', {'Base Mixing': 1, 'Refraction Weight': 0.5}),
+    ('N5 mode 2', {'Base Mixing': 2}),
+    ('N6 mode 2 thin walled', {'Base Mixing': 2, 'Thin Walled': True}),
+    ('N7 mode 2 refraction 0.5', {'Base Mixing': 2, 'Refraction Weight': 0.5}),
+    ('N8 mode 1 specular black', {'Base Mixing': 1, 'Glossy Layered Weight': 1.0, 'Glossy Specular': [0.0, 0.0, 0.0]}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for m in d['material_library']:
+        for e in m.get('extra', []):
+            for c in e.get('channels', []) or []:
+                c['channel'].pop('visible', None)
+    p = os.path.join(out_dir, 'Calib-Mi-RefrNoGloss-Shown.duf')
     open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
     print(p)
 

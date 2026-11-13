@@ -1883,7 +1883,20 @@ leaves out, #15):
   nothing in Iray. Its reflection is the glossy layer's: under a partial
   layer (Glossy Layered Weight < 1) DAZ weights it by that weight
   (`full_refraction_reflection_enable` off, #120), as Universal's specular
-  already does (× the glossy weight). A mostly refractive surface (weight ≥ 0.5) with its own
+  already does (× the glossy weight). Without a glossy layer it reflects
+  nothing in Base Mixing 0 and 1 alike (`specular` 0): both go through
+  `metallic_layered_base`, which hands `refraction_base` DAZ's
+  `refraction_reflection_enable`, and DAZ passes it off at Glossy Layered
+  Weight 0 - closed, thin-walled or partial (Calib-Mi-RefrNoGloss N1 - N4,
+  #143). Glossy Specular black at layered weight 1 keeps the full Fresnel
+  reflection at the Refraction Index (N8: the flag on, `glossy_enable` off
+  under the full refraction). **Weighted mixing (2) without gloss has no
+  refraction at all**: `normalized_base` would reflect whatever the flag
+  (it calls `refraction_base` with the reflection fixed on), but it holds
+  the refraction in its gloss part, and at Glossy Weight 0 DAZ passes no
+  `refraction_enable` / `refraction_weight` and leaves the diffuse on - a
+  diffuse surface in Iray, and so in the export (`refraction_weight`, from
+  `crate::iray`; N5 - N7, Shown twins alike). A mostly refractive surface (weight ≥ 0.5) with its own
   roughness gets it on Universal's one `roughness`, squared as usual.
   **Rough glass** (refraction ≥ 0.5, not thin-walled; shared or own
   roughness) → `brdf` 1 (Beckmann) at the **Phong pin √(r / √(1 + r²))**

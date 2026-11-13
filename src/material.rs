@@ -3609,7 +3609,7 @@ impl Ocs<'_> {
         // closed volume.
         let translucency = mat.float("Translucency Weight").unwrap_or(0.0).clamp(0.0, 1.0);
         // (One part of `refractive_metal_material`: its share, 1 or 0.)
-        let refraction_weight = self.refraction_override.unwrap_or_else(|| mat.float("Refraction Weight").unwrap_or(0.0));
+        let refraction_weight = self.refraction_override.unwrap_or_else(|| refraction_weight(mat));
         let refractive = refraction_weight > 0.0;
         let emissive = mat.color("Emission Color").is_some_and(|c| c.iter().any(|v| *v > 0.0));
         let cutout = mat.opacity() < 1.0 || mat.image(mat.opacity_channel()).is_some();
@@ -5607,6 +5607,15 @@ fn glossy_reflectivity(mat: &Material) -> Option<f32> {
         Some(f0) => Some(f0 / crate::iray::REFLECTIVITY_SCALE),
         None => mat.float("Glossy Reflectivity"),
     }
+}
+
+/// Iray's Refraction Weight as DAZ hands it (`crate::iray::uber`): none
+/// under weighted mixing (2) without gloss - `normalized_base` holds the
+/// refraction in its gloss part, and at Glossy Weight 0 DAZ passes no
+/// refraction, the surface renders diffuse (Calib-Mi-RefrNoGloss N5 - N7,
+/// #143). Other shaders: the channel.
+fn refraction_weight(mat: &Material) -> f32 {
+    iray(mat).and_then(|u| u.float("refraction_weight")).unwrap_or_else(|| mat.float("Refraction Weight").unwrap_or(0.0))
 }
 
 /// Iray's metallic weight (Base Mixing 1 has none).
@@ -8336,7 +8345,10 @@ mod tests {
         // Its own roughness by mixing mode, as the glossy layer's (DAZ's .mi
         // export, Calib-Mi-Mix2 M6: Roughness 0.4, Glossiness 0.3 -> 0.4²
         // weighted, #124): Glossiness in Base Mixing 1 only.
-        for (mixing, r) in [(1, 0.49), (2, 0.16)] {
+        // (Weighted mixing passes a refraction only with a gloss, #143,
+        // and then writes the weighted Mix: its roughness is `crate::iray`'s
+        // test, Calib-Mi-Mix2 M6.)
+        for (mixing, r) in [(0, 0.16), (1, 0.49)] {
             let own = mat(json!([
                 {"channel": {"id": "Base Mixing", "current_value": mixing}},
                 {"channel": {"id": "Refraction Weight", "current_value": 1}},
@@ -8348,6 +8360,15 @@ mod tests {
             let (ox, _) = material_inputs(&[("Own".into(), own, 1.0)], &dirs, HashMap::new(), 8982, SkinShader::None);
             assert_eq!(pin(&ox, "roughness"), num(phong_pin(r)), "mixing {mixing}: {ox}");
         }
+        // Weighted mixing without gloss: DAZ passes no refraction, Iray's
+        // sphere is diffuse (Calib-Mi-RefrNoGloss N5, #143).
+        let dropped = mat(json!([
+            {"channel": {"id": "Base Mixing", "current_value": 2}},
+            {"channel": {"id": "Refraction Weight", "current_value": 1}},
+            {"channel": {"id": "Glossy Weight", "current_value": 0}},
+        ]));
+        let (dx, _) = material_inputs(&[("Dropped".into(), dropped, 1.0)], &dirs, HashMap::new(), 8983, SkinShader::None);
+        assert!(!dx.contains("<pin name='transmission'>") && !dx.contains("<pin name='transmissionType'>"), "no refraction: {dx}");
         // Shared with a rough glossy layer: the same rule on the glossy
         // roughness, the reflection included.
         let frosted = mat(json!([
