@@ -27,6 +27,11 @@ All paths below are relative to the repo root; scripts find each other via their
 6. Clean up with `scripts/dev/clean-cache.sh` (all) or `scripts/dev/clean-cache.sh calib/<set>` (one subdir); `-n` = dry run first. Deletes `.orbx` only (they filled 107 GB); keeps Iray refs, dumps, PNGs, reports. **Never inline `rm`/`find -delete` for `.orbx`** — a variable glob like `$D/*.orbx` triggers a confirmation prompt and can hit the wrong path; the script checks the path is inside the cache.
 7. Findings -> `lab-note` skill; winning rule -> spec in the same commit.
 
+## Waiting for a render
+- Start the render script itself (`calib-variants.sh`, `octane-render.sh`, `calib-octane-batch.sh`, `octane-run.sh`) as a **background command** (`run_in_background`) and go on when its exit notification arrives; its output is the result. The scripts queue on the render lock by themselves.
+- **Never write a polling loop** (`until [ -f ...png ] && ! pgrep ...; do sleep 5; done`, `while pgrep ...`, a Monitor on such a loop): every one is a new ad hoc command, so it asks the user for permission each time, and `pgrep` on Octane X / the script says nothing about whether the render succeeded.
+- Several batches in a row: one background command that chains them (`a.sh ... && b.sh ...`), not one command plus a watcher for the next.
+
 ## Rules that outrank the loop
 - **A real material off? `.mi` first** (`mi-fixture` skill): see what DAZ hands Iray before any Iray batch or MDL theory. DAZ also reads channel visibility (`"visible"`), so generated spheres (hidden channels) can miss what product content triggers (#52).
 - `src/iray.rs` (DAZ -> Iray conversion) is verified by `.mi` fixtures. A render that contradicts it points at the **Octane side**; never change `iray.rs` to fit a render (#62).
