@@ -31,7 +31,11 @@ generated from the docs, so undocumented members may be missing.
 - `DzContentMgr`: `getNumContentDirectories()` /
   `getContentDirectoryPath(i)`, `getNumBuiltInMDLDirectories()` /
   `getBuiltInMDLDirectoryPath(i)` (the app's `shaders/iray`, root of
-  `/resources/…` paths).
+  `/resources/…` paths). Content directories are not MDL search roots;
+  `addMDLDirectory(dir, false)` maps one for the session (the user's own
+  list: Content Directory Manager, `NumMDLDirs` / `MDLDir<i>` in the
+  preferences). Iray picks the new path up from a posted event, so call
+  `processEvents()` before opening a scene that needs it.
 - `Scene.getFilename()` (`""` when never saved), `Scene.needsSave()`,
   `Scene.getNumNodes()` / `getNode(i)`.
 - `Scene.saveScene(filename)` saves there without asking (and makes it the

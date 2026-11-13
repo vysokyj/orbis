@@ -1,0 +1,40 @@
+// ORBIS calibration module (#112), written for ORBIS (GPL-3.0-or-later).
+// Iray treats df::simple_glossy_bsdf differently in modules of MDL version
+// < 1.3 (MDL SDK IMdl_configuration::set_simple_glossy_bsdf_legacy_enabled);
+// NVIDIA's examples (metal_examples, architectural, resin) are "mdl 1.0",
+// DAZ's Uber is "mdl 1.7". This file is orbis_rim_v10.mdl at "mdl 1.3"
+// (the first version Iray reads without the legacy); a furnace sphere of
+// each says whether the version alone makes
+// metal_generic's rim (#111) and the NVIDIA transmission loss (#116).
+mdl 1.3;
+
+import df::*;
+import state::*;
+
+// The bare lobe: white, isotropic, reflect only.
+export material reflect_r01() = material(
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(1.0), roughness_u: 0.1, roughness_v: 0.1)));
+
+export material reflect_r04() = material(
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(1.0), roughness_u: 0.4, roughness_v: 0.4)));
+
+// The same lobe under metal_generic's two weighted layers: weight 1 over
+// an empty (weight 0) diffuse base, both with an explicit layer normal.
+export material layered_r01() = material(
+    surface: material_surface(
+        scattering: df::weighted_layer(
+            weight: 1.0,
+            layer: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(1.0), roughness_u: 0.1, roughness_v: 0.1),
+            normal: state::normal(),
+            base: df::weighted_layer(
+                weight: 0.0,
+                layer: df::diffuse_reflection_bsdf(tint: color(0.5)),
+                normal: state::normal()))));
+
+// A closed rough refractor (#116's architectural / resin lobe).
+export material transmit_r02() = material(
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.2, roughness_v: 0.2)));

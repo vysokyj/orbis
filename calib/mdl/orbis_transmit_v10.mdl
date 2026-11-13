@@ -1,0 +1,26 @@
+// ORBIS calibration module (#112), written for ORBIS (GPL-3.0-or-later).
+// A closed rough refractor (IOR 1.5) at four roughnesses, at "mdl 1.0"
+// (#116: NVIDIA's 1.0 modules lose in rough transmission, the Uber doesn't).
+mdl 1.0;
+
+import df::*;
+
+export material transmit_r005() = material(
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.05, roughness_v: 0.05)));
+
+export material transmit_r01() = material(
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.1, roughness_v: 0.1)));
+
+export material transmit_r02() = material(
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.2, roughness_v: 0.2)));
+
+export material transmit_r04() = material(
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.4, roughness_v: 0.4)));

@@ -14,6 +14,18 @@
     for (i++; i < a.length; i++) oContent.addContentDirectory(a[i], false);
     var sLog = "args " + a.length + ": " + a.join(" | ") + "\n";
     function log(s) { sLog += s + "\n"; }
+    // Our own MDL modules (make-mdl-scenes.py, #112) live in
+    // <content dir>/shaders/iray, which DAZ doesn't search by itself: map
+    // each such folder as an MDL directory for this session only.
+    for (var c = 0; c < oContent.getNumContentDirectories(); c++) {
+        var sMdl = oContent.getContentDirectoryPath(c) + "/shaders/iray";
+        if (new DzDir(sMdl).exists()) {
+            oContent.addMDLDirectory(sMdl, false);
+            log("MDL dir " + sMdl);
+        }
+    }
+    // Iray takes the new paths from a posted event: let it run first.
+    processEvents();
     var oMgr = App.getExportMgr();
     var oExporter = null;
     for (var e = 0; e < oMgr.getNumExporters(); e++) {

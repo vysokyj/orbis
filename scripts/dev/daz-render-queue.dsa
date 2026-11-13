@@ -41,6 +41,18 @@
         oContent.addContentDirectory(aArgs[i], false);
         log("content dir " + aArgs[i]);
     }
+    // Our own MDL modules (make-mdl-scenes.py, #112) live in
+    // <content dir>/shaders/iray, which DAZ doesn't search by itself: map
+    // each such folder as an MDL directory for this session only (Iray
+    // takes the paths from a posted event, hence processEvents).
+    for (var c = 0; c < oContent.getNumContentDirectories(); c++) {
+        var sMdl = oContent.getContentDirectoryPath(c) + "/shaders/iray";
+        if (new DzDir(sMdl).exists()) {
+            oContent.addMDLDirectory(sMdl, false);
+            log("MDL dir " + sMdl);
+        }
+    }
+    processEvents();
     // A crash of DAZ Studio mid-render leaves its scene in active/: back
     // into the queue (its time kept, so it is next).
     var aStale = new DzDir(sQueue + "/active").entryList(["*.duf"], DzDir.Files);

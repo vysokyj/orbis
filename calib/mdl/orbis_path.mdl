@@ -1,0 +1,11 @@
+// ORBIS calibration module (#112), written for ORBIS (GPL-3.0-or-later).
+// make-mdl-scenes.py installs it as orbis/orbis_path_a / _b / _c.mdl under
+// three candidate MDL search roots of a content library; Calib-Mi-MdlPath's
+// .mi shows which one DAZ Studio resolves a custom module from.
+mdl 1.3;
+
+import df::*;
+
+export material probe() = material(
+    surface: material_surface(
+        scattering: df::diffuse_reflection_bsdf(tint: color(0.25, 0.5, 0.75))));

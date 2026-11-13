@@ -1,0 +1,38 @@
+// ORBIS calibration module (#112), written for ORBIS (GPL-3.0-or-later).
+// The white reflect lobe at Calib-Furnace-Metal's eight roughnesses, at "mdl 1.0"
+// (Iray's legacy simple_glossy_bsdf, if any): its directional albedo per r.
+mdl 1.0;
+
+import df::*;
+
+export material reflect_r005() = material(
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(1.0), roughness_u: 0.05, roughness_v: 0.05)));
+
+export material reflect_r01() = material(
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(1.0), roughness_u: 0.1, roughness_v: 0.1)));
+
+export material reflect_r02() = material(
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(1.0), roughness_u: 0.2, roughness_v: 0.2)));
+
+export material reflect_r03() = material(
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(1.0), roughness_u: 0.3, roughness_v: 0.3)));
+
+export material reflect_r04() = material(
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(1.0), roughness_u: 0.4, roughness_v: 0.4)));
+
+export material reflect_r05() = material(
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(1.0), roughness_u: 0.5, roughness_v: 0.5)));
+
+export material reflect_r07() = material(
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(1.0), roughness_u: 0.7, roughness_v: 0.7)));
+
+export material reflect_r1() = material(
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(1.0), roughness_u: 1.0, roughness_v: 1.0)));

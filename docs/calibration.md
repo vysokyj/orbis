@@ -123,7 +123,12 @@ its dark variants, the eye close-up `Calib-Eye`) and the OOT hair
 anything from a user's own scenes. The NVIDIA MDL shader spheres
 (`Calib-NVIDIA`, `Calib-NVIDIA2`,
 [#21](https://github.com/vysokyj/orbis/issues/21)) use only the NVIDIA MDL
-Examples that ship with DAZ Studio and are in `calib/scenes`.
+Examples that ship with DAZ Studio and are in `calib/scenes`. Our own MDL
+modules (`calib/mdl`, a few `df::` calls each) reach DAZ through
+`scripts/dev/make-mdl-scenes.py` (modules into `<library>/shaders/iray`,
+a brick material file, the `Calib-*Mdl*` scenes); DAZ finds them only
+where a script maps that folder as an MDL directory (`daz-export-mi.dsa`,
+`daz-render-queue.dsa`).
 
 ## The loop
 
