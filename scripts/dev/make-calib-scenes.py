@@ -11,6 +11,9 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-PBRSkin-Occlusion: PBRSkin's Specular Occlusion (facing,
   grazing, weight, a map) and Detail (roughness mult, a tiled normal
   map), one change per sphere (#54).
+- Calib-PBRSkin-Makeup, -Makeup-TL: PBRSkin's Makeup layer (weight, a
+  weight map, roughness mult, the metal's tint; over translucency, a top
+  coat and the subsurface skin path), one change per sphere (#142).
 - Calib-Tone-*: Iray tone mapping off the calibrated defaults — Burn
   Highlights, Crush Blacks, Gamma — to check the tone LUT's curve (#14),
   fitted so far on Gladiator alone.
@@ -193,6 +196,8 @@ def pbr_spheres(name, variants):
         lib['label'] = label
         m = next(m for m in d['scene']['materials'] if m['geometry'] == '#' + geo_of[n['id']])
         channels = []
+        over = dict(over)
+        diffuse_map = over.pop(('diffuse', 'image'), None)
         for k, v in {**OFF, **over}.items():
             if isinstance(k, tuple):
                 # A map on the channel (its value from `over`), listed in
@@ -206,6 +211,12 @@ def pbr_spheres(name, variants):
                 set_channel(channels, k, v, TYPES[type(v)])
         m['url'] = PBRSKIN
         m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': colour}}
+        if diffuse_map:
+            # A base colour map (× the colour), as DAZ saves it.
+            m['diffuse']['channel']['image_file'] = diffuse_map
+            images = d.setdefault('image_library', [])
+            if not any(i['id'] == diffuse_map for i in images):
+                images.append({'id': diffuse_map, 'name': os.path.basename(diffuse_map), 'map_gamma': 0, 'map': [{'url': diffuse_map, 'label': os.path.basename(diffuse_map)}]})
         m['extra'] = [{'type': 'studio/material/daz_brick'}, {'type': 'studio_material_channels', 'channels': channels}]
     made.append((save(d, name), labels))
 
@@ -2241,5 +2252,46 @@ if made[-1][0]:
         if i['id'] in BUMPS.values():
             i['map_gamma'] = 1
     open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+
+# --- PBRSkin Makeup (#142): `pbr_material` lays a diffuse at Makeup Weight
+# in Makeup Base Color over the diffuse and its translucency (under the
+# dual lobe), multiplies lobe 1's roughness by lerp(1, Makeup Roughness
+# Mult, Makeup Weight) and, under Makeup Metallicity Enable, tints the
+# metal lerp(base, makeup, weight). The red dual-lobe base of
+# Calib-PBRSkin-Occlusion (K1 = its O1) with a blue makeup, one change per
+# sphere; Calib-PBRSkin-Makeup-TL the same over translucency, a top coat
+# and the subsurface skin path (a white map × red, the skin path wants a
+# diffuse map). The weight map is Calib-Overlay's bands (0 / 0.25 / 0.5 /
+# 1). (DL and RED are redefined above for other scenes: spelled out here.)
+MK_DL = {'Dual Lobe Specular Enable': True, 'Dual Lobe Specular Weight': 1.0, 'Dual Lobe Specular Reflectivity': 0.5,
+         'Specular Lobe 1 Roughness': 0.4, 'Specular Lobe 2 Roughness Mult': 0.4, 'Dual Lobe Specular Ratio': 0.15}
+MK_RED = [0.45, 0.05, 0.04]
+MK_BLUE = [0.1, 0.3, 0.8]
+MK = {'Makeup Enable': True, 'Makeup Base Color': MK_BLUE, 'Makeup Weight': 1.0}
+MK_MAP = {('Makeup Weight', 'image'): MAPS + 'calib-overlay-weight.png'}
+MK_METAL = {'Metallicity Enable': True, 'Metallic Weight': 0.5}
+pbr_spheres('Calib-PBRSkin-Makeup', [
+    ('K1 dual lobe', MK_RED, MK_DL),
+    ('K2 makeup w1', MK_RED, {**MK_DL, **MK}),
+    ('K3 makeup w0.5', MK_RED, {**MK_DL, **MK, 'Makeup Weight': 0.5}),
+    ('K4 makeup weight map', MK_RED, {**MK_DL, **MK, **MK_MAP}),
+    ('K5 makeup w0.5 rough 0.25', MK_RED, {**MK_DL, **MK, 'Makeup Weight': 0.5, 'Makeup Roughness Mult': 0.25}),
+    ('K6 makeup w1 rough 2', MK_RED, {**MK_DL, **MK, 'Makeup Roughness Mult': 2.0}),
+    ('K7 metal 0.5 makeup tint w0.5', MK_RED, {**MK_DL, **MK, **MK_METAL, 'Makeup Weight': 0.5, 'Makeup Metallicity Enable': True}),
+    ('K8 metal 0.5 makeup w0.5', MK_RED, {**MK_DL, **MK, **MK_METAL, 'Makeup Weight': 0.5}),
+])
+MK_TL = {'Translucency Enable': True, 'Translucency Weight': 0.8, 'Translucency Color': [0.6, 0.6, 0.6]}
+MK_TC = {'Top Coat Enable': True, 'Top Coat Weight': 0.5, 'Top Coat Reflectivity': 0.5, 'Top Coat Roughness': 0.2}
+MK_SKIN = {**MK_TL, 'Sub Surface Enable': True, ('diffuse', 'image'): MAPS + 'calib-disp-white.png'}
+pbr_spheres('Calib-PBRSkin-Makeup-TL', [
+    ('L1 translucent', MK_RED, {**MK_DL, **MK_TL}),
+    ('L2 translucent makeup w0.5', MK_RED, {**MK_DL, **MK_TL, **MK, 'Makeup Weight': 0.5}),
+    ('L3 translucent makeup map', MK_RED, {**MK_DL, **MK_TL, **MK, **MK_MAP}),
+    ('L4 top coat', MK_RED, {**MK_DL, **MK_TC}),
+    ('L5 top coat makeup w0.5', MK_RED, {**MK_DL, **MK_TC, **MK, 'Makeup Weight': 0.5}),
+    ('L6 skin', MK_RED, {**MK_DL, **MK_SKIN}),
+    ('L7 skin makeup w0.5', MK_RED, {**MK_DL, **MK_SKIN, **MK, 'Makeup Weight': 0.5}),
+    ('L8 skin makeup map', MK_RED, {**MK_DL, **MK_SKIN, **MK, **MK_MAP}),
+])
 
 # Scene dumps: scripts/dev/daz-dump.sh (DAZ evaluates each scene headless).

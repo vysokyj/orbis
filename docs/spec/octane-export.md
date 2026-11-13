@@ -1112,6 +1112,36 @@ leaves out, #15):
   through the OSL is the same map baked 4 × 4 by hand to 0.18° RMS
   (8.61° vs 8.62° tilt). Mode 0 (the map as a height map) and a map on
   the weight aren't exported (the weight counts by its value).
+- **PBRSkin Makeup** (#142, from `pbr_skin.mdl`'s `pbr_material`, no
+  fit): under `Makeup Enable` (and Diffuse Enable) `diffuse_makeup_bsdf`
+  lays a diffuse in `Makeup Base Color`, at the base's Diffuse Roughness,
+  at `Makeup Weight` over the diffuse and its translucency (a
+  `weighted_layer`, under the dual lobe, the metal and the Top Coat);
+  lobe 1's roughness is × lerp(1, `Makeup Roughness Mult`, weight) before
+  Iray squares it (beside Detail's factor, lobe 2 inheriting it); under
+  `Makeup Metallicity Enable` the metal's tint is lerp(base colour,
+  makeup, weight) (`blend_colors`, `color_layer_blend`), else the base
+  colour. Every layer over the makeup is linear in its base, so it goes
+  in as a **Mix material (19) at Makeup Weight** (its map at its gamma ×
+  the value) of the whole material in the makeup's colour without
+  translucency or subsurface (the layer covers both) and the whole
+  material without makeup (`makeup_mix_material`): the stack over the
+  blended base, exactly, also over the subsurface skin. The makeup side's
+  metal takes the makeup's colour (so the Mix gives the lerp); without
+  Makeup Metallicity Enable that side is a Mix by the Metallic Weight of
+  the metal in the base colour and the makeup's diffuse. The roughness
+  factor goes on both sides at a flat weight; under a weight map the
+  makeup side takes the full mult and the base none (exact where the
+  mask is 0 or 1; Iray's single blended roughness between). Weight 1
+  without a map: the makeup side alone. Makeup Base Color is a `color`
+  channel, kept in 8 bits: 0.1 / 0.3 / 0.8 reach Iray as (26 / 77 / 204 ÷
+  255)^2.2 (Calib-PBRSkin-Makeup's `.mi`; `diffuse` is a `float_color`
+  and keeps its float). DAZ writes `makeup_enable` /
+  `metallic_makeup_enable` only where they differ from the MDL's
+  defaults (true / false). Known limits: the makeup diffuse shades with
+  the unbumped normal in Iray (`state::normal()`), on Universal with the
+  material's one normal; the library has no material with Makeup Enable
+  on (9 scenes set its channels).
 - **Glossy layer over a dual lobe** (#106): DAZ's MDL has both in the
   stack at once — the dual lobe over the diffuse (`dl_diffuse_bsdf`), the
   glossy layer's custom curve over that (`metallic_layered_base`), each

@@ -491,6 +491,15 @@ impl Channels<'_> {
         }
     }
 
+    /// A `color`-typed channel (DAZ keeps it in 8 bits, Makeup Base
+    /// Color), linear: rounded to 8 bits, then the material gamma.
+    fn color_8bit(&self, id: &str, default: [f32; 3]) -> [f32; 3] {
+        match self.value(id).and_then(Value::as_array) {
+            Some(a) => [0, 1, 2].map(|i| crate::daz_material::colour_8bit(a.get(i).and_then(Value::as_f64).unwrap_or(0.0) as f32).powf(COLOUR_GAMMA)),
+            None => default,
+        }
+    }
+
     /// The channel's map, `scale` its value as the factor, with the
     /// channel's per-map settings (`ImageMod`, Calib-Mi-ImageMod, -ImageMod2):
     /// the map's tiles multiply the material's, its tiling offset adds to
@@ -1118,7 +1127,17 @@ pub fn pbrskin(mat: &Material) -> BTreeMap<&'static str, Arg> {
     // The diffuse's share: 1 − Translucency Weight (`translucency_weight_inverted`).
     out.insert("pbr_material.translucency_weight", Arg::Float(1.0 - ch.float("Translucency Weight", 0.8)));
     out.insert("pbr_material.translucency_color", ch.color_or_map("Translucency Color", [1.0; 3], 1.0));
-    out.insert("pbr_material.makeup_weight", Arg::Float(ch.float("Makeup Weight", 1.0)));
+    // The Makeup layer (`diffuse_makeup_bsdf`, Calib-PBRSkin-Makeup /
+    // -Makeup-TL): the weight as saved or its map (gamma "auto"), the
+    // colour linear, the roughness multiplier as saved.
+    out.insert("pbr_material.makeup_weight", ch.float_or_map("Makeup Weight", 1.0));
+    out.insert("pbr_material.makeup_enable", Arg::Bool(on("Makeup Enable")));
+    out.insert("pbr_material.metallic_makeup_enable", Arg::Bool(on("Makeup Metallicity Enable")));
+    // A `color` channel (8 bits in DAZ, unlike `diffuse`'s `float_color`):
+    // 0.1 / 0.3 reach Iray as (26 / 255)^2.2, (77 / 255)^2.2.
+    let makeup = ch.color_8bit("Makeup Base Color", [1.0; 3]);
+    out.insert("pbr_material.makeup_color", ch.map("Makeup Base Color", MapKind::Colour, makeup).map_or(Arg::Color(makeup), Arg::Map));
+    out.insert("pbr_material.makeup_roughness_mult", Arg::Float(ch.float("Makeup Roughness Mult", 1.0)));
     out.insert("pbr_material.detail_weight", Arg::Float(ch.float("Detail Weight", 1.0)));
     // Lobe 1's roughness × lerp(1, this, Detail Weight) under Detail Enable
     // (Calib-PBRSkin-Occlusion O7 / O8).
@@ -2412,7 +2431,15 @@ mod tests {
                     flatten_pbr(&mi["args"]["v"], &mut theirs);
                     for (param, ours) in pbrskin(&mat) {
                         checked += 1;
-                        let t = theirs.get(param).and_then(|v| fixture_arg(v, &ours));
+                        // DAZ writes a switch only where it differs from
+                        // `pbr_skin.mdl`'s default (Calib-PBRSkin-Makeup-TL
+                        // L6: subsurface on, nothing written).
+                        let mdl_default = match param {
+                            "pbr_add_volume.sub_surface_enable" | "pbr_add_metallicflakes.metallic_flakes_enable" | "pbr_material.makeup_enable" => Some(Value::Bool(true)),
+                            "pbr_material.metallic_makeup_enable" => Some(Value::Bool(false)),
+                            _ => None,
+                        };
+                        let t = theirs.get(param).or(mdl_default.as_ref()).and_then(|v| fixture_arg(v, &ours));
                         if !t.as_ref().is_some_and(|t| close(t, &ours)) {
                             wrong.push(format!("{param}: {scene} {key}: DAZ {t:?}, ours {ours:?}"));
                         }

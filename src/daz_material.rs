@@ -449,6 +449,13 @@ pub fn colour_to_linear(c: f32) -> f32 {
     c.max(0.0).powf(2.2)
 }
 
+/// A `color`-typed channel's value as DAZ keeps it: 8 bits (PBRSkin's
+/// Makeup Base Color 0.1 reaches Iray as (26 / 255)^2.2, its `.mi`); a
+/// `float_color` (`diffuse`) keeps its float.
+pub fn colour_8bit(c: f32) -> f32 {
+    (c.clamp(0.0, 1.0) * 255.0).round() / 255.0
+}
+
 /// Whether any string in `v` is `needle`.
 fn json_contains(v: &Value, needle: &str) -> bool {
     match v {

@@ -1831,6 +1831,69 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
+    /// PBRSkin's Makeup layer (`pbr_skin.mdl`'s `diffuse_makeup_bsdf`: a
+    /// `weighted_layer` at Makeup Weight of a diffuse in Makeup Base Color,
+    /// at the base's Diffuse Roughness, over the diffuse and its
+    /// translucency) as a Mix material (19) at Makeup Weight (its map at
+    /// its gamma × the value): the material with the makeup's diffuse and
+    /// no translucency or subsurface (`Makeup::layer`), and the material
+    /// without makeup (`Makeup::base`). Every layer above it is linear in
+    /// its base - the dual lobe's `custom_curve_layer`, the metal's
+    /// `weighted_layer`, the Top Coat - so the Mix of the two whole
+    /// materials is the stack with the blended base, exactly. The metal
+    /// is tinted by the base colour, or with Makeup Metallicity Enable by
+    /// lerp(base, makeup, weight) (`blend_colors`), which the Mix gives by
+    /// tinting the makeup side's metal by the makeup; without it the
+    /// makeup side is itself a Mix by the Metallic Weight of the metal in
+    /// the base colour and the makeup's diffuse. No fit.
+    fn makeup_mix_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader, mk: &Makeup) {
+        let layer = mk.layer(mat);
+        if mk.weight >= 1.0 && !mk.mapped {
+            return self.makeup_layer_material(indent, name, mat, &layer, area_m2, mk);
+        }
+        let id = self.id();
+        let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
+        let i = indent + 1;
+        self.weight_amount_pin(i, mat, "Makeup Weight", mk.weight);
+        self.pin_open(i, "material1");
+        self.makeup_layer_material(i + 1, &format!("{name} makeup"), mat, &layer, area_m2, mk);
+        self.pin_close(i);
+        self.pin_open(i, "material2");
+        self.universal(i + 1, &format!("{name} base"), &mk.base(mat), area_m2, skin);
+        self.pin_close(i);
+        self.displacement_pin(i, mat);
+        let _ = writeln!(self.out, "{:indent$}</node>", "");
+    }
+
+    /// The makeup side of `makeup_mix_material`: `layer` as is when its
+    /// metal takes the makeup's colour (or there is none), else a Mix by
+    /// the Metallic Weight of the metal in the base colour and the
+    /// makeup's diffuse (as `translucent_metal_material`).
+    fn makeup_layer_material(&mut self, indent: usize, name: &str, mat: &Material, layer: &Material, area_m2: f64, mk: &Makeup) {
+        let metal = metallic(mat) >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some();
+        if !metal || mk.metal_tint {
+            return self.universal(indent, name, layer, area_m2, SkinShader::None);
+        }
+        let id = self.id();
+        let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
+        let i = indent + 1;
+        self.metal_amount_pin(i, mat);
+        self.pin_open(i, "material1");
+        let mut tinted = layer.clone();
+        for ch in ["diffuse"] {
+            match mat.channels.get(ch) {
+                Some(c) => tinted.channels.insert(ch.to_string(), c.clone()),
+                None => tinted.channels.remove(ch),
+            };
+        }
+        self.metal_part(i + 1, &format!("{name} metal"), &tinted, area_m2, SkinShader::None, 1.0);
+        self.pin_close(i);
+        self.pin_open(i, "material2");
+        self.metal_part(i + 1, &format!("{name} diffuse"), layer, area_m2, SkinShader::None, 0.0);
+        self.pin_close(i);
+        let _ = writeln!(self.out, "{:indent$}</node>", "");
+    }
+
     /// The `amount` of `translucent_metal_material`'s Mix: Metallic Weight,
     /// its map (at its gamma, its value range) × the value.
     fn metal_amount_pin(&mut self, indent: usize, mat: &Material) {
@@ -3535,6 +3598,11 @@ impl Ocs<'_> {
         let tiles = [mat.float("Horizontal Tiles"), mat.float("Vertical Tiles")].map(|t| t.filter(|t| *t > 0.0).unwrap_or(1.0));
         let offsets = [mat.float("Horizontal Offset"), mat.float("Vertical Offset")].map(|o| o.unwrap_or(0.0));
         self.tiling = (tiles != [1.0, 1.0] || offsets != [0.0, 0.0]).then_some([tiles[0], tiles[1], offsets[0], offsets[1]]);
+        // PBRSkin's Makeup: a Mix of the material in the makeup's colour
+        // and the material without it, outermost (`makeup_mix_material`).
+        if let Some(mk) = makeup(mat) {
+            return self.makeup_mix_material(indent, name, mat, area_m2, skin, &mk);
+        }
         // Skin: Iray translucency on an opaque, non-emissive surface. Hair,
         // lashes and brows are translucent too, but cut-out single-sided
         // cards, and fabrics are thin-walled sheets — random walk needs a
@@ -4543,6 +4611,89 @@ impl DiffuseOverlay {
     fn has_map(&self) -> bool {
         self.colour_map.is_some() || self.weight_map.is_some()
     }
+}
+
+/// PBRSkin's Makeup layer (`pbr_skin.mdl`, `pbr_material`): under Makeup
+/// Enable (and Diffuse Enable) a diffuse in Makeup Base Color at Makeup
+/// Weight over the diffuse and its translucency, lobe 1's roughness ×
+/// lerp(1, Makeup Roughness Mult, Makeup Weight) before Iray squares it,
+/// and under Makeup Metallicity Enable the metal tinted lerp(base,
+/// makeup, weight). Written as `Ocs::makeup_mix_material`.
+#[derive(Debug, Clone, PartialEq)]
+struct Makeup {
+    /// Makeup Weight's value (a map's factor).
+    weight: f32,
+    /// A map on the weight (a mask).
+    mapped: bool,
+    roughness_mult: f32,
+    /// Makeup Metallicity Enable.
+    metal_tint: bool,
+}
+
+fn makeup(mat: &Material) -> Option<Makeup> {
+    let on = |id: &str| mat.float(id).unwrap_or(0.0) > 0.0;
+    if !crate::iray::is_pbrskin(mat) || !on("Makeup Enable") || mat.float("Diffuse Enable").is_some_and(|v| v <= 0.0) {
+        return None;
+    }
+    let weight = mat.float("Makeup Weight").unwrap_or(1.0).clamp(0.0, 1.0);
+    let roughness_mult = mat.float("Makeup Roughness Mult").unwrap_or(1.0).clamp(0.0, 2.0);
+    (weight > 0.0).then(|| Makeup { weight, mapped: mat.image("Makeup Weight").is_some(), roughness_mult, metal_tint: on("Makeup Metallicity Enable") })
+}
+
+impl Makeup {
+    /// Iray's roughness factor on a side of the Mix: lerp(1, mult, weight)
+    /// with a flat weight (both sides, exactly); under a weight map the
+    /// makeup side at the full mult and the base at 1 - exact where the
+    /// mask is 0 or 1, two roughnesses blended where it is between (Iray
+    /// has one, per texel).
+    fn roughness(&self, makeup_side: bool) -> f32 {
+        match (self.mapped, makeup_side) {
+            (false, _) => 1.0 + (self.roughness_mult - 1.0) * self.weight,
+            (true, true) => self.roughness_mult,
+            (true, false) => 1.0,
+        }
+    }
+
+    /// `mat` with the makeup off and lobe 1's roughness × `roughness`.
+    fn without(&self, mat: &Material, makeup_side: bool) -> Material {
+        let mut m = mat.clone();
+        set_channel(&mut m, "Makeup Enable", serde_json::Value::Bool(false));
+        if let Some(c) = m.channels.get_mut("Specular Lobe 1 Roughness") {
+            if let Some(r) = c.value.as_f64() {
+                c.value = serde_json::json!(r * self.roughness(makeup_side) as f64);
+            }
+        } else {
+            // DAZ's default (`PBRSkin.dsf`).
+            set_channel(&mut m, "Specular Lobe 1 Roughness", serde_json::json!(0.6 * self.roughness(makeup_side) as f64));
+        }
+        m
+    }
+
+    /// The Mix's base side: the material without makeup.
+    fn base(&self, mat: &Material) -> Material {
+        self.without(mat, false)
+    }
+
+    /// The Mix's makeup side: the material's diffuse replaced by Makeup
+    /// Base Color (its map, its 8 bits: a `color` channel), no
+    /// translucency, no subsurface (the layer covers both).
+    fn layer(&self, mat: &Material) -> Material {
+        let mut m = self.without(mat, true);
+        let mut diffuse = mat.channels.get("Makeup Base Color").cloned().unwrap_or_default();
+        diffuse.value = match diffuse.value.as_array() {
+            Some(a) => serde_json::Value::Array(a.iter().map(|v| serde_json::json!(crate::daz_material::colour_8bit(v.as_f64().unwrap_or(0.0) as f32) as f64)).collect()),
+            None => serde_json::json!([1.0, 1.0, 1.0]),
+        };
+        m.channels.insert("diffuse".to_string(), diffuse);
+        set_channel(&mut m, "Translucency Enable", serde_json::Value::Bool(false));
+        set_channel(&mut m, "Sub Surface Enable", serde_json::Value::Bool(false));
+        m
+    }
+}
+
+/// Sets a channel's value, adding the channel when the material has none.
+fn set_channel(mat: &mut Material, id: &str, value: serde_json::Value) {
+    mat.channels.entry(id.to_string()).or_default().value = value;
 }
 
 fn diffuse_overlay(mat: &Material) -> Option<DiffuseOverlay> {
@@ -6793,6 +6944,64 @@ mod tests {
 
     fn mat(chs: serde_json::Value) -> Rc<Material> {
         Rc::new(Material::from_dson(&json!({"extra": [{"channels": chs}]}), &HashMap::new()))
+    }
+
+    /// PBRSkin's Makeup (#142): a Mix at Makeup Weight of the material in
+    /// the makeup's colour (8 bits, gamma 2.2) and the material without
+    /// it, lobe 1's roughness × lerp(1, mult, weight) on both sides; a
+    /// weight map puts the full mult on the makeup side only.
+    #[test]
+    fn pbrskin_makeup_is_a_mix_by_its_weight() {
+        let skin = |enable: bool, w: f32, mult: f32, metal: Option<bool>| {
+            let mut ch = vec![
+                json!({"channel": {"id": "diffuse", "current_value": [0.45, 0.05, 0.04]}}),
+                json!({"channel": {"id": "Dual Lobe Specular Enable", "current_value": true}}),
+                json!({"channel": {"id": "Dual Lobe Specular Weight", "current_value": 1}}),
+                json!({"channel": {"id": "Specular Lobe 1 Roughness", "current_value": 0.4}}),
+                json!({"channel": {"id": "Specular Lobe 2 Roughness Mult", "current_value": 0.4}}),
+                json!({"channel": {"id": "Makeup Enable", "current_value": enable}}),
+                json!({"channel": {"id": "Makeup Base Color", "current_value": [0.1, 0.3, 0.8]}}),
+                json!({"channel": {"id": "Makeup Weight", "current_value": w}}),
+                json!({"channel": {"id": "Makeup Roughness Mult", "current_value": mult}}),
+            ];
+            if let Some(tint) = metal {
+                ch.push(json!({"channel": {"id": "Metallicity Enable", "current_value": true}}));
+                ch.push(json!({"channel": {"id": "Metallic Weight", "current_value": 1}}));
+                ch.push(json!({"channel": {"id": "Makeup Metallicity Enable", "current_value": tint}}));
+            }
+            mat(json!(ch))
+        };
+        let blue = [26.0f32, 77.0, 204.0].map(|c| (c / 255.0).powf(2.2));
+        let rgb = |c: [f32; 3]| format!(">{} {} {}<", num(c[0]), num(c[1]), num(c[2]));
+        let m = skin(true, 0.5, 0.25, None);
+        let mk = makeup(&m).unwrap();
+        assert_eq!((mk.weight, mk.mapped, mk.roughness(true), mk.roughness(false)), (0.5, false, 0.625, 0.625));
+        assert!((mk.layer(&m).float("Specular Lobe 1 Roughness").unwrap() - 0.25).abs() < 1e-6);
+        assert!(makeup(&mk.layer(&m)).is_none() && makeup(&mk.base(&m)).is_none(), "both sides without makeup");
+        let (x, _) = material_inputs(&[("Skin".into(), m, 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
+        assert!(x.contains("type='19' name='Skin'") && x[x.find("<pin name='amount'>").unwrap()..][..200].contains("type='6'>0.5</attr>"), "{x}");
+        let (a, b) = (x.find("name='Skin makeup'").expect(&x), x.find("name='Skin base'").expect(&x));
+        assert!(x[a..b].contains(&rgb(blue)), "makeup side in the 8-bit blue: {x}");
+        assert!(!x[b..].contains(&rgb(blue)), "{x}");
+        // Weight 1: the makeup side alone; off or 0: no Mix.
+        let (x, _) = material_inputs(&[("Skin".into(), skin(true, 1.0, 1.0, None), 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
+        assert!(!x.contains("type='19'") && x.contains(&rgb(blue)), "{x}");
+        for (enable, w) in [(false, 0.5), (true, 0.0)] {
+            assert!(makeup(&skin(enable, w, 1.0, None)).is_none());
+        }
+        // A metal: tinted by the makeup on its side (Makeup Metallicity
+        // Enable), else that side a Mix of the metal in the base colour and
+        // the makeup's diffuse.
+        let (x, _) = material_inputs(&[("Skin".into(), skin(true, 0.5, 1.0, Some(true)), 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
+        assert!(!x.contains("name='Skin makeup metal'"), "{x}");
+        let (x, _) = material_inputs(&[("Skin".into(), skin(true, 0.5, 1.0, Some(false)), 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
+        let (a, b) = (x.find("name='Skin makeup metal'").expect(&x), x.find("name='Skin makeup diffuse'").expect(&x));
+        assert!(!x[a..b].contains(&rgb(blue)) && x[b..].contains(&rgb(blue)), "{x}");
+        // A weight map: the full mult on the makeup side, none on the base.
+        let mut mapped = (*skin(true, 1.0, 0.25, None)).clone();
+        mapped.channels.get_mut("Makeup Weight").unwrap().image = Some("/w.png".into());
+        let mk = makeup(&mapped).unwrap();
+        assert_eq!((mk.mapped, mk.roughness(true), mk.roughness(false)), (true, 0.25, 1.0));
     }
 
     #[test]
