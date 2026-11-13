@@ -3698,14 +3698,14 @@ impl Ocs<'_> {
             }
         } else if let Some(dl) = dual_lobe.filter(|_| refraction == 0.0) {
             active_dual_lobe = Some(dl);
-            // The dual lobe specular alone: its reflectivity as the glossy
-            // layer's, × its weight; lobe 1's part of it here, lobe 2's the
-            // coating below (or all of it, when a Top Coat or the glossy
-            // layer takes that). Under a metal × its base share as the
-            // glossy layer's (`metal_over_diffuse`).
+            // The dual lobe specular alone at its weight W (`DualLobe`: the
+            // reflectivity is the IOR below); lobe 1's part of it here,
+            // lobe 2's the coating below (or all of it, when a Top Coat or
+            // the glossy layer takes that). Under a metal × its base share
+            // as the glossy layer's (`metal_over_diffuse`).
             // Its weight map too (Genesis 9's eye: without it the whole
             // iris took a grey sheen, #133).
-            let weight = (if coat > 0.0 || glossy_coat { dl.share } else { dl.share * dl.lobe1 }) * base_keep;
+            let weight = (if coat > 0.0 || glossy_coat { dl.weight } else { dl.weight * dl.lobe1 }) * base_keep;
             if weight != 1.0 || self.film.is_some() || self.metal_scale.is_some() || mat.image("Dual Lobe Specular Weight").is_some() {
                 self.dual_lobe_weight_pin(i, mat, "specular", weight, true);
             }
@@ -3804,7 +3804,7 @@ impl Ocs<'_> {
         let gloss_coat_rough = glossy_coat.then(|| glossy_layer_roughness(mat));
         let dielectric: Vec<f32> = [
             (!all_metal).then(|| (rough * aniso.stretch()).min(1.0)),
-            active_dual_lobe.filter(|dl| lobe2_free && dl.share * (1.0 - dl.lobe1) > 0.0).map(|dl| dl.lobe2_roughness),
+            active_dual_lobe.filter(|dl| lobe2_free && dl.weight * (1.0 - dl.lobe1) > 0.0).map(|dl| dl.lobe2_roughness),
             gloss_coat_rough.map(|(_, r, _)| r.clamp(0.0, 1.0)),
             self.node_coat_roughness(mat),
         ]
@@ -3837,18 +3837,20 @@ impl Ocs<'_> {
         // sharp highlight in Octane (p99 / median 10 – 13) where Iray's
         // spread (8.1 / 5.5 / 5.0); now 6.4 / 5.2 / 6.4.
         if let Some(dl) = active_dual_lobe {
-            let lobe2 = dl.share * (1.0 - dl.lobe1);
+            let lobe2 = dl.weight * (1.0 - dl.lobe1);
             if lobe2_free && lobe2 > 0.0 {
                 self.dual_lobe_weight_pin(i, mat, "coating", lobe2, true);
                 let r2 = self.gloss_roughness(dl.lobe2_roughness);
                 self.float_pin(i, "coatingRoughness", r2);
-                self.float_pin(i, "coatingIor", dl.ior.unwrap_or(1.5));
+                self.ior_pin(i, "coatingIor", mat, "Dual Lobe Specular Reflectivity", dl.f0);
             }
-            // Reflectivity above 0.5 as the IOR (Calib-DualLobe r 1: 0.79 →
-            // 1.18 × Iray, its neighbours 1.12 – 1.16).
-            if let Some(n) = dl.ior {
-                self.float_pin(i, "ior", n);
-            }
+            // The reflectivity as the IOR of its F0 on both lobes, its map
+            // per texel (Universal's `ior` and `coatingIor` take a texture,
+            // probe #81): Iray's map sets F0 only, the grazing reflection
+            // stays W. As a share of the specular (W · min(2r, 1), the map
+            // dropped) a dark gloss map shone ~3 × Iray's (Monique 8's
+            // face, median 0.26). Calib-DualLobe r 1: 0.79 → 1.18 × Iray.
+            self.ior_pin(i, "ior", mat, "Dual Lobe Specular Reflectivity", dl.f0);
         }
 
         // A Glossy Reflectivity above 0.5 reflects more than Universal's full
@@ -3982,22 +3984,20 @@ fn reflectivity_share(r: Option<f32>) -> f32 {
     (2.0 * r.unwrap_or(0.5)).clamp(0.0, 1.0)
 }
 
-/// Iray's dual lobe specular (skin's): two GGX lobes blended by Dual Lobe
-/// Specular Ratio, together reflecting the layer's share (its weight ×
-/// min(2r, 1) of Dual Lobe Specular Reflectivity, see `reflectivity_share`).
-/// On Universal lobe 1 is the `specular`, lobe 2 the `coating` (#26).
+/// Iray's dual lobe specular (skin's): two Phong lobes blended by Dual
+/// Lobe Specular Ratio under one Schlick curve, W · (F0 + (1 − F0)(1 −
+/// cos)^5) with F0 = 0.08 × Dual Lobe Specular Reflectivity (× its map) —
+/// `add_dual_lobe_specular`'s `custom_curve_layer`. Both lobes at weight
+/// W and the IOR of that F0 (per texel with a map, `Ocs::ior_pin`), on
+/// Universal as on OpenPBR skin; on Universal lobe 1 is the `specular`,
+/// lobe 2 the `coating` (#26, #81).
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct DualLobe {
-    /// The layer's share of Universal's full specular.
-    share: f32,
-    /// Lobe 1's part of it.
+    /// Lobe 1's part of the weight.
     lobe1: f32,
     /// Lobe 2's roughness as Iray has it (squared), a Phong lobe as lobe
     /// 1 (`phong_pin` makes the `coatingRoughness`).
     lobe2_roughness: f32,
-    /// Above reflectivity 0.5: the IOR that reflects Iray's F0 = 0.08 r,
-    /// for both lobes.
-    ior: Option<f32>,
     /// Dual Lobe Specular Weight W: the lobes' share at grazing.
     weight: f32,
     /// Iray's head-on reflectance r · W over W: 0.08 × the reflectivity.
@@ -4038,13 +4038,11 @@ impl DualLobe {
         if let Some((facing, grazing)) = specular_occlusion(mat) {
             let f0 = crate::iray::REFLECTIVITY_SCALE * r.unwrap_or(0.5) * facing / grazing;
             let weight = weight * grazing;
-            return Some(DualLobe { share: weight, lobe1: lobe1.clamp(0.0, 1.0), lobe2_roughness: r2_squared.clamp(0.0, 1.0), ior: Some(ior_from_f0(f0)), weight, f0 });
+            return Some(DualLobe { lobe1: lobe1.clamp(0.0, 1.0), lobe2_roughness: r2_squared.clamp(0.0, 1.0), weight, f0 });
         }
         Some(DualLobe {
-            share: weight * reflectivity_share(r),
             lobe1: lobe1.clamp(0.0, 1.0),
             lobe2_roughness: r2_squared.clamp(0.0, 1.0),
-            ior: r.filter(|r| *r > 0.5).map(|r| ior_from_f0(crate::iray::REFLECTIVITY_SCALE * r)),
             weight,
             f0: crate::iray::REFLECTIVITY_SCALE * r.unwrap_or(0.5),
         })
@@ -7041,7 +7039,8 @@ mod tests {
             {"channel": {"id": "Dual Lobe Specular Ratio", "current_value": 0.25}},
         ]));
         let dl = DualLobe::of(&uber).unwrap();
-        assert_eq!((dl.share, dl.lobe1, dl.ior), (1.0, 0.25, None));
+        assert_eq!((dl.weight, dl.lobe1), (1.0, 0.25));
+        assert!((dl.f0 - 0.04).abs() < 1e-6, "{dl:?}");
         assert!((dl.lobe2_roughness - 0.36).abs() < 1e-6, "{dl:?}");
         let (x, _) = material_inputs(&[("Uber".into(), uber.clone(), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
         assert!(x.contains("<pin name='specular'>") && x.contains(">0.25 0.25 0.25<"), "lobe 1's share: {x}");
@@ -7057,7 +7056,7 @@ mod tests {
         ]));
         let dl = DualLobe::of(&pbr).unwrap();
         assert!((dl.lobe1 - 0.85).abs() < 1e-6 && (dl.lobe2_roughness - 0.04).abs() < 1e-6, "{dl:?}");
-        assert!((dl.ior.unwrap() - ior_from_f0(0.08)).abs() < 1e-6, "reflectivity 1: F0 0.08");
+        assert!((dl.f0 - 0.08).abs() < 1e-6, "reflectivity 1: F0 0.08");
 
         // PBRSkin's Specular Occlusion (#54): the curve W (n + (g − n)(1 −
         // cos)^5), n = 0.04 · lerp(1, 0.6, w), g = lerp(1, 0.1, w), as the
@@ -7081,14 +7080,13 @@ mod tests {
             ]))
         };
         let dl = DualLobe::of(&occluded(1.0, false)).unwrap();
-        assert!((dl.weight - 0.1).abs() < 1e-6 && (dl.share - 0.1).abs() < 1e-6 && (dl.f0 - 0.24).abs() < 1e-6, "{dl:?}");
-        assert!((dl.ior.unwrap() - ior_from_f0(0.24)).abs() < 1e-6);
+        assert!((dl.weight - 0.1).abs() < 1e-6 && (dl.f0 - 0.24).abs() < 1e-6, "{dl:?}");
         let dl = DualLobe::of(&occluded(0.5, false)).unwrap();
         assert!((dl.weight - 0.55).abs() < 1e-6 && (dl.f0 - 0.04 * 0.8 / 0.55).abs() < 1e-6, "{dl:?}");
         assert!((dl.lobe2_roughness - 0.04).abs() < 1e-6, "no detail: (0.4 · 0.5)²: {dl:?}");
         let detailed = occluded(0.0, true);
         let dl = DualLobe::of(&detailed).unwrap();
-        assert!(dl.weight == 1.0 && dl.ior.is_none(), "occlusion weight 0 changes nothing: {dl:?}");
+        assert!(dl.weight == 1.0 && (dl.f0 - 0.04).abs() < 1e-6, "occlusion weight 0 changes nothing: {dl:?}");
         // lerp(1, 0.2, 0.5) = 0.6: lobe 1 0.24, lobe 2 0.12 (squared 0.0144).
         assert!((detailed.float("Specular Lobe 1 Roughness").unwrap() - 0.24).abs() < 1e-6);
         assert!((dl.lobe2_roughness - 0.0144).abs() < 1e-6, "{dl:?}");
@@ -7136,6 +7134,47 @@ mod tests {
         assert!(specular.contains("type='36'") && specular.contains("<attr name='value' type='6'>0.85</attr>"), "{specular}");
         let coating = pin("coating");
         assert!(coating.contains("type='36'") && coating.contains("<attr name='value' type='6'>0.15</attr>"), "{coating}");
+    }
+
+    /// The dual lobe's reflectivity reaches Universal as the IOR of its F0
+    /// on both lobes, a map per texel (#81): Iray's custom curve W · (F0 +
+    /// (1 − F0)(1 − cos)^5) with F0 = 0.08 r × map; the weight stays W.
+    #[test]
+    fn dual_lobe_reflectivity_map_on_universal() {
+        let dir = tempfile::tempdir().unwrap();
+        image::GrayImage::from_pixel(2, 2, image::Luma([66])).save(dir.path().join("r.png")).unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let m = |map: bool, r: f32| {
+            let mut refl = json!({"id": "Dual Lobe Specular Reflectivity", "current_value": r});
+            if map {
+                refl["image_file"] = json!("/r.png");
+            }
+            mat(json!([
+                {"channel": {"id": "Dual Lobe Specular Weight", "current_value": 1}},
+                {"channel": refl},
+                {"channel": {"id": "Specular Lobe 1 Roughness", "current_value": 0.3}},
+                {"channel": {"id": "Specular Lobe 2 Roughness", "current_value": 0.6}},
+                {"channel": {"id": "Dual Lobe Specular Ratio", "current_value": 0.85}},
+            ]))
+        };
+        let pin = |x: &str, name: &str| {
+            let p = &x[x.find(&format!("<pin name='{name}'>")).unwrap_or_else(|| panic!("no {name}: {x}"))..];
+            let end = p.find("\n  <pin name=").unwrap_or(p.len());
+            p[..end].to_string()
+        };
+        // Mapped: both IOR pins an image (n / 2 at power 2), the weights W's.
+        let (x, _) = material_inputs(&[("Face".into(), m(true, 0.5), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+        for p in ["ior", "coatingIor"] {
+            let v = pin(&x, p);
+            assert!(v.contains("type='36'") && !v.contains(&format!(">{}<", num(1.5))), "{p} a texture: {v}");
+        }
+        assert!(pin(&x, "specular").contains(">0.85 0.85 0.85<"), "{x}");
+        assert!(pin(&x, "coating").contains(">0.15 0.15 0.15<"), "{x}");
+        // Unmapped r 0.25: W at lobe 1's part (no min(2r, 1) share), F0 0.02.
+        let (x, _) = material_inputs(&[("Face".into(), m(false, 0.25), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+        assert!(pin(&x, "specular").contains(">0.85 0.85 0.85<"), "{x}");
+        let n = num(ior_from_f0(0.02));
+        assert!(pin(&x, "ior").contains(&format!(">{n}<")) && pin(&x, "coatingIor").contains(&format!(">{n}<")), "{x}");
     }
 
     #[test]

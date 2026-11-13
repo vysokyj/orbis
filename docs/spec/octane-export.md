@@ -984,8 +984,7 @@ leaves out, #15):
   spheres it overshot (1.25 – 1.38) - thin-walled shells, so a closed
   non-thin solid (w here) is unmeasured until Calib-SSS-Solid (#134). Opaque card 0.97.
 - **Glossy Reflectivity** r (0.5 = Universal's full specular) scales the
-  glossy weight by min(2r, 1) (PBRSkin's Dual Lobe Specular Reflectivity
-  likewise); above 0.5 the excess 2r − 1 (× glossy weight, × glossy colour)
+  glossy weight by min(2r, 1); above 0.5 the excess 2r − 1 (× glossy weight, × glossy colour)
   becomes a clear `coating` at the gloss's roughness, unless a Top Coat
   takes that layer. Universal caps `specular` at 1 (2 renders as 1). Why:
   Calib-Glossy, r 0 / 0.25 at the full default 2.42 / 1.54 × Iray, scaled
@@ -1000,16 +999,26 @@ leaves out, #15):
   lobes by `Dual Lobe Specular Ratio` — on Iray Uber the ratio weighs lobe
   1 (default 0.85) and lobe 2 has `Specular Lobe 2 Roughness` (default 0, a
   mirror); on PBRSkin it weighs lobe 2 (default 0.15), whose roughness is
-  lobe 1's × `Specular Lobe 2 Roughness Mult` (0.4) (DAZ's MDL). Lobe 1 is
-  `specular` at the layer's share (weight × min(2r, 1)) × its part; lobe 2
-  the `coating` at the rest, `coatingRoughness` the **Phong pin of r2²**
+  lobe 1's × `Specular Lobe 2 Roughness Mult` (0.4) (DAZ's MDL). Both
+  lobes sit under one Schlick curve W · (F0 + (1 − F0)(1 − cos)^5), F0 =
+  0.08 r × the Reflectivity map (`add_dual_lobe_specular`'s
+  `custom_curve_layer`): the weight W on the pins, the reflectivity as the
+  IOR of F0 on `ior` and `coatingIor`, per texel with a map (n / 2 baked at
+  power 2; Universal's IOR pins take a texture, probe #81). Lobe 1 is
+  `specular` at W × its part; lobe 2 the `coating` at the rest, `coatingRoughness` the **Phong pin of r2²**
   (both lobes are `simple_glossy_bsdf`; 2 · r2² until #95, a fit that made
   up for the GGX curve's sharpness — Calib-DualLobe2's lobe-2-only sphere
-  then 0.42 × Iray's detail at the Phong pin), IOR 1.5. A
-  reflectivity r above 0.5 sets the IOR from F0 = 0.08 r on both. Under a
-  Top Coat (which takes the coating) one lobe at the full share and the
-  ratio's blend of both roughnesses. The same on OpenPBR skin (without the
-  IOR). A `Dual Lobe Specular Weight` map multiplies both lobes' pins on
+  then 0.42 × Iray's detail at the Phong pin). Under a
+  Top Coat (which takes the coating) one lobe at the full W and the
+  ratio's blend of both roughnesses. The same on OpenPBR skin. Until #81
+  Universal took the reflectivity as a share of the specular (W · min(2r,
+  1), its map dropped, the IOR only above 0.5): the share dims the grazing
+  reflection that Iray keeps at W, and a dark map shone the full lobe —
+  the Calib-Skin `-w0` fronts (Universal: no translucency) forehead
+  Monique 1.19 / 1.39 / 1.63 → 0.96 / 0.97 / 1.00 × Iray, Twosret 1.05 /
+  1.26 / 1.49 → 0.94 / 0.96 / 0.95, unmapped Victoria unchanged;
+  Calib-DualLobe's r 0.25 sphere 1.05 → 1.16, at its neighbours' 1.10 –
+  1.18 (#137). A `Dual Lobe Specular Weight` map multiplies both lobes' pins on
   Universal as on OpenPBR (DAZ hands Iray the map itself as
   `dual_lobe_specular_weight`; Calib-G9Eye's `.mi`, gamma 1): Genesis 9's
   eye (`G9_Eyes_SLW`, ≤ 0.17 over the iris, 0 on the sclera) had taken the
