@@ -64,7 +64,7 @@ field of `Tuning`, set per variant in one table (`Variant::tuning`,
 | `base_exposure` | 1.4 | 1.4 | 1.4 | 1.4 |
 | `denoiser` | on | on | off | off |
 | `skin` | OpenPBR Surface, random walk | OpenPBR Surface, Iray's colour as a diffuse | Universal (no SSS) | Universal (no SSS) |
-| `thin_glass_ior_one` | no (Fresnel) | yes | no | yes |
+| `thin_glass_ior_one` | no (Fresnel) | yes (without a glossy layer) | no | yes (without a glossy layer) |
 | `daylight_model` | 3 Hosek-Wilkie | 1 Octane, white sunset | 3 Hosek-Wilkie | 1 Octane, white sunset |
 | `daylight_power` | 2.7 | 2.864 | 2.7 | 2.864 |
 | `daylight_extinction` | 0 | 0.200 | 0 | 0.200 |
@@ -1816,7 +1816,16 @@ leaves out, #15):
   Base Mixing 1 the IOR is the glossy layer's F0 and stays. Why: Morgan
   Hair's strands (thin-walled, refraction 0.106) lost their whole gloss in
   Faithful - Calib-Strand-T2-Dome's C5 / D5 0.36 / 0.44 x Iray, with the
-  gloss 0.62 / 0.56 as Enhanced (#79).
+  gloss 0.62 / 0.56 as Enhanced (#79). Nor where Iray's refraction
+  reflects (`refraction_reflection_enable`, i.e. a glossy layer): DAZ's
+  `refraction_base` then reflects Fresnel at the Refraction Index,
+  × Glossy Layered Weight when below 1, and a thin wall keeps the
+  material's IOR for that (MDL spec 13.1: no bending, the IOR still
+  counts) - Universal's `specular` weight at the Refraction Index, as in
+  Enhanced. Only the glass without a glossy layer, which Iray shows
+  without any reflection, gets IOR 1. Why: Genesis 9's eye moisture and
+  tear (thin-walled, refraction 1, layered weight 0.4, IOR 1.38) lost
+  their whole reflection in Faithful (#101).
   **The view through a rough thin wall stays sharp** — a known limit,
   not a rule: Iray blurs it, Octane can't (#136). DAZ's `refraction_base`
   transmits through `simple_glossy_bsdf` at the glossy (or its own)

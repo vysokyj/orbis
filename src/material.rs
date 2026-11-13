@@ -3931,8 +3931,17 @@ impl Ocs<'_> {
             // away — the refraction's, not a gloss's: where the IOR is the
             // glossy layer's F0 (a partial refraction in Base Mixing 1,
             // Morgan Hair's strands) it stays, else the material lost its
-            // whole gloss (Calib-Strand's C5 / D5, #79).
-            self.float_pin(i, "ior", if thin && self.thin_glass_ior_one && gloss_ior.is_none() { 1.0 } else { ior });
+            // whole gloss (Calib-Strand's C5 / D5, #79). Nor where the
+            // refraction reflects in Iray: with a glossy layer DAZ turns
+            // `refraction_reflection_enable` on and the MDL's refraction
+            // reflects Fresnel at the Refraction Index (thin-walled too: the
+            // material's ior still counts, only the bending goes, MDL spec
+            // 13.1), × Glossy Layered
+            // Weight below 1 - the `specular` weight above at this IOR.
+            // Genesis 9's eye moisture (layered weight 0.4, IOR 1.38) lost
+            // its whole reflection in Faithful (#101).
+            let reflects = iray(mat).and_then(|u| u.bool("refraction_reflection_enable")) == Some(true);
+            self.float_pin(i, "ior", if thin && self.thin_glass_ior_one && gloss_ior.is_none() && !reflects { 1.0 } else { ior });
             // Iray's Abbe number spreads the IOR over the spectrum
             // (`base::abbe_number_ior`); Universal's dispersion mode 1 (its
             // default) reads the coefficient as the same Abbe number. A plain
@@ -8863,11 +8872,23 @@ mod tests {
             v[a..a + v[a..].find('<').unwrap()].parse::<f32>().unwrap()
         };
         let glass = ior_of(json!([
+            {"channel": {"id": "Base Mixing", "current_value": 0}},
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 0.0}},
             {"channel": {"id": "Refraction Weight", "current_value": 1.0}},
             {"channel": {"id": "Refraction Index", "current_value": 1.5}},
             {"channel": {"id": "Thin Walled", "current_value": true}},
         ]));
         assert_eq!(glass, 1.0);
+        // With a glossy layer Iray's refraction reflects at its own IOR
+        // (`refraction_reflection_enable`): the eye moisture keeps it (#101).
+        let moisture = ior_of(json!([
+            {"channel": {"id": "Base Mixing", "current_value": 0}},
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 0.4}},
+            {"channel": {"id": "Refraction Weight", "current_value": 1.0}},
+            {"channel": {"id": "Refraction Index", "current_value": 1.38}},
+            {"channel": {"id": "Thin Walled", "current_value": true}},
+        ]));
+        assert!((moisture - 1.38).abs() < 1e-6, "{moisture}");
         let strands = ior_of(json!([
             {"channel": {"id": "Base Mixing", "current_value": 1}},
             {"channel": {"id": "Glossy Layered Weight", "current_value": 0.98}},

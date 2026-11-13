@@ -79,7 +79,8 @@ pub struct Tuning {
     /// Universal): random walk needs path tracing.
     pub skin: SkinShader,
     /// Thin-walled glass at IOR 1 — Iray's showed none of its own
-    /// reflection — instead of its Fresnel reflection (Look).
+    /// reflection — instead of its Fresnel reflection (Look). Only where
+    /// Iray's refraction doesn't reflect (no glossy layer, #101).
     pub thin_glass_ior_one: bool,
     /// Daylight (Sun-Sky) model: 3 Hosek-Wilkie, which warms a low sun; 1
     /// Octane's, with a white sunset colour like Iray's (Environment).
