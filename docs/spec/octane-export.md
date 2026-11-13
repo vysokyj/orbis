@@ -3291,6 +3291,13 @@ the sky's fill (Octane2 umbra 11 % of lit sand). The scene detail's **Ground
 shadow** checkbox (`no_ground`) leaves it out — the plane can't know about
 holes in a floor.
 
+**Known difference** (#69): Iray's ground is a matte object, opaque — the
+camera sees the environment in the ray's direction there, never what lies
+below it (Calib-L-Mi-Dome-turned: a Manual ground at 12 cm hides the floor
+and the sphere's lower half). Octane's shadow catcher is see-through, so
+geometry under a Manual ground shows. With Ground Position Mode Auto
+(DAZ's default) nothing is below the ground and the two agree.
+
 ## Textures
 
 - Resolved against content dirs; layered images flattened.
