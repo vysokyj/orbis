@@ -175,7 +175,7 @@ Observed (DAZ Studio 6, 2026-10-31):
 | Glossy / Top Coat / Dual Lobe Reflectivity r | `glossy_reflectivity` / `top_coat_curve_strength` / `dual_lobe_specular_reflectivity` = 0.08 r |
 | every roughness (Glossy, Top Coat, Lobe 1 / 2, Backscattering, Refraction, Flakes) | squared (with Roughness Squared on, the default) |
 | Metallic Weight w, base colour c | `metallic_weight` = w; `metallic_custom_curve_normal` = max(c); `metallic_directional_normal_color` = c / max(c) (enabled); `diffuse_enable` off at w = 1. Glossy colour and reflectivity don't reach the metal |
-| Base Mixing 1, Glossy Specular s | `blm_layered` with `glossy_reflectivity` = max(s^2.2), its hue as `glossy_directional_normal_color`; Glossiness → roughness; Metallic Weight dropped |
+| Base Mixing 1, Glossy Specular s | `blm_layered` with `glossy_reflectivity` = max(s^2.2), its hue as `glossy_directional_normal_color`; Glossiness → roughness; Metallic Weight dropped, a map too (Calib-MetalTL-Back K8); backscattering passed (K7) |
 | Base Mixing 2 | `blm_normalized`, `diffuse_weight` / `glossy_weight` as set |
 | Top Coat Layering Mode 0 / 1 / 2 / 3 | `tcw_principled_specular` / `tcw_weighted` / `tcw_fresnel` / `tcw_custom_curve` |
 | **Top Coat IOR, Top Coat Curve Normal / Grazing / Exponent, Top Coat Specular** | **not passed**: Fresnel mode always reflects at IOR 1.5, Custom Curve at the MDL defaults (head-on 0, grazing 1, exponent 5). Calib-TopCoat's Iray spheres at IOR 1.5 and 2 render alike |

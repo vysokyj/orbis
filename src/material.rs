@@ -1732,14 +1732,22 @@ impl Ocs<'_> {
     /// surface, by the weight as MDL's `weighted_layer` (#29, #73). The
     /// metal lies over the backscattering (`bsdf_w_metal`'s base is
     /// `bsdf_w_backscattering`), so the Mix takes only the base's share
-    /// of it and the surface's metal is rescaled (`backscatter_shares`, #108).
+    /// of it and the surface's metal is rescaled (`backscatter_shares`, #108);
+    /// under a metallic map per texel (the amount baked from the map, as the
+    /// surface's shares are, `metal_map_bake`). A translucent metal's
+    /// surface is `translucent_metal_material` at those shares (#145).
     fn backscatter_mix_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
         let i = indent + 1;
         let outer = self.open_sub_materials();
         let r = iray(mat).and_then(|u| u.float("backscattering_roughness")).unwrap_or_else(|| iray_roughness(mat, mat.float("Backscattering Roughness").unwrap_or(0.0), false));
-        self.float_pin(i, "amount", backscatter_shares(backscatter_metal(mat), backscatter_weight(mat)).0);
+        let b = backscatter_weight(mat);
+        if metallic_map(mat) && !crate::iray::is_pbrskin(mat) {
+            self.metal_weight_amount_pin(i, mat, &format!("backscatter|{b}"), move |w| backscatter_shares(w, b).0);
+        } else {
+            self.float_pin(i, "amount", backscatter_shares(backscatter_metal(mat), b).0);
+        }
         self.pin_open(i, "material1");
         let bid = self.id();
         let j = i + 1;
@@ -1789,20 +1797,28 @@ impl Ocs<'_> {
     /// translucency 0.85 rendered 0.69 × Iray, metal 0.3 0.87 (#123).
     /// Uber's metal is itself a layer at w over black (`metal_shares`):
     /// the metal side a second Mix at w of the metal and a black material,
-    /// w² metal + (1 − w) base as in Iray.
+    /// w² metal + (1 − w) base as in Iray. Under a backscattering Mix the
+    /// same two Mixes hold the shares the backscatter leaves the surface
+    /// (`backscatter_shares`), at `backscatter_metal_amounts` (#145): with
+    /// the translucency taken as lost there (the old one-node rule) the
+    /// stack under the lobe was the #123 case again.
     fn translucent_metal_material(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader) {
         let id = self.id();
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
         let i = indent + 1;
         let uber = !crate::iray::is_pbrskin(mat);
         let outer = self.open_sub_materials();
-        self.metal_amount_pin(i, mat);
+        let back = match self.metal_law(mat) {
+            MetalLaw::Backscatter(b) if uber => Some(b),
+            _ => None,
+        };
+        self.translucent_metal_amount_pin(i, mat, back, 0);
         self.pin_open(i, "material1");
         if uber {
             let mid = self.id();
             let j = i + 1;
             let _ = writeln!(self.out, "{:j$}<node id='{mid}' type='19' name='{} metal layer'>", "", esc(name));
-            self.metal_amount_pin(j + 1, mat);
+            self.translucent_metal_amount_pin(j + 1, mat, back, 1);
             self.pin_open(j + 1, "material1");
             self.metal_part(j + 2, &format!("{name} metal"), mat, area_m2, skin, 1.0);
             self.pin_close(j + 1);
@@ -1872,7 +1888,7 @@ impl Ocs<'_> {
     /// the Metallic Weight of the metal in the base colour and the
     /// makeup's diffuse (as `translucent_metal_material`).
     fn makeup_layer_material(&mut self, indent: usize, name: &str, mat: &Material, layer: &Material, area_m2: f64, mk: &Makeup) {
-        let metal = metallic(mat) >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some();
+        let metal = has_metal(mat);
         if !metal || mk.metal_tint {
             return self.universal(indent, name, layer, area_m2, SkinShader::None);
         }
@@ -1902,6 +1918,34 @@ impl Ocs<'_> {
     /// its map (at its gamma, its value range) × the value.
     fn metal_amount_pin(&mut self, indent: usize, mat: &Material) {
         self.weight_amount_pin(indent, mat, "Metallic Weight", metallic(mat));
+    }
+
+    /// The `amount` of `translucent_metal_material`'s outer (`which` 0) or
+    /// metal-layer (1) Mix: `metal_amount_pin`, or under a backscattering
+    /// Mix of Backscattering Weight `back` its `backscatter_metal_amounts`.
+    fn translucent_metal_amount_pin(&mut self, indent: usize, mat: &Material, back: Option<f32>, which: usize) {
+        match back {
+            Some(b) => self.metal_weight_amount_pin(indent, mat, &format!("tl-metal|{b}|{which}"), move |w| {
+                let (x, y) = backscatter_metal_amounts(w, b);
+                if which == 0 { x } else { y }
+            }),
+            None => self.metal_amount_pin(indent, mat),
+        }
+    }
+
+    /// A Mix's `amount` as `f` of the Metallic Weight: of the value, or
+    /// under a map (`metallic_map`) per texel of the map × the value,
+    /// baked as `metal_map_bake` reads it.
+    fn metal_weight_amount_pin(&mut self, indent: usize, mat: &Material, key: &str, f: impl Fn(f32) -> f32 + Sync + Send + Copy + 'static) {
+        let w = metallic(mat).clamp(0.0, 1.0);
+        if let Some(map) = mat.image("Metallic Weight").filter(|_| metallic_map(mat)).map(str::to_string) {
+            let im = mat.image_mod("Metallic Weight");
+            let k = format!("metal-amount|{key}|{map}|{w}|{im:?}");
+            if let Some(asset) = self.textures.derived_mono(self.dirs, &map, &k, 1.0, im.mono, move |l| [f((im.apply(l.max(0.0)) * w).clamp(0.0, 1.0)); 3]) {
+                return self.with_map(im.placement(), |s| s.image_pin(indent, "amount", &asset, true, 1.0, 1.0));
+            }
+        }
+        self.float_pin(indent, "amount", f(w));
     }
 
     /// A Mix's `amount` from a weight channel: its map (at its gamma, its
@@ -3681,7 +3725,7 @@ impl Ocs<'_> {
         // Skin isn't metallic: the Gladio outfit is PBRSkin with translucency
         // and a metallic map throughout — as skin its metal was lost and the
         // open cloak rendered grey instead of red (Gladiator).
-        let metal = metallic(mat) >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some();
+        let metal = has_metal(mat);
         // Nor is it on a prop: Gladiator's grass (Iray Uber, translucent, not
         // thin-walled) rendered as grey cards.
         // Nor in the eye: Genesis irises, pupils and sclera are translucent
@@ -3711,7 +3755,7 @@ impl Ocs<'_> {
         if !self.in_flake_mix && !self.in_backscatter_mix && flake_share(mat) > 0.0 {
             return self.flake_mix_material(indent, name, mat, area_m2, skin);
         }
-        if !self.in_backscatter_mix && backscatter_shares(backscatter_metal(mat), backscatter_weight(mat)).0 > 0.0 {
+        if !self.in_backscatter_mix && backscatter_weight(mat) > 0.0 && (backscatter_shares(backscatter_metal(mat), backscatter_weight(mat)).0 > 0.0 || (metallic_map(mat) && !crate::iray::is_pbrskin(mat))) {
             return self.backscatter_mix_material(indent, name, mat, area_m2, skin);
         }
         if !self.in_mix {
@@ -3726,7 +3770,7 @@ impl Ocs<'_> {
         if self.refraction_override.is_none() && self.metal_override.is_none() && !self.in_backscatter_mix && (metal || partial_over_translucency) && refractive && base_mixing_0 && !crate::iray::is_pbrskin(mat) {
             return self.refractive_metal_material(indent, name, mat, area_m2, skin);
         }
-        if self.metal_override.is_none() && !self.in_backscatter_mix && metal && translucency > 0.0 && !refractive && !(is_eye(name) && crate::iray::is_pbrskin(mat)) && mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0 {
+        if self.metal_override.is_none() && metal && translucency > 0.0 && !refractive && !(is_eye(name) && crate::iray::is_pbrskin(mat)) && mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0 {
             return self.translucent_metal_material(indent, name, mat, area_m2, skin);
         }
         let id = self.id();
@@ -3737,7 +3781,7 @@ impl Ocs<'_> {
         // base (0), the map left to the Mix.
         let (metal_value, metal_map) = match self.metal_override {
             Some(v) => (v, false),
-            None => (metallic(mat), mat.image("Metallic Weight").is_some()),
+            None => (metallic(mat), metallic_map(mat)),
         };
         let metal = metal_value >= NEGLIGIBLE_METALLIC || metal_map;
 
@@ -3792,9 +3836,11 @@ impl Ocs<'_> {
             (1.0, 1.0)
         };
         // A translucent metal is a Mix of its metal and its translucent
-        // base (`translucent_metal_material`, #123). Where it stays one node
-        // (under a backscattering Mix, Base Mixing 1, the metal part itself)
-        // the translucency isn't transmitted (above) and the base's diffuse
+        // base (`translucent_metal_material`, #123), under a backscattering
+        // Mix too (#145); Base Mixing 1 and 2 have no metal (`has_metal`).
+        // Where it stays one node (the metal part itself, at metal 1 where
+        // the dimming cancels in `metal_over_diffuse`'s scale) the
+        // translucency isn't transmitted (above) and the base's diffuse
         // (a `weighted_layer` at 1 − Translucency Weight over the diffuse
         // transmission, DAZ's MDL) is dimmed by it as if its light were
         // lost, the metal keeping its colour (`metal_over_diffuse`, #109;
@@ -4477,6 +4523,17 @@ fn flake_share(mat: &Material) -> f32 {
     (w * FLAKE_COVERAGE * density.powf(1.3)).clamp(0.0, 1.0)
 }
 
+/// `translucent_metal_material`'s two Mix amounts (outer x, metal layer
+/// y) under a backscattering Mix of weight b at Metallic Weight w: the
+/// surface's metal M = m k and base B = (1 − m) k (`backscatter_shares`),
+/// the rest black — x = 1 − B, y = M / x, so the Mixes give x y = M
+/// metal, 1 − x = B base. At b 0 it is (w, w), the plain stack's.
+fn backscatter_metal_amounts(w: f32, b: f32) -> (f32, f32) {
+    let (_, m, k) = backscatter_shares(w, b);
+    let x = (1.0 - (1.0 - m) * k).clamp(0.0, 1.0);
+    (x, if x > 0.0 { (m * k / x).clamp(0.0, 1.0) } else { 0.0 })
+}
+
 /// Iray's Backscattering Weight, when it applies (not on refraction, nor
 /// specular / weighted mixing — not calibrated there).
 fn backscatter_weight(mat: &Material) -> f32 {
@@ -4491,7 +4548,7 @@ fn backscatter_weight(mat: &Material) -> f32 {
 /// by its channel value, as the base's scale is). PBRSkin has no
 /// backscattering layer.
 fn backscatter_metal(mat: &Material) -> f32 {
-    if crate::iray::is_pbrskin(mat) || !(metallic(mat) >= NEGLIGIBLE_METALLIC || mat.image("Metallic Weight").is_some()) {
+    if crate::iray::is_pbrskin(mat) || !has_metal(mat) {
         return 0.0;
     }
     metallic(mat).clamp(0.0, 1.0)
@@ -5640,8 +5697,7 @@ fn gloss_over_dual_lobe(mat: &Material) -> bool {
         && gloss_weight(mat) > 0.0
         && DualLobe::of(mat).is_some()
         && mat.float("Refraction Weight").unwrap_or(0.0) <= 0.0
-        && metallic(mat) < NEGLIGIBLE_METALLIC
-        && mat.image("Metallic Weight").is_none()
+        && !has_metal(mat)
 }
 
 /// A PBRSkin argument DAZ hands Iray (`crate::iray::pbrskin`), as a float.
@@ -5682,6 +5738,22 @@ fn refraction_weight(mat: &Material) -> f32 {
 /// Iray's metallic weight (Base Mixing 1 has none).
 fn metallic(mat: &Material) -> f32 {
     iray(mat).and_then(|u| u.float("metallic_weight")).unwrap_or_else(|| mat.metallic())
+}
+
+/// Whether a Metallic Weight map reaches Iray: on Iray Uber only in Base
+/// Mixing 0 (DAZ drops the metal, map and all, in modes 1 and 2:
+/// Calib-MetalTL-Back K8, #145), elsewhere wherever the channel has one.
+fn metallic_map(mat: &Material) -> bool {
+    match iray(mat) {
+        Some(u) => u.map("metallic_weight").is_some(),
+        None => mat.image("Metallic Weight").is_some(),
+    }
+}
+
+/// Whether the material has a metal Universal writes: Metallic Weight at
+/// `NEGLIGIBLE_METALLIC` or more, or a map (`metallic_map`).
+fn has_metal(mat: &Material) -> bool {
+    metallic(mat) >= NEGLIGIBLE_METALLIC || metallic_map(mat)
 }
 
 /// Octane's roughness pin for Iray's (MDL, squared) roughness `r` of a
@@ -9317,6 +9389,74 @@ mod tests {
     }
 
     #[test]
+    fn translucent_metal_under_backscattering_keeps_its_translucent_base() {
+        // The two Mixes give the shares the backscatter leaves the
+        // surface: x y = M metal, 1 - x = B base; at b 0 the plain (w, w).
+        for &(w, b) in &[(0.3, 0.5), (0.75, 0.5), (0.3, 1.0), (1.0, 0.5), (0.0, 0.5), (0.5, 0.0)] {
+            let (x, y) = backscatter_metal_amounts(w, b);
+            let (_, m, k) = backscatter_shares(w, b);
+            assert!((x * y - m * k).abs() < 1e-5 && ((1.0 - x) - (1.0 - m) * k).abs() < 1e-5, "{w} {b}: {x} {y}");
+            assert!((0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y));
+            if b == 0.0 {
+                assert!((x - w).abs() < 1e-6 && (y - w).abs() < 1e-6);
+            }
+        }
+        let ball = |extra: serde_json::Value| {
+            let mut chs = vec![
+                json!({"channel": {"id": "diffuse", "current_value": [0.45, 0.05, 0.04]}}),
+                json!({"channel": {"id": "Base Mixing", "current_value": 0}}),
+                json!({"channel": {"id": "Glossy Layered Weight", "current_value": 1.0}}),
+                json!({"channel": {"id": "Metallic Weight", "current_value": 0.3}}),
+                json!({"channel": {"id": "Translucency Weight", "current_value": 0.5}}),
+                json!({"channel": {"id": "Backscattering Weight", "current_value": 0.5}}),
+            ];
+            chs.extend(extra.as_array().unwrap().iter().cloned());
+            material_inputs(&[("K".into(), mat(json!(chs)), 1.0)], &[], HashMap::new(), 5000, SkinShader::None).0
+        };
+        let x = ball(json!([]));
+        // Backscatter Mix outermost, the surface under it the translucent
+        // metal's Mix: its base transmits, the metal doesn't.
+        assert!(x.contains("type='19' name='K'") && x.contains("type='19' name='K base'") && x.contains("name='K base metal layer'"), "{x}");
+        let node = |name: &str| {
+            let p = &x[x.find(&format!("name='{name}'>")).expect(name)..];
+            p[..p[1..].find("type='130'").or_else(|| p[1..].find("type='19'")).map_or(p.len(), |e| e + 1)].to_string()
+        };
+        assert!(node("K base base").contains("<pin name='transmission'>"), "{x}");
+        assert!(!node("K base metal").contains("<pin name='transmission'>"), "{x}");
+        let amounts: Vec<f32> = x.match_indices("<pin name='amount'>").map(|(i, _)| x[i..][x[i..].find("type='6'>").unwrap() + 9..].split('<').next().unwrap().parse().unwrap()).collect();
+        let (a, _, _) = backscatter_shares(0.3, 0.5);
+        let (bx, by) = backscatter_metal_amounts(0.3, 0.5);
+        assert_eq!(amounts.len(), 3, "{x}");
+        assert!((amounts[0] - a).abs() < 1e-5 && (amounts[1] - bx).abs() < 1e-5 && (amounts[2] - by).abs() < 1e-5, "{amounts:?}");
+        // No translucency: the one-node surface as before (#108).
+        let opaque = ball(json!([{"channel": {"id": "Translucency Weight", "current_value": 0.0}}]));
+        assert_eq!(opaque.matches("type='19'").count(), 1, "{opaque}");
+    }
+
+    #[test]
+    fn base_mixing_1_drops_a_metallic_map_and_keeps_the_translucency() {
+        let dir = tempfile::tempdir().unwrap();
+        image::GrayImage::from_pixel(4, 4, image::Luma([128])).save(dir.path().join("m.png")).unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let ball = |mixing: i32| {
+            let chs = json!([
+                {"channel": {"id": "diffuse", "current_value": [0.45, 0.05, 0.04]}},
+                {"channel": {"id": "Base Mixing", "current_value": mixing}},
+                {"channel": {"id": "Metallic Weight", "current_value": 0.75, "image_file": "/m.png"}},
+                {"channel": {"id": "Translucency Weight", "current_value": 0.5}},
+            ]);
+            material_inputs(&[("K8".into(), mat(chs), 1.0)], &dirs, HashMap::new(), 5000, SkinShader::None).0
+        };
+        // DAZ hands Iray no metal in mode 1 (Calib-MetalTL-Back K8's .mi):
+        // a translucent dielectric, its translucency transmitted.
+        let x = ball(1);
+        assert!(crate::iray::Uber::of(&mat(json!([{"channel": {"id": "Base Mixing", "current_value": 1}}]))).is_some());
+        assert!(!x.contains("type='19'") && !x.contains("<pin name='metallic'>") && x.contains("<pin name='transmission'>"), "{x}");
+        // Mode 0: the translucent metal's Mix.
+        assert!(ball(0).contains("name='K8 metal layer'"));
+    }
+
+    #[test]
     fn flakes_hide_the_backscattering_under_them() {
         // DAZ's `add_metal_flakes` wraps the whole base material: the flake
         // Mix is the outer node and the backscattering Mix lies in its
@@ -9421,6 +9561,8 @@ mod tests {
             ("weighted coat over flakes and backscattering", [vec![flakes(), backscatter()], weighted_coat()].concat(), SkinShader::None, "19", 3),
             ("weighted coat over weighted mixing", [vec![ch("Base Mixing", json!(2)), ch("Glossy Weight", json!(0.5))], weighted_coat()].concat(), SkinShader::None, "19", 2),
             ("translucent metal", metal_tl(), SkinShader::None, "19", 2),
+            ("translucent metal under backscattering", [metal_tl(), vec![backscatter()]].concat(), SkinShader::None, "19", 3),
+            ("weighted coat over flakes over a backscattering translucent metal", [metal_tl(), vec![flakes(), backscatter()], weighted_coat()].concat(), SkinShader::None, "19", 5),
             ("refractive metal", vec![ch("Metallic Weight", json!(0.75)), ch("Refraction Weight", json!(0.7))], SkinShader::None, "19", 1),
             ("partial refraction over a translucent metal", [metal_tl(), vec![ch("Refraction Weight", json!(0.3))]].concat(), SkinShader::None, "19", 3),
             ("weighted coat over a translucent metal", [metal_tl(), weighted_coat()].concat(), SkinShader::None, "19", 3),

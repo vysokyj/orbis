@@ -682,7 +682,7 @@ pub fn uber_default(param: &str) -> Option<Arg> {
         "top_coat_thin_film_thickness" | "base_thin_film_thickness" | "metallic_flakes_thin_film_thickness" => Arg::Float(300.0),
         "top_coat_thin_film_ior" | "base_thin_film_ior" | "metallic_flakes_thin_film_ior" => Arg::Float(3.0),
         "top_coat_thin_film_enable" | "metallic_flakes_thin_film_enable" | "top_coat_bump_enable" | "base_bump_enable" | "base_bump2_enable" | "top_coat_anisotropy_enable" | "glossy_anisotropy_enable" | "base_thin_film_enable" | "diffuse_overlay_enable" | "metallic_flakes_enable" => Arg::Bool(false),
-        "top_coat_anisotropy" | "top_coat_anisotropy_rotation" | "glossy_anisotropy" | "glossy_anisotropy_rotation" | "diffuse_overlay_weight" | "diffuse_overlay_roughness" | "diffuse_roughness" | "metallic_flakes_weight" | "metallic_flakes_roughness" => Arg::Float(0.0),
+        "top_coat_anisotropy" | "top_coat_anisotropy_rotation" | "glossy_anisotropy" | "glossy_anisotropy_rotation" | "backscattering_anisotropy" | "diffuse_overlay_weight" | "diffuse_overlay_roughness" | "diffuse_roughness" | "metallic_flakes_weight" | "metallic_flakes_roughness" => Arg::Float(0.0),
         "top_coat_color_transmit_enable" | "glossy_color_transmit_enable" | "diffuse_overlay_color_transmit_enable" | "diffuse_color_transmit_enable" | "metallic_flakes_color_transmit_enable" => Arg::Int(0),
         "diffuse_overlay_color" => Arg::Color([0.5; 3]),
         "metallic_flakes_size" | "metallic_flakes_strength" | "metallic_flakes_density" => Arg::Float(1.0),

@@ -82,6 +82,8 @@ a plane under an HDRI) that each change one thing, written beside it.
   (Calib-WeightedTL is -Thin's twin in fact). The closed twins: Calib-SSS-Solid,
   -WeightedTL-Solid, -DualLobeWeightedTL-Solid, -MetalRefr-Solid,
   -MetalRefr-TL-Solid.
+- Calib-MetalTL-Back (#145): closed translucent metals under
+  backscattering, one part off per sphere, and Base Mixing 1 twins.
 - Calib-PropVol-Chromatic / -Grey / -Mono, -Parts, -Parts-x100 (#87):
   closed translucent spheres with Iray's volume, both measurement
   distances × 1 … 1000 (the same volume in a ball 1 / k the size), and one
@@ -712,6 +714,36 @@ uber_spheres('Calib-MetalRefr-TL', [0.45, 0.05, 0.04], {**MR, 'Translucency Weig
 uber_spheres('Calib-MetalRefr-Solid', [0.45, 0.05, 0.04], {**MR, 'Thin Walled': False}, MR_SPHERES)
 uber_spheres('Calib-MetalRefr-TL-Solid', [0.45, 0.05, 0.04], {**MR, 'Translucency Weight': 0.5, 'Translucency Color': [0.9, 0.6, 0.4],
                                                               'Thin Walled': False}, MR_SPHERES)
+# A translucent metal under backscattering (#145): DAZ's metallic_layered_base
+# stacks metal over backscattering over the diffuse and its translucency.
+# K1 / K5 / K6 all three (metal 0.3 / 0.75 / a grey map), K2 - K4 one part
+# off each (the decomposition), K7 / K8 Base Mixing 1 twins (DAZ drops the
+# metal there; K8's map too?). Closed spheres: the translucency passes
+# into the ball (#134).
+MTB = {**MR, 'Translucency Color': [0.9, 0.6, 0.4], 'Backscattering Roughness': 0.3, 'Thin Walled': False}
+uber_spheres('Calib-MetalTL-Back', [0.45, 0.05, 0.04], MTB, [
+    ('K1 metal 0.3 tl 0.5 back 0.5', {'Metallic Weight': 0.3, 'Translucency Weight': 0.5, 'Backscattering Weight': 0.5}),
+    ('K2 metal 0.3 tl 0.5', {'Metallic Weight': 0.3, 'Translucency Weight': 0.5}),
+    ('K3 tl 0.5 back 0.5', {'Translucency Weight': 0.5, 'Backscattering Weight': 0.5}),
+    ('K4 metal 0.3 back 0.5', {'Metallic Weight': 0.3, 'Backscattering Weight': 0.5}),
+    ('K5 metal 0.75 tl 0.5 back 0.5', {'Metallic Weight': 0.75, 'Translucency Weight': 0.5, 'Backscattering Weight': 0.5}),
+    ('K6 grey map tl 0.5 back 0.5', {'Metallic Weight': 0.75, ('Metallic Weight', 'image'): MAPS + 'calib-disp-grey.png',
+                                     'Translucency Weight': 0.5, 'Backscattering Weight': 0.5}),
+    ('K7 bm1 metal 0.3 tl 0.5 back 0.5', {'Base Mixing': 1, 'Metallic Weight': 0.3, 'Translucency Weight': 0.5, 'Backscattering Weight': 0.5}),
+    ('K8 bm1 grey map tl 0.5', {'Base Mixing': 1, 'Metallic Weight': 0.75, ('Metallic Weight', 'image'): MAPS + 'calib-disp-grey.png',
+                                'Translucency Weight': 0.5}),
+])
+# -Shown (.mi only): every channel shown, so the fixture proves what DAZ
+# passes either way (mi-fixture skill).
+if made[-1][0]:
+    d = load(made[-1][0])
+    for m in d['material_library']:
+        for e in m.get('extra', []):
+            for c in e.get('channels', []) or []:
+                c['channel'].pop('visible', None)
+    p = os.path.join(out_dir, 'Calib-MetalTL-Back-Shown.duf')
+    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    print(p)
 # Volume scattering (#28) on a skin's volume (Victoria 8's: translucency
 # 0.9, Transmitted Color over 0.125, scattering over 0.015 cm): chromatic
 # SSS scatters −ln(SSS Color) per distance, mono SSS Amount per distance

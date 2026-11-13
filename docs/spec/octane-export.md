@@ -1620,8 +1620,17 @@ leaves out, #15):
   transmission swallowed the metal (P8's 0.75 rendered 0.23), and with
   no transmission the translucency's light had to be taken as lost (the
   diffuse × (1 − t), #109) - wrong where the base dominates: the light
-  it passes into the closed body comes back out. Under a backscattering
-  Mix or Base Mixing 1 the surface stays one node with that rule.
+  it passes into the closed body comes back out. **Under a
+  backscattering Mix** (below) the surface is the same two Mixes at the
+  shares the backscatter leaves it, M = m k metal and B = (1 − m) k base
+  (`backscatter_shares`): outer amount x = 1 − B, metal layer y = M / x
+  (at b 0 the plain (w, w)), per texel under a metallic map (baked from
+  the map as the per-texel metal blend is); no constant (#145). **Base
+  Mixing 1 and 2 have no metal**: DAZ drops Metallic Weight there, a map
+  too (Calib-MetalTL-Back K8's .mi), so such a surface is a translucent
+  dielectric; a map used to count as a metal and took the translucency
+  as lost. What stays one node: the metal part itself (metal 1: the
+  dimming cancels in the scale).
 
   Why: Calib-PBRSkin-MetalTL (enhanced-final, 41 px boxes at nine
   offsets around each sphere's centre, Y), metal 0.75 at t 0.85 / 0.5,
@@ -1815,8 +1824,11 @@ leaves out, #15):
   Iray's w² metal + (1 − w) b backscatter + (1 − w)(1 − b) base: the
   surface holds M = w² / (1 − a) metal and B = (1 − w)(1 − b) / (1 − a)
   base, i.e. `metallic` M / (M + B), albedo and specular × (M + B). A
-  full metal leaves no Mix. A metal map is taken at its channel value
-  for the amount.
+  full metal leaves no Mix. Under a metal map the amount is b (1 − w(x))
+  per texel, baked from the map like the surface's per-texel shares (it
+  used to take the channel's value); a translucent metal's surface is
+  the translucent metal's Mix at those shares (above, #145). Awaiting
+  Iray: Calib-MetalTL-Back.
 
   Why (metal): DAZ's MDL lays the metal (`bsdf_w_metal`) over
   `bsdf_w_backscattering`, so a metal hides the backscattering as it
