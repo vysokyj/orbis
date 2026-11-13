@@ -1239,8 +1239,8 @@ leaves out, #15):
   the surface is all metal, lobe 2 of a dual lobe, a Top Coat) has α >
   **0.25** — Octane's limit for a dielectric Beckmann (below). Metals take
   Beckmann at any roughness, rough glass too (Refraction). Exceptions:
-  architectural keeps the pins its rules were fitted on (NVIDIA MDL
-  examples), a saturated anisotropic metal lobe plain GGX (Anisotropy), the flakes
+  architectural's glass keeps the pins its rule was swept on and its
+  anisotropy has its own α ratio (NVIDIA MDL examples), a saturated anisotropic metal lobe plain GGX (Anisotropy), the flakes
   GGX energy preserving (their roughness stands for the flakes' normals).
 
   Why (#95; the 2026-10-31 GGX curve min(r + 1.85 r², √r) it replaces was
@@ -2318,47 +2318,48 @@ leaves out, #15):
     former fit 1 − 0.64 r (`RESIN_LOSS`, on a mis-framed reference, #97)
     gave nearly the same k for the coated resin but darkened the uncoated
     one to 0.80 ×.
-    Architectural (mental ray's mia_material) keeps the pins its rules
-    below were found on — the reflection on the GGX curve min(r + 1.85 r²,
-    √r) under energy-preserving GGX, the glass and the coat over it at √r
-    under Beckmann (`MdlDielectric::fitted_pins`): at the Phong pins (#95)
-    Calib-NVIDIA3's glossiness 0.15 – 0.7 spheres went from detail /
-    correlation 0.90 – 1.35 / 0.92 – 0.999 to 0.46 – 1.08 / 0.85 – 0.95 ×
-    Iray, disk up to 1.26. Diffuse × weight,
+    Architectural (mental ray's mia_material): diffuse × weight,
     reflectivity × the reflection colour's maximum tinted by it, without
     "Use Fresnel Term" Schlick's curve from the 0° reflectivity as the IOR
     with that F0 (0.2 → 2.62), metal, transparency and cutout opacity;
     glossiness g → MDL roughness r by `base::architectural_gloss_to_rough`
     (MDL SDK `base.mdl`: √(2 · 2^(−4 − 14 g)), a mirror at g = 1, 0.35 at
-    0) — what DAZ's .mi hands Iray; Iray's `base::` is compiled into
-    libneuray, no source to read. **Iray renders the reflection at √(r ·
-    r₀)** (`arch_reflection_rough`; r₀ = 0.35, the value at g = 0): the
-    formula with half its slope, √(2 · 2^(−4 − 7 g)). Why: Calib-NVIDIA3's
-    glossiness 0.15 / 0.3 / 0.5 / 0.7 matched Octane (sweep of the GGX
-    pin, error of the disk's luminance pattern) at r 0.27 / 0.19 / 0.12 /
-    ~0.07 — the formula gives 0.17 / 0.083 / 0.031 / 0.012, √(r · r₀)
-    0.25 / 0.17 / 0.105 / 0.065. Anisotropy in mia's semantic
+    0) — what DAZ's .mi hands Iray. **The reflection is the Phong lobe at
+    that r** (`phong_pin` under `phong_brdf`, as every `simple_glossy_bsdf`,
+    Gloss above; the module's reflection is that df straight from the
+    conversion). Derived, nothing fitted (#156). Why: Calib-NVIDIA3's
+    glossiness sweep (#21) had found Octane pins 0.4 / 0.25 / 0.15 / 0.05 –
+    0.1 at g 0.15 / 0.3 / 0.5 / 0.7 on correctly placed discs; read back
+    through the Uber's former GGX curve (min(r + 1.85 r², √r), #56) they
+    looked like the formula with half its slope (√(r · r₀), a second fitted
+    rule on the first), while `phong_pin` of the formula itself gives 0.41
+    / 0.29 / 0.18 / 0.11 and 0.58 at g 0 — the sweep's pins. Sun spot, run
+    through the peak above 0.15 / 0.3 / 0.5 of (peak − disc median), px,
+    Octane enhanced-final denoised v Iray: g 0.15 at the fitted pins 18×22 /
+    12×14 / 9×10 at peak 1.47 × v 23×27 / 18×20 / 14×15, at the Phong pin
+    identical, peak 1.07 ×; g 0.3 – 0.7 and g 0 within a pixel either way
+    (peaks clip); level-normalised pattern error (σ 1.5 px) 0.24 / 0.22 /
+    0.10 / 0.07 → 0.02 / 0.05 / 0.06 / 0.07, Calib-NVIDIA2's g 0.3 0.21 →
+    0.06. Disk (r < 0.75) Octane / Iray, Calib-NVIDIA3 (floor 1.04) 1.05 /
+    1.02 / 1.05 / 1.05 → 1.07 / 1.06 / 1.05 / 1.05; Calib-NVIDIA2 (floor
+    1.05) g 0.3 1.02 → 1.06, g 0 1.00. Anisotropy in mia's semantic
     (`anisotropy_conversion` with `mia_anisotropy_semantic`) on the MDL
     roughness — above 1 u = r · √a, v = r / √a, below v = r / a^¼, u = r ·
-    a^¼ — then √(· r₀) per axis; Octane's pins **g · √k and g / √k**
-    (`arch_aniso_pins`), g the isotropic pin (the GGX curve) of the two's
-    geometric mean, k their ratio (= √ of the MDL's u / v): Octane's α
-    (pin², #96) in the MDL roughnesses' own ratio, as a Phong lobe's α ≈ r
-    per axis. Octane's roughness the longer, `anisotropyTexture` 1 −
-    short / long of the two pins (negative: stretched along u; #96's
-    semantics, Anisotropy above), `rotation` 1 − Iray's. Why (#114): the
-    GGX curve per axis — found while Octane's anisotropy was read as (v −
-    u) / (v + u), α ≈ 2.8 : 1 at anisotropy 4 — became α 5.6 : 1 under
-    #96's semantics; Calib-NVIDIA2's A5 (glossiness 0.3, anisotropy 4) then
-    had a sun streak 1.75 – 1.83 × as wide as high against Iray's 1.10 –
-    1.15 (contours at 0.3 / 0.5 of the peak). At α 1 / 2 / 3 / 4 : 1 (same
-    geometric mean) 0.50 – 0.67 / 0.88 – 0.90 / 1.00 – 1.22 / 1.0 – 1.5:
-    2 – 4 : 1 all lie within a pixel of Iray's ~10 px spot, so the ratio
-    is the derived one, not a fit; the point-lit Calib-Point-ArchAniso
-    and our own modules at MDL 1.0 / 1.3 (Calib-Point-MdlAniso: does
-    Iray's pre-1.3 lobe read the roughness otherwise?) decide it. Applying
-    √(· r₀) before the
-    anisotropy stretched it far beyond Iray's (centre 1.69 ×).
+    a^¼; Octane's pins **g · (u / v)^⅛ and g / (u / v)^⅛**
+    (`arch_aniso_pins`), g the Phong pin of the two's geometric mean:
+    Octane's α (pin², #96) in ratio √(u / v), not the u / v a Phong lobe
+    has per axis under MDL 1.3. Octane's roughness the longer,
+    `anisotropyTexture` 1 − short / long of the two pins (negative:
+    stretched along u; #96's semantics, Anisotropy above), `rotation` 1 −
+    Iray's. Why: Calib-NVIDIA2's A5 (g 0.3, anisotropy 4) at α ratio u / v
+    has a sun streak 1.6 – 1.8 × as wide as high against Iray's 1.1 – 1.2
+    (20×12 / 16×9 / 13×8 v 15×14 / 13×11 / 11×9), at √(u / v) 16×15 / 13×12 /
+    11×10, pattern error 0.29 → 0.06, disk 1.06 (the former fitted pins in
+    ratio u / v, #114: 1.4 ×). √(u / v) is one of #114's two candidate
+    readings of NVIDIA's `mdl 1.0` lobe (#112: Iray's legacy
+    `simple_glossy_bsdf`), chosen by this render; the point-lit
+    Calib-Point-ArchAniso and our own modules at MDL 1.0 / 1.3
+    (Calib-Point-MdlAniso) decide it.
     Transparency t (`weighted_layer(t, transmit lobe, diffuse)`): diffuse
     × (1 − t), `transmission` = refr_color × t × **k per channel**
     (`arch_glass_albedo`, `mdl_layer::tint_factor_measured`, as resin's)

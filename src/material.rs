@@ -914,14 +914,10 @@ struct MdlDielectric {
     thin: bool,
     metallic: bool,
     opacity: f32,
-    /// Architectural: its roughness rules (`arch_reflection_rough`,
-    /// `arch_glass_rough`) were found by sweeping Octane's pins before #95
-    /// — the reflection on `fitted_ggx_pin` under energy-preserving GGX, the
-    /// glass and the coating over it at √r under Beckmann — and keep those
-    /// pins. At `phong_pin` Calib-NVIDIA3's glossiness 0.15 – 0.7 spheres
-    /// went from detail / correlation 1.35 – 0.97 / 0.92 – 0.999 to 0.46 –
-    /// 1.08 / 0.85 – 0.95, disk up to 1.26 × Iray.
-    fitted_pins: bool,
+    /// Architectural's glass: its transmit lobe and the coating over it
+    /// at √r under Beckmann, the pins `arch_glass_rough` was swept on
+    /// (#21). Its reflection is the Phong lobe as everywhere (#156).
+    arch_glass_pins: bool,
 }
 
 /// Architectural's absorption (`refr_falloff_on`) as the MDL computes it
@@ -1022,7 +1018,7 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
         thin: false,
         metallic: false,
         opacity: 1.0,
-        fitted_pins: module == "architectural",
+        arch_glass_pins: module == "architectural",
     };
     match module {
         // The bump map tints the gloss.
@@ -1059,7 +1055,7 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
             d.gloss = MdlGloss::Weight(mat.float("reflectivity").unwrap_or(0.6) * peak);
             d.tint = refl.map(|c| if peak > 0.0 { c / peak } else { 1.0 });
             let r_mdl = architectural_gloss_to_rough(mat.float("refl_gloss").unwrap_or(1.0));
-            d.roughness = arch_reflection_rough(r_mdl);
+            d.roughness = r_mdl;
             d.ior = if mat.float("brdf_fresnel").unwrap_or(0.0) > 0.0 {
                 mat.float("Index of Refraction").unwrap_or(1.4)
             } else {
@@ -1081,7 +1077,7 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
                     let iso = a.max(0.0).sqrt().sqrt().max(1e-4);
                     (r * iso, r / iso)
                 };
-                d.aniso = Some((arch_reflection_rough(u), arch_reflection_rough(v), rotation));
+                d.aniso = Some((u, v, rotation));
             }
             // weighted_layer(transparency, transmit lobe, diffuse).
             let transparency = mat.float("transparency").unwrap_or(0.0).clamp(0.0, 1.0);
@@ -1114,36 +1110,22 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
     Some(d)
 }
 
-/// The roughness Iray's Arch+Design reflection renders with, from the
-/// MDL roughness r of `architectural_gloss_to_rough`: √(r · r₀), r₀ its
-/// value at glossiness 0 (√0.125) — the formula with half its slope,
-/// √(2 · 2^(−4 − 7 g)). Applied to each axis after mia's anisotropy.
-/// Why: Iray's `base::` is compiled into libneuray (no source to read),
-/// and Calib-NVIDIA3's glossiness 0.15 / 0.3 / 0.5 / 0.7 matched Octane
-/// (GGX curve) at MDL roughness 0.27 / 0.19 / 0.12 / ~0.07, against the
-/// formula's 0.17 / 0.083 / 0.031 / 0.012 (√(r · r₀): 0.25 / 0.17 / 0.105
-/// / 0.065); glossiness 0 (0.35) matched as it is (Calib-NVIDIA2).
-fn arch_reflection_rough(r: f32) -> f32 {
-    (r * architectural_gloss_to_rough(0.0)).sqrt()
-}
-
 /// Octane's pins (along u, along v) for architectural's anisotropic
-/// reflection, from `arch_reflection_rough` of mia's two MDL roughnesses
-/// (its arguments, whose ratio is √ of the MDL's): the isotropic pin of
-/// their geometric mean (`fitted_ggx_pin`, what the isotropic glossiness
-/// was fitted on), the pins' ratio that of the arguments = √(MDL u / v) —
-/// Octane's α (pin², #96) in the MDL roughnesses' own ratio, as a Phong
-/// lobe's α ≈ r per axis. The isotropic fit belongs to the glossiness, not
-/// to each axis: on `fitted_ggx_pin` per axis (until #114; under #96's
-/// anisotropy semantics) Calib-NVIDIA2's A5 (glossiness 0.3, anisotropy 4)
-/// had α 5.6 : 1 and its sun streak 1.8 × as wide as high (Iray 1.1); at
-/// 2 – 4 : 1 within a pixel of Iray's ~10 px spot. 4 : 1 is the derived
-/// ratio; Calib-Point-ArchAniso / -MdlAniso (point light, Iray pending; `scripts/dev/point-highlight.py`)
-/// test it against an MDL 1.0 lobe that might read roughness otherwise.
+/// reflection from mia's two MDL roughnesses: `phong_pin` of their
+/// geometric mean (the isotropic reflection's derived pin, which Calib-
+/// NVIDIA3 / -NVIDIA2 match at every glossiness, #156), the α's (pin², #96)
+/// in ratio √(u / v) — the pins' ratio (u / v)^⅛. Not the MDL 1.3 reading
+/// (α ≈ r per axis, ratio u / v): at it Calib-NVIDIA2's A5 (glossiness
+/// 0.3, anisotropy 4: u / v = 4) has a sun streak 1.6 – 1.8 × as wide as
+/// high against Iray's 1.1 – 1.2; at √(u / v) within a pixel at the 0.15 /
+/// 0.3 / 0.5 contours (16×15 / 13×12 / 11×10 v 15×14 / 13×11 / 11×9 px).
+/// One of #114's two candidate readings of NVIDIA's `mdl 1.0` lobe (#112:
+/// Iray's legacy `simple_glossy_bsdf`), chosen by that render, not fitted;
+/// Calib-Point-ArchAniso / -MdlAniso (point light, Iray pending) decide it.
 fn arch_aniso_pins(u: f32, v: f32) -> (f32, f32) {
-    let g = fitted_ggx_pin((u * v).max(0.0).sqrt());
-    let k = if u > 0.0 && v > 0.0 { (u / v).sqrt() } else { 1.0 };
-    ((g * k).min(1.0), (g / k).min(1.0))
+    let g = phong_pin((u * v).max(0.0).sqrt());
+    let k = if u > 0.0 && v > 0.0 { (u / v).powf(0.125) } else { 1.0 };
+    (g * k, g / k)
 }
 
 /// The roughness Iray's Arch+Design glass (its `scatter_transmit` lobe)
@@ -1261,7 +1243,8 @@ const ARCH_GLASS_THIN_LOBE: [(f64, f64); 5] = [(0.0, 0.386), (0.2, 0.505), (0.4,
 /// mental ray's glossiness → MDL roughness by the MDL SDK's
 /// `base::architectural_gloss_to_rough` (`base.mdl`): √(2 · 2^(−4 − 14 g)),
 /// a mirror at 1 — 0.35 at glossiness 0, 0.03 at 0.5. Iray doesn't render
-/// that roughness: `arch_reflection_rough`, `arch_glass_rough`.
+/// a glass at that roughness (`arch_glass_rough`); the reflection it
+/// does, as a Phong lobe (`phong_pin`, #156).
 fn architectural_gloss_to_rough(glossiness: f32) -> f32 {
     let g = glossiness.clamp(0.0, 1.0);
     if g >= 1.0 { 0.0 } else { (2.0 * (-4.0 - 14.0 * g).exp2()).sqrt() }
@@ -2271,21 +2254,17 @@ impl Ocs<'_> {
         // came out alike) but Iray's layer weights (`resin_lobe_albedo`,
         // #113). Porcelain's band-passed detail 0.75 → 0.88 × Iray,
         // correlation 0.93 → 0.99 (#95).
-        // Architectural keeps the pins its rules were fitted on
-        // (`MdlDielectric::fitted_pins`).
-        let pin = |r: f32| match (m.fitted_pins, m.transmission.is_some()) {
-            (true, true) => r.clamp(0.0, 1.0).sqrt(),
-            (true, false) => fitted_ggx_pin(r),
-            (false, _) => phong_pin(r),
-        };
+        // Architectural's glass keeps the pins its roughness rule was swept
+        // on (`MdlDielectric::arch_glass_pins`); its reflection is the
+        // Phong lobe (#156).
+        let pin = |r: f32| if m.arch_glass_pins && m.transmission.is_some() { r.clamp(0.0, 1.0).sqrt() } else { phong_pin(r) };
         if let Some((u, v, rotation)) = m.aniso.filter(|_| m.transmission.is_none()) {
             // Octane's roughness the long axis, the anisotropy of the α's
-            // (`mdl_anisotropy`, as the metals'); past 1 (or fitted) each
-            // axis on `fitted_ggx_pin`, their pins' ratio (#23), plain GGX
-            // past 1 (`aniso_brdf_pin`).
-            let brdf = if m.fitted_pins { BRDF_GGX_EP } else { phong_brdf(&[u.max(v)]) };
+            // (`mdl_anisotropy`, as the metals'); architectural's α ratio
+            // its own (`arch_aniso_pins`).
+            let brdf = phong_brdf(&[u.max(v)]);
             self.value_pin(i, "brdf", 57, 2, brdf);
-            let (pu, pv) = if m.fitted_pins { arch_aniso_pins(u, v) } else { (pin(u), pin(v)) };
+            let (pu, pv) = if m.arch_glass_pins { arch_aniso_pins(u, v) } else { (pin(u), pin(v)) };
             self.float_pin(i, roughness_pin, pu.max(pv));
             let a = octane_anisotropy(pu, pv);
             if a != 0.0 {
@@ -2297,8 +2276,6 @@ impl Ocs<'_> {
         } else {
             let brdf = if m.transmission.is_some() {
                 GLASS_BRDF
-            } else if m.fitted_pins {
-                BRDF_GGX_EP
             } else {
                 phong_brdf(&[m.roughness])
             };
@@ -5817,18 +5794,6 @@ fn phong_brdf(dielectric: &[f32]) -> &'static str {
     }
 }
 
-/// The GGX curve min(r + 1.85 r², √r) every Uber gloss had before #95,
-/// fitted to highlight peaks (#56) — kept only where a rule was fitted on
-/// it: architectural's reflection (`MdlDielectric::fitted_pins`). (A
-/// saturated anisotropy kept it until #96, `aniso_brdf_pin`.)
-fn fitted_ggx_pin(r: f32) -> f32 {
-    (r + FITTED_GGX_CURVE * r * r).min(r.max(0.0).sqrt()).clamp(0.0, 1.0)
-}
-
-/// `fitted_ggx_pin`'s curve (fitted on Calib-DualLobe2 / -Glossy
-/// highlight peaks, #56).
-const FITTED_GGX_CURVE: f32 = 1.85;
-
 /// How Iray's (MDL, squared) roughness `r` becomes an Octane roughness pin.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum RoughCurve {
@@ -7436,15 +7401,16 @@ mod tests {
         ]));
         let (y, _) = material_inputs(&[("Aniso".into(), aniso, 1.0)], &[], HashMap::new(), 9700, SkinShader::None);
         // mia's anisotropy on the MDL roughness (u 2r, v r / 2); the
-        // isotropic glossiness's fitted pin g at their geometric mean, the
-        // pins g · √2 and g / √2, ratio √(u / v) = 2 (`arch_aniso_pins`,
-        // #114): Octane's α 4 : 1. Octane's anisotropy of the two pins (`octane_anisotropy`:
-        // negative, u the long axis) 1 − 1 / 2.
+        // Phong pin g of their geometric mean r, the pins g · 4^⅛ and
+        // g / 4^⅛ (`arch_aniso_pins`, #156): Octane's α 2 : 1 = √(u / v).
+        // Octane's anisotropy of the two pins (`octane_anisotropy`:
+        // negative, u the long axis) 1 − 1 / √2.
         let r = architectural_gloss_to_rough(0.3);
-        let g = fitted_ggx_pin(arch_reflection_rough(r));
-        assert_eq!(pin(&y, "roughness"), num(g * 2f32.sqrt()), "{y}");
+        let g = phong_pin(r);
+        assert_eq!(pin(&y, "roughness"), num(g * 4f32.powf(0.125)), "{y}");
+        assert_eq!(pin(&y, "brdf"), BRDF_BECKMANN, "{y}");
         let a: f32 = pin(&y, "anisotropyTexture").parse().unwrap();
-        assert!((a + 0.5).abs() < 1e-5, "{a}");
+        assert!((a + 1.0 - 0.5f32.sqrt()).abs() < 1e-5, "{a}");
     }
 
     /// Arch+Design glossiness → roughness as Iray's
@@ -7454,12 +7420,11 @@ mod tests {
         assert_eq!(architectural_gloss_to_rough(1.0), 0.0);
         assert!((architectural_gloss_to_rough(0.0) - 0.125f32.sqrt()).abs() < 1e-6);
         assert!((architectural_gloss_to_rough(0.5) - (2.0f32 * 2f32.powi(-11)).sqrt()).abs() < 1e-6);
-        // What Iray renders: the formula with half its slope.
-        for g in [0.0f32, 0.15, 0.3, 0.5, 0.7] {
-            let want = (2.0 * (-4.0 - 7.0 * g).exp2()).sqrt();
-            assert!((arch_reflection_rough(architectural_gloss_to_rough(g)) - want).abs() < 1e-6, "{g}");
+        // Iray renders the reflection at that roughness as a Phong lobe
+        // (#156): Calib-NVIDIA3's glossiness 0.15 / 0.3 / 0.5 / 0.7 pins.
+        for (g, want) in [(0.15f32, 0.410), (0.3, 0.287), (0.5, 0.177), (0.7, 0.109)] {
+            assert!((phong_pin(architectural_gloss_to_rough(g)) - want).abs() < 1e-3, "{g}");
         }
-        assert_eq!(arch_reflection_rough(0.0), 0.0);
     }
 
     #[test]
@@ -10000,10 +9965,10 @@ mod tests {
                         check("reflectivity", matches!(d.gloss, MdlGloss::Weight(w) if near(w, pass("reflectivity").as_f64().unwrap())));
                         let gloss = pass("refl_gloss").as_f64().unwrap() as f32;
                         let r = architectural_gloss_to_rough(gloss);
-                        check("glossiness", near(d.roughness, f64::from(arch_reflection_rough(r))));
+                        check("glossiness", near(d.roughness, f64::from(r)));
                         let a = pass("anisotropy").as_f64().unwrap() as f32;
                         if a > 1.0 {
-                            let iray = |x: f32| f64::from(arch_reflection_rough(x));
+                            let iray = f64::from;
                             check("anisotropy", d.aniso.is_some_and(|(u, v, _)| near(u, iray(r * a.sqrt())) && near(v, iray(r / a.sqrt()))));
                         } else {
                             check("isotropic", d.aniso.is_none());
