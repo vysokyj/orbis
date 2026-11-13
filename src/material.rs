@@ -1586,12 +1586,12 @@ impl Ocs<'_> {
             self.weighted_refraction_part(j + 2, name, mat, area_m2, skin, weights.scale);
             self.pin_close(j + 1);
             self.pin_open(j + 1, "material2");
-            self.weighted_gloss_node(j + 2, name, mat, weights.scale);
+            self.weighted_backscatter_part(j + 2, name, mat, weights.scale);
             self.pin_close(j + 1);
             self.close_sub_materials(j + 1, mat, inner);
             let _ = writeln!(self.out, "{:j$}</node>", "");
         } else {
-            self.weighted_gloss_node(j, name, mat, weights.scale);
+            self.weighted_backscatter_part(j, name, mat, weights.scale);
         }
         self.pin_close(i);
         // The diffuse part: the surface as Universal, without the gloss and
@@ -1623,6 +1623,35 @@ impl Ocs<'_> {
         self.weighted_refraction = None;
         self.refraction_override = None;
         self.in_mix = false;
+    }
+
+    /// The gloss part under its refraction: `normalized_base`'s
+    /// `weighted_layer(backscattering_weight, backscattering, glossy)` -
+    /// the glossy BSDF alone without backscattering, the backscattering
+    /// lobe alone at weight 1 (DAZ switches the glossy off: `glossy_enable`,
+    /// #154), else a Mix of both at the Backscattering Weight (its map at
+    /// its gamma × the value), both × the gloss part's `scale` (#155).
+    fn weighted_backscatter_part(&mut self, j: usize, name: &str, mat: &Material, scale: f32) {
+        let b = weighted_backscatter_weight(mat);
+        let mapped = mat.image("Backscattering Weight").is_some();
+        if b >= 1.0 && !mapped {
+            return self.backscatter_node(j, name, mat, scale);
+        }
+        if b <= 0.0 {
+            return self.weighted_gloss_node(j, name, mat, scale);
+        }
+        let id = self.id();
+        let _ = writeln!(self.out, "{:j$}<node id='{id}' type='19' name='{} gloss backscatter'>", "", esc(name));
+        let inner = self.open_sub_materials();
+        self.weight_amount_pin(j + 1, mat, "Backscattering Weight", b);
+        self.pin_open(j + 1, "material1");
+        self.backscatter_node(j + 2, name, mat, scale);
+        self.pin_close(j + 1);
+        self.pin_open(j + 1, "material2");
+        self.weighted_gloss_node(j + 2, name, mat, scale);
+        self.pin_close(j + 1);
+        self.close_sub_materials(j + 1, mat, inner);
+        let _ = writeln!(self.out, "{:j$}</node>", "");
     }
 
     /// The glossy BSDF of a weighted mix's gloss part: a metal coloured by
@@ -1778,7 +1807,6 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
         let i = indent + 1;
         let outer = self.open_sub_materials();
-        let r = iray(mat).and_then(|u| u.float("backscattering_roughness")).unwrap_or_else(|| iray_roughness(mat, mat.float("Backscattering Roughness").unwrap_or(0.0), false));
         let b = backscatter_weight(mat);
         if metallic_map(mat) && !crate::iray::is_pbrskin(mat) {
             self.metal_weight_amount_pin(i, mat, &format!("backscatter|{b}"), move |w| backscatter_shares(w, b).0);
@@ -1786,13 +1814,33 @@ impl Ocs<'_> {
             self.float_pin(i, "amount", backscatter_shares(backscatter_metal(mat), b).0);
         }
         self.pin_open(i, "material1");
+        self.backscatter_node(i + 1, name, mat, 1.0);
+        self.pin_close(i);
+        self.pin_open(i, "material2");
+        self.in_backscatter_mix = true;
+        self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
+        self.in_backscatter_mix = false;
+        self.pin_close(i);
+        self.close_sub_materials(i, mat, outer);
+        let _ = writeln!(self.out, "{:indent$}</node>", "");
+    }
+
+    /// MDL's backscattering lobe as `backscatter_mix_material` writes it:
+    /// a metal in the backscattering tint (Glossy Color under shared
+    /// inputs, else Backscattering Color) × `retro_albedo` × `scale`, its
+    /// mirror about the view direction (`retro_normal_pin`), Beckmann at
+    /// `retro_roughness` of Iray's roughness (DAZ passes Backscattering
+    /// Roughness, or 1 − Backscattering Glossiness under Base Mixing 1).
+    fn backscatter_node(&mut self, j: usize, name: &str, mat: &Material, scale: f32) {
+        let glossiness = mat.float("Base Mixing").unwrap_or(0.0) as i32 == 1;
+        let channel = if glossiness { 1.0 - mat.float("Backscattering Glossiness").unwrap_or(1.0) } else { mat.float("Backscattering Roughness").unwrap_or(0.0) };
+        let r = iray(mat).and_then(|u| u.float("backscattering_roughness")).unwrap_or_else(|| iray_roughness(mat, channel, glossiness));
         let bid = self.id();
-        let j = i + 1;
         let _ = writeln!(self.out, "{:j$}<node id='{bid}' type='130' name='{} backscatter'>", "", esc(name));
         let _ = writeln!(self.out, "{:j$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
         let shared = mat.float("Share Glossy Inputs").unwrap_or(1.0) > 0.0;
         let colour = if shared { mat.color("Glossy Color").unwrap_or([1.0; 3]) } else { mat.color("Backscattering Color").unwrap_or([0.5; 3]) };
-        let colour = colour.map(|c| c * retro_albedo(r));
+        let colour = colour.map(|c| c * retro_albedo(r) * scale);
         self.rgb_pin(j + 1, "albedo", colour);
         self.rgb_pin(j + 1, "edgeTint", colour);
         self.float_pin(j + 1, "metallic", 1.0);
@@ -1811,14 +1859,6 @@ impl Ocs<'_> {
             self.float_or_map(j + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
         }
         let _ = writeln!(self.out, "{:j$}</node>", "");
-        self.pin_close(i);
-        self.pin_open(i, "material2");
-        self.in_backscatter_mix = true;
-        self.universal(i + 1, &format!("{name} base"), mat, area_m2, skin);
-        self.in_backscatter_mix = false;
-        self.pin_close(i);
-        self.close_sub_materials(i, mat, outer);
-        let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
     /// Iray's metal over a translucent base (DAZ's MDL: Uber's
@@ -4570,10 +4610,34 @@ fn backscatter_metal_amounts(w: f32, b: f32) -> (f32, f32) {
     (x, if x > 0.0 { (m * k / x).clamp(0.0, 1.0) } else { 0.0 })
 }
 
-/// Iray's Backscattering Weight, when it applies (not on refraction, nor
-/// specular / weighted mixing — not calibrated there).
+/// Iray's Backscattering Weight for the layered base's backscattering
+/// Mix (`backscatter_mix_material`): Base Mixing 0 and 1, both
+/// `metallic_layered_base` (DAZ converts glossiness mode to it and passes
+/// the backscattering: Calib-MetalTL-Back K7, #155), not on refraction.
+/// Weighted mixing (2) holds it in its gloss part instead
+/// (`weighted_backscatter_weight`).
 fn backscatter_weight(mat: &Material) -> f32 {
-    if mat.float("Base Mixing").unwrap_or(0.0) as i32 != 0 || mat.float("Refraction Weight").unwrap_or(0.0) > 0.0 {
+    if weighted_mixing(mat) || mat.float("Refraction Weight").unwrap_or(0.0) > 0.0 {
+        return 0.0;
+    }
+    mat.float("Backscattering Weight").unwrap_or(0.0).clamp(0.0, 1.0)
+}
+
+/// Iray's Backscattering Weight inside weighted mixing's gloss part
+/// (`normalized_base`: the lobe layered over the glossy BSDF, under the
+/// refraction; `weighted_backscatter_part`): 0 unless DAZ enables it -
+/// as `crate::iray` has it, no gloss part without Glossy Weight, none
+/// under a full refraction (Calib-Mi-WeightedRefr2 V5 / V6, #154).
+fn weighted_backscatter_weight(mat: &Material) -> f32 {
+    if !weighted_mixing(mat) {
+        return 0.0;
+    }
+    if let Some(u) = iray(mat) {
+        if !u.bool("backscattering_enable").unwrap_or(false) {
+            return 0.0;
+        }
+    }
+    if mat.float("Glossy Weight").unwrap_or(0.0) <= 0.0 {
         return 0.0;
     }
     mat.float("Backscattering Weight").unwrap_or(0.0).clamp(0.0, 1.0)
@@ -9425,6 +9489,72 @@ mod tests {
     }
 
     #[test]
+    fn glossiness_mixing_keeps_the_backscattering() {
+        // Base Mixing 1 is `metallic_layered_base` as 0 is: the same Mix
+        // at the weight, its roughness from 1 - Backscattering Glossiness
+        // (0.7 -> r 0.09), no metal (Calib-MetalTL-Back K7, #155).
+        let chs = json!([
+            {"channel": {"id": "diffuse", "current_value": [0.45, 0.05, 0.04]}},
+            {"channel": {"id": "Base Mixing", "current_value": 1}},
+            {"channel": {"id": "Metallic Weight", "current_value": 0.6}},
+            {"channel": {"id": "Backscattering Weight", "current_value": 0.5}},
+            {"channel": {"id": "Backscattering Glossiness", "current_value": 0.7}},
+        ]);
+        let x = material_inputs(&[("Ball".into(), mat(chs), 1.0)], &[], HashMap::new(), 5000, SkinShader::None).0;
+        assert!(x.contains("type='19' name='Ball'>"), "{x}");
+        let amount = &x[x.find("<pin name='amount'>").unwrap()..];
+        assert!(amount[..amount.find("</pin>").unwrap()].contains(">0.5<"), "{x}");
+        let lobe = &x[x.find("Ball backscatter'>").expect(&x)..];
+        let rough = &lobe[lobe.find("<pin name='roughness'>").unwrap()..];
+        let rough: f32 = rough[rough.find("type='6'>").unwrap() + 9..].split('<').next().unwrap().parse().unwrap();
+        assert!((rough - retro_roughness(0.09)).abs() < 1e-3, "{rough}");
+    }
+
+    #[test]
+    fn weighted_mixing_layers_the_backscattering_over_its_gloss() {
+        // `normalized_base`: weighted_layer(b, backscattering, glossy) in
+        // the gloss part, the diffuse part without it; at b 1 the lobe
+        // alone (glossy off); under a partial refraction the glass over
+        // that Mix (Calib-Mi-WeightedRefr2 V6, #155).
+        let ball = |extra: serde_json::Value| {
+            let mut chs = vec![
+                json!({"channel": {"id": "diffuse", "current_value": [0.45, 0.05, 0.04]}}),
+                json!({"channel": {"id": "Base Mixing", "current_value": 2}}),
+                json!({"channel": {"id": "Glossy Weight", "current_value": 0.5}}),
+                json!({"channel": {"id": "Glossy Color", "current_value": [0.2, 0.6, 1.0]}}),
+                json!({"channel": {"id": "Diffuse Weight", "current_value": 0.5}}),
+            ];
+            chs.extend(extra.as_array().unwrap().iter().cloned());
+            material_inputs(&[("Ball".into(), mat(json!(chs)), 1.0)], &[], HashMap::new(), 5000, SkinShader::None).0
+        };
+        let back = |w: f32| json!({"channel": {"id": "Backscattering Weight", "current_value": w}});
+        let x = ball(json!([back(0.5)]));
+        let mix = &x[x.find("name='Ball gloss backscatter'>").expect(&x)..];
+        assert!(mix[..mix.find("</pin>").unwrap()].contains(">0.5<"), "{mix}");
+        let (b, g) = (x.find("Ball backscatter'>").expect(&x), x.find("Ball gloss'>").expect(&x));
+        assert!(b < g && x.find("Ball base'>").unwrap() > g, "{x}");
+        // The lobe at the gloss part's scale (0.5 / 0.5 = 1) in Glossy Color (linear).
+        let lobe = &x[b..g];
+        let albedo = &lobe[lobe.find("<pin name='albedo'>").unwrap()..];
+        let albedo: Vec<f32> = albedo[albedo.find("type='8'>").unwrap() + 9..].split('<').next().unwrap().split(' ').map(|v| v.parse().unwrap()).collect();
+        assert!((albedo[2] - retro_albedo(0.0)).abs() < 1e-4 && albedo[0] < albedo[1], "{albedo:?}");
+        assert_eq!(x.matches("type='19'").count(), 2, "{x}");
+        // Full: the lobe alone in the gloss part.
+        let x = ball(json!([back(1.0)]));
+        assert!(x.contains("Ball backscatter'>") && !x.contains("Ball gloss'>") && x.matches("type='19'").count() == 1, "{x}");
+        // None: the gloss alone, no lobe.
+        let x = ball(json!([]));
+        assert!(!x.contains("backscatter") && x.contains("Ball gloss'>"), "{x}");
+        // Partial refraction: glass over (backscatter over gloss).
+        let x = ball(json!([back(0.5), {"channel": {"id": "Refraction Weight", "current_value": 0.5}}]));
+        let (r, m) = (x.find("Ball refraction'>").expect(&x), x.find("Ball gloss backscatter'>").expect(&x));
+        assert!(x.find("Ball gloss part'>").unwrap() < r && r < m && x.matches("type='19'").count() == 3, "{x}");
+        // Full refraction: no lobe (DAZ switches it off).
+        let x = ball(json!([back(0.5), {"channel": {"id": "Refraction Weight", "current_value": 1.0}}]));
+        assert!(!x.contains("backscatter"), "{x}");
+    }
+
+    #[test]
     fn metal_hides_the_backscattering_under_it() {
         // The shares sum to Iray's: w² metal + (1 - w) b backscatter +
         // (1 - w)(1 - b) base, for any w and b.
@@ -9634,6 +9764,9 @@ mod tests {
             ("weighted mixing", vec![ch("Base Mixing", json!(2)), ch("Glossy Weight", json!(0.5))], SkinShader::None, "19", 1),
             ("weighted mixing with a partial refraction", vec![ch("Base Mixing", json!(2)), ch("Glossy Weight", json!(0.5)), ch("Refraction Weight", json!(0.5))], SkinShader::None, "19", 2),
             ("weighted mixing with a full refraction", vec![ch("Base Mixing", json!(2)), ch("Glossy Weight", json!(0.5)), ch("Refraction Weight", json!(1.0))], SkinShader::None, "19", 1),
+            ("weighted mixing with backscattering", vec![ch("Base Mixing", json!(2)), ch("Glossy Weight", json!(0.5)), backscatter()], SkinShader::None, "19", 2),
+            ("weighted mixing with backscattering under a partial refraction", vec![ch("Base Mixing", json!(2)), ch("Glossy Weight", json!(0.5)), ch("Refraction Weight", json!(0.5)), backscatter()], SkinShader::None, "19", 3),
+            ("glossiness mixing with backscattering", vec![ch("Base Mixing", json!(1)), backscatter()], SkinShader::None, "19", 1),
             ("flakes", vec![flakes()], SkinShader::None, "19", 1),
             ("backscattering", vec![backscatter()], SkinShader::None, "19", 1),
             ("flakes over backscattering", vec![flakes(), backscatter()], SkinShader::None, "19", 2),

@@ -71,6 +71,9 @@ a plane under an HDRI) that each change one thing, written beside it.
   Weight, a tinted gloss, unshared inputs; dual lobe, metal,
   backscattering, translucency, weights below 1; -3 what switches the
   diffuse and backscattering off) - for the .mi and Iray.
+- Calib-WeightedBack (#155): backscattering under weighted mixing
+  (weight 0 / 0.5 / 1, no gloss, weights summing to 1, a rough lobe) and
+  its Base Mixing 1 / 0 twins - for the .mi and Iray.
 - Calib-DualLobeGlossy (#106): the glossy layer over the dual lobe, each
   alone and both together (weight, roughness, reflectivity, Top Coat).
 - Calib-DualLobeWeighted (#121): the dual lobe under weighted mixing
@@ -1622,6 +1625,29 @@ for src_p, shown in ((wr_closed, 'Calib-WeightedRefr-Shown'), (wr2, 'Calib-Mi-We
         p = os.path.join(out_dir, shown + '.duf')
         open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
         print(p)
+
+# --- Backscattering under weighted mixing (#155): `normalized_base` lays
+# the backscattering lobe at its weight over the glossy BSDF inside the
+# gloss part (mixed at Glossy Weight against the diffuse part); at weight
+# 1 DAZ switches the glossy off, without Glossy Weight it passes no gloss
+# part at all. Calib-WeightedBack: weight 0 / 0.5 / 1, Glossy Weight 0,
+# Diffuse Weight 0.5 (weights summing to 1), a rough lobe, and the same
+# lobe in Base Mixing 1 and 0 as the tie. Inputs unshared so the lobe's
+# green splits from the red diffuse and the white gloss by colour.
+# Opaque spheres, thin-walled (the reset's default).
+WB = {'Base Mixing': 2, 'Glossy Weight': 0.5, 'Diffuse Weight': 1.0, 'Glossy Layered Weight': 0.0, 'Glossy Roughness': 0.3,
+      'Glossy Color': [1.0, 1.0, 1.0], 'Share Glossy Inputs': False, 'Backscattering Color': [0.3, 0.9, 0.4],
+      'Backscattering Roughness': 0.3, 'Backscattering Weight': 0.5}
+uber_spheres('Calib-WeightedBack', [0.45, 0.05, 0.04], WB, [
+    ('B1 b0 g0.5', {'Backscattering Weight': 0.0}),
+    ('B2 b0.5 g0.5', {}),
+    ('B3 b1 g0.5', {'Backscattering Weight': 1.0}),
+    ('B4 b0.5 g0.5 d0.5', {'Diffuse Weight': 0.5}),
+    ('B5 b0.5 g0', {'Glossy Weight': 0.0}),
+    ('B6 b0.5 g0.5 rough 0.7', {'Backscattering Roughness': 0.7}),
+    ('B7 mode 1 b0.5', {'Base Mixing': 1, 'Glossy Layered Weight': 0.5, 'Glossiness': 0.7, 'Backscattering Glossiness': 0.7}),
+    ('B8 mode 0 b0.5', {'Base Mixing': 0, 'Glossy Layered Weight': 0.5}),
+])
 
 # --- Top Coat Bump (#61): DAZ's MDL gives the coat its own normal
 # (`calc_mix_layer_normal`): the Top Coat Bump (height or normal map, by Top

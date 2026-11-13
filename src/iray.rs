@@ -298,8 +298,9 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     let gloss_part = !(mixing == 2 && weight <= 0.0);
     out.insert("backscattering_weight", Arg::Float(if gloss_part { backscattering } else { 0.5 }));
     // A full refraction covers it, in every mixing mode (Calib-Mi-WeightedRefr2
-    // V5, Calib-Mi-WeightedRefr3 U5 / U6, #154).
-    out.insert("backscattering_enable", Arg::Bool(backscattering > 0.0 && !full(refraction, "Refraction Weight")));
+    // V5, Calib-Mi-WeightedRefr3 U5 / U6, #154); weighted mixing without
+    // gloss has no gloss part to hold it (Calib-WeightedBack B5, #155).
+    out.insert("backscattering_enable", Arg::Bool(gloss_part && backscattering > 0.0 && !full(refraction, "Refraction Weight")));
     let back_rough = match mixing {
         1 => square_if(1.0 - ch.float("Backscattering Glossiness", 1.0), ch.bool("Glossiness Squared", true)),
         _ => square_if(ch.float("Backscattering Roughness", 0.0), ch.bool("Roughness Squared", true)),
@@ -346,7 +347,7 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
         _ => square_if(ch.float("Refraction Roughness", 0.0), ch.bool("Roughness Squared", true)),
     };
     out.insert("refraction_roughness", Arg::Float(if own { refr_rough } else { 0.0 }));
-    out.insert("backscattering_color", if !share && backscattering > 0.0 { ch.color_or_map("Backscattering Color", [1.0; 3], 1.0) } else { Arg::Color([0.5; 3]) });
+    out.insert("backscattering_color", if !share && backscattering > 0.0 && gloss_part { ch.color_or_map("Backscattering Color", [1.0; 3], 1.0) } else { Arg::Color([0.5; 3]) });
 
     // Volume and subsurface scattering (Calib-SSS, -SSSColor, -Glass,
     // -Leaf). The measurement distances, cm → m, and the direction only

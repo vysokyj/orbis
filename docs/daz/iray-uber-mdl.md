@@ -35,7 +35,8 @@ Found beyond it:
 - **Base Mixing 2 (Weighted)** takes its roughness from Glossy Roughness,
   like Base Mixing 0 — only Base Mixing 1 reads Glossiness. Without gloss
   (Glossy Weight 0) the whole gloss part (colour, backscattering,
-  roughness) isn't passed; `glossy_roughness_enable` still is
+  roughness) isn't passed (`backscattering_enable` false: Calib-WeightedBack
+  B5, #155); `glossy_roughness_enable` still is
   (Calib-DualLobeWeighted W2). The dual lobe is passed in every mode
   (Calib-Mi-Mix2 M3).
 - **Diffuse** is switched off (`diffuse_enable` false) when Metallic,

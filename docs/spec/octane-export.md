@@ -1612,6 +1612,18 @@ leaves out, #15):
   `amount` 1 and scale 1 whatever Glossy Weight (U1 / U2; it had taken
   the gloss at Glossy Weight). Not yet confirmed against Iray (parked
   Calib-WeightedRefr / -Thin, #154).
+  **Backscattering under weighted mixing** (#155) belongs to the gloss
+  part too: `normalized_base` lays `backscattering_glossy_reflection_bsdf`
+  at Backscattering Weight over the glossy BSDF (`weighted_layer`), under
+  the refraction, so it shares Glossy Weight's share and the diffuse part
+  keeps none. The glossy metal becomes a Mix at the Backscattering Weight
+  (its map) of the retro-reflector (Backscattering, below, its colour ×
+  the gloss scale) and the metal; at weight 1 the retro-reflector alone
+  (DAZ switches the glossy off); under a partial refraction the glass
+  Mix holds that Mix as its `material2`; a full refraction or Glossy
+  Weight 0 has none (DAZ passes no `backscattering_enable`,
+  Calib-Mi-WeightedRefr2 V5 / V6). It was dropped until #155. Derived
+  from the MDL, awaiting Iray: Calib-WeightedBack.
 - **Metallic Weight w → `metallic` w² / k, albedo and specular × k,**
   k = 1 − w + w² (a map: squared by twice its gamma, k from the
   channel's value); the glossy excess coating × (1 − w). Iray's metal is a
@@ -1839,7 +1851,8 @@ leaves out, #15):
   from 0.04 to 0.20; missing, Octane rendered them 0.12 – 0.36 × Iray, now
   0.88 – 1.12 (coverage 0.5: 1.05 – 1.35, 0.3: 0.72 – 0.88); Calib-Map-
   Misc's gold flakes 0.50 → ~1 (#30).
-- **Backscattering** (Base Mixing 0, not refractive) → a Mix material
+- **Backscattering** (Base Mixing 0 and 1, not refractive; weighted
+  mixing above) → a Mix material
   at amount = Backscattering Weight: the surface and a retro-reflector —
   a metal in Glossy Color (or Backscattering Color with Share Glossy
   Inputs off) × (2 + r²) / (2 + 2 r²), Beckmann (brdf 1) at roughness
@@ -1857,7 +1870,12 @@ leaves out, #15):
   per texel, baked from the map like the surface's per-texel shares (it
   used to take the channel's value); a translucent metal's surface is
   the translucent metal's Mix at those shares (above, #145). Awaiting
-  Iray: Calib-MetalTL-Back.
+  Iray: Calib-MetalTL-Back. **Base Mixing 1** is the same construction
+  (#155): DAZ converts glossiness mode to `metallic_layered_base` and
+  passes the backscattering (Calib-MetalTL-Back K7's `.mi`), its
+  roughness from 1 − Backscattering Glossiness, no metal (DAZ drops it);
+  the export had left it out ("not calibrated there"). Awaiting Iray: K7,
+  Calib-WeightedBack's tie spheres.
 
   Why (metal): DAZ's MDL lays the metal (`bsdf_w_metal`) over
   `bsdf_w_backscattering`, so a metal hides the backscattering as it
