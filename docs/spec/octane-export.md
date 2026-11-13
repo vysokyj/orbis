@@ -2208,13 +2208,25 @@ leaves out, #15):
     0.25 / 0.17 / 0.105 / 0.065. Anisotropy in mia's semantic
     (`anisotropy_conversion` with `mia_anisotropy_semantic`) on the MDL
     roughness — above 1 u = r · √a, v = r / √a, below v = r / a^¼, u = r ·
-    a^¼ — then √(· r₀) and the GGX curve **per axis**, Octane's roughness
-    the longer, `anisotropyTexture` 1 − short / long of the two pins
-    (negative: stretched along u; #96's semantics, Anisotropy above — it
-    was (v − u) / (v + u) when the √(· r₀) rule was found), `rotation` 1 −
-    Iray's. Applying √(· r₀) before the
-    anisotropy stretched Calib-NVIDIA2's anisotropy-4 sphere far beyond
-    Iray's (centre 1.69 ×); per axis 1.06 with Iray's look.
+    a^¼ — then √(· r₀) per axis; Octane's pins **g · √k and g / √k**
+    (`arch_aniso_pins`), g the isotropic pin (the GGX curve) of the two's
+    geometric mean, k their ratio (= √ of the MDL's u / v): Octane's α
+    (pin², #96) in the MDL roughnesses' own ratio, as a Phong lobe's α ≈ r
+    per axis. Octane's roughness the longer, `anisotropyTexture` 1 −
+    short / long of the two pins (negative: stretched along u; #96's
+    semantics, Anisotropy above), `rotation` 1 − Iray's. Why (#114): the
+    GGX curve per axis — found while Octane's anisotropy was read as (v −
+    u) / (v + u), α ≈ 2.8 : 1 at anisotropy 4 — became α 5.6 : 1 under
+    #96's semantics; Calib-NVIDIA2's A5 (glossiness 0.3, anisotropy 4) then
+    had a sun streak 1.75 – 1.83 × as wide as high against Iray's 1.10 –
+    1.15 (contours at 0.3 / 0.5 of the peak). At α 1 / 2 / 3 / 4 : 1 (same
+    geometric mean) 0.50 – 0.67 / 0.88 – 0.90 / 1.00 – 1.22 / 1.0 – 1.5:
+    2 – 4 : 1 all lie within a pixel of Iray's ~10 px spot, so the ratio
+    is the derived one, not a fit; the point-lit Calib-Point-ArchAniso
+    and our own modules at MDL 1.0 / 1.3 (Calib-Point-MdlAniso: does
+    Iray's pre-1.3 lobe read the roughness otherwise?) decide it. Applying
+    √(· r₀) before the
+    anisotropy stretched it far beyond Iray's (centre 1.69 ×).
     Transparency t (`weighted_layer(t, transmit lobe, diffuse)`): diffuse
     × (1 − t), `transmission` = refr_color × t × **k per channel**
     (`arch_glass_albedo`, `mdl_layer::tint_factor_measured`, as resin's)

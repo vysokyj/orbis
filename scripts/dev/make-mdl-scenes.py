@@ -26,6 +26,12 @@ material file with one Shader Mixer brick material per module material
   roughnesses (its Uber spheres are the same lobe at 1.7).
 - Calib-Furnace-MdlTransmit: the closed refractor at r 0.05 / 0.1 / 0.2 /
   0.4 in "mdl 1.0" and "mdl 1.3" (#116).
+- Calib-Point-MdlAniso (#114): the same spheres without the dome, lit by a
+  point light at the camera - the highlight's shape of the lobe at 1.0 /
+  1.3: isotropic, anisotropic, and architectural's base:: roughness pair.
+- Calib-Point-ArchAniso (#114): that light on NVIDIA's Architectural
+  preset (its reflection only) at glossiness 0 / 0.15 / 0.3, isotropic
+  and anisotropic - the scene the export maps (Octane side).
 
 Calib-Mi-MdlPath's .mi (2026-11-13): only P1 resolves, and only once the
 script maps `<library>/shaders/iray` as an MDL directory - DAZ searches its
@@ -118,6 +124,26 @@ LOBE = [(f'L{k + 1} v1.0 reflect r {r}', f'v10_lobe_r{R_NAME(r)}', f'orbis/orbis
 TRANSMIT = [(f'T{k + 1} v{v} transmit r {r}', f'v{v.replace(".", "")}_sweep_transmit_r{R_NAME(r)}',
              f'orbis/orbis_transmit_v{v.replace(".", "")}.mdl#transmit_r{R_NAME(r)}')
             for k, (v, r) in enumerate([(v, r) for v in ('1.0', '1.3') for r in (0.05, 0.1, 0.2, 0.4)])]
+# #114: the highlight's shape under a point light at the camera - the same
+# lobe at 1.0 / 1.3: isotropic r 0.2, anisotropic u 0.4 / v 0.1 (the same
+# geometric mean), and the pair base::anisotropy_conversion makes from
+# base::architectural_gloss_to_rough(0) with the mia semantic (iso and
+# anisotropy 4: architectural's own reflection, as Calib-NVIDIA2's A4 / A5).
+ANISO = [(f'S{k + 1} v{v} {what}', f'v{v.replace(".", "")}_pt_{mat}', f'orbis/orbis_aniso_v{v.replace(".", "")}.mdl#{mat}')
+         for k, (what, mat, v) in enumerate([(w, m, v) for w, m in (('iso r 0.2', 'iso_r02'), ('aniso u 0.4 v 0.1', 'aniso_u04_v01'),
+                                                                    ('arch g 0 iso', 'arch_g0_iso'), ('arch g 0 aniso 4', 'arch_g0_a4'))
+                                             for v in ('1.0', '1.3')])]
+# NVIDIA's architectural preset itself under the same light, its lobe alone
+# (diffuse black, reflectivity 1, Schlick 1 / 1: a white constant lobe): the
+# scene the export maps, so it has an Octane side. (label, channels).
+ARCH_POINT = [('P1 arch g 0 iso', {'refl_gloss': 0.0, 'anisotropy': 1.0}),
+              ('P2 arch g 0 aniso 4', {'refl_gloss': 0.0, 'anisotropy': 4.0}),
+              ('P3 arch g 0.15 iso', {'refl_gloss': 0.15, 'anisotropy': 1.0}),
+              ('P4 arch g 0.15 aniso 4', {'refl_gloss': 0.15, 'anisotropy': 4.0}),
+              ('P5 arch g 0.3 iso', {'refl_gloss': 0.3, 'anisotropy': 1.0}),
+              ('P6 arch g 0.3 aniso 4', {'refl_gloss': 0.3, 'anisotropy': 4.0}),
+              ('P7 arch g 0 aniso 0.25', {'refl_gloss': 0.0, 'anisotropy': 0.25}),
+              ('P8 arch g 0 aniso 4 rot 0.25', {'refl_gloss': 0.0, 'anisotropy': 4.0, 'anisotropy_rotation': 0.25})]
 
 # Modules: ours from calib/mdl under ROOT; the path probe's three copies of
 # one tiny module under each candidate root.
@@ -134,7 +160,7 @@ for _, _, c, root in PATH_PROBE:
     open(os.path.join(d, c.split('/')[1].split('#')[0]), 'w').write(probe)
 
 os.makedirs(os.path.dirname(DSF), exist_ok=True)
-lib_mats = [brick_material(mid, c) for _, mid, c, *_ in PATH_PROBE + VERSION + LOBE + TRANSMIT]
+lib_mats = [brick_material(mid, c) for _, mid, c, *_ in PATH_PROBE + VERSION + LOBE + TRANSMIT + ANISO]
 dsf = {'file_version': '0.6.0.0',
        'asset_info': {'id': DSF_URL, 'type': 'material', 'contributor': {'author': 'ORBIS', 'email': '', 'website': ''}, 'revision': '1.0'},
        'material_library': lib_mats}
@@ -142,15 +168,78 @@ open(DSF, 'wb').write(gzip.compress(json.dumps(dsf, indent=1).encode()))
 print(DSF)
 
 
-def furnace_scene(name, spheres):
+def node_channels(entry):
+    ext = next((e for e in entry.setdefault('extra', []) if e.get('type') == 'studio_node_channels'), None)
+    if ext is None:
+        ext = {'type': 'studio_node_channels', 'version': 5}
+        entry['extra'].append(ext)
+    return ext.setdefault('channels', [])
+
+
+def set_channel(chs, cid, value):
+    for c in chs:
+        if c['channel']['id'] == cid:
+            c['channel']['current_value'] = value
+            return
+    chs.append({'channel': {'id': cid, 'type': 'bool' if isinstance(value, bool) else 'float', 'current_value': value}})
+
+
+def point_lit(d, ev):
+    """No dome (Scene Only), one point light of Calib-L-Point-5k's (5000 lm,
+    point geometry) 5 cm above the camera, so each sphere's highlight is its
+    lobe seen head-on; exposure value `ev` (shutter 2^ev / 64 at f/8, ISO
+    100, as DAZ keeps them)."""
+    src = load(os.path.join(SCENES, 'Calib-L-Point-5k.duf'))
+    light = copy.deepcopy(next(l for l in src['node_library'] if l['id'] == 'PointLight'))
+    cam = next(l for l in d['node_library'] if l['id'] == 'Camera')
+    pos = {c['id']: c.get('current_value', c.get('value', 0)) for c in cam['translation']}
+    for c in light['translation']:
+        c['current_value'] = pos[c['id']] + (5.0 if c['id'] == 'y' else 0.0)
+    d['node_library'].append(light)
+    d['scene']['nodes'].append(copy.deepcopy(next(n for n in src['scene']['nodes'] if n['id'] == 'PointLight-1')))
+    env = node_channels(next(l for l in d['node_library'] if l['id'] == 'Environment Options'))
+    set_channel(env, 'Environment Mode', 3)
+    set_channel(env, 'Draw Dome', False)
+    tone = node_channels(next(l for l in d['node_library'] if l['id'] == 'Tonemapper Options'))
+    set_channel(tone, 'Exposure Value', ev)
+    set_channel(tone, 'Shutter Speed', 2.0 ** ev / 64.0)
+
+
+def arch_material(m, channels):
+    """Calib-NVIDIA2's A5 material entry (NVIDIA's Architectural preset,
+    which ships with DAZ Studio) on this sphere, reduced to its reflection:
+    diffuse black, reflectivity 1, Schlick 0 / 90 degrees 1 / 1, white."""
+    a5 = next(x for x in load(os.path.join(SCENES, 'Calib-NVIDIA2.duf'))['scene']['materials'] if x['id'] == 'Default-8')
+    e = copy.deepcopy(a5)
+    e['id'], e['geometry'], e['groups'] = m['id'], m['geometry'], m.get('groups', ['Default'])
+    if m.get('uv_set'):
+        e['uv_set'] = m['uv_set']
+    else:
+        e.pop('uv_set', None)
+    e['diffuse']['channel']['current_value'] = [0.0, 0.0, 0.0]
+    chs = next(x for x in e['extra'] if x.get('type') == 'studio_material_channels')['channels']
+    vals = {'refl_color': [1.0, 1.0, 1.0], 'reflectivity': 1.0, 'brdf_0_degree_refl2': 1.0, 'brdf_90_degree_refl2': 1.0,
+            'anisotropy_rotation': 0.0, **channels}
+    for c in chs:
+        if c['channel']['id'] in vals:
+            c['channel']['current_value'] = vals.pop(c['channel']['id'])
+    assert not vals, vals
+    return e
+
+
+def furnace_scene(name, spheres, ev=None, arch=False):
     """Calib-Furnace-Metal (uniform dome, floor hidden) with its first
-    len(spheres) spheres, in label order F1 ..., on our brick materials;
-    the rest hidden."""
+    len(spheres) spheres, in label order F1 ..., on our brick materials
+    (`arch`: on NVIDIA's architectural preset with the sphere's channels);
+    the rest hidden. With `ev`, lit by a point light instead of the dome
+    (`point_lit`)."""
     p = os.path.join(SCENES, name + '.duf')
     if os.path.exists(p) and not FORCE:
         return p
     d = load(FURNACE_METAL)
     d['asset_info']['id'] = '/Scenes/' + name + '.duf'
+    if ev is not None:
+        point_lit(d, ev)
     geo_node = {g['id']: n for n in d['scene']['nodes'] for g in n.get('geometries', [])}
     for i, m in enumerate(d['scene']['materials']):
         n = geo_node.get(m['geometry'].lstrip('#'))
@@ -167,6 +256,10 @@ def furnace_scene(name, spheres):
             n['label'] = 'hidden ' + n['label']
             continue
         label, mid = spheres[k][0], spheres[k][1]
+        n['label'] = label
+        if arch:
+            d['scene']['materials'][i] = arch_material(m, mid)
+            continue
         d['scene']['materials'][i] = {'id': m['id'], 'url': DSF_URL + '#' + mid, 'geometry': m['geometry'],
                                       'groups': m.get('groups', ['Default']), 'uv_set': m.get('uv_set'),
                                       'extra': [{'type': 'studio/material/daz_brick'}]}
@@ -184,3 +277,11 @@ furnace_scene('Calib-Mi-MdlPath', PATH_PROBE)
 furnace_scene('Calib-Furnace-MdlVersion', VERSION)
 furnace_scene('Calib-Furnace-MdlLobe', LOBE)
 furnace_scene('Calib-Furnace-MdlTransmit', TRANSMIT)
+# Peaks: a Phong lobe's D(0) ~ 1 / (pi r_u r_v): 8 at r 0.2 or 0.4 / 0.1,
+# 2.5 at architectural's glossiness 0 (r 0.354); 5000 lm at 4.6 m. EV 9:
+# the r 0.2 group ~0.4 of white, glossiness 0 ~0.1 (Octane, Calib-Point-
+# ArchAniso's first render at EV 8.3: glossiness 0 peaked at 0.19).
+furnace_scene('Calib-Point-MdlAniso', ANISO, ev=9.0)
+# Architectural's glossiness 0.15 / 0.3 peak ~8x / ~50x above 0 (at EV 8.3
+# both clipped, glossiness 0 0.19): at EV 11.5 glossiness 0 ~0.02, 0.3 ~1.
+furnace_scene('Calib-Point-ArchAniso', ARCH_POINT, ev=11.5, arch=True)

@@ -1116,6 +1116,25 @@ fn arch_reflection_rough(r: f32) -> f32 {
     (r * architectural_gloss_to_rough(0.0)).sqrt()
 }
 
+/// Octane's pins (along u, along v) for architectural's anisotropic
+/// reflection, from `arch_reflection_rough` of mia's two MDL roughnesses
+/// (its arguments, whose ratio is √ of the MDL's): the isotropic pin of
+/// their geometric mean (`fitted_ggx_pin`, what the isotropic glossiness
+/// was fitted on), the pins' ratio that of the arguments = √(MDL u / v) —
+/// Octane's α (pin², #96) in the MDL roughnesses' own ratio, as a Phong
+/// lobe's α ≈ r per axis. The isotropic fit belongs to the glossiness, not
+/// to each axis: on `fitted_ggx_pin` per axis (until #114; under #96's
+/// anisotropy semantics) Calib-NVIDIA2's A5 (glossiness 0.3, anisotropy 4)
+/// had α 5.6 : 1 and its sun streak 1.8 × as wide as high (Iray 1.1); at
+/// 2 – 4 : 1 within a pixel of Iray's ~10 px spot. 4 : 1 is the derived
+/// ratio; Calib-Point-ArchAniso / -MdlAniso (point light, Iray pending; `scripts/dev/point-highlight.py`)
+/// test it against an MDL 1.0 lobe that might read roughness otherwise.
+fn arch_aniso_pins(u: f32, v: f32) -> (f32, f32) {
+    let g = fitted_ggx_pin((u * v).max(0.0).sqrt());
+    let k = if u > 0.0 && v > 0.0 { (u / v).sqrt() } else { 1.0 };
+    ((g * k).min(1.0), (g / k).min(1.0))
+}
+
 /// The roughness Iray's Arch+Design glass (its `scatter_transmit` lobe)
 /// renders with: `ARCH_GLASS_ROUGH` × the MDL's, at most 1, under the
 /// rough-glass rule. Calib-NVIDIA3's refr_gloss 0.6 and 0.2 (MDL 0.020 /
@@ -2059,7 +2078,7 @@ impl Ocs<'_> {
             // past 1 (`aniso_brdf_pin`).
             let brdf = if m.fitted_pins { BRDF_GGX_EP } else { phong_brdf(&[u.max(v)]) };
             self.value_pin(i, "brdf", 57, 2, brdf);
-            let (pu, pv) = (pin(u), pin(v));
+            let (pu, pv) = if m.fitted_pins { arch_aniso_pins(u, v) } else { (pin(u), pin(v)) };
             self.float_pin(i, roughness_pin, pu.max(pv));
             let a = octane_anisotropy(pu, pv);
             if a != 0.0 {
@@ -6825,14 +6844,16 @@ mod tests {
             {"channel": {"id": "anisotropy", "current_value": 4}},
         ]));
         let (y, _) = material_inputs(&[("Aniso".into(), aniso, 1.0)], &[], HashMap::new(), 9700, SkinShader::None);
-        // mia's anisotropy on the MDL roughness, then the fitted GGX curve
-        // per axis (`MdlDielectric::fitted_pins`), Octane's anisotropy of
-        // the two pins (`octane_anisotropy`: negative, u the long axis).
+        // mia's anisotropy on the MDL roughness (u 2r, v r / 2); the
+        // isotropic glossiness's fitted pin g at their geometric mean, the
+        // pins g · √2 and g / √2, ratio √(u / v) = 2 (`arch_aniso_pins`,
+        // #114): Octane's α 4 : 1. Octane's anisotropy of the two pins (`octane_anisotropy`:
+        // negative, u the long axis) 1 − 1 / 2.
         let r = architectural_gloss_to_rough(0.3);
-        let (u, v) = (fitted_ggx_pin(arch_reflection_rough(r * 2.0)), fitted_ggx_pin(arch_reflection_rough(r / 2.0)));
-        assert_eq!(pin(&y, "roughness"), num(u), "{y}");
+        let g = fitted_ggx_pin(arch_reflection_rough(r));
+        assert_eq!(pin(&y, "roughness"), num(g * 2f32.sqrt()), "{y}");
         let a: f32 = pin(&y, "anisotropyTexture").parse().unwrap();
-        assert!((a + (1.0 - v / u)).abs() < 1e-5 && a < 0.0, "{a}");
+        assert!((a + 0.5).abs() < 1e-5, "{a}");
     }
 
     /// Arch+Design glossiness → roughness as Iray's
