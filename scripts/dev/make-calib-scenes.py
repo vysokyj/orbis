@@ -40,6 +40,8 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-Furnace-UberGlass(-PL3), -ArchGlass2, -Resin3 (#116): the rough
   transmit lobe through the Uber against NVIDIA's modules - thin walls, IOR,
   tint, Firefly Filter off, Max Path Length 3.
+- Calib-Furnace-ArchGlass3 (#149): the thin wall above refr_gloss 0.2 in
+  ArchGlass2's frame, with a closed twin, a reflection layer and IOR 2.
 - Calib-Mi-ImageGamma (#91, .mi only): maps the image_library doesn't
   list - which channel's default_image_gamma DAZ gives the image.
 - Calib-Mi-ImageMod, -ImageMod2: per-map image modifications (#77) - tiles, tiling
@@ -2164,6 +2166,42 @@ if os.path.exists(nv3):
     furnace_dome(d)
     render_option(d, 'Firefly Filter Enable', False)
     made.append((save(d, 'Calib-Furnace-ArchGlass2'), None))
+# Calib-Furnace-ArchGlass3 (#149): ArchGlass2's frame (reflectivity 0,
+# Firefly Filter off) for the thin wall above refr_gloss 0.2 -
+# thin-walled at 1 / 0.8 / 0.6 / 0.4, 0.2 again (H4's tie), the closed
+# twin at 0.4 (G3's tie, the thin / closed ratio in one frame), 0.2 thin
+# under reflectivity 0.6 (Schlick, mdl_layer's thin layering) and 0.4 thin
+# at IOR 2 (a thin lobe that doesn't refract: the IOR should not matter).
+ARCH_GLASS3 = [('J1 refr 1 thin', 1.0, {'thin_walled': True}), ('J2 refr 0.8 thin', 0.8, {'thin_walled': True}),
+               ('J3 refr 0.6 thin', 0.6, {'thin_walled': True}), ('J4 refr 0.4 thin', 0.4, {'thin_walled': True}),
+               ('J5 refr 0.2 thin', 0.2, {'thin_walled': True}), ('J6 refr 0.4', 0.4, {}),
+               ('J7 refr 0.2 thin refl 0.6', 0.2, {'thin_walled': True, 'reflectivity': 0.6}),
+               ('J8 refr 0.4 thin ior 2', 0.4, {'thin_walled': True, 'Index of Refraction': 2.0})]
+if os.path.exists(nv3):
+    d = load(nv3)
+    mats = d['scene']['materials']
+    geo_label = {g['id']: n['label'] for n in d['scene']['nodes'] for g in n.get('geometries', [])}
+    glass = next(m for m in mats if geo_label.get(m['geometry'].lstrip('#'), '').startswith('A8'))
+    for i, m in enumerate(mats):
+        label = geo_label.get(m['geometry'].lstrip('#'))
+        if not label or not label.startswith('A'):
+            continue
+        lab, refr, over = ARCH_GLASS3[int(label[1]) - 1]
+        over = {'reflectivity': 0.0, **over}
+        new = copy.deepcopy(glass)
+        new.update(id=m['id'], geometry=m['geometry'], uv_set=m.get('uv_set', glass.get('uv_set')))
+        ch = next(e for e in new['extra'] if e['type'] == 'studio_material_channels')['channels']
+        ch[:] = [c for c in ch if c['channel']['id'] not in ('refr_gloss', 'brdf_fresnel', *over)]
+        ch.append({'channel': {'id': 'refr_gloss', 'type': 'float', 'current_value': refr}})
+        for k, v in over.items():
+            ch.append({'channel': {'id': k, 'type': TYPES.get(type(v), 'float'), 'current_value': v}})
+        mats[i] = new
+        for n in d['scene']['nodes']:
+            if n.get('label') == label:
+                n['label'] = lab
+    furnace_dome(d)
+    render_option(d, 'Firefly Filter Enable', False)
+    made.append((save(d, 'Calib-Furnace-ArchGlass3'), None))
 # Calib-Furnace-Resin3 (#116): Calib-Furnace-Resin2 at Max Path Length 3.
 p2 = os.path.join(out_dir, 'Calib-Furnace-Resin2.duf')
 if os.path.exists(p2) and not os.path.exists(os.path.join(out_dir, 'Calib-Furnace-Resin3.duf')):
