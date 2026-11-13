@@ -66,6 +66,11 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-Mi-RefrNoGloss, -Shown (#143, .mi only): refraction without gloss
   per mixing mode, closed / thin-walled / partial, and Glossy Specular
   black - what DAZ passes of the refraction and its reflection flags.
+- Calib-WeightedRefr, -Thin, -Shown, Calib-Mi-WeightedRefr2, -Shown (#154):
+  weighted mixing with gloss and refraction 1 / 0.5 (Glossy / Diffuse
+  Weight, a tinted gloss, unshared inputs; dual lobe, metal,
+  backscattering, translucency, weights below 1; -3 what switches the
+  diffuse and backscattering off) - for the .mi and Iray.
 - Calib-DualLobeGlossy (#106): the glossy layer over the dual lobe, each
   alone and both together (weight, roughness, reflectivity, Top Coat).
 - Calib-DualLobeWeighted (#121): the dual lobe under weighted mixing
@@ -1554,6 +1559,69 @@ if made[-1][0]:
     p = os.path.join(out_dir, 'Calib-Mi-RefrNoGloss-Shown.duf')
     open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
     print(p)
+
+# --- Weighted mixing with gloss and refraction (#154): `normalized_base`
+# holds the refraction inside its gloss part (`weighted_layer` at
+# Refraction Weight over the glossy / backscattering BSDF), mixed at
+# Glossy Weight against the diffuse part - or alone when the diffuse is
+# off. Calib-WeightedRefr (closed) / -Thin: refraction 1 / 0.5 x Glossy
+# Weight 0.5 / 1 x Diffuse Weight 1 / 0, a tinted gloss (whose colour the
+# refraction takes, shared inputs) and the inputs unshared. The red base
+# shows where a diffuse is left. Calib-Mi-WeightedRefr2 (closed, .mi
+# only): a dual lobe, a metal, backscattering (#155) and weights summing
+# below 1 beside the refraction. -Shown twins for the .mi.
+WR = {'Base Mixing': 2, 'Refraction Weight': 1.0, 'Refraction Index': 1.5, 'Glossy Weight': 0.5, 'Diffuse Weight': 1.0,
+      'Glossy Layered Weight': 0.0, 'Glossy Roughness': 0.1, 'Glossy Color': [1.0, 1.0, 1.0], 'Share Glossy Inputs': True,
+      'Abbe': 0.0}
+WR_SPHERES = [
+    ('W1 r1 g0.5', {}),
+    ('W2 r1 g1', {'Glossy Weight': 1.0}),
+    ('W3 r1 g0.5 d0', {'Diffuse Weight': 0.0}),
+    ('W4 r0.5 g0.5', {'Refraction Weight': 0.5}),
+    ('W5 r0.5 g1', {'Refraction Weight': 0.5, 'Glossy Weight': 1.0}),
+    ('W6 r0.5 g0.5 d0', {'Refraction Weight': 0.5, 'Diffuse Weight': 0.0}),
+    ('W7 r1 g0.5 tinted gloss', {'Glossy Color': [0.9, 0.6, 0.3], 'Refraction Color': [0.3, 0.6, 0.9]}),
+    ('W8 r1 g0.5 unshared', {'Share Glossy Inputs': False, 'Refraction Color': [0.3, 0.6, 0.9], 'Refraction Roughness': 0.1}),
+]
+WR_RED = [0.45, 0.05, 0.04]
+uber_spheres('Calib-WeightedRefr', WR_RED, {**WR, 'Thin Walled': False}, WR_SPHERES)
+wr_closed = made[-1][0]
+uber_spheres('Calib-WeightedRefr-Thin', WR_RED, {**WR, 'Thin Walled': True}, WR_SPHERES)
+uber_spheres('Calib-Mi-WeightedRefr2', WR_RED, {**WR, 'Thin Walled': False}, [
+    ('V1 r1 dual lobe', {'Dual Lobe Specular Weight': 0.5, 'Dual Lobe Specular Reflectivity': 0.5, 'Specular Lobe 1 Roughness': 0.3}),
+    ('V2 r0.5 dual lobe', {'Refraction Weight': 0.5, 'Dual Lobe Specular Weight': 0.5, 'Dual Lobe Specular Reflectivity': 0.5, 'Specular Lobe 1 Roughness': 0.3}),
+    ('V3 r1 metal 0.7', {'Metallic Weight': 0.7}),
+    ('V4 r0.5 metal 0.7', {'Refraction Weight': 0.5, 'Metallic Weight': 0.7}),
+    ('V5 r1 backscatter 0.5', {'Backscattering Weight': 0.5, 'Backscattering Roughness': 0.3}),
+    ('V6 r0.5 backscatter 0.5', {'Refraction Weight': 0.5, 'Backscattering Weight': 0.5, 'Backscattering Roughness': 0.3}),
+    ('V7 r0.5 d0.3 g0.4', {'Refraction Weight': 0.5, 'Diffuse Weight': 0.3, 'Glossy Weight': 0.4}),
+    ('V8 r0.5 translucency 0.5', {'Refraction Weight': 0.5, 'Translucency Weight': 0.5, 'Translucency Color': [0.9, 0.6, 0.4]}),
+])
+wr2 = made[-1][0]
+# Calib-Mi-WeightedRefr3 (.mi only): what switches the diffuse and the
+# backscattering off - Diffuse Weight 0 without refraction, a full
+# backscattering, a full refraction over backscattering in Base Mixing 0
+# and 1, translucency under a full refraction, both weights 0.
+uber_spheres('Calib-Mi-WeightedRefr3', WR_RED, {**WR, 'Thin Walled': False}, [
+    ('U1 r0 g0.5 d0', {'Refraction Weight': 0.0, 'Diffuse Weight': 0.0}),
+    ('U2 r0 g1 d0', {'Refraction Weight': 0.0, 'Diffuse Weight': 0.0, 'Glossy Weight': 1.0}),
+    ('U3 r0 g0.5 d0 backscatter 0.5', {'Refraction Weight': 0.0, 'Diffuse Weight': 0.0, 'Backscattering Weight': 0.5, 'Backscattering Roughness': 0.3}),
+    ('U4 r0 g0.5 backscatter 1', {'Refraction Weight': 0.0, 'Backscattering Weight': 1.0, 'Backscattering Roughness': 0.3}),
+    ('U5 mode 0 r1 backscatter 0.5', {'Base Mixing': 0, 'Glossy Layered Weight': 1.0, 'Backscattering Weight': 0.5, 'Backscattering Roughness': 0.3}),
+    ('U6 mode 1 r1 backscatter 0.5', {'Base Mixing': 1, 'Glossy Layered Weight': 1.0, 'Backscattering Weight': 0.5, 'Backscattering Roughness': 0.3}),
+    ('U7 r1 translucency 0.5', {'Translucency Weight': 0.5, 'Translucency Color': [0.9, 0.6, 0.4]}),
+    ('U8 r1 g0 d0', {'Glossy Weight': 0.0, 'Diffuse Weight': 0.0}),
+])
+for src_p, shown in ((wr_closed, 'Calib-WeightedRefr-Shown'), (wr2, 'Calib-Mi-WeightedRefr2-Shown')):
+    if src_p:
+        d = load(src_p)
+        for m in d['material_library']:
+            for e in m.get('extra', []):
+                for c in e.get('channels', []) or []:
+                    c['channel'].pop('visible', None)
+        p = os.path.join(out_dir, shown + '.duf')
+        open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+        print(p)
 
 # --- Top Coat Bump (#61): DAZ's MDL gives the coat its own normal
 # (`calc_mix_layer_normal`): the Top Coat Bump (height or normal map, by Top

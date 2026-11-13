@@ -1591,6 +1591,27 @@ leaves out, #15):
   alone 1.12 (= Calib-DualLobeGlossy's G2, the same material there), both
   1.03 – 1.11 with any share, a Top Coat, lobe reflectivity 1 or dual lobe
   W 0.5, highlight spread and colour as Iray's (±0.2, G / R ±0.015).
+  **Refraction under weighted mixing** (#154) belongs to `material1`, the
+  gloss part: `normalized_base` lays the refraction (`refraction_base`
+  with the reflection on and full: a plain glass) at Refraction Weight
+  over the glossy BSDF, inside the share Glossy Weight takes, and mixes
+  the diffuse part beside it whole (DAZ's `.mi`: the diffuse stays on at
+  Refraction Weight 1, the glossy goes off; Calib-WeightedRefr, -Thin,
+  Calib-Mi-WeightedRefr2, -3). So `material1` is the glass alone at
+  Refraction Weight 1 - Universal at refraction 1 with the gloss at full
+  weight: `transmission` and `specular` in the glossy colour (× the
+  gloss scale), the Refraction Index, no albedo - or a Mix at the
+  Refraction Weight (its map) of that glass and the metal below 1;
+  `material2` is the diffuse part without refraction (diffuse whole,
+  translucency, dual lobe). The export had put the refraction in
+  `material2` without reflection (diffuse × (1 − r), `specular` 0) and the
+  metal mirror at the full gloss share: at Diffuse 1 / Glossy 0.5 /
+  Refraction 1 a third mirror over a reflection-less glass where Iray
+  has 2/3 diffuse, 1/3 glass. **Diffuse Weight 0**: DAZ switches the
+  diffuse off and the gloss part renders alone at full strength, so
+  `amount` 1 and scale 1 whatever Glossy Weight (U1 / U2; it had taken
+  the gloss at Glossy Weight). Not yet confirmed against Iray (parked
+  Calib-WeightedRefr / -Thin, #154).
 - **Metallic Weight w → `metallic` w² / k, albedo and specular × k,**
   k = 1 − w + w² (a map: squared by twice its gamma, k from the
   channel's value); the glossy excess coating × (1 − w). Iray's metal is a

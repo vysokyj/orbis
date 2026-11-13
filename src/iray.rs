@@ -123,7 +123,11 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     // A layer at full weight covers the diffuse: DAZ switches it off.
     // (Not when a map drives it: Calib-DataGamma's metal maps at weight 1.)
     let full = |w: f32, id: &str| w >= 1.0 && ch.image(id).is_none();
-    let diffuse_on = !full(metallic, "Metallic Weight") && !full(refraction, "Refraction Weight") && !full(backscattering, "Backscattering Weight");
+    // Weighted mixing (2) mixes the diffuse beside the gloss part, which
+    // holds refraction and backscattering: only Diffuse Weight 0 switches
+    // it off (Calib-WeightedRefr W1 / W3 / W6, Calib-Mi-WeightedRefr3 U1 /
+    // U4, #154).
+    let diffuse_on = if mixing == 2 { ch.float("Diffuse Weight", 1.0) > 0.0 } else { !full(metallic, "Metallic Weight") && !full(refraction, "Refraction Weight") && !full(backscattering, "Backscattering Weight") };
     out.insert("diffuse_enable", Arg::Bool(diffuse_on));
     out.insert("diffuse_weight", Arg::Float(if mixing == 2 { ch.float("Diffuse Weight", 1.0) } else { 1.0 }));
 
@@ -132,7 +136,12 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     out.insert("glossy_weight", Arg::Float(if mixing == 2 { weight } else { 0.0 }));
     // A map drives the layered weight, scaled by the value (Calib-Mi-AoA3).
     out.insert("glossy_layered_weight", if mixing == 2 { Arg::Float(1.0) } else { ch.float_or_map("Glossy Layered Weight", 0.0) });
-    out.insert("glossy_enable", Arg::Bool(diffuse_on && weight > 0.0));
+    // Under weighted mixing a full refraction or backscattering covers the
+    // glossy BSDF inside the gloss part (`weighted_layer` at 1): DAZ
+    // switches it off, the diffuse stays (Calib-WeightedRefr W1 / W6,
+    // Calib-Mi-WeightedRefr3 U4, #154).
+    let glossy_on = if mixing == 2 { !full(refraction, "Refraction Weight") && !full(backscattering, "Backscattering Weight") } else { diffuse_on };
+    out.insert("glossy_enable", Arg::Bool(glossy_on && weight > 0.0));
     // Weighted mixing without gloss leaves the colour at the MDL default.
     let colour = if mixing == 2 && weight <= 0.0 { Arg::Color([0.5; 3]) } else { ch.color_or_map("Glossy Color", [1.0; 3], 1.0) };
     out.insert("glossy_color", colour);
@@ -288,7 +297,9 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     // Weighted mixing without gloss: the gloss part isn't passed at all.
     let gloss_part = !(mixing == 2 && weight <= 0.0);
     out.insert("backscattering_weight", Arg::Float(if gloss_part { backscattering } else { 0.5 }));
-    out.insert("backscattering_enable", Arg::Bool(backscattering > 0.0));
+    // A full refraction covers it, in every mixing mode (Calib-Mi-WeightedRefr2
+    // V5, Calib-Mi-WeightedRefr3 U5 / U6, #154).
+    out.insert("backscattering_enable", Arg::Bool(backscattering > 0.0 && !full(refraction, "Refraction Weight")));
     let back_rough = match mixing {
         1 => square_if(1.0 - ch.float("Backscattering Glossiness", 1.0), ch.bool("Glossiness Squared", true)),
         _ => square_if(ch.float("Backscattering Roughness", 0.0), ch.bool("Roughness Squared", true)),

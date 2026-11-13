@@ -39,7 +39,13 @@ Found beyond it:
   (Calib-DualLobeWeighted W2). The dual lobe is passed in every mode
   (Calib-Mi-Mix2 M3).
 - **Diffuse** is switched off (`diffuse_enable` false) when Metallic,
-  Refraction or Backscattering Weight is 1.
+  Refraction or Backscattering Weight is 1 - in Base Mixing 0 and 1. Under
+  weighted mixing (2) only Diffuse Weight 0 switches it off; a full
+  refraction or backscattering switches `glossy_enable` off instead and
+  the diffuse stays (Calib-WeightedRefr W1 - W8, Calib-Mi-WeightedRefr3
+  U1 / U2 / U4, #154). A full refraction also switches
+  `backscattering_enable` off, in every mode (Calib-Mi-WeightedRefr2 V5,
+  -3 U5 / U6).
 - **Metal hue:** `metallic_directional_color_enable` only for a coloured
   base; a grey metal has no directional tint.
 - **Dual Lobe Specular Weight** goes to both `dual_lobe_specular_weight`
@@ -263,7 +269,15 @@ A `normalized_mix` of two parts: the diffuse (+ dual lobe) at
 Diffuse Weight and the "gloss" at Glossy Weight, where the gloss is a
 plain glossy BSDF (no Fresnel, no curve), backscattering over it and
 refraction over that. `normalized_mix` scales the weights down only when
-they sum past 1; below 1 the rest is black.
+they sum past 1; below 1 the rest is black. Without the diffuse
+(`diffuse_enable` off: Diffuse Weight 0) the gloss part alone, at full
+strength whatever Glossy Weight. The refraction is `refraction_base(...,
+true, true, 1, ...)`: a plain glass (Fresnel reflection and transmission
+at the Refraction Index, in the glossy colour when inputs are shared) at
+Refraction Weight over the glossy BSDF - at Refraction Weight 1 the gloss
+part is that glass alone (DAZ switches the glossy off) while the diffuse
+keeps its share: a weighted glass at Diffuse 1 / Glossy 0.5 is 2/3
+diffuse, 1/3 glass (Calib-WeightedRefr, #154).
 
 ## Top Coat (`add_top_coat`)
 
