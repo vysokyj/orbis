@@ -1098,7 +1098,10 @@ leaves out, #15):
   (`Material::detail_roughness_mult`; a map on the multiplier counts by
   its value). DAZ hands all of these over as saved
   (Calib-PBRSkin-Occlusion's `.mi`, a map on the occlusion weight as the
-  map).
+  map). Checked against Iray (Calib-PBRSkin-Occlusion, enhanced-final,
+  denoised): O2 - O5 mean within 0.92 - 1.02 of the unoccluded sphere's
+  Octane / Iray, Detail roughness 0.5's peak 2.09 × vs Iray's 1.99 ×; the
+  mapped occlusion weight is the known gap (#158).
 - **PBRSkin Detail Normal Map** (#140, from `pbr_skin.mdl`'s
   `pbr_detail_normal`, no fit): under `Detail Enable`, in `Detail Normal
   Map Mode` 1 (a tangent-space normal map), the detail map — tiled by
