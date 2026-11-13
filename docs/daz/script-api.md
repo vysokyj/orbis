@@ -36,6 +36,15 @@ generated from the docs, so undocumented members may be missing.
   list: Content Directory Manager, `NumMDLDirs` / `MDLDir<i>` in the
   preferences). Iray picks the new path up from a posted event, so call
   `processEvents()` before opening a scene that needs it.
+- `Scene.clear()` (and `openFile(path, false)`, which clears first)
+  tears the old scene's Iray data down in the background. A scene opened
+  right after one that used the same shader brick (PBRSkin after PBRSkin)
+  binds to the module still being released: `DzMIExporter` then writes
+  those surfaces as a default Iray Uber, nothing in the log, and
+  re-exporting the open scene doesn't help (#153). `sleep(2000)` after the
+  clear cures it, `processEvents()` doesn't; `daz-export-mi.dsa` waits,
+  checks and reopens. Iray Server renders through the queue were not hit
+  (seven PBRSkin scenes in a row, identical skin).
 - `Scene.getFilename()` (`""` when never saved), `Scene.needsSave()`,
   `Scene.getNumNodes()` / `getNode(i)`.
 - `Scene.saveScene(filename)` saves there without asking (and makes it the

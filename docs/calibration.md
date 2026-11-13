@@ -21,7 +21,8 @@ fix has to hold on scenes built to test exactly that.
 **What DAZ hands Iray is read, not fitted.** DAZ's own `.mi` export of the
 calibration scenes says exactly which MDL parameters it computes from the
 channels (`scripts/dev/daz-export-mi.dsa` → `scripts/dev/mi-oracle.py` →
-`calib/references/mi/*.json`). Those conversions live in `src/iray.rs`,
+`calib/references/mi/*.json`; `scripts/dev/mi-audit.py` checks that each
+fixture kept its scene's shader bricks, #153). Those conversions live in `src/iray.rs`,
 tested against every fixture; they outrank any calibration result.
 Calibration tunes only the Octane side — how Octane renders those
 parameters. A render that seems to contradict `src/iray.rs` points at the

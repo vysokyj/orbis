@@ -316,20 +316,41 @@ def parse(path):
     return scene
 
 
+def audit():
+    """mi-audit.py's audit(name, fixture): the surfaces whose shader the
+    .mi lost (#153)."""
+    import importlib.util
+    here = os.path.dirname(os.path.abspath(__file__))
+    spec = importlib.util.spec_from_file_location("mi_audit", os.path.join(here, "mi-audit.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.audit
+
+
 def main(argv):
     out_dir = None
     if argv[:1] == ["--out"]:
         out_dir, argv = argv[1], argv[2:]
+    check = audit() if out_dir else None
+    refused = 0
     for path in argv:
         scene = parse(path)
         text = json.dumps(scene, indent=1, sort_keys=True) + "\n"
         if out_dir:
             name = os.path.basename(path)[: -len(".mi")]
+            bad = check(name, scene)
+            if bad:
+                # A wrong fixture would verify src/iray.rs against the wrong
+                # material: export the scene again in a DAZ run of its own.
+                sys.stderr.write("mi-oracle: %s not written, %d surface(s) lost their shader (#153):\n  %s\n" % (name, len(bad), "\n  ".join(bad)))
+                refused += 1
+                continue
             with open(os.path.join(out_dir, name + ".json"), "w") as f:
                 f.write(text)
         else:
             sys.stdout.write(text)
+    return 1 if refused else 0
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    sys.exit(main(sys.argv[1:]))

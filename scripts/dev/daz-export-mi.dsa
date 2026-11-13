@@ -31,17 +31,88 @@
     for (var e = 0; e < oMgr.getNumExporters(); e++) {
         if (oMgr.getExporter(e).className() == "DzMIExporter") oExporter = oMgr.getExporter(e);
     }
+    // #153: a scene exported right after a scene that used the same shader
+    // brick (PBRSkin after PBRSkin) got every such surface as a default
+    // Iray Uber or an empty pass_material, nothing in DAZ's log: the
+    // previous scene's Iray data is torn down in the background after
+    // Scene.clear(), and a module still being released is skipped. Waiting
+    // cures it (2 s did; processEvents() alone did not), so wait after each
+    // clear, and check the export: shader bricks in the scene (other than
+    // those DAZ hands Iray as Uber) need a module beyond the Uber's in the
+    // .shader_decl.mi. A scene loaded too early stays wrong however long
+    // one waits before exporting again, so clear, wait longer, reopen; in
+    // the end remove the .mi and say FAILED rather than leave a wrong
+    // fixture (mi-oracle.py checks each surface too: mi-audit.py).
+    var aAsUber = ["AoA_Subsurface"];
+    var aUberModules = ["base.mdl", "state.mdl", "math.mdl", "daz_3d::irayubermaterial.mdl", "daz_3d::basic.mdl"];
+    function has(a, x) {
+        for (var h = 0; h < a.length; h++) if (a[h] == x) return true;
+        return false;
+    }
+    function bricks() {
+        var aOut = [];
+        for (var n = 0; n < Scene.getNumNodes(); n++) {
+            var oObj = Scene.getNode(n).getObject();
+            var oShape = oObj ? oObj.getCurrentShape() : null;
+            for (var m = 0; oShape && m < oShape.getNumMaterials(); m++) {
+                var oMat = oShape.getMaterial(m);
+                if (oMat.className() != "DzBrickMaterial") continue;
+                var sMat = oMat.getMaterialName();
+                if (!has(aAsUber, sMat) && !has(aOut, sMat)) aOut.push(sMat);
+            }
+        }
+        return aOut;
+    }
+    function brickModules(sMi) {
+        var f = new DzFile(sMi.replace(/\.mi$/, ".shader_decl.mi"));
+        if (!f.open(DzFile.ReadOnly)) return [];
+        var aLines = String(f.read()).split("\n"), aOut = [];
+        f.close();
+        for (var l = 0; l < aLines.length; l++) {
+            var aM = aLines[l].match(/\$include "([^"]+)"/);
+            if (aM && !has(aUberModules, aM[1])) aOut.push(aM[1]);
+        }
+        return aOut;
+    }
+    function settle(ms) {
+        sleep(ms);
+        processEvents();
+    }
+    var nFailed = 0;
     for (var k = 0; oExporter && k < aScenes.length; k++) {
         var sName = aScenes[k].replace(/^.*\//, "").replace(/\.duf$/, "");
-        if (!oContent.openFile(aScenes[k], false)) { log(sName + ": not opened"); continue; }
         var sMi = sOut + "/" + sName + ".mi";
-        var oResult = oExporter.writeFile(sMi);
-        log(sName + ": " + oResult + ", " + (new DzFile(sMi).exists() ? "written" : "missing"));
+        var aBricks = [], oResult, aModules = [], bOpened = false;
+        for (var iTry = 0; iTry < 3; iTry++) {
+            if (iTry > 0) {
+                Scene.clear();
+                settle(5000);
+            }
+            bOpened = oContent.openFile(aScenes[k], false);
+            if (!bOpened) break;
+            aBricks = bricks();
+            oResult = oExporter.writeFile(sMi);
+            aModules = brickModules(sMi);
+            if (aBricks.length == 0 || aModules.length > 0) break;
+            log(sName + ": bricks " + aBricks.join(", ") + " but no brick module in the .mi (try " + (iTry + 1) + ")");
+        }
+        if (!bOpened) {
+            log(sName + ": FAILED - not opened");
+            nFailed++;
+        } else if (aBricks.length > 0 && aModules.length == 0) {
+            new DzFile(sMi).remove();
+            new DzFile(sMi.replace(/\.mi$/, ".shader_decl.mi")).remove();
+            log(sName + ": FAILED - shader bricks exported as Uber (#153), .mi removed");
+            nFailed++;
+        } else {
+            log(sName + ": " + oResult + ", " + (new DzFile(sMi).exists() ? "written" : "missing") + (aModules.length ? " (" + aModules.join(", ") + ")" : ""));
+        }
         Scene.clear();
+        settle(2000);
     }
     var f = new DzFile(sOut + "/export-mi.done");
     f.open(DzFile.WriteOnly | DzFile.Truncate);
-    f.write((oExporter ? "" : "no DzMIExporter\n") + sLog);
+    f.write((oExporter ? "" : "no DzMIExporter\n") + (nFailed ? "FAILED " + nFailed + "\n" : "") + sLog);
     f.close();
     App.delayedExit();
 })();
