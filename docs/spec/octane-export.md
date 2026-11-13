@@ -2245,7 +2245,19 @@ leaves out, #15):
     totally reflected one reflects) — with the lobe's own loss measured
     (`ARCH_GLASS_LOBE`, by refr_gloss 0 / 0.2 / 0.4 / 0.6 / 1: 0.512 /
     0.614 / 0.938 / 0.964 / 1.000, Calib-Furnace-ArchGlass G5 – G1,
-    reflectivity 0); Octane = the coating at its IOR, the lobe Beckmann at
+    reflectivity 0, refr_ior 1.5) — τ solved on the lobe at the IOR the
+    table was measured at (1.5; resin's `RESIN_LOBE` at its Coat IOR
+    1.49), then the stack traced at the material's refr_ior with it (#148:
+    `libbsdf`'s closed lobe itself loses more with the IOR — total
+    reflection, longer bent paths — and τ solved at the material's IOR
+    absorbed that: k 0.81 / 0.85 / 0.93 at IOR 1.2 / 1.5 / 2, Octane /
+    Iray disk 0.89 / 1.05 / 1.32 on Calib-Furnace-ArchGlass2 H6 / H2 / H7;
+    held at 1.5, k 0.86 / 0.85 / 0.85 and 1.01 / 1.05 / 1.10). The rest
+    splits into Octane over its Smith model (1.03 / 1.04 / 1.04, flat in
+    the IOR) and Iray under `libbsdf` × τ (0.98 / 1.02 / 1.06): Iray's own
+    loss grows a little with the IOR beyond `libbsdf`'s, which two IORs
+    don't pin down (#117's Calib-Furnace-MdlTir decides it, not a fitted
+    IOR curve); Octane = the coating at its IOR, the lobe Beckmann at
     α r_t, Smith, physical layering. Reflectivity 0, refr_gloss 0.6 / 0.4
     / 0.2 / 0: k 0.98 / 0.97 / 0.85 / 0.93 (Octane caps α at 1 too); 0.2
     under reflectivity 0.6 0.85, with the Fresnel term 0.73. Why: the
@@ -2306,8 +2318,8 @@ leaves out, #15):
     the glass went out as a refracting solid and H4 / H5 rendered as the
     closed H2 / H3 (0.729 → 0.507 centre to rim v Iray's flat 0.52 / 0.39);
     now Octane / Iray 1.02 / 1.01 on the disk, 0.99 – 1.03 per ring
-    (enhanced-final, denoised; #147). The IOR-dependence of the closed
-    lobe's τ (#148) doesn't reach a thin wall: its lobe never refracts.
+    (enhanced-final, denoised; #147), unchanged by #148 (τ on a thin
+    wall doesn't depend on the IOR: its lobe never refracts).
     Calib-NVIDIA3 (Iray 5000, Octane 1024; floor 1.04), disk before →
     after: glossiness 0.15 0.97 → 1.05, 0.3 0.89 → 1.01, 0.5 1.01 → 1.05,
     0.7 1.04 → 1.05; glass refr_gloss 1 1.04, 0.6 1.06 → 1.01, 0.2 1.67 →

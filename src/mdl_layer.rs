@@ -344,8 +344,17 @@ pub fn tint_factor(iray: &Stack, octane: &Stack, tint: [f32; 3]) -> [f32; 3] {
 /// is solved on it: at refr_gloss 0 `libbsdf`'s thin model rises towards
 /// the rim (0.43 → 0.58) where Iray stays at 0.386, and τ solved on the
 /// disk left the whole sphere 1.13 × Iray's.
-pub fn tint_factor_measured(iray: &Stack, octane: &Stack, lobe_albedo: f64, tint: [f32; 3]) -> [f32; 3] {
-    let lobe = sphere_paths_disk(Model::Libbsdf, &Stack { weight: 0.0, ..*iray }, if iray.thin { 1.0 } else { 0.75 });
+///
+/// `lobe_ior` is the IOR `lobe_albedo` was measured at: τ is solved on the
+/// lobe of that IOR (a closed sphere's `libbsdf` lobe itself loses more
+/// with the IOR, to total internal reflection and the bent paths), then
+/// the material's own stack is traced with it (#148: solved at the
+/// material's IOR, τ absorbed `libbsdf`'s own IOR dependence and
+/// Calib-Furnace-ArchGlass2's IOR 1.2 / 2 spheres came out 0.89 / 1.32 ×
+/// Iray). A thin wall's lobe never bends, so there τ doesn't depend on it.
+pub fn tint_factor_measured(iray: &Stack, octane: &Stack, lobe_albedo: f64, lobe_ior: f64, tint: [f32; 3]) -> [f32; 3] {
+    let ior = if iray.thin { iray.ior } else { lobe_ior.max(1.0001) };
+    let lobe = sphere_paths_disk(Model::Libbsdf, &Stack { weight: 0.0, ior, ..*iray }, if iray.thin { 1.0 } else { 0.75 });
     let tau = if albedo(&lobe, 1.0) <= lobe_albedo { 1.0 } else { solve(|t| albedo(&lobe, t), lobe_albedo) };
     let ip = sphere_paths(Model::Libbsdf, iray);
     let op = sphere_paths(Model::Smith, octane);
@@ -429,8 +438,8 @@ mod tests {
         let sch = Curve::Schlick { r0: 0.2, r90: 1.0, exponent: 5.0 };
         let iray = |curve| Stack { weight: 0.6, curve, coat_rough: 0.0, base: Scatter::Transmit, base_rough: 0.5, ior: 1.5, thin: false };
         let octane = |s: Stack| Stack { curve: Curve::Fresnel(2.618), ..s };
-        let ks = tint_factor_measured(&iray(sch), &octane(iray(sch)), 0.614, [1.0; 3]);
-        let kf = tint_factor_measured(&iray(Curve::Fresnel(1.5)), &octane(iray(Curve::Fresnel(1.5))), 0.614, [1.0; 3]);
+        let ks = tint_factor_measured(&iray(sch), &octane(iray(sch)), 0.614, 1.5, [1.0; 3]);
+        let kf = tint_factor_measured(&iray(Curve::Fresnel(1.5)), &octane(iray(Curve::Fresnel(1.5))), 0.614, 1.5, [1.0; 3]);
         assert!((0.8..0.9).contains(&ks[0]) && kf[0] < ks[0] - 0.05, "{ks:?} {kf:?}");
         // The lobe's measured loss only lowers it.
         assert!(tint_factor(&iray(sch), &octane(iray(sch)), [1.0; 3])[0] > ks[0]);
@@ -449,7 +458,7 @@ mod tests {
         // A coat on a thin wall reflects off both faces at the IOR from
         // outside; the tint then makes up only what the lobe loses.
         let coated = Stack { weight: 0.6, ..s(0.0) };
-        let k = tint_factor_measured(&coated, &coated, 0.505, [1.0; 3]);
+        let k = tint_factor_measured(&coated, &coated, 0.505, 1.5, [1.0; 3]);
         assert!((0.6..0.8).contains(&k[0]), "{k:?}");
     }
 }

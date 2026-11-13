@@ -961,7 +961,7 @@ fn resin_lobe_albedo(r: f32, weight: f32, ior: f32, tint: [f32; 3]) -> [f32; 3] 
     let (r, weight, ior) = (r.max(0.0) as f64, weight.clamp(0.0, 1.0) as f64, (ior as f64).max(1.0001));
     let pin = phong_pin(r as f32) as f64;
     let stack = |rough: f64| Stack { weight, curve: Curve::Fresnel(ior), coat_rough: rough, base: Scatter::ReflectTransmit, base_rough: rough, ior, thin: false };
-    crate::mdl_layer::tint_factor_measured(&stack(r), &stack(pin * pin), crate::mdl_layer::interp(&RESIN_LOBE, r), tint)
+    crate::mdl_layer::tint_factor_measured(&stack(r), &stack(pin * pin), crate::mdl_layer::interp(&RESIN_LOBE, r), RESIN_LOBE_IOR, tint)
 }
 
 /// What Iray's resin base lobe alone keeps (`simple_glossy_bsdf`,
@@ -973,6 +973,9 @@ fn resin_lobe_albedo(r: f32, weight: f32, ior: f32, tint: [f32; 3]) -> [f32; 3] 
 /// the Uber keeps `libbsdf`'s value (Calib-Furnace-UberGlass, #116). With it the `libbsdf` layering predicts the coated
 /// spheres (grey r 0.1 0.605 v Iray 0.605, r 0.25 0.473 v 0.473).
 const RESIN_LOBE: [(f64, f64); 6] = [(0.02, 0.971), (0.1, 0.963), (0.25, 0.920), (0.5, 0.678), (0.75, 0.462), (1.0, 0.324)];
+
+/// The IOR `RESIN_LOBE` was measured at (the preset's Coat IOR, #148).
+const RESIN_LOBE_IOR: f64 = 1.49;
 
 /// The NVIDIA dielectric a brick shader renders with, its parameters from
 /// the shader's channels and the MDL defaults (`nvidia/<module>.mdl`).
@@ -1184,7 +1187,7 @@ fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, ref
     };
     let octane = Stack { curve: Curve::Fresnel((coat_ior as f64).max(1.0001)), ..iray };
     let lobe = if thin { &ARCH_GLASS_THIN_LOBE[..] } else { &ARCH_GLASS_LOBE[..] };
-    crate::mdl_layer::tint_factor_measured(&iray, &octane, crate::mdl_layer::interp(lobe, refr_gloss as f64), colour)
+    crate::mdl_layer::tint_factor_measured(&iray, &octane, crate::mdl_layer::interp(lobe, refr_gloss as f64), ARCH_GLASS_LOBE_IOR, colour)
 }
 
 /// What Iray's architectural transmit lobe alone keeps (reflectivity 0,
@@ -1198,6 +1201,9 @@ fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, ref
 /// predicts the coated spheres (refr_gloss 0.2 under reflectivity 0.6:
 /// Schlick 0.657 v Iray 0.655, Fresnel term 0.421 v 0.416).
 const ARCH_GLASS_LOBE: [(f64, f64); 5] = [(0.0, 0.512), (0.2, 0.614), (0.4, 0.938), (0.6, 0.964), (1.0, 1.0)];
+
+/// The refr_ior `ARCH_GLASS_LOBE` was measured at (G1 – G5, #148).
+const ARCH_GLASS_LOBE_IOR: f64 = 1.5;
 
 /// `ARCH_GLASS_LOBE` for a thin-walled sphere (two walls, no bending):
 /// Calib-Furnace-ArchGlass2 H5 / H4 (refr_gloss 0 / 0.2, Iray Server 5000,
@@ -6859,6 +6865,12 @@ mod tests {
         assert_eq!(pin(&x, "roughness"), num(rr.sqrt()), "{x}");
         let k = arch_glass_albedo(rr, 0.2, 1.5, 0.6, 0.0, (1.0 + 0.2f32.sqrt()) / (1.0 - 0.2f32.sqrt()), Some((0.2, 1.0, 5.0)), false, [1.0; 3]);
         assert!((0.8..0.92).contains(&k[0]), "{k:?}");
+        // The lobe's τ is solved at the IOR it was measured at (#148): both
+        // models lose alike with the IOR, so the factor barely moves (solved
+        // at the material's IOR it went 0.81 / 0.85 / 0.93 at IOR 1.2 / 1.5 /
+        // 2, Calib-Furnace-ArchGlass2 H6 / H2 / H7 0.89 / 1.05 / 1.32 × Iray).
+        let at = |ior: f32| arch_glass_albedo(rr, 0.2, ior, 0.0, 0.0, 1.5, None, false, [1.0; 3])[0];
+        assert!(at(1.2) >= at(1.5) && at(1.5) >= at(2.0) && at(1.2) - at(2.0) < 0.03, "{} {} {}", at(1.2), at(1.5), at(2.0));
         assert_eq!(pin(&x, "transmission"), format!("{} {} {}", num(k[0]), num(k[1]), num(k[2])), "{x}");
         assert_eq!(pin(&x, "ior"), num(1.5), "{x}");
         assert!(x.contains("<pin name='coating'>") && x.contains("<pin name='transmission'>"), "{x}");
