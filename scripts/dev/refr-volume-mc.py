@@ -3,6 +3,7 @@
 
   python3 scripts/dev/refr-volume-mc.py [--paths N] [--radius cm] [--scale s] [--iso] [--inner ior] <scene.duf>...
   python3 scripts/dev/refr-volume-mc.py --measure <render.png>...
+      (each render in the export's own pass, scripts/dev/octane_pass.py, #139)
 
 DAZ's MDL (`irayubermaterial.mdl`): Refraction Weight 1 with the glossy
 layer shared is a smooth dielectric at Refraction Index (Fresnel both ways,
@@ -125,8 +126,11 @@ def escape(sa, ss, g, ior, R, N, box=0.6, inner=None):
 
 def measure(paths):
     from PIL import Image
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import octane_pass
     for path in paths:
-        a = (np.asarray(Image.open(path).convert('RGB')).astype(float) / 255) ** 2.2
+        src, label = octane_pass.pick(path)
+        a = (np.asarray(Image.open(src).convert('RGB')).astype(float) / 255) ** 2.2
         bg = np.median(a[: a.shape[0] // 10].reshape(-1, 3), axis=0)
         # The spheres: whatever differs from the dome, grouped by columns.
         mask = np.abs(a - bg).max(-1) > 0.1 * max(bg.max(), 1e-3)
@@ -146,7 +150,7 @@ def measure(paths):
         for y0, y1, x0, x1 in boxes:
             m = a[y0:y1, x0:x1].reshape(-1, 3).mean(0) / np.maximum(bg, 1e-6)
             cells.append(' / '.join(f'{x:.3f}' for x in m))
-        print(f'{os.path.basename(path)} (dome {bg[0]:.3f})')
+        print(f'{os.path.basename(path)} [{label}] (dome {bg[0]:.3f})')
         for k, c in enumerate(cells):
             print(f'  {k + 1}: {c}')
 

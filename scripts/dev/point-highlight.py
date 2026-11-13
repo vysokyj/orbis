@@ -5,13 +5,19 @@ the peak, and width x height (px) of the run through the peak above 0.3 /
 at Calib-Furnace-Metal's framing.
 
   python3 scripts/dev/point-highlight.py <render.png>...
+
+Each render is read in the export's own pass (scripts/dev/octane_pass.py:
+the `denoised/` twin when the variant denoises, #139), named in the output.
 """
 import sys
 if any(a in ('-h', '--help') for a in sys.argv[1:]):
     print(__doc__)
     sys.exit(0)
+import os
 import numpy as np
 from PIL import Image
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import octane_pass
 
 Y = np.array([0.2126, 0.7152, 0.0722])
 XS = [424, 577, 730, 883, 1035, 1188, 1342, 1495]
@@ -28,7 +34,8 @@ def run(line, c):
 
 
 for p in sys.argv[1:]:
-    L = (np.asarray(Image.open(p).convert('RGB')).astype(float) / 255) ** 2.2 @ Y
+    src, label = octane_pass.pick(p)
+    L = (np.asarray(Image.open(src).convert('RGB')).astype(float) / 255) ** 2.2 @ Y
     out = []
     for k, cx in enumerate(XS):
         win = L[515:607, cx - 46:cx + 46]
@@ -39,5 +46,5 @@ for p in sys.argv[1:]:
             m = win > lv * pk
             cells.append(f'{run(m[iy], ix)}x{run(m[:, ix], iy)}')
         out.append(f'S{k + 1} {pk:.3f} ' + ' '.join(cells))
-    print(p.split('/')[-1])
+    print(f"{p.split('/')[-1]} [{label}]")
     print('  ' + ' | '.join(out))

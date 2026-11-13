@@ -8,7 +8,11 @@ Iray: ~/Library/Caches/orbis/calib/iray/<scene>.png (scripts/dev/calib-render.py
 Octane: <octane dir>/<scene>[__<hypothesis>].png (scripts/dev/octane-render.sh,
 default ~/Library/Caches/orbis/calib/octane). Both are decoded to linear with gamma
 2.2 (Iray's Gamma 2.2 tone mapping, the export's Gamma 2.2 response) and
-compared as Octane / Iray luminance per region:
+compared as Octane / Iray luminance per region. The Octane pass is the
+export's product (scripts/dev/octane_pass.py: the `denoised/` twin for a
+variant with the denoiser on, the raw image for one without; `raw*` = a
+denoised pass was expected and is missing); the report says per scene which
+one it read, and Iray's Post Denoiser (renders.tsv):
 
 - sphere scenes (Calib-PBRSkin, -Glossy, -SSS, -Tone-*, -DOF-*, -SpecMode, …): each sphere,
   found in Calib-Glossy's Iray render (the spheres are red there), and the
@@ -22,6 +26,8 @@ Writes <octane dir>/compare/<scene>.png (Iray | Octane) beside the report.
 import glob, math, os, sys
 import numpy as np
 from PIL import Image, ImageDraw
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import octane_pass
 
 home = os.path.expanduser('~/Library/Caches/orbis/calib')
 iray_dir = os.path.join(home, 'iray')
@@ -100,7 +106,8 @@ for opath in sorted(glob.glob(os.path.join(oct_dir, 'Calib-*.png'))):
     ipath = os.path.join(iray_dir, name.split('__')[0] + '.png')
     if not os.path.exists(ipath):
         continue
-    i, o = load(ipath), load(opath)
+    src, pass_label = octane_pass.pick(opath)
+    i, o = load(ipath), load(src)
     if o.shape != i.shape:
         o = np.asarray(Image.fromarray((o * 255).astype(np.uint8)).resize(i.shape[1::-1])).astype(float) / 255
     cells = []
@@ -120,7 +127,7 @@ for opath in sorted(glob.glob(os.path.join(oct_dir, 'Calib-*.png'))):
     else:
         r = ratio(o, i, (0, i.shape[0], 0, i.shape[1]))
         cells.append(f'frame {r:.2f}' if r else 'frame –')
-    rows.append((name, cells))
+    rows.append((name, pass_label, octane_pass.iray_denoiser(name.split('__')[0]), cells))
     w = 960
     a = Image.fromarray((i * 255).astype(np.uint8)).resize((w, w * i.shape[0] // i.shape[1]))
     b = Image.fromarray((o * 255).astype(np.uint8)).resize(a.size)
@@ -132,6 +139,7 @@ for opath in sorted(glob.glob(os.path.join(oct_dir, 'Calib-*.png'))):
 
 print('# Calibration: Octane / Iray (linear luminance)\n')
 print(f'{len(rows)} scenes with both renders; 1.00 = equal. Side by side: `{out_dir}`.\n')
-print('| scene | Octane / Iray |\n|---|---|')
-for name, cells in rows:
-    print(f'| {name} | {"; ".join(cells)} |')
+print(octane_pass.summary([r[1] for r in rows]) + '.\n')
+print('| scene | Octane pass | Iray denoiser | Octane / Iray |\n|---|---|---|---|')
+for name, pass_label, iray_dn, cells in rows:
+    print(f'| {name} | {pass_label} | {iray_dn} | {"; ".join(cells)} |')

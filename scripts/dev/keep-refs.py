@@ -7,7 +7,8 @@
 
 Copies each render into calib/references/iray/ and records how it was made in
 calib/references/iray/renders.tsv (samples, time cap, renderer, date, render
-time). Only scenes that are in calib/scenes are taken (generated from scratch,
+time, and `denoiser`: DAZ's Post Denoiser as the copy had it, `on@<start
+iteration>` or `off` - the compare scripts read Octane's matching pass, #139). Only scenes that are in calib/scenes are taken (generated from scratch,
 DAZ built-ins and primitives only); every other render is skipped, so a
 user's own scene or DAZ Store content never gets into the repo. A render with
 fewer samples than the one already kept is skipped too.
@@ -32,7 +33,7 @@ repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 scenes = os.path.join(repo, 'calib', 'scenes')
 refs = os.path.join(repo, 'calib', 'references', 'iray')
 calib = os.path.expanduser('~/Library/Caches/orbis/calib')
-FIELDS = ['scene', 'samples', 'max_time', 'renderer', 'rendered', 'seconds']
+FIELDS = ['scene', 'samples', 'max_time', 'renderer', 'rendered', 'seconds', 'denoiser']
 
 args = sys.argv[1:]
 demo = '--demo' in args
@@ -64,13 +65,21 @@ def caps(p):
     found = {}
     def walk(v):
         if isinstance(v, dict):
-            if v.get('id') in ('Max Samples', 'Max Time'): found[v['id']] = v.get('current_value', v.get('value'))
+            if v.get('id') in ('Max Samples', 'Max Time', 'Post Denoiser Enable', 'Post Denoiser Start Iteration'):
+                found[v['id']] = v.get('current_value', v.get('value'))
             for x in v.values(): walk(x)
         elif isinstance(v, list):
             for x in v: walk(x)
     for e in load(p)['scene'].get('extra', []):
         if e.get('type') == 'studio_render_settings': walk(e)
     return found
+
+
+def denoiser(c):
+    # Iray's Post Denoiser, as the render's copy had it (#139).
+    if 'Post Denoiser Enable' not in c:
+        return '?'
+    return f"on@{c.get('Post Denoiser Start Iteration', '?')}" if c['Post Denoiser Enable'] else 'off'
 
 
 def seconds(name, png):
@@ -131,7 +140,7 @@ for png in pngs:
     shutil.copyfile(png, dst)
     rows[name] = {'scene': name, 'samples': samples, 'max_time': c.get('Max Time', ''), 'renderer': renderer,
                   'rendered': datetime.datetime.fromtimestamp(os.path.getmtime(png)).strftime('%Y-%m-%d %H:%M'),
-                  'seconds': seconds(name, png)}
+                  'seconds': seconds(name, png), 'denoiser': denoiser(c)}
     if demo:
         rows[name]['scene_sha256'] = demo_lib.sha256(demo_lib.copy_path(name))
     changed += 1

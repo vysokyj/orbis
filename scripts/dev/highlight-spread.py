@@ -5,6 +5,8 @@ eight spheres (the disc found from Calib-Glossy's red Iray spheres), lower
 
   python3 scripts/dev/highlight-spread.py [--vs <iray.png>] <render.png>...
 --vs adds each sphere's mean luminance over the reference's (render / Iray).
+Each render is read in the export's own pass (scripts/dev/octane_pass.py:
+the `denoised/` twin when the variant denoises, #139), named in the output.
 """
 import sys as _sys
 if any(a in ('-h', '--help') for a in _sys.argv[1:]):
@@ -13,6 +15,8 @@ if any(a in ('-h', '--help') for a in _sys.argv[1:]):
 import os, sys
 import numpy as np
 from PIL import Image
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import octane_pass
 
 iray = os.path.expanduser('~/Library/Caches/orbis/calib/iray')
 ref = os.path.join(os.path.dirname(__file__), '..', '..', 'calib', 'references', 'iray', 'Calib-Glossy.png')
@@ -41,12 +45,13 @@ vs = None
 if args[:1] == ['--vs']:
     vs, args = load(args[1]) @ Y, args[2:]
 for p in args:
-    L = load(p) @ Y
+    src, label = octane_pass.pick(p)
+    L = load(src) @ Y
     spread, ratio = [], []
     for cx, cy, r in discs:
         m = (np.hypot(xx - cx, yy - cy) < 0.9 * r) & (yy < cy + 0.3 * r)
         spread.append(np.percentile(L[m], 99) / np.median(L[m]))
         if vs is not None:
             ratio.append(L[m].mean() / vs[m].mean())
-    print(f"{os.path.basename(p)}: spread " + ' '.join(f'{x:.1f}' for x in spread)
+    print(f"{os.path.basename(p)} [{label}]: spread " + ' '.join(f'{x:.1f}' for x in spread)
           + ('' if vs is None else '; / Iray ' + ' '.join(f'{x:.2f}' for x in ratio)))

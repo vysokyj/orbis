@@ -177,11 +177,18 @@ where a script maps that folder as an MDL directory (`daz-export-mi.dsa`,
    <scene.orbx>…` renders each export as exported, unattended (Octane X is
    driven through its Script menu). `<scene>.png` is the raw beauty; a
    Final export (denoiser on) also gets `denoised/<scene>.png`. Iray's
-   references are denoised: judge texture, grain or highlight peaks on
-   the denoised pass (2026-11-12 skin texture contrast, #47).
+   references are denoised (renders.tsv's `denoiser`, DAZ's Post Denoiser
+   from iteration 8 in every one): judge texture, grain or highlight peaks
+   on the denoised pass (2026-11-12 skin texture contrast, #47).
 5. **Compare** — `scripts/dev/calib-compare-all.py <octane dir>`: Octane /
    Iray in linear luminance per sphere, light region or frame, plus side-by-
-   side images. 1.00 = equal.
+   side images. 1.00 = equal. Every compare script reads the export's own
+   product through `scripts/dev/octane_pass.py`: the `denoised/` twin for a
+   variant whose `denoiser` is on in `src/tuning.rs` (or, outside a variant
+   directory, when the twin is there), the raw image for one without, and
+   says which per render; `raw*` marks a denoised pass that should exist
+   and doesn't (grain-sensitive numbers not comparable). `ORBIS_PASS=raw`
+   / `denoised` forces one (#139).
    **Per variant** — `scripts/dev/calib-variants.sh [-s samples]
    <variant>… -- <scene>…` (`enhanced-final`, `faithful-final`,
    `enhanced-preview`, `faithful-preview` or `all`) re-exports the scenes

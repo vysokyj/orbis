@@ -11,7 +11,8 @@
       (offset / radius, theta_d = the half angle between view and light at
       a peak, where n = h). Discs are found in the Iray render of <bare>
       itself (all spheres matte), not from Calib-Glossy (#146). Gamma 2.2
-      decode; a render dir's `denoised/` twin is used when it exists (#139).
+      decode; Octane in the export's own pass (scripts/dev/octane_pass.py:
+      the `denoised/` twin when the variant denoises, #139), named first.
   gloss-split.py fresnel
       Universal's physical Fresnel at the IOR of F0 = 0.08 r against the
       MDL's Schlick curve F0 + (1 - F0)(1 - cos)^5, per angle and over the
@@ -35,11 +36,14 @@ import numpy as np
 Y = np.array([0.2126, 0.7152, 0.0722])
 
 
-def load(p):
+def load(p, octane=False):
     from PIL import Image
-    d, f = os.path.split(p)
-    q = os.path.join(d, 'denoised', f)
-    return (np.asarray(Image.open(q if os.path.exists(q) else p).convert('RGB')).astype(float) / 255) ** 2.2
+    if octane:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import octane_pass
+        p, label = octane_pass.pick(p)
+        print(f'{os.path.basename(p)}: Octane pass {label}')
+    return (np.asarray(Image.open(p).convert('RGB')).astype(float) / 255) ** 2.2
 
 
 def find_discs(img):
@@ -79,7 +83,7 @@ def measure(od, idir, scene, bare, region):
     yy, xx = np.mgrid[0:bI.shape[0], 0:bI.shape[1]]
     out = {}
     for name, d in (('O', od), ('I', idir)):
-        S, B = load(os.path.join(d, scene + '.png')), load(os.path.join(d, bare + '.png'))
+        S, B = load(os.path.join(d, scene + '.png'), name == 'O'), load(os.path.join(d, bare + '.png'), name == 'O')
         den = B[..., 0] - B[..., 1]
         ok = np.abs(den) > 0.01
         gmap = S[..., 0] - np.where(ok, (S[..., 0] - S[..., 1]) / np.where(ok, den, 1), 1) * B[..., 0]

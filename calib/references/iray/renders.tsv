@@ -1,270 +1,270 @@
-scene	samples	max_time	renderer	rendered	seconds
-Calib-Aniso	5000	0	Iray Server (Boost for Daz)	2026-10-30 03:15	104
-Calib-Aniso2	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:04	116
-Calib-ArchGlass	5000	0	Iray Server (Boost for Daz)	2026-11-11 03:26	143
-Calib-Backscatter	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:52	108
-Calib-BumpGamma-NVIDIA	5000	0	Iray Server (Boost for Daz)	2026-11-11 00:20	86
-Calib-BumpGamma-Uber	5000	0	Iray Server (Boost for Daz)	2026-11-09 23:22	98
-Calib-BumpGamma-Uber2	5000	0	Iray Server (Boost for Daz)	2026-11-09 23:24	87
-Calib-BumpRes	5000	0	Iray Server (Boost for Daz)	2026-11-05 01:00	113
-Calib-CastShadows-Off	5000	0	Iray Server (Boost for Daz)	2026-11-11 00:22	108
-Calib-CoatBump	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:23	109
-Calib-CoatEffect	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:53	104
-Calib-ColorEffect	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:55	125
-Calib-DOF-f16	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:57	110
-Calib-DOF-f4	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:59	121
-Calib-DOF-f8	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:01	114
-Calib-DataGamma	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:20	116
-Calib-Diffuse	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:05	102
-Calib-Disp	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:22	104
-Calib-Disp-Map	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:23	105
-Calib-Dispersion	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:15	121
-Calib-Dispersion-Rough	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:07	149
-Calib-Dome-Off	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:17	106
-Calib-DualLobe	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:29	124
-Calib-DualLobe2	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:31	108
-Calib-DualLobeGlossy	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:20	108
-Calib-DualLobeGlossy-bare	5000	0	DAZ Studio Iray (CPU)	2026-11-11 21:24	112
-Calib-DualLobeGlossy-dl	5000	0	DAZ Studio Iray (CPU)	2026-11-11 21:12	1448
-Calib-DualLobeGlossy-gloss	5000	0	DAZ Studio Iray (CPU)	2026-11-11 21:22	575
-Calib-DualLobeWeighted	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:22	109
-Calib-DualLobeWeightedTL	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:24	122
-Calib-Env-Blur	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:39	105
-Calib-Env-DomeMode1	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:41	106
-Calib-Env-DomeMode2	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:43	108
-Calib-Env-Ground	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:45	175
-Calib-Env-GroundFog	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:51	302
-Calib-Env-GroundMatte	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:53	124
-Calib-Env-Intensity2	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:54	105
-Calib-Env-MatteFog	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:56	106
-Calib-Env-OrientX30	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:58	105
-Calib-Env-Res128	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:00	105
-Calib-Env-Rot180	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:01	105
-Calib-Env-Rot90	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:03	105
-Calib-Env-Tint	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:05	105
-Calib-FilmIOR	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:44	106
-Calib-Flakes	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:45	109
-Calib-Furnace-ArchGlass	5000	0	Iray Server (Boost for Daz)	2026-11-11 02:53	81
-Calib-Furnace-ArchGlass2	5000	0	Iray Server (Boost for Daz)	2026-11-11 09:40	70
-Calib-Furnace-Brushed	5000	0	Iray Server (Boost for Daz)	2026-11-10 19:13	60
-Calib-Furnace-CoatTint	5000	0	Iray Server (Boost for Daz)	2026-11-10 22:56	
-Calib-Furnace-Metal	5000	0	Iray Server (Boost for Daz)	2026-11-10 19:12	60
-Calib-Furnace-MetalBump	5000	0	Iray Server (Boost for Daz)	2026-11-10 22:48	
-Calib-Furnace-Resin	5000	0	Iray Server (Boost for Daz)	2026-11-11 02:04	82
-Calib-Furnace-Resin2	5000	0	Iray Server (Boost for Daz)	2026-11-11 03:28	72
-Calib-Furnace-Resin3	5000	0	Iray Server (Boost for Daz)	2026-11-11 09:40	58
-Calib-Furnace-UberGlass	5000	0	Iray Server (Boost for Daz)	2026-11-11 09:37	86
-Calib-Furnace-UberGlass-PL3	5000	0	Iray Server (Boost for Daz)	2026-11-11 09:38	55
-Calib-G9Eye	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:11	663
-Calib-G9Eye-bare	1000	0	DAZ Studio Iray (CPU)	2026-11-11 17:34	115
-Calib-G9Eye-nogloss	1000	0	DAZ Studio Iray (CPU)	2026-11-11 17:36	113
-Calib-G9Eye-t0	1000	0	DAZ Studio Iray (CPU)	2026-11-11 17:38	109
-Calib-G9Eye-t08-white	1000	0	DAZ Studio Iray (CPU)	2026-11-11 17:45	125
-Calib-G9Eye-t1	1000	0	DAZ Studio Iray (CPU)	2026-11-11 17:40	113
-Calib-G9Eye-t1-white	1000	0	DAZ Studio Iray (CPU)	2026-11-11 17:43	125
-Calib-G9Eye-t1-white-nosss	1000	0	DAZ Studio Iray (CPU)	2026-11-11 17:47	117
-Calib-Glass	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:48	131
-Calib-Glossy	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:49	108
-Calib-Headlamp-auto-a0	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:42	106
-Calib-Headlamp-auto-a0-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:40	83
-Calib-Headlamp-auto-a1	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:46	111
-Calib-Headlamp-auto-a1-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:44	107
-Calib-Headlamp-auto-a2	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:49	111
-Calib-Headlamp-auto-a2-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:47	107
-Calib-Headlamp-light-a1	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:51	111
-Calib-Headlamp-light-a2	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:53	111
-Calib-Headlamp-light-on	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:55	101
-Calib-Headlamp-off-a0	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:58	106
-Calib-Headlamp-off-a0-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:56	83
-Calib-Headlamp-off-a1	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:01	108
-Calib-Headlamp-off-a1-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:59	83
-Calib-Headlamp-off-a2	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:04	106
-Calib-Headlamp-off-a2-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:02	83
-Calib-Headlamp-on-a0	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:08	113
-Calib-Headlamp-on-a0-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:06	107
-Calib-Headlamp-on-a1	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:12	111
-Calib-Headlamp-on-a1-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:10	107
-Calib-Headlamp-on-a2	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:15	111
-Calib-Headlamp-on-a2-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:13	106
-Calib-Headlamp-point1000-noenv	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:25	104
-Calib-Headlamp-point1M-noenv	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:27	104
-Calib-L-Disc-50	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:21	115
-Calib-L-Distant-30	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:23	109
-Calib-L-Distant-45	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:28	108
-Calib-L-Distant-45-5k	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:24	111
-Calib-L-Distant-60	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:30	108
-Calib-L-Emit-W	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:32	113
-Calib-L-Emit-cd	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:36	114
-Calib-L-Emit-cd-2sided	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:34	113
-Calib-L-Emit-lm	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:38	113
-Calib-L-IES-Asym-Down	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:36	119
-Calib-L-IES-Emit	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:40	113
-Calib-L-IES-Emit-Asym	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:41	106
-Calib-L-IES-Point	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:32	126
-Calib-L-IES-Point-Down	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:34	111
-Calib-L-IES-Rect	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:38	132
-Calib-L-Mi-Disc-30x60	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:55	116
-Calib-L-Mi-Dome-turned	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:46	85
-Calib-L-Mi-Point-colour	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:32	111
-Calib-L-Mi-Point-legacy-colour	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:49	110
-Calib-L-Mi-Rect-30x60	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:53	113
-Calib-L-Mi-Sphere-30x60	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:57	118
-Calib-L-Mi-Spot-rect	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:51	120
-Calib-L-Mi-SunSky-Look	5000	0	Iray Server (Boost for Daz)	2026-11-06 00:06	106
-Calib-L-Mi-SunSky-sydney	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:48	105
-Calib-L-Mode-DomeOnly-off	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:40	113
-Calib-L-Mode-DomeOnly-point	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:41	113
-Calib-L-Mode-SunSky-dir	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:43	109
-Calib-L-Mode-SunSky-noon	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:47	109
-Calib-L-Mode-SunSky-noon-haze4	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:45	109
-Calib-L-Mode-SunSky-off	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:49	110
-Calib-L-Mode-SunSky-point	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:51	109
-Calib-L-Opt-CastShadowsOff	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:07	110
-Calib-L-Opt-Decay0	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:09	112
-Calib-L-Opt-Decay1	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:10	110
-Calib-L-Opt-EmitterOff	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:12	110
-Calib-L-Opt-IllumDiffuse	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:14	112
-Calib-L-Opt-IllumSpecular	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:16	110
-Calib-L-Opt-Rect-Facing	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:09	104
-Calib-L-Opt-Rect-Facing-EmitterOff	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:10	103
-Calib-L-Opt-ShadowColor	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:18	110
-Calib-L-Opt-ShadowInt0	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:20	110
-Calib-L-Opt-ShadowInt05	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:22	110
-Calib-L-Opt-ShadowSoft05	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:23	110
-Calib-L-Opt-Spot-Facing	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:12	96
-Calib-L-Opt-Spot-Facing-EmitterOff	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:14	97
-Calib-L-Opt-Temp3000	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:29	306
-Calib-L-Point-20k	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:53	114
-Calib-L-Point-5k	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:56	111
-Calib-L-Point-5k-h150	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:54	111
-Calib-L-Point-legacy	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:02	111
-Calib-L-Point-legacy-1x3000	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:58	111
-Calib-L-Point-legacy-2x500	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:00	112
-Calib-L-Rect-100	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:04	115
-Calib-L-Rect-25	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:06	112
-Calib-L-Rect-50	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:09	114
-Calib-L-Rect-50-2sided	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:08	113
-Calib-L-Sphere-d20	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:11	116
-Calib-L-Sphere-d50	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:13	117
-Calib-L-Spot-s30-e4	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:15	100
-Calib-L-Spot-s60-e1	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:17	109
-Calib-L-Spot-s60-e16	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:19	110
-Calib-L-Spot-s60-e4	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:21	109
-Calib-L-Spot-s90-e4	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:23	115
-Calib-L-Spot-scene	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:24	108
-Calib-Leaf	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:26	106
-Calib-Lens-Bias02	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:05	122
-Calib-Lens-Bias08	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:07	119
-Calib-Lens-Blades5	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:03	119
-Calib-Lens-Brown	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:14	105
-Calib-Lens-Cylindrical	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:17	60
-Calib-Lens-Equidistant	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:15	69
-Calib-Lens-InvPoly5	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:12	103
-Calib-Lens-Poly3	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:10	79
-Calib-Lens-Shift	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:00	106
-Calib-Lens-Spherical	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:16	49
-Calib-Lens-Stereo	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:01	41
-Calib-Lens-Thick	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:09	120
-Calib-Map-Effect	5000	0	Iray Server (Boost for Daz)	2026-10-31 19:42	120
-Calib-Map-Metal	5000	0	Iray Server (Boost for Daz)	2026-10-31 19:02	123
-Calib-Map-Misc	5000	0	Iray Server (Boost for Daz)	2026-10-31 19:46	130
-Calib-Map-Offset	5000	0	DAZ Studio Iray (CPU)	2026-11-03 19:06	116
-Calib-Map-SpecMode	5000	0	Iray Server (Boost for Daz)	2026-10-31 19:48	108
-Calib-Map-TopCoat	5000	0	Iray Server (Boost for Daz)	2026-10-31 19:44	109
-Calib-MapDepth	5000	0	DAZ Studio Iray (CPU)	2026-11-10 02:00	
-Calib-MapDepth2	5000	0	DAZ Studio Iray (CPU)	2026-11-10 02:02	
-Calib-MetalRefr	400	0	DAZ Studio Iray (CPU)	2026-11-11 17:53	16
-Calib-MetalRefr-TL	400	0	DAZ Studio Iray (CPU)	2026-11-11 18:08	15
-Calib-MetalRefr-g0	400	0	DAZ Studio Iray (CPU)	2026-11-11 18:07	23
-Calib-Mi-DzDefault	5000	0	Iray Server (Boost for Daz)	2026-11-01 01:06	106
-Calib-Mi-DzDefault2	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:30	120
-Calib-Mi-Emit	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:59	111
-Calib-Mi-Hair	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:16	136
-Calib-Mi-Headlamp-dof200	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:33	107
-Calib-Mi-Headlamp-i05	5000	0	Iray Server (Boost for Daz)	2026-11-01 01:01	106
-Calib-Mi-Headlamp-i2	5000	0	Iray Server (Boost for Daz)	2026-11-01 01:03	106
-Calib-Mi-Headlamp-offset0	5000	0	Iray Server (Boost for Daz)	2026-11-01 01:04	106
-Calib-Mi-Maps	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:28	121
-Calib-Mi-Mix1	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:44	110
-Calib-Mi-Mix2	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:43	111
-Calib-Mixing	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:28	106
-Calib-NVIDIA	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:18	123
-Calib-NVIDIA-Brushed	5000	0	Iray Server (Boost for Daz)	2026-11-10 18:36	289
-Calib-NVIDIA-BumpG1	5000	0	Iray Server (Boost for Daz)	2026-11-10 02:42	144
-Calib-NVIDIA-CastFlat	5000	0	Iray Server (Boost for Daz)	2026-11-10 10:05	131
-Calib-NVIDIA2	5000	0	Iray Server (Boost for Daz)	2026-11-11 00:19	133
-Calib-NVIDIA3	5000	0	Iray Server (Boost for Daz)	2026-11-05 20:43	133
-Calib-Overlay	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:43	104
-Calib-PBRSkin	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:32	110
-Calib-PBRSkin-MetalTL	5000	0	Iray Server (Boost for Daz)	2026-11-01 02:33	129
-Calib-RS-Bloom	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:52	1433
-Calib-RS-Bloom10000	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:21	128
-Calib-RS-Bloom2000	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:19	130
-Calib-RS-Caustics	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:24	438
-Calib-RS-FireflyOff	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:26	129
-Calib-RS-PathLen2	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:28	95
-Calib-RS-PathLen4	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:30	120
-Calib-RS-PixelBox	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:32	129
-Calib-RS-PixelRadius3	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:34	129
-Calib-RS-Spectral	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:36	132
-Calib-Resin	5000	0	Iray Server (Boost for Daz)	2026-11-11 01:32	141
-Calib-RoundCorners	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:25	123
-Calib-SSS	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:34	118
-Calib-SSSColor	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:37	170
-Calib-Shell-G9	5000	0	Iray Server (Boost for Daz)	2026-11-11 00:25	177
-Calib-Smooth	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:27	103
-Calib-SpecMode	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:01	105
-Calib-Strand	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:13	124
-Calib-Strand-Dome	2000	0	DAZ Studio Iray (CPU)	2026-11-11 17:31	53
-Calib-Strand-Side	2000	0	DAZ Studio Iray (CPU)	2026-11-11 17:32	55
-Calib-Strand-Sparse	2000	0	DAZ Studio Iray (CPU)	2026-11-11 22:32	
-Calib-Strand-Sparse-T2	2000	0	DAZ Studio Iray (CPU)	2026-11-11 22:32	
-Calib-Strand-Sparse-T3	2000	0	DAZ Studio Iray (CPU)	2026-11-11 22:32	
-Calib-Strand-T2	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:16	165
-Calib-Strand-T2-Dome	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:18	164
-Calib-Strand-T3	2000	0	DAZ Studio Iray (CPU)	2026-11-11 17:30	120
-Calib-Strand-UberG	2000	0	DAZ Studio Iray (CPU)	2026-11-12 01:16	
-Calib-Strand-UberG-Back	2000	0	DAZ Studio Iray (CPU)	2026-11-12 02:09	
-Calib-Strand-UberG-Dome	2000	0	DAZ Studio Iray (CPU)	2026-11-12 02:07	
-Calib-Strand-UberG-Side	2000	0	DAZ Studio Iray (CPU)	2026-11-12 02:08	
-Calib-Strand-UberG-T3	2000	0	DAZ Studio Iray (CPU)	2026-11-12 01:17	
-Calib-Strand-UberG-T3-Back	2000	0	DAZ Studio Iray (CPU)	2026-11-12 02:12	
-Calib-Strand-UberG-T3-Dome	2000	0	DAZ Studio Iray (CPU)	2026-11-12 02:10	
-Calib-Strand-UberG-T3-Side	2000	0	DAZ Studio Iray (CPU)	2026-11-12 02:11	
-Calib-Strand-UberM	2000	0	DAZ Studio Iray (CPU)	2026-11-12 13:33	
-Calib-Strand-UberM-Dome	2000	0	DAZ Studio Iray (CPU)	2026-11-12 13:33	
-Calib-Strand-UberM-T2	2000	0	DAZ Studio Iray (CPU)	2026-11-12 13:35	
-Calib-Strand-UberM-T2-Dome	2000	0	DAZ Studio Iray (CPU)	2026-11-12 13:36	
-Calib-Strand-UberT	2000	0	DAZ Studio Iray (CPU)	2026-11-11 23:24	
-Calib-Strand-UberT-T3	2000	0	DAZ Studio Iray (CPU)	2026-11-11 23:25	
-Calib-Thin-back-A	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:05	108
-Calib-Thin-back-A-bce	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:03	109
-Calib-Thin-back-B	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:08	104
-Calib-Thin-back-B-bce	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:07	103
-Calib-Thin-front-A	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:12	108
-Calib-Thin-front-A-bce	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:10	109
-Calib-Thin-front-B	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:16	106
-Calib-Thin-front-B-bce	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:14	105
-Calib-ThinFilm	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:17	106
-Calib-Tone-Burn0	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:19	105
-Calib-Tone-Burn05	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:21	105
-Calib-Tone-BurnComp-off	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:38	105
-Calib-Tone-BurnComp-on	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:40	105
-Calib-Tone-Crush01	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:23	105
-Calib-Tone-Crush03	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:24	105
-Calib-Tone-Default	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:26	105
-Calib-Tone-Gamma18	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:28	105
-Calib-Tone-Gamma26	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:30	105
-Calib-Tone-Gladiator	400	1800	DAZ Studio Iray (CPU)	2026-10-26 13:08	
-Calib-Tone-ISO200	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:32	105
-Calib-Tone-Sat0	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:42	107
-Calib-Tone-Sat15	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:44	105
-Calib-Tone-Vignette05	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:45	105
-Calib-Tone-Vignette1	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:47	105
-Calib-Tone-WhiteCool	5000	0	Iray Server (Boost for Daz)	2026-11-05 18:43	105
-Calib-Tone-WhiteGreen	5000	0	Iray Server (Boost for Daz)	2026-11-05 18:44	105
-Calib-Tone-WhiteScale2	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:49	107
-Calib-Tone-WhiteWarm	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:51	105
-Calib-TopCoat	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:33	106
-Calib-WeightedTL	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:26	116
-Calib-WeightedTL-Thin	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:28	117
+scene	samples	max_time	renderer	rendered	seconds	denoiser
+Calib-Aniso	5000	0	Iray Server (Boost for Daz)	2026-10-30 03:15	104	on@8
+Calib-Aniso2	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:04	116	on@8
+Calib-ArchGlass	5000	0	Iray Server (Boost for Daz)	2026-11-11 03:26	143	on@8
+Calib-Backscatter	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:52	108	on@8
+Calib-BumpGamma-NVIDIA	5000	0	Iray Server (Boost for Daz)	2026-11-11 00:20	86	on@8
+Calib-BumpGamma-Uber	5000	0	Iray Server (Boost for Daz)	2026-11-09 23:22	98	on@8
+Calib-BumpGamma-Uber2	5000	0	Iray Server (Boost for Daz)	2026-11-09 23:24	87	on@8
+Calib-BumpRes	5000	0	Iray Server (Boost for Daz)	2026-11-05 01:00	113	on@8
+Calib-CastShadows-Off	5000	0	Iray Server (Boost for Daz)	2026-11-11 00:22	108	on@8
+Calib-CoatBump	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:23	109	on@8
+Calib-CoatEffect	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:53	104	on@8
+Calib-ColorEffect	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:55	125	on@8
+Calib-DOF-f16	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:57	110	on@8
+Calib-DOF-f4	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:59	121	on@8
+Calib-DOF-f8	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:01	114	on@8
+Calib-DataGamma	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:20	116	on@8
+Calib-Diffuse	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:05	102	on@8
+Calib-Disp	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:22	104	on@8
+Calib-Disp-Map	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:23	105	on@8
+Calib-Dispersion	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:15	121	on@8
+Calib-Dispersion-Rough	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:07	149	on@8
+Calib-Dome-Off	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:17	106	on@8
+Calib-DualLobe	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:29	124	on@8
+Calib-DualLobe2	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:31	108	on@8
+Calib-DualLobeGlossy	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:20	108	on@8
+Calib-DualLobeGlossy-bare	5000	0	DAZ Studio Iray (CPU)	2026-11-11 21:24	112	on@8
+Calib-DualLobeGlossy-dl	5000	0	DAZ Studio Iray (CPU)	2026-11-11 21:12	1448	on@8
+Calib-DualLobeGlossy-gloss	5000	0	DAZ Studio Iray (CPU)	2026-11-11 21:22	575	on@8
+Calib-DualLobeWeighted	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:22	109	on@8
+Calib-DualLobeWeightedTL	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:24	122	on@8
+Calib-Env-Blur	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:39	105	on@8
+Calib-Env-DomeMode1	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:41	106	on@8
+Calib-Env-DomeMode2	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:43	108	on@8
+Calib-Env-Ground	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:45	175	on@8
+Calib-Env-GroundFog	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:51	302	on@8
+Calib-Env-GroundMatte	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:53	124	on@8
+Calib-Env-Intensity2	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:54	105	on@8
+Calib-Env-MatteFog	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:56	106	on@8
+Calib-Env-OrientX30	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:58	105	on@8
+Calib-Env-Res128	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:00	105	on@8
+Calib-Env-Rot180	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:01	105	on@8
+Calib-Env-Rot90	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:03	105	on@8
+Calib-Env-Tint	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:05	105	on@8
+Calib-FilmIOR	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:44	106	on@8
+Calib-Flakes	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:45	109	on@8
+Calib-Furnace-ArchGlass	5000	0	Iray Server (Boost for Daz)	2026-11-11 02:53	81	on@8
+Calib-Furnace-ArchGlass2	5000	0	Iray Server (Boost for Daz)	2026-11-11 09:40	70	on@8
+Calib-Furnace-Brushed	5000	0	Iray Server (Boost for Daz)	2026-11-10 19:13	60	on@8
+Calib-Furnace-CoatTint	5000	0	Iray Server (Boost for Daz)	2026-11-10 22:56		on@8
+Calib-Furnace-Metal	5000	0	Iray Server (Boost for Daz)	2026-11-10 19:12	60	on@8
+Calib-Furnace-MetalBump	5000	0	Iray Server (Boost for Daz)	2026-11-10 22:48		on@8
+Calib-Furnace-Resin	5000	0	Iray Server (Boost for Daz)	2026-11-11 02:04	82	on@8
+Calib-Furnace-Resin2	5000	0	Iray Server (Boost for Daz)	2026-11-11 03:28	72	on@8
+Calib-Furnace-Resin3	5000	0	Iray Server (Boost for Daz)	2026-11-11 09:40	58	on@8
+Calib-Furnace-UberGlass	5000	0	Iray Server (Boost for Daz)	2026-11-11 09:37	86	on@8
+Calib-Furnace-UberGlass-PL3	5000	0	Iray Server (Boost for Daz)	2026-11-11 09:38	55	on@8
+Calib-G9Eye	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:11	663	on@8
+Calib-G9Eye-bare	1000	0	DAZ Studio Iray (CPU)	2026-11-11 17:34	115	on@8
+Calib-G9Eye-nogloss	1000	0	DAZ Studio Iray (CPU)	2026-11-11 17:36	113	on@8
+Calib-G9Eye-t0	1000	0	DAZ Studio Iray (CPU)	2026-11-11 17:38	109	on@8
+Calib-G9Eye-t08-white	1000	0	DAZ Studio Iray (CPU)	2026-11-11 17:45	125	on@8
+Calib-G9Eye-t1	1000	0	DAZ Studio Iray (CPU)	2026-11-11 17:40	113	on@8
+Calib-G9Eye-t1-white	1000	0	DAZ Studio Iray (CPU)	2026-11-11 17:43	125	on@8
+Calib-G9Eye-t1-white-nosss	1000	0	DAZ Studio Iray (CPU)	2026-11-11 17:47	117	on@8
+Calib-Glass	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:48	131	on@8
+Calib-Glossy	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:49	108	on@8
+Calib-Headlamp-auto-a0	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:42	106	on@8
+Calib-Headlamp-auto-a0-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:40	83	on@8
+Calib-Headlamp-auto-a1	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:46	111	on@8
+Calib-Headlamp-auto-a1-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:44	107	on@8
+Calib-Headlamp-auto-a2	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:49	111	on@8
+Calib-Headlamp-auto-a2-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:47	107	on@8
+Calib-Headlamp-light-a1	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:51	111	on@8
+Calib-Headlamp-light-a2	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:53	111	on@8
+Calib-Headlamp-light-on	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:55	101	on@8
+Calib-Headlamp-off-a0	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:58	106	on@8
+Calib-Headlamp-off-a0-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:56	83	on@8
+Calib-Headlamp-off-a1	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:01	108	on@8
+Calib-Headlamp-off-a1-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:59	83	on@8
+Calib-Headlamp-off-a2	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:04	106	on@8
+Calib-Headlamp-off-a2-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:02	83	on@8
+Calib-Headlamp-on-a0	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:08	113	on@8
+Calib-Headlamp-on-a0-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:06	107	on@8
+Calib-Headlamp-on-a1	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:12	111	on@8
+Calib-Headlamp-on-a1-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:10	107	on@8
+Calib-Headlamp-on-a2	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:15	111	on@8
+Calib-Headlamp-on-a2-noenv	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:13	106	on@8
+Calib-Headlamp-point1000-noenv	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:25	104	on@8
+Calib-Headlamp-point1M-noenv	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:27	104	on@8
+Calib-L-Disc-50	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:21	115	on@8
+Calib-L-Distant-30	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:23	109	on@8
+Calib-L-Distant-45	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:28	108	on@8
+Calib-L-Distant-45-5k	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:24	111	on@8
+Calib-L-Distant-60	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:30	108	on@8
+Calib-L-Emit-W	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:32	113	on@8
+Calib-L-Emit-cd	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:36	114	on@8
+Calib-L-Emit-cd-2sided	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:34	113	on@8
+Calib-L-Emit-lm	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:38	113	on@8
+Calib-L-IES-Asym-Down	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:36	119	on@8
+Calib-L-IES-Emit	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:40	113	on@8
+Calib-L-IES-Emit-Asym	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:41	106	on@8
+Calib-L-IES-Point	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:32	126	on@8
+Calib-L-IES-Point-Down	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:34	111	on@8
+Calib-L-IES-Rect	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:38	132	on@8
+Calib-L-Mi-Disc-30x60	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:55	116	on@8
+Calib-L-Mi-Dome-turned	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:46	85	on@8
+Calib-L-Mi-Point-colour	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:32	111	on@8
+Calib-L-Mi-Point-legacy-colour	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:49	110	on@8
+Calib-L-Mi-Rect-30x60	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:53	113	on@8
+Calib-L-Mi-Sphere-30x60	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:57	118	on@8
+Calib-L-Mi-Spot-rect	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:51	120	on@8
+Calib-L-Mi-SunSky-Look	5000	0	Iray Server (Boost for Daz)	2026-11-06 00:06	106	on@8
+Calib-L-Mi-SunSky-sydney	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:48	105	on@8
+Calib-L-Mode-DomeOnly-off	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:40	113	on@8
+Calib-L-Mode-DomeOnly-point	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:41	113	on@8
+Calib-L-Mode-SunSky-dir	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:43	109	on@8
+Calib-L-Mode-SunSky-noon	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:47	109	on@8
+Calib-L-Mode-SunSky-noon-haze4	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:45	109	on@8
+Calib-L-Mode-SunSky-off	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:49	110	on@8
+Calib-L-Mode-SunSky-point	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:51	109	on@8
+Calib-L-Opt-CastShadowsOff	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:07	110	on@8
+Calib-L-Opt-Decay0	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:09	112	on@8
+Calib-L-Opt-Decay1	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:10	110	on@8
+Calib-L-Opt-EmitterOff	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:12	110	on@8
+Calib-L-Opt-IllumDiffuse	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:14	112	on@8
+Calib-L-Opt-IllumSpecular	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:16	110	on@8
+Calib-L-Opt-Rect-Facing	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:09	104	on@8
+Calib-L-Opt-Rect-Facing-EmitterOff	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:10	103	on@8
+Calib-L-Opt-ShadowColor	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:18	110	on@8
+Calib-L-Opt-ShadowInt0	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:20	110	on@8
+Calib-L-Opt-ShadowInt05	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:22	110	on@8
+Calib-L-Opt-ShadowSoft05	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:23	110	on@8
+Calib-L-Opt-Spot-Facing	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:12	96	on@8
+Calib-L-Opt-Spot-Facing-EmitterOff	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:14	97	on@8
+Calib-L-Opt-Temp3000	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:29	306	on@8
+Calib-L-Point-20k	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:53	114	on@8
+Calib-L-Point-5k	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:56	111	on@8
+Calib-L-Point-5k-h150	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:54	111	on@8
+Calib-L-Point-legacy	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:02	111	on@8
+Calib-L-Point-legacy-1x3000	5000	0	Iray Server (Boost for Daz)	2026-10-30 17:58	111	on@8
+Calib-L-Point-legacy-2x500	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:00	112	on@8
+Calib-L-Rect-100	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:04	115	on@8
+Calib-L-Rect-25	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:06	112	on@8
+Calib-L-Rect-50	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:09	114	on@8
+Calib-L-Rect-50-2sided	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:08	113	on@8
+Calib-L-Sphere-d20	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:11	116	on@8
+Calib-L-Sphere-d50	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:13	117	on@8
+Calib-L-Spot-s30-e4	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:15	100	on@8
+Calib-L-Spot-s60-e1	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:17	109	on@8
+Calib-L-Spot-s60-e16	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:19	110	on@8
+Calib-L-Spot-s60-e4	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:21	109	on@8
+Calib-L-Spot-s90-e4	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:23	115	on@8
+Calib-L-Spot-scene	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:24	108	on@8
+Calib-Leaf	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:26	106	on@8
+Calib-Lens-Bias02	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:05	122	on@8
+Calib-Lens-Bias08	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:07	119	on@8
+Calib-Lens-Blades5	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:03	119	on@8
+Calib-Lens-Brown	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:14	105	on@8
+Calib-Lens-Cylindrical	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:17	60	on@8
+Calib-Lens-Equidistant	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:15	69	on@8
+Calib-Lens-InvPoly5	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:12	103	on@8
+Calib-Lens-Poly3	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:10	79	on@8
+Calib-Lens-Shift	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:00	106	on@8
+Calib-Lens-Spherical	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:16	49	on@8
+Calib-Lens-Stereo	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:01	41	on@8
+Calib-Lens-Thick	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:09	120	on@8
+Calib-Map-Effect	5000	0	Iray Server (Boost for Daz)	2026-10-31 19:42	120	on@8
+Calib-Map-Metal	5000	0	Iray Server (Boost for Daz)	2026-10-31 19:02	123	on@8
+Calib-Map-Misc	5000	0	Iray Server (Boost for Daz)	2026-10-31 19:46	130	on@8
+Calib-Map-Offset	5000	0	DAZ Studio Iray (CPU)	2026-11-03 19:06	116	on@8
+Calib-Map-SpecMode	5000	0	Iray Server (Boost for Daz)	2026-10-31 19:48	108	on@8
+Calib-Map-TopCoat	5000	0	Iray Server (Boost for Daz)	2026-10-31 19:44	109	on@8
+Calib-MapDepth	5000	0	DAZ Studio Iray (CPU)	2026-11-10 02:00		on@8
+Calib-MapDepth2	5000	0	DAZ Studio Iray (CPU)	2026-11-10 02:02		on@8
+Calib-MetalRefr	400	0	DAZ Studio Iray (CPU)	2026-11-11 17:53	16	on@8
+Calib-MetalRefr-TL	400	0	DAZ Studio Iray (CPU)	2026-11-11 18:08	15	on@8
+Calib-MetalRefr-g0	400	0	DAZ Studio Iray (CPU)	2026-11-11 18:07	23	on@8
+Calib-Mi-DzDefault	5000	0	Iray Server (Boost for Daz)	2026-11-01 01:06	106	on@8
+Calib-Mi-DzDefault2	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:30	120	on@8
+Calib-Mi-Emit	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:59	111	on@8
+Calib-Mi-Hair	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:16	136	on@8
+Calib-Mi-Headlamp-dof200	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:33	107	on@8
+Calib-Mi-Headlamp-i05	5000	0	Iray Server (Boost for Daz)	2026-11-01 01:01	106	on@8
+Calib-Mi-Headlamp-i2	5000	0	Iray Server (Boost for Daz)	2026-11-01 01:03	106	on@8
+Calib-Mi-Headlamp-offset0	5000	0	Iray Server (Boost for Daz)	2026-11-01 01:04	106	on@8
+Calib-Mi-Maps	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:28	121	on@8
+Calib-Mi-Mix1	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:44	110	on@8
+Calib-Mi-Mix2	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:43	111	on@8
+Calib-Mixing	5000	0	Iray Server (Boost for Daz)	2026-10-30 18:28	106	on@8
+Calib-NVIDIA	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:18	123	on@8
+Calib-NVIDIA-Brushed	5000	0	Iray Server (Boost for Daz)	2026-11-10 18:36	289	on@8
+Calib-NVIDIA-BumpG1	5000	0	Iray Server (Boost for Daz)	2026-11-10 02:42	144	on@8
+Calib-NVIDIA-CastFlat	5000	0	Iray Server (Boost for Daz)	2026-11-10 10:05	131	on@8
+Calib-NVIDIA2	5000	0	Iray Server (Boost for Daz)	2026-11-11 00:19	133	on@8
+Calib-NVIDIA3	5000	0	Iray Server (Boost for Daz)	2026-11-05 20:43	133	on@8
+Calib-Overlay	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:43	104	on@8
+Calib-PBRSkin	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:32	110	on@8
+Calib-PBRSkin-MetalTL	5000	0	Iray Server (Boost for Daz)	2026-11-01 02:33	129	on@8
+Calib-RS-Bloom	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:52	1433	on@8
+Calib-RS-Bloom10000	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:21	128	on@8
+Calib-RS-Bloom2000	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:19	130	on@8
+Calib-RS-Caustics	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:24	438	on@8
+Calib-RS-FireflyOff	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:26	129	on@8
+Calib-RS-PathLen2	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:28	95	on@8
+Calib-RS-PathLen4	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:30	120	on@8
+Calib-RS-PixelBox	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:32	129	on@8
+Calib-RS-PixelRadius3	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:34	129	on@8
+Calib-RS-Spectral	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:36	132	on@8
+Calib-Resin	5000	0	Iray Server (Boost for Daz)	2026-11-11 01:32	141	on@8
+Calib-RoundCorners	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:25	123	on@8
+Calib-SSS	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:34	118	on@8
+Calib-SSSColor	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:37	170	on@8
+Calib-Shell-G9	5000	0	Iray Server (Boost for Daz)	2026-11-11 00:25	177	on@8
+Calib-Smooth	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:27	103	on@8
+Calib-SpecMode	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:01	105	on@8
+Calib-Strand	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:13	124	on@8
+Calib-Strand-Dome	2000	0	DAZ Studio Iray (CPU)	2026-11-11 17:31	53	on@8
+Calib-Strand-Side	2000	0	DAZ Studio Iray (CPU)	2026-11-11 17:32	55	on@8
+Calib-Strand-Sparse	2000	0	DAZ Studio Iray (CPU)	2026-11-11 22:32		on@8
+Calib-Strand-Sparse-T2	2000	0	DAZ Studio Iray (CPU)	2026-11-11 22:32		on@8
+Calib-Strand-Sparse-T3	2000	0	DAZ Studio Iray (CPU)	2026-11-11 22:32		on@8
+Calib-Strand-T2	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:16	165	on@8
+Calib-Strand-T2-Dome	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:18	164	on@8
+Calib-Strand-T3	2000	0	DAZ Studio Iray (CPU)	2026-11-11 17:30	120	on@8
+Calib-Strand-UberG	2000	0	DAZ Studio Iray (CPU)	2026-11-12 01:16		on@8
+Calib-Strand-UberG-Back	2000	0	DAZ Studio Iray (CPU)	2026-11-12 02:09		on@8
+Calib-Strand-UberG-Dome	2000	0	DAZ Studio Iray (CPU)	2026-11-12 02:07		on@8
+Calib-Strand-UberG-Side	2000	0	DAZ Studio Iray (CPU)	2026-11-12 02:08		on@8
+Calib-Strand-UberG-T3	2000	0	DAZ Studio Iray (CPU)	2026-11-12 01:17		on@8
+Calib-Strand-UberG-T3-Back	2000	0	DAZ Studio Iray (CPU)	2026-11-12 02:12		on@8
+Calib-Strand-UberG-T3-Dome	2000	0	DAZ Studio Iray (CPU)	2026-11-12 02:10		on@8
+Calib-Strand-UberG-T3-Side	2000	0	DAZ Studio Iray (CPU)	2026-11-12 02:11		on@8
+Calib-Strand-UberM	2000	0	DAZ Studio Iray (CPU)	2026-11-12 13:33		on@8
+Calib-Strand-UberM-Dome	2000	0	DAZ Studio Iray (CPU)	2026-11-12 13:33		on@8
+Calib-Strand-UberM-T2	2000	0	DAZ Studio Iray (CPU)	2026-11-12 13:35		on@8
+Calib-Strand-UberM-T2-Dome	2000	0	DAZ Studio Iray (CPU)	2026-11-12 13:36		on@8
+Calib-Strand-UberT	2000	0	DAZ Studio Iray (CPU)	2026-11-11 23:24		on@8
+Calib-Strand-UberT-T3	2000	0	DAZ Studio Iray (CPU)	2026-11-11 23:25		on@8
+Calib-Thin-back-A	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:05	108	on@8
+Calib-Thin-back-A-bce	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:03	109	on@8
+Calib-Thin-back-B	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:08	104	on@8
+Calib-Thin-back-B-bce	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:07	103	on@8
+Calib-Thin-front-A	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:12	108	on@8
+Calib-Thin-front-A-bce	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:10	109	on@8
+Calib-Thin-front-B	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:16	106	on@8
+Calib-Thin-front-B-bce	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:14	105	on@8
+Calib-ThinFilm	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:17	106	on@8
+Calib-Tone-Burn0	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:19	105	on@8
+Calib-Tone-Burn05	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:21	105	on@8
+Calib-Tone-BurnComp-off	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:38	105	on@8
+Calib-Tone-BurnComp-on	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:40	105	on@8
+Calib-Tone-Crush01	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:23	105	on@8
+Calib-Tone-Crush03	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:24	105	on@8
+Calib-Tone-Default	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:26	105	on@8
+Calib-Tone-Gamma18	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:28	105	on@8
+Calib-Tone-Gamma26	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:30	105	on@8
+Calib-Tone-Gladiator	400	1800	DAZ Studio Iray (CPU)	2026-10-26 13:08		on@8
+Calib-Tone-ISO200	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:32	105	on@8
+Calib-Tone-Sat0	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:42	107	on@8
+Calib-Tone-Sat15	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:44	105	on@8
+Calib-Tone-Vignette05	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:45	105	on@8
+Calib-Tone-Vignette1	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:47	105	on@8
+Calib-Tone-WhiteCool	5000	0	Iray Server (Boost for Daz)	2026-11-05 18:43	105	on@8
+Calib-Tone-WhiteGreen	5000	0	Iray Server (Boost for Daz)	2026-11-05 18:44	105	on@8
+Calib-Tone-WhiteScale2	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:49	107	on@8
+Calib-Tone-WhiteWarm	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:51	105	on@8
+Calib-TopCoat	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:33	106	on@8
+Calib-WeightedTL	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:26	116	on@8
+Calib-WeightedTL-Thin	5000	0	DAZ Studio Iray (CPU)	2026-11-11 17:28	117	on@8

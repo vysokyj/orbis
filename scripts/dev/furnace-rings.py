@@ -7,8 +7,9 @@ renders against the `libbsdf` and Octane (Smith) sphere models.
       Calib-NVIDIA2 / -NVIDIA3 / uber_spheres layout): radiance over the
       dome's per ring of the entry radius (0-0.1 ... 0.8-0.9 of the
       silhouette) and the disk r < 0.75. Gamma 2.2 decode (DAZ's tone
-      mapping, the export's imager response). A render's `denoised/` twin
-      is used when it exists next to it (#139).
+      mapping, the export's imager response). Octane is read in the
+      export's own pass (scripts/dev/octane_pass.py: the `denoised/` twin
+      when the variant denoises, #139), named in the output.
   furnace-rings.py model [--model libbsdf|smith] [--mode transmit|rt|reflect]
                          [--rough R] [--ior N] [--thin] [--weight W]
                          [--curve fresnel|schlick] [--coat-rough R]
@@ -55,12 +56,13 @@ def lum(png):
 
 
 def measure(png):
-    den = os.path.join(os.path.dirname(png), 'denoised', os.path.basename(png))
-    src = den if os.path.exists(den) else png
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import octane_pass
+    src, label = octane_pass.pick(png)
     L = lum(src)
     bg = np.median(L[100:300, 100:300])
     yy, xx = np.mgrid[0:L.shape[0], 0:L.shape[1]]
-    print(f'{src}  dome {bg:.4f}')
+    print(f'{src} [{label}]  dome {bg:.4f}')
     print('sphere  disk<0.75  ' + ' '.join(f'{a:.1f}-{b:.1f}' for a, b in RINGS))
     for k, (x0, x1, y0, y1) in enumerate(SPHERES):
         cx, cy, rx, ry = (x0 + x1) / 2, (y0 + y1) / 2, (x1 - x0) / 2, (y1 - y0) / 2

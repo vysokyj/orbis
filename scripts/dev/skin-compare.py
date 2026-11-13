@@ -9,7 +9,9 @@ Iray: ~/Library/Caches/orbis/calib/iray/<scene>.png; Octane:
 the median pixel, linearised (gamma 2.2): Y = Octane / Iray luminance,
 r/g and b/g = Octane's channel ratio over Iray's (1.00 = same hue; b/g
 above 1 = bluer than Iray). The grey sphere checks the light, the skin
-sphere is the Torso material on a prop.
+sphere is the Torso material on a prop. Octane is read in the export's own
+pass (scripts/dev/octane_pass.py: the `denoised/` twin when the variant
+denoises, #139), named per row.
 """
 import sys as _sys
 if any(a in ('-h', '--help') for a in _sys.argv[1:]):
@@ -18,6 +20,8 @@ if any(a in ('-h', '--help') for a in _sys.argv[1:]):
 import glob, os, sys
 import numpy as np
 from PIL import Image
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import octane_pass
 
 IRAY = os.path.expanduser('~/Library/Caches/orbis/calib/iray')
 Y = np.array([0.2126, 0.7152, 0.0722])
@@ -47,7 +51,7 @@ def med(a, box):
 
 
 def compare(octane_png, iray_png):
-    o, i = lin(octane_png), lin(iray_png)
+    o, i = lin(octane_pass.pick(octane_png)[0]), lin(iray_png)
     out = {}
     for k, box in REGIONS.items():
         mo, mi = med(o, box), med(i, box)
@@ -62,8 +66,9 @@ def main():
     odir = sys.argv[1]
     want = sys.argv[2:]
     pngs = sorted(glob.glob(os.path.join(odir, 'Calib-Skin-*.png')))
-    print('| scene | region | Y | r/g | b/g | Iray linear rgb |')
-    print('|---|---|---|---|---|---|')
+    print(octane_pass.summary([octane_pass.pick(p)[1] for p in pngs]) + '.\n')
+    print('| scene | pass | region | Y | r/g | b/g | Iray linear rgb |')
+    print('|---|---|---|---|---|---|---|')
     for p in pngs:
         name = os.path.basename(p)[:-4]
         scene = name.split('__')[0]
@@ -73,7 +78,7 @@ def main():
         if not os.path.exists(ref):
             continue
         for k, (y, rg, bg, mi) in compare(p, ref).items():
-            print(f'| {name} | {k} | {y:.2f} | {rg:.2f} | {bg:.2f} | {mi[0]:.3f} {mi[1]:.3f} {mi[2]:.3f} |')
+            print(f'| {name} | {octane_pass.short(octane_pass.pick(p)[1])} | {k} | {y:.2f} | {rg:.2f} | {bg:.2f} | {mi[0]:.3f} {mi[1]:.3f} {mi[2]:.3f} |')
 
 
 if __name__ == '__main__':

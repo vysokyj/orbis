@@ -13,7 +13,9 @@ here — never a render of a user's own scene or of DAZ Store content.
 
 `iray/renders.tsv` records how each kept render was made: samples, time cap
 (0 = none), renderer (`DAZ Studio Iray (CPU)` through `calib-render.py`, or
-`Iray Server (Boost for Daz)` through `iray-queue.sh`), date and render time.
+`Iray Server (Boost for Daz)` through `iray-queue.sh`), date, render time and
+`denoiser` (DAZ's Post Denoiser in the copy rendered: `on@<start iteration>`
+or `off`; the compare scripts name it beside Octane's pass, #139).
 Iray capped by samples with no time or quality stop runs exactly that many
 iterations. `scripts/dev/keep-refs.py <render.png>...` copies renders in and
 updates it; it takes only scenes that are in `calib/scenes` and never

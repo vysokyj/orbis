@@ -22,6 +22,7 @@ All paths below are relative to the repo root; scripts find each other via their
    Whole pass: `scripts/dev/calib-octane-batch.sh`.
    Output: `~/Library/Caches/orbis/calib/{orbx,octane}/<variant>/` + `report.md`.
 4. Compare: `scripts/dev/calib-compare.py`, `calib-compare-all.py`; highlights: `highlight-spread.py [--vs <iray.png>] <render.png>...`.
+   Every compare reads Octane's own product (`scripts/dev/octane_pass.py`: the `denoised/` twin when the variant denoises, the raw image when it doesn't) and names the pass; a `raw*` row lacks a denoised pass it should have, so don't quote its peaks or texture (#139).
    Hand large result tables to the `calib-analyst` agent so they stay out of the main context.
 5. **Octane failed?** Leave Octane X open so the user can read the error dialog (#50). Do not retry in a loop.
 6. Clean up with `scripts/dev/clean-cache.sh` (all) or `scripts/dev/clean-cache.sh calib/<set>` (one subdir); `-n` = dry run first. Deletes `.orbx` only (they filled 107 GB); keeps Iray refs, dumps, PNGs, reports. **Never inline `rm`/`find -delete` for `.orbx`** — a variable glob like `$D/*.orbx` triggers a confirmation prompt and can hit the wrong path; the script checks the path is inside the cache.
