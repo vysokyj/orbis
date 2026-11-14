@@ -1712,11 +1712,16 @@ leaves out, #15):
   shares the backscatter leaves it, M = m k metal and B = (1 − m) k base
   (`backscatter_shares`): outer amount x = 1 − B, metal layer y = M / x
   (at b 0 the plain (w, w)), per texel under a metallic map (baked from
-  the map as the per-texel metal blend is); no constant (#145). **Base
+  the map as the per-texel metal blend is); no constant (#145).
+  Calib-MetalTL-Back (closed, enhanced-final, 0.6 R of each disc, Y):
+  metal 0.3 / t 0.5 / b 0.5 1.05 × Iray (the one-node rule 0.94), metal
+  0.75 1.18 (1.15), a grey map 1.16 (0.43), beside its parts - no
+  backscatter 1.06, no metal 1.20, no translucency 1.19, i.e. the
+  backscatter lobe's own level (Calib-Backscatter w0.5 1.15, #73). **Base
   Mixing 1 and 2 have no metal**: DAZ drops Metallic Weight there, a map
   too (Calib-MetalTL-Back K8's .mi), so such a surface is a translucent
   dielectric; a map used to count as a metal and took the translucency
-  as lost. What stays one node: the metal part itself (metal 1: the
+  as lost (K8: 0.51 × Iray, now 1.01). What stays one node: the metal part itself (metal 1: the
   dimming cancels in the scale).
 
   Why: Calib-PBRSkin-MetalTL (enhanced-final, 41 px boxes at nine
@@ -1922,8 +1927,8 @@ leaves out, #15):
   full metal leaves no Mix. Under a metal map the amount is b (1 − w(x))
   per texel, baked from the map like the surface's per-texel shares (it
   used to take the channel's value); a translucent metal's surface is
-  the translucent metal's Mix at those shares (above, #145). Awaiting
-  Iray: Calib-MetalTL-Back. **Base Mixing 1** is the same construction
+  the translucent metal's Mix at those shares (above, #145; Calib-MetalTL-Back
+  K1 / K5 / K6 1.05 / 1.18 / 1.16 × Iray). **Base Mixing 1** is the same construction
   (#155): DAZ converts glossiness mode to `metallic_layered_base` and
   passes the backscattering (Calib-MetalTL-Back K7's `.mi`), its
   roughness from 1 − Backscattering Glossiness, no metal (DAZ drops it);
