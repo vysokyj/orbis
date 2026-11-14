@@ -1065,19 +1065,21 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
             };
             d.metallic = mat.float("refl_is_metal").unwrap_or(0.0) > 0.0;
             // mia's anisotropy semantic (`anisotropy_conversion`,
-            // `mia_anisotropy_semantic`): above 1 u = r · √a, v = r / √a;
-            // below, v = r / a^¼, u = r · a^¼; 1 is isotropic.
+            // `mia_anisotropy_semantic`) as Iray renders it: u = r · a^¼,
+            // v = r / a^¼ on either side of 1 (1 is isotropic). The MDL
+            // SDK's `base.mdl` has that below 1 but u = r · √a, v = r / √a
+            // above; Iray's compiled `base::` doesn't (#114: point-lit,
+            // anisotropy 4 at glossiness 0.15 has Iray's highlight 1.47 ×
+            // / 0.70 × the isotropic twin's per axis - u / v 2.1, the SDK's
+            // 4 would be 2 × / 0.5 × - and our own module through
+            // `base::anisotropy_conversion` (mia, a 4) is 2.0 – 2.3 : 1
+            // where u / v 4 written straight is 4 : 1).
             let a = mat.float("anisotropy").unwrap_or(1.0);
             let rotation = mat.float("anisotropy_rotation").unwrap_or(0.0);
             if (a - 1.0).abs() > 1e-4 || rotation != 0.0 {
                 let r = r_mdl;
-                let (u, v) = if a > 1.0 {
-                    let iso = (1.0 / a).sqrt().max(1e-4);
-                    (r / iso, r * iso)
-                } else {
-                    let iso = a.max(0.0).sqrt().sqrt().max(1e-4);
-                    (r * iso, r / iso)
-                };
+                let iso = a.max(0.0).sqrt().sqrt().max(1e-4);
+                let (u, v) = (r * iso, r / iso);
                 d.aniso = Some((u, v, rotation));
             }
             // weighted_layer(transparency, transmit lobe, diffuse).
@@ -1109,24 +1111,6 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
         }
     }
     Some(d)
-}
-
-/// Octane's pins (along u, along v) for architectural's anisotropic
-/// reflection from mia's two MDL roughnesses: `phong_pin` of their
-/// geometric mean (the isotropic reflection's derived pin, which Calib-
-/// NVIDIA3 / -NVIDIA2 match at every glossiness, #156), the α's (pin², #96)
-/// in ratio √(u / v) — the pins' ratio (u / v)^⅛. Not the MDL 1.3 reading
-/// (α ≈ r per axis, ratio u / v): at it Calib-NVIDIA2's A5 (glossiness
-/// 0.3, anisotropy 4: u / v = 4) has a sun streak 1.6 – 1.8 × as wide as
-/// high against Iray's 1.1 – 1.2; at √(u / v) within a pixel at the 0.15 /
-/// 0.3 / 0.5 contours (16×15 / 13×12 / 11×10 v 15×14 / 13×11 / 11×9 px).
-/// One of #114's two candidate readings of NVIDIA's `mdl 1.0` lobe (#112:
-/// Iray's legacy `simple_glossy_bsdf`), chosen by that render, not fitted;
-/// Calib-Point-ArchAniso / -MdlAniso (point light, Iray pending) decide it.
-fn arch_aniso_pins(u: f32, v: f32) -> (f32, f32) {
-    let g = phong_pin((u * v).max(0.0).sqrt());
-    let k = if u > 0.0 && v > 0.0 { (u / v).powf(0.125) } else { 1.0 };
-    (g * k, g / k)
 }
 
 /// The roughness Iray's Arch+Design glass (its `scatter_transmit` lobe)
@@ -2358,11 +2342,12 @@ impl Ocs<'_> {
         let pin = |r: f32| if m.arch_glass_pins && m.transmission.is_some() { r.clamp(0.0, 1.0).sqrt() } else { phong_pin(r) };
         if let Some((u, v, rotation)) = m.aniso.filter(|_| m.transmission.is_none()) {
             // Octane's roughness the long axis, the anisotropy of the α's
-            // (`mdl_anisotropy`, as the metals'); architectural's α ratio
-            // its own (`arch_aniso_pins`).
+            // (`mdl_anisotropy`, as the metals'): each axis at its Phong
+            // pin, architectural's too (#114: Iray's lobe reads u / v per
+            // axis at MDL 1.0 as at 1.3).
             let brdf = phong_brdf(&[u.max(v)]);
             self.value_pin(i, "brdf", 57, 2, brdf);
-            let (pu, pv) = if m.arch_glass_pins { arch_aniso_pins(u, v) } else { (pin(u), pin(v)) };
+            let (pu, pv) = (pin(u), pin(v));
             self.float_pin(i, roughness_pin, pu.max(pv));
             let a = octane_anisotropy(pu, pv);
             if a != 0.0 {
@@ -7552,17 +7537,16 @@ mod tests {
             {"channel": {"id": "anisotropy", "current_value": 4}},
         ]));
         let (y, _) = material_inputs(&[("Aniso".into(), aniso, 1.0)], &[], HashMap::new(), 9700, SkinShader::None);
-        // mia's anisotropy on the MDL roughness (u 2r, v r / 2); the
-        // Phong pin g of their geometric mean r, the pins g · 4^⅛ and
-        // g / 4^⅛ (`arch_aniso_pins`, #156): Octane's α 2 : 1 = √(u / v).
-        // Octane's anisotropy of the two pins (`octane_anisotropy`:
-        // negative, u the long axis) 1 − 1 / √2.
+        // mia's anisotropy as Iray renders it (u r · √2, v r / √2: a^¼
+        // per axis, #114), each axis at its Phong pin. Octane's
+        // anisotropy of the two pins (`octane_anisotropy`: negative, u the
+        // long axis) 1 − short / long.
         let r = architectural_gloss_to_rough(0.3);
-        let g = phong_pin(r);
-        assert_eq!(pin(&y, "roughness"), num(g * 4f32.powf(0.125)), "{y}");
+        let (pu, pv) = (phong_pin(r * 2f32.sqrt()), phong_pin(r / 2f32.sqrt()));
+        assert_eq!(pin(&y, "roughness"), num(pu), "{y}");
         assert_eq!(pin(&y, "brdf"), BRDF_BECKMANN, "{y}");
         let a: f32 = pin(&y, "anisotropyTexture").parse().unwrap();
-        assert!((a + 1.0 - 0.5f32.sqrt()).abs() < 1e-5, "{a}");
+        assert!((a + 1.0 - pv / pu).abs() < 1e-5, "{a}");
     }
 
     /// Arch+Design glossiness → roughness as Iray's
@@ -10221,8 +10205,9 @@ mod tests {
                         check("glossiness", near(d.roughness, f64::from(r)));
                         let a = pass("anisotropy").as_f64().unwrap() as f32;
                         if a > 1.0 {
+                            // Iray's mia semantic (point-lit, #114): a^¼ per axis.
                             let iray = f64::from;
-                            check("anisotropy", d.aniso.is_some_and(|(u, v, _)| near(u, iray(r * a.sqrt())) && near(v, iray(r / a.sqrt()))));
+                            check("anisotropy", d.aniso.is_some_and(|(u, v, _)| near(u, iray(r * a.sqrt().sqrt())) && near(v, iray(r / a.sqrt().sqrt()))));
                         } else {
                             check("isotropic", d.aniso.is_none());
                         }

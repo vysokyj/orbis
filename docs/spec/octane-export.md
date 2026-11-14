@@ -2426,22 +2426,25 @@ leaves out, #15):
     1.02 / 1.05 / 1.05 → 1.07 / 1.06 / 1.05 / 1.05; Calib-NVIDIA2 (floor
     1.05) g 0.3 1.02 → 1.06, g 0 1.00. Anisotropy in mia's semantic
     (`anisotropy_conversion` with `mia_anisotropy_semantic`) on the MDL
-    roughness — above 1 u = r · √a, v = r / √a, below v = r / a^¼, u = r ·
-    a^¼; Octane's pins **g · (u / v)^⅛ and g / (u / v)^⅛**
-    (`arch_aniso_pins`), g the Phong pin of the two's geometric mean:
-    Octane's α (pin², #96) in ratio √(u / v), not the u / v a Phong lobe
-    has per axis under MDL 1.3. Octane's roughness the longer,
-    `anisotropyTexture` 1 − short / long of the two pins (negative:
-    stretched along u; #96's semantics, Anisotropy above), `rotation` 1 −
-    Iray's. Why: Calib-NVIDIA2's A5 (g 0.3, anisotropy 4) at α ratio u / v
-    has a sun streak 1.6 – 1.8 × as wide as high against Iray's 1.1 – 1.2
-    (20×12 / 16×9 / 13×8 v 15×14 / 13×11 / 11×9), at √(u / v) 16×15 / 13×12 /
-    11×10, pattern error 0.29 → 0.06, disk 1.06 (the former fitted pins in
-    ratio u / v, #114: 1.4 ×). √(u / v) is one of #114's two candidate
-    readings of NVIDIA's `mdl 1.0` lobe (#112: Iray's legacy
-    `simple_glossy_bsdf`), chosen by this render; the point-lit
-    Calib-Point-ArchAniso and our own modules at MDL 1.0 / 1.3
-    (Calib-Point-MdlAniso) decide it.
+    roughness **as Iray renders it: u = r · a^¼, v = r / a^¼** on either
+    side of 1 — the MDL SDK's `base.mdl` has that below 1 but u = r · √a,
+    v = r / √a above, which Iray's compiled `base::` doesn't do — and
+    **each axis at its Phong pin**, as the Uber's (#96). Octane's
+    roughness the longer pin, `anisotropyTexture` 1 − short / long of the
+    two pins (negative: stretched along u; #96's semantics, Anisotropy
+    above), `rotation` 1 − Iray's. Why (#114, point light at the camera,
+    Calib-Point-MdlAniso / -ArchAniso, Iray 2000 samples; run through the
+    peak above 0.3 / 0.5 of it, px): our own module at MDL 1.0 and 1.3
+    renders alike (iso r 0.2 21×20 / 17×16 v 21×20 / 16×16, u 0.4 v 0.1
+    40×10 / 31×8 v 41×10 / 32×8 — the lobe reads u / v per axis, linearly,
+    in NVIDIA's `mdl 1.0` as in 1.3), while the same module through
+    `base::anisotropy_conversion` (mia, a 4) is 51×25 / 40×19 (2.0 – 2.3 :
+    1, not 4 : 1); Architectural at g 0.15 / a 4 is 25×12 / 19×10 against
+    its isotropic twin's 17×17 / 13×13 — u 1.47 r, v 0.70 r (a^¼ = 1.41),
+    the SDK's would be 2 r / 0.5 r — and a 0.25 is 25×48 / 19×38 (u / v
+    0.5, as both readings). Octane at this rule: see the lab note
+    2026-11-14-mia-anisotropy (Calib-NVIDIA2's A5 within a pixel as
+    before: at small r the pins are the former g · (u / v)^⅛ ones).
     Transparency t (`weighted_layer(t, transmit lobe, diffuse)`): diffuse
     × (1 − t), `transmission` = refr_color × t × **k per channel**
     (`arch_glass_albedo`, `mdl_layer::tint_factor_measured`, as resin's)
