@@ -11,7 +11,9 @@ tiles, Detail Weight 0.5, Detail Specular Roughness Mult 0.25.
 
 Re-rendered with the current export (after 8350679 #87 and 5791263 #114,
 neither touching skin; enhanced-final, 400 samples): the numbers are the
-2026-11-14 00:48 render's to the decimal.
+2026-11-14 00:48 render's to the decimal. At 2000 samples (the -NoDN run
+re-rendered the whole variant folder) O8's detail is 0.98 (1.30 × Iray's),
+O1 / O7 unchanged: the excess isn't grain.
 
 ## Tiling, phase, level
 
@@ -75,9 +77,11 @@ D1 no map at O8's roughness (O8's own baseline, which O7 isn't: O7 is mult
 / 8, D6 / D7 weight 1 at 4 × 4 / 1 × 1 with mult 0.625 (lobe roughness as
 D2's), D8 the normal alone (mult 1). `Calib-PBRSkin-Detail-NoDN`: the same
 with Iray's Post Denoiser off. Octane side rendered (enhanced-final, 400
-samples; -NoDN 2000 samples, raw pass for the compare). Octane alone:
-detail D3 0.91, D4 0.84, D2 0.62, D5 0.41 (denoised; raw 0.45) - the
-amplitude falls with the tiles as the dimples go below a few pixels.
+samples, then both at 2000; raw pass for the -NoDN compare). Octane
+alone: detail D3 0.91, D4 0.83, D2 0.62, D5 0.43 - the amplitude falls with
+the tiles as the dimples go below a few pixels. D2 (= O8's material) reads
+0.62 where O8 reads 0.98: each position sees its own sky, so only
+Octane / Iray at the same position counts.
 
 What each decides:
 - D2 vs D2-NoDN in Iray: the denoiser's share of the 25 %.
