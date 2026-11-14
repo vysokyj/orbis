@@ -2477,6 +2477,44 @@ mod tests {
         assert!(checked > 0 && wrong.is_empty(), "{} of {checked} PBRSkin arguments differ from DAZ's .mi:\n{}", wrong.len(), wrong.join("\n"));
     }
 
+    /// PBRSkin's Top Coat normal (#166): DAZ hands `pbr_add_clearcoat`'s
+    /// `top_coat_base_bump` the same `pbr_detail_normal` call as
+    /// `pbr_material`'s `normal` (bump, normal map and the Detail Normal
+    /// Map), and no `top_coat_bump_weight` (the MDL's 1: the coat normal is
+    /// the base's), so the export gives the coat the base's normal.
+    #[test]
+    fn pbrskin_top_coat_takes_the_base_normal() {
+        fn calls<'a>(v: &'a Value, name: &str, out: &mut Vec<&'a Value>) {
+            match v {
+                Value::Object(o) => {
+                    if v["mdl"].as_str().is_some_and(|m| m.ends_with(name)) {
+                        out.push(v);
+                    }
+                    o.values().for_each(|c| calls(c, name, out));
+                }
+                Value::Array(a) => a.iter().for_each(|c| calls(c, name, out)),
+                _ => {}
+            }
+        }
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut checked = 0;
+        for f in std::fs::read_dir(root.join("calib/references/mi")).unwrap() {
+            let fixture: Value = serde_json::from_str(&std::fs::read_to_string(f.unwrap().path()).unwrap()).unwrap();
+            let (mut coats, mut bases) = (Vec::new(), Vec::new());
+            calls(&fixture, "pbr_add_clearcoat", &mut coats);
+            calls(&fixture, "pbr_skin::pbr_material", &mut bases);
+            assert_eq!(coats.len(), bases.len());
+            for (c, b) in coats.iter().zip(&bases) {
+                let coat = &c["args"]["top_coat_base_bump"];
+                assert!(coat["mdl"].as_str().is_some_and(|m| m.contains("pbr_detail_normal")), "{coat}");
+                assert_eq!(coat, &b["args"]["normal"]);
+                assert!(c["args"].get("top_coat_bump_weight").is_none());
+                checked += 1;
+            }
+        }
+        assert!(checked >= 48, "{checked}");
+    }
+
     /// A brick graph's leaf values by argument path (`pass_*` unwrapped).
     fn graph_leaves(v: &Value, path: &str, out: &mut HashMap<String, Value>) {
         let join = |k: &str| if path.is_empty() { k.to_string() } else { format!("{path}.{k}") };

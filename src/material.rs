@@ -2506,7 +2506,15 @@ impl Ocs<'_> {
     /// maps go there too. Height maps at `bump_power` of their factor; the
     /// coat's and the base's height maps together as their sum (a Mix
     /// texture at ½ of both at twice the power: Iray's B7 shows both).
+    ///
+    /// PBRSkin's coat (`pbr_add_clearcoat`) has no bump of its own: DAZ
+    /// wires its `top_coat_base_bump` to the same `pbr_detail_normal` call
+    /// as the base's `normal` (every PBRSkin `.mi`, #166), so the coat
+    /// takes the base's normal with the Detail Normal Map blended in.
     fn coat_bump_pins(&mut self, i: usize, mat: &Material, bump_pin: &str, normal_pin: &str) {
+        if crate::iray::is_pbrskin(mat) || mat.pbr_detail_normal().is_some() {
+            return self.surface_detail_pins(i, mat, normal_pin, bump_pin, true);
+        }
         // Bump and normal maps take only their placement (#77).
         let coat = self.channel_map(mat, "Top Coat Bump").map(|(a, m)| (a, m.placement()));
         let coat_normal = mat.float("Top Coat Bump Mode").unwrap_or(0.0) as i32 == 1;
@@ -2612,9 +2620,8 @@ impl Ocs<'_> {
     }
 
     /// `base_detail_pins`, with PBRSkin's Detail Normal Map blended onto
-    /// the normal when `detail` (`detail_normal_pin`; the Top Coat's normal
-    /// doesn't take it: `pbr_add_clearcoat` blends its bump onto the plain
-    /// `state::normal()`).
+    /// the normal when `detail` (`normal_pin`; PBRSkin's Top Coat takes it
+    /// too, `coat_bump_pins`). Off for an Uber coat's base maps.
     fn surface_detail_pins(&mut self, i: usize, mat: &Material, normal_pin: &str, bump_pin: &str, detail: bool) {
         let detail = if detail { self.pbr_detail(mat) } else { None };
         let nm = self.channel_map(mat, "Normal Map").map(|(a, m)| (a, m.placement()));
@@ -7190,6 +7197,46 @@ mod tests {
             let x = skin(enable, mode, w, true);
             assert!(!x.contains("OrbisDetailNormal") && x.contains("n.png"), "{enable} {mode} {w}: {x}");
         }
+        // The Top Coat takes the same normal (#166): DAZ hands
+        // `pbr_add_clearcoat` the base's `pbr_detail_normal` call.
+        let coated = |w: f32, base: bool| {
+            let mut ch = vec![
+                json!({"channel": {"id": "Dual Lobe Specular Enable", "current_value": true}}),
+                json!({"channel": {"id": "Specular Lobe 2 Roughness Mult", "current_value": 0.4}}),
+                json!({"channel": {"id": "Top Coat Enable", "current_value": true}}),
+                json!({"channel": {"id": "Top Coat Weight", "current_value": 0.5}}),
+                json!({"channel": {"id": "Detail Enable", "current_value": true}}),
+                json!({"channel": {"id": "Detail Weight", "current_value": w}}),
+                json!({"channel": {"id": "Detail Normal Map", "current_value": 1, "image_file": "/d.png"}}),
+                json!({"channel": {"id": "Detail Normal Map Mode", "current_value": 1}}),
+                json!({"channel": {"id": "Detail Horizontal Tiles", "current_value": 4}}),
+                json!({"channel": {"id": "Detail Vertical Tiles", "current_value": 5}}),
+            ];
+            if base {
+                ch.push(json!({"channel": {"id": "Bump Enable", "current_value": true}}));
+                ch.push(json!({"channel": {"id": "Normal Map", "current_value": 1, "image_file": "/n.png"}}));
+            }
+            let mut m = Material::from_dson(&json!({"extra": [{"channels": ch}]}), &HashMap::new());
+            for c in ["Detail Normal Map", "Normal Map"] {
+                if let Some(c) = m.channels.get_mut(c) {
+                    c.gamma = Some(1.0);
+                }
+            }
+            assert!(crate::iray::is_pbrskin(&m));
+            material_inputs(&[("Skin".into(), Rc::new(m), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None).0
+        };
+        for base in [true, false] {
+            let x = coated(0.5, base);
+            let c = &x[x.find("<pin name='coatingNormal'>").expect(&x)..];
+            let c = &c[..c.find("</pin>\n").map_or(c.len(), |k| k)];
+            assert!(c.contains("OrbisDetailNormal") && c.contains("normalize(d), 0.5)"), "{base}: {x}");
+            assert_eq!(c.contains("<pin name='base' dynamicType='5'>"), base, "{x}");
+            assert_eq!(x.matches("OrbisDetailNormal").count(), 2, "base and coat: {x}");
+        }
+        // Detail off: the coat keeps the base's normal map alone.
+        let x = coated(0.0, true);
+        let c = &x[x.find("<pin name='coatingNormal'>").expect(&x)..];
+        assert!(!x.contains("OrbisDetailNormal") && c[..400.min(c.len())].contains("n.png"), "{x}");
     }
 
     fn mat(chs: serde_json::Value) -> Rc<Material> {

@@ -1142,9 +1142,15 @@ leaves out, #15):
   the texture budget, and a capped bake would lose the detail it is for.
   The inputs are dynamic pins, written with `dynamicType='5'` (without
   it Octane compiles the shader on load and leaves them at their default
-  colours: no detail). The Top Coat doesn't take it in the export, though
-  DAZ wires `pbr_add_clearcoat`'s `top_coat_base_bump` to the same
-  `pbr_detail_normal` (#166). DAZ hands Iray the map at
+  colours: no detail). The Top Coat takes the same normal (#166): DAZ
+  wires `pbr_add_clearcoat`'s `top_coat_base_bump` to the same
+  `pbr_detail_normal` call as the base's `normal` and passes no `Top Coat
+  Bump Weight` (the MDL's 1, so `blend_normals` gives the coat the base's
+  normal as it is; every PBRSkin `.mi`), so the coating's `coatingNormal`
+  (or the Layered coat's `normal`) gets the same OSL texture, or the base
+  normal map alone without a detail; PBRSkin has no Top Coat Bump of its
+  own. Not rendered: no Iray reference has a coat over a normal map
+  yet. DAZ hands Iray the map at
   its definition's `default_image_gamma` 1, its weight and the tiles as
   the transform's scale (Calib-PBRSkin-Occlusion O8's `.mi`). Known
   input: O8's shading normal (Info kernel, `octane-probe-bumptilt.lua`)
