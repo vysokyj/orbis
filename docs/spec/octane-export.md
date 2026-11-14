@@ -1132,8 +1132,9 @@ leaves out, #15):
   map). Checked against Iray (Calib-PBRSkin-Occlusion, enhanced-final,
   denoised): O2 - O5 mean within 0.92 - 1.02 of the unoccluded sphere's
   Octane / Iray, Detail roughness 0.5's peak 2.09 × vs Iray's 1.99 ×.
-  The per-texel occlusion map is not rendered yet (#158: O6 at the
-  channel value rendered as O2, mean 0.71 of O1's Octane / Iray).
+  The per-texel occlusion map (O6, grey 128) holds: mean 1.08 of O1's
+  Octane / Iray (0.71 at the channel value), rim / O1 1.11 vs Iray's
+  1.05 (#158).
 - **PBRSkin Detail Normal Map** (#140, from `pbr_skin.mdl`'s
   `pbr_detail_normal`, no fit): under `Detail Enable`, in `Detail Normal
   Map Mode` 1 (a tangent-space normal map), the detail map — tiled by
