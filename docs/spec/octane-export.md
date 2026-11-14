@@ -1954,7 +1954,12 @@ leaves out, #15):
   Calib-RefrBack `.mi`), and `metallic_layered_base` lays the refraction
   over the metal over the backscattering. A full refraction switches it
   off (#154). Until then the export dropped the lobe under any
-  refraction. Awaiting Iray: Calib-RefrBack.
+  refraction. Confirmed against Iray (Calib-RefrBack, enhanced-final,
+  Octane / Iray over the disc, floor 1.04): r 0.5 b 0.5 1.06, b 1 1.08,
+  Base Mixing 1 1.06, thin-walled 1.06 / 1.05, metal 0.6 1.05 (the lobe
+  hidden in both); the lobe's share under the glass relative to the lobe
+  alone 0.38 vs Iray 0.40, so (1 − refraction) b holds; ties without
+  lobe 1.03, without refraction 1.11 (its red is #169).
 
   Why (metal): DAZ's MDL lays the metal (`bsdf_w_metal`) over
   `bsdf_w_backscattering`, so a metal hides the backscattering as it
