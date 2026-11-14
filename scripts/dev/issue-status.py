@@ -27,7 +27,8 @@ def batch(comments):
     scenes = {}
     for line in comments[last]["body"].splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) >= 2 and cells[0].endswith(".duf"):
+        # A private scene is listed by its name only, marked "(private)".
+        if len(cells) >= 2 and (cells[0].endswith(".duf") or cells[0].endswith("(private)")):
             samples = re.sub(r"\D", "", cells[1]) or "?"
             scenes[samples] = scenes.get(samples, 0) + 1
     answered = any("Iray references in" in c["body"] for c in comments[last + 1:])
