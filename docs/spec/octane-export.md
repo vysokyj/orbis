@@ -1185,6 +1185,16 @@ leaves out, #15):
   the unbumped normal in Iray (`state::normal()`), on Universal with the
   material's one normal; the library has no material with Makeup Enable
   on (9 scenes set its channels).
+
+  Checked against Iray (Calib-PBRSkin-Makeup / -Makeup-TL, enhanced-final,
+  Octane / Iray at the same position): every makeup sphere's core 1.05 -
+  1.12, at its tie's frame (dual lobe 1.10, translucent 1.07, Top Coat
+  1.09; over the subsurface skin between the makeup side and the skin's
+  1.27, as the Mix must); the weight map's bands (8-bit, gamma 2.2 = Iray's
+  "auto") in place and at the frame's ratio; the roughness mult's spread
+  ratio 1.63 vs 1.62 (× 0.25) and 0.73 vs 0.77 (× 2); the metal tint split
+  per channel 0.77 / 1.90 vs 0.77 / 2.02. The PBRSkin metal's rim is
+  #167's.
 - **Glossy layer over a dual lobe** (#106): DAZ's MDL has both in the
   stack at once — the dual lobe over the diffuse (`dl_diffuse_bsdf`), the
   glossy layer's custom curve over that (`metallic_layered_base`), each
