@@ -47,6 +47,7 @@ Calib-FilmIOR	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:44	106	on@8
 Calib-Flakes	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:45	109	on@8
 Calib-Furnace-ArchGlass	5000	0	Iray Server (Boost for Daz)	2026-11-11 02:53	81	on@8
 Calib-Furnace-ArchGlass2	5000	0	Iray Server (Boost for Daz)	2026-11-11 09:40	70	on@8
+Calib-Furnace-ArchGlass3	5000	0	DAZ Studio Iray (CPU)	2026-11-14 01:02		on@8
 Calib-Furnace-Brushed	5000	0	Iray Server (Boost for Daz)	2026-11-10 19:13	60	on@8
 Calib-Furnace-CoatTint	5000	0	Iray Server (Boost for Daz)	2026-11-10 22:56		on@8
 Calib-Furnace-MdlLobe	5000	0	DAZ Studio Iray (CPU)	2026-11-13 23:50		on@8
@@ -205,6 +206,7 @@ Calib-NVIDIA3	5000	0	Iray Server (Boost for Daz)	2026-11-05 20:43	133	on@8
 Calib-Overlay	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:43	104	on@8
 Calib-PBRSkin	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:32	110	on@8
 Calib-PBRSkin-Makeup	5000	0	DAZ Studio Iray (CPU)	2026-11-14 00:00		on@8
+Calib-PBRSkin-Makeup-TL	5000	0	DAZ Studio Iray (CPU)	2026-11-14 01:01		on@8
 Calib-PBRSkin-MetalTL	5000	0	Iray Server (Boost for Daz)	2026-11-01 02:33	129	on@8
 Calib-PBRSkin-Occlusion	5000	0	DAZ Studio Iray (CPU)	2026-11-13 23:33		on@8
 Calib-Point-ArchAniso	2000	0	DAZ Studio Iray (CPU)	2026-11-14 00:32		on@8
