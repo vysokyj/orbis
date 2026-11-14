@@ -1,0 +1,44 @@
+// ORBIS calibration module (#112), written for ORBIS (GPL-3.0-or-later).
+// The "mdl 1.3" twin of orbis_generic_v10.mdl: the same materials, where
+// Iray reads df::simple_glossy_bsdf without its legacy behaviour.
+mdl 1.3;
+
+import df::*;
+import state::*;
+import base::*;
+
+// The lobe tinted as NVIDIA's metal_brushed (metal_color 0.65), isotropic r 0.4.
+export material tint_r04() = material(
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(0.65), roughness_u: 0.4, roughness_v: 0.4)));
+
+// White, anisotropic at B6's roughnesses, the default tangent_u.
+export material aniso_b6() = material(
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(1.0), roughness_u: 0.42, roughness_v: 0.35)));
+
+// White, isotropic r 0.4, the roughness a varying expression (its value 0.4).
+export material varying_r04() = material(
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(1.0),
+            roughness_u: 0.4 + 0.0 * state::texture_coordinate(0).x,
+            roughness_v: 0.4 + 0.0 * state::texture_coordinate(0).y)));
+
+// metal_generic's structure (weighted glossy over a weighted diffuse base,
+// both under a base::file_bump_texture normal of factor 0 on the tiled
+// coordinate) at B6's constants: tint 0.65, u 0.42 / v 0.35, metal weight
+// 0.609 (the flat map's luminance * 0.5 + 0.5), base weight 0, tiling 3.
+export material generic_b6() = let {
+    base::texture_coordinate_info coordinate = base::transform_coordinate(
+        transform: base::rotation_translation_scale(float3(0.0), float3(0.0), float3(3.0)));
+    float3 bump = base::file_bump_texture(texture: texture_2d(), factor: 0.0, uvw: coordinate);
+} in material(
+    surface: material_surface(
+        scattering: df::weighted_layer(
+            weight: 0.609,
+            layer: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(0.65), roughness_u: 0.42, roughness_v: 0.35),
+            normal: bump,
+            base: df::weighted_layer(
+                weight: 0.0,
+                layer: df::diffuse_reflection_bsdf(tint: color(0.5)),
+                normal: bump))));

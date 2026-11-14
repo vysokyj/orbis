@@ -36,6 +36,12 @@ material file with one Shader Mixer brick material per module material
 - Calib-Furnace-MdlResin (#117): resin's base lobe (reflect_transmit, IOR
   1.49) at r 0.25 / 0.5 / 0.75 / 1 in 1.0 / 1.3 - Calib-Furnace-Resin2
   U3 - U6's twins.
+- Calib-Furnace-MdlGeneric (#112, second round): what is left of
+  metal_generic one piece at a time, each at 1.0 / 1.3 - the lobe's tint
+  (0.65, r 0.4), anisotropy (B6's u 0.42 / v 0.35, default tangent_u), a
+  varying roughness expression (value 0.4), and metal_generic's whole
+  structure (weighted layers, file_bump_texture normal) at
+  Calib-Furnace-Brushed B6's constants.
 - Calib-Point-ArchAniso (#114): that light on NVIDIA's Architectural
   preset (its reflection only) at glossiness 0 / 0.15 / 0.3, isotropic
   and anisotropic - the scene the export maps (Octane side).
@@ -155,6 +161,13 @@ TIR = [(f'X{k + 1} v{v} {what}', f'v{v.replace(".", "")}_tir_{mat}', f'orbis/orb
                                            for v in ('1.0', '1.3')])]
 RESIN = [(f'R{k + 1} v{v} resin r {r}', f'v{v.replace(".", "")}_resin_r{R_NAME(r)}', f'orbis/orbis_resin_v{v.replace(".", "")}.mdl#resin_r{R_NAME(r)}')
          for k, (v, r) in enumerate([(v, r) for v in ('1.0', '1.3') for r in (0.25, 0.5, 0.75, 1.0)])]
+# #112 second round: MdlVersion's white isotropic 1.0 lobe is only 2 - 7 %
+# below 1.3, not Metal Brushed's ~30 % rim; split the rest of
+# metal_generic (orbis_generic_v10 / _v13, see the module).
+GENERIC = [(f'G{k + 1} v{v} {what}', f'v{v.replace(".", "")}_generic_{mat}', f'orbis/orbis_generic_v{v.replace(".", "")}.mdl#{mat}')
+           for k, (what, mat, v) in enumerate([(w, m, v) for w, m in (('tint 0.65 r 0.4', 'tint_r04'), ('aniso u 0.42 v 0.35', 'aniso_b6'),
+                                                                      ('varying r 0.4', 'varying_r04'), ('generic B6', 'generic_b6'))
+                                               for v in ('1.0', '1.3')])]
 # NVIDIA's architectural preset itself under the same light, its lobe alone
 # (diffuse black, reflectivity 1, Schlick 1 / 1: a white constant lobe): the
 # scene the export maps, so it has an Octane side. (label, channels).
@@ -182,7 +195,7 @@ for _, _, c, root in PATH_PROBE:
     open(os.path.join(d, c.split('/')[1].split('#')[0]), 'w').write(probe)
 
 os.makedirs(os.path.dirname(DSF), exist_ok=True)
-lib_mats = [brick_material(mid, c) for _, mid, c, *_ in PATH_PROBE + VERSION + LOBE + TRANSMIT + ANISO + TIR + RESIN]
+lib_mats = [brick_material(mid, c) for _, mid, c, *_ in PATH_PROBE + VERSION + LOBE + TRANSMIT + ANISO + TIR + RESIN + GENERIC]
 dsf = {'file_version': '0.6.0.0',
        'asset_info': {'id': DSF_URL, 'type': 'material', 'contributor': {'author': 'ORBIS', 'email': '', 'website': ''}, 'revision': '1.0'},
        'material_library': lib_mats}
@@ -309,3 +322,4 @@ furnace_scene('Calib-Point-MdlAniso', ANISO, ev=9.0)
 furnace_scene('Calib-Point-ArchAniso', ARCH_POINT, ev=11.5, arch=True)
 furnace_scene('Calib-Furnace-MdlTir', TIR)
 furnace_scene('Calib-Furnace-MdlResin', RESIN)
+furnace_scene('Calib-Furnace-MdlGeneric', GENERIC)

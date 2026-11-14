@@ -2325,9 +2325,17 @@ leaves out, #15):
     directional factor or normalisation, and the differences from the
     flat Uber metal reachable through DAZ's channels don't darken the
     rim — a `file_bump_texture` layer normal (Calib-Furnace-MetalBump)
-    nor the lobe's tint (Calib-Furnace-CoatTint). Left: the glossy's
-    default `tangent_u`, the nested empty base (a hand-written MDL
-    module, #112).
+    nor the lobe's tint (Calib-Furnace-CoatTint). Nor the MDL version
+    alone (#112, our own modules, Calib-Furnace-MdlVersion / -MdlLobe):
+    Iray's legacy `simple_glossy_bsdf` of `mdl 1.0` modules (NVIDIA's)
+    keeps 0.98 of the 1.3 / Uber lobe head-on and to the rim up to r 0.3,
+    at r 0.4 0.98 → 0.93 at the rim, at r 0.7 / 1 0.91 / 0.83 head-on
+    (disk 0.87 / 0.78) — about a fifth of the rim at Brushed's roughness,
+    2 – 6 % on NVIDIA's metals' disks, left as Octane over Iray with the
+    rough lobe's energy; the nested empty base adds nothing. Left: the
+    1.0 lobe with the tint, the anisotropy or a varying roughness, and
+    `metal_generic`'s structure at constants (Calib-Furnace-MdlGeneric,
+    #112).
   - Dielectrics (concrete, concrete polished, asphalt, ceramic tiles small,
     granite black, porcelain, resin polyurethane matte, architectural):
     `df::fresnel_layer(ior, weight, glossy, diffuse)` → Universal albedo,
