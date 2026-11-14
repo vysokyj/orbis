@@ -407,14 +407,15 @@ impl Textures {
         Some(image::RgbImage::from_fn(lin.width(), lin.height(), |x, y| image::Rgb(lin.get_pixel(x, y).0.map(|c| enc.encode(c.max(0.0).powf(g))))))
     }
 
-    /// Genesis 9's eye albedo per texel (`eye_volume::albedo`): the base
-    /// colour `base` × its map `d` and the translucency tint `tint` × its
-    /// map `tm` (either may be missing: the colour alone), at weight `t`,
-    /// the ball returning `p`. Linear, written sRGB-encoded (gamma 2.2) at
+    /// A closed ball's albedo per texel (`eye_volume::ball_albedo`: Genesis
+    /// 9's eye, a translucent prop's volume): the base colour `base` × its
+    /// map `d` and the translucency tint `tint` × its map `tm` (either may
+    /// be missing: the colour alone), the diffuse layer at `shares.0`, the
+    /// translucency at `shares.1`, the ball returning `p`. Linear, written sRGB-encoded (gamma 2.2) at
     /// the larger map's size.
     #[allow(clippy::too_many_arguments)]
-    fn eye_bake(&mut self, dirs: &[PathBuf], d: Option<&str>, tm: Option<&str>, base: [f32; 3], tint: [f32; 3], t: f32, p: [f32; 3]) -> Option<String> {
-        let key = format!("eye|{d:?}|{tm:?}|{base:?}|{tint:?}|{t}|{p:?}");
+    fn eye_bake(&mut self, dirs: &[PathBuf], d: Option<&str>, tm: Option<&str>, base: [f32; 3], tint: [f32; 3], shares: (f32, f32), p: [f32; 3]) -> Option<String> {
+        let key = format!("eye|{d:?}|{tm:?}|{base:?}|{tint:?}|{shares:?}|{p:?}");
         if let Some(asset) = self.by_source.get(&key) {
             return Some(asset.clone());
         }
@@ -437,7 +438,7 @@ impl Textures {
                 let k = i % 3;
                 let b = base[k] * rd.map_or(1.0, |r| lin[r[i] as usize]);
                 let c = tint[k] * rt.map_or(1.0, |r| lin[r[i] as usize]);
-                *o = enc.encode(crate::eye_volume::albedo(t, b, c, p[k]));
+                *o = enc.encode(crate::eye_volume::ball_albedo(shares.0 * b, shares.1 * c, p[k]));
             }
         });
         let mut png = Vec::new();
@@ -3889,6 +3890,14 @@ impl Ocs<'_> {
         // distance 0.15 mm), so it shows as colour, not light through the
         // ball; as Universal's transmission the whole eye glowed milky.
         let eye_volume = is_eye(name) && crate::iray::is_pbrskin(mat) && translucency > 0.0 && !thin;
+        // A translucent prop's volume (#87): a closed solid, not
+        // thin-walled, that Iray fills with DAZ's homogeneous volume
+        // (`add_uber_volume`: absorption, scattering or both). Iray's
+        // sphere is that MDL (`scripts/dev/prop-volume-mc.py`), a diffuser
+        // returning the light near where it entered, so like the eye it is
+        // one albedo, the wall's series over the ball's escape
+        // (`prop_volume_escape`); no transmission.
+        let prop_volume = !eye_volume && translucency > 0.0 && !thin && !mat.open && !mat.fibres && !metal && refraction == 0.0 && (absorption(mat).is_some() || scattering(mat).is_some());
         // Iray's refraction is a weighted layer over the diffuse and
         // translucency (DAZ's MDL): a partial one (Morgan Hair's 0.106)
         // leaves the translucency its share, 1 − Refraction Weight
@@ -3897,7 +3906,7 @@ impl Ocs<'_> {
         // another Mix; Base Mixing 0 splits it, `refractive_metal_material`,
         // #135) the translucency takes it while the surface is mostly
         // diffuse.
-        let transmit = if metal || refraction >= 0.5 || eye_volume { 0.0 } else { translucency.min(self.max_transmission) };
+        let transmit = if metal || refraction >= 0.5 || eye_volume || prop_volume { 0.0 } else { translucency.min(self.max_transmission) };
         // Base Color Effect 1 / 2 on that diffuse: the diffuse thinned to
         // its colour's mono, the translucency the rest
         // (`base_color_effect_shares`). Calib-Thin's cards (thin-walled,
@@ -4020,14 +4029,25 @@ impl Ocs<'_> {
         // The weighted blend scales the diffuse map (not a translucency
         // map standing in for a missing one — the HS CB cap went grey).
         // Genesis 9's eye: the diffuse layer and what its volume sends back
-        // through the translucency, one albedo (`eye_volume`, #66).
-        let eye_albedo = if eye_volume {
+        // through the translucency, one albedo (`eye_volume`, #66); a
+        // translucent prop's volume the same way (`prop_volume`, #87).
+        let eye_albedo = if eye_volume || prop_volume {
             let base = mat.base_color();
             let tint = mat.color("Translucency Color").unwrap_or([1.0; 3]);
-            let p = crate::eye_volume::escape(&crate::eye_volume::Volume::of(mat), crate::eye_volume::G9_EYE_RADIUS_MM, EYE_VOLUME_PATHS);
-            match self.textures.eye_bake(self.dirs, mat.image("diffuse"), mat.image("Translucency Color"), base, tint, translucency, p) {
+            let (p, shares) = if eye_volume {
+                (crate::eye_volume::escape(&crate::eye_volume::Volume::of(mat), crate::eye_volume::G9_EYE_RADIUS_MM, EYE_VOLUME_PATHS), (1.0 - translucency, translucency))
+            } else {
+                let mut colour = base;
+                let cover = self.map_cover(mat, "diffuse");
+                if let Some(mean) = mat.image("diffuse").map(str::to_string).and_then(|t| self.textures.mean_covered_colour(self.dirs, &t, cover.as_deref())) {
+                    colour = [0, 1, 2].map(|k| colour[k] * mean[k]);
+                }
+                let (d, t) = base_color_effect_shares(mat.float("Base Color Effect").unwrap_or(0.0) as i32, colour, translucency);
+                (prop_volume_escape(mat, area_m2), ((1.0 - translucency) * d, t))
+            };
+            match self.textures.eye_bake(self.dirs, mat.image("diffuse"), mat.image("Translucency Color"), base, tint, shares, p) {
                 Some(asset) => Some(Ok(asset)),
-                None => Some(Err([0, 1, 2].map(|k| crate::eye_volume::albedo(translucency, base[k], tint[k], p[k])))),
+                None => Some(Err([0, 1, 2].map(|k| crate::eye_volume::ball_albedo(shares.0 * base[k], shares.1 * tint[k], p[k])))),
             }
         } else {
             None
@@ -4093,18 +4113,6 @@ impl Ocs<'_> {
             // 1.38 at 2w) - thin-walled shells, so a closed solid at w is
             // unmeasured until Calib-SSS-Solid (#134).
             let share = if mat.open && !thin { (2.0 * transmit).min(1.0) } else { transmit } * transmit_share * (1.0 - refraction);
-            // A closed solid with Iray's volume under it: the light it passes
-            // back out scales with the volume's diffusion reflectance, as on
-            // skin (`volume_factor`), × `PROP_VOLUME_LEVEL`. Calib-SSSColor's
-            // spheres (Victoria 8's volume, SSS Color grey / blue / deep;
-            // the spread follows where each sphere stands, #87)
-            // 0.84 – 1.05 × Iray, before 1.05 – 2.68; mono 1.40 – 1.54
-            // (before 1.40 – 1.69: Iray's mono spheres darker than Rd says,
-            // unlike its figures), SSS Reflectance Tint, unread, 1.34 (#28).
-            // Mono with the amount clamped as Iray gets it (#105): 1.11 –
-            // 1.31 per channel, Amount 2 before 1.26 – 1.59.
-            let volume = if !thin && !mat.open && absorption(mat).is_some() { volume_factor(mat).map(|v| v * PROP_VOLUME_LEVEL) } else { [1.0; 3] };
-            let tc = [0, 1, 2].map(|k| tc[k] * volume[k]);
             match mat.image("Translucency Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
                 Some(asset) => self.overlaid_pin(i, "transmission", mat, "Translucency Color", &asset, share, tc),
                 None => self.rgb_pin(i, "transmission", tc.map(|c| c * share)),
@@ -5150,7 +5158,7 @@ fn absorption(mat: &Material) -> Option<[f32; 3]> {
 fn scattering(mat: &Material) -> Option<[f32; 3]> {
     if let Some(u) = iray(mat) {
         // What DAZ passes: the amount (mono, clamped to 1) or the SSS
-        // Color (chromatic, logarithmic), none without SSS Amount.
+        // Color (chromatic, logarithmic); off without them (#87).
         if !u.bool("sub_surface_enable")? {
             return None;
         }
@@ -5160,7 +5168,11 @@ fn scattering(mat: &Material) -> Option<[f32; 3]> {
         let sigma = amount.map(|a| if log { -a.clamp(1e-4, 1.0).ln() } else { a.max(0.0) } / distance_m);
         return sigma.iter().any(|s| *s > 0.0).then_some(sigma);
     }
-    mat.float("SSS Amount")?;
+    // Chromatic SSS scatters by its colour, mono by its amount (as DAZ
+    // sets `sub_surface_enable`, `src/iray.rs`).
+    if mat.float("SSS Mode").unwrap_or(0.0) as i32 != 1 {
+        mat.float("SSS Amount")?;
+    }
     let distance_m = mat.float("Scattering Measurement Distance").unwrap_or(0.0) * CM_PER_M_INV;
     if distance_m <= 0.0 {
         return None;
@@ -5179,6 +5191,39 @@ fn scattering_direction(mat: &Material) -> f32 {
     iray(mat).and_then(|u| u.float("sub_surface_scattering_direction")).unwrap_or_else(|| mat.float("SSS Direction").unwrap_or(0.0)).clamp(-0.95, 0.95)
 }
 
+/// A translucent prop's ball (#87): the share of the light its wall lets
+/// in that the volume returns to the wall (`eye_volume::escape_ball`), in
+/// a ball of the material's surface area (`area_m2`, all its faces: R =
+/// √(A / 4π); 10 cm without one). The volume is Iray's as DAZ passes it
+/// ([`absorption`], [`scattering`], [`scattering_direction`]).
+///
+/// Why a ball's albedo and not Octane's scattering medium: Iray's sphere
+/// is DAZ's MDL (`irayubermaterial.mdl`: a Lambertian wall, (1 − w) b
+/// reflected and w Tc transmitted both ways, around a homogeneous σa / σs
+/// volume) - Calib-SSSColor's and Calib-PropVol-*'s spheres at k ≤ 30
+/// (the volume in a ball 1 / k the size) are `prop-volume-mc.py`'s
+/// albedo × 0.95 – 0.99 at each sphere's own light, as Iray's plain
+/// diffuse sphere. Octane's medium with the same σ is the same physics
+/// per channel (over a grey σ 0.94 – 1.02 of the Monte Carlo) but
+/// spectral: Victoria's Transmitted Color (σa 0.36 / 13 / 18 per cm)
+/// leaks into red, 0.42 – 0.64 × Iray on all of them, and the hollow
+/// diffuse transmission it replaces (× the old fitted volume factor) lit
+/// the ball from inside, so its ratio followed the sphere's place (0.45
+/// – 1.17). Thin volumes (k ≥ 100) pass light from behind, which a
+/// furnace albedo leaves out: 0.71 – 0.97 there.
+fn prop_volume_escape(mat: &Material, area_m2: f64) -> [f32; 3] {
+    let per_mm = |s: Option<[f32; 3]>| s.unwrap_or([0.0; 3]).map(|v| v / 1000.0);
+    let scattering = scattering(mat);
+    let v = crate::eye_volume::Volume { absorption: per_mm(absorption(mat)), direction: if scattering.is_some() { scattering_direction(mat) } else { 0.0 }, scattering: per_mm(scattering) };
+    let radius_mm = if area_m2 > 0.0 { ((area_m2 / (4.0 * std::f64::consts::PI)).sqrt() * 1000.0) as f32 } else { 100.0 };
+    crate::eye_volume::escape_ball(&v, radius_mm, EYE_VOLUME_PATHS, PROP_VOLUME_STEPS)
+}
+
+/// The scattering events a prop's ball may take per channel
+/// ([`prop_volume_escape`]): a dense volume that hardly absorbs walks
+/// thousands a path; 10⁷ keep a channel under ~0.3 s.
+const PROP_VOLUME_STEPS: u64 = 10_000_000;
+
 /// Paths per channel for the eye ball's escape (`eye_volume::escape`):
 /// ±0.005 at 20 000, a few ms per eye.
 const EYE_VOLUME_PATHS: u32 = 20_000;
@@ -5194,11 +5239,6 @@ fn is_eye(name: &str) -> bool {
         || n.ends_with("eye_left")
         || n.ends_with("eye_right")
 }
-
-/// A translucent prop's volume (`universal`): its transmission × the volume
-/// factor × this. Octane's response to it is steep: 0.6 / 0.8 put
-/// Calib-SSSColor's chromatic spheres at 0.71 – 0.84 / 1.00 – 1.30 × Iray.
-const PROP_VOLUME_LEVEL: f32 = 0.7;
 
 /// `Ocs::layered_coat_material`: a Top Coat with anisotropy, or over
 /// `gloss_over_dual_lobe`, outside Layering Mode 1 (the weighted coat takes
@@ -5563,37 +5603,8 @@ fn random_walk_albedo(alpha: f32) -> f32 {
     0.5 * (lo + hi)
 }
 
-/// The Genesis 8 skins' volume albedo (Victoria 8's), see [`volume_factor`].
-fn reference_volume_albedo() -> [f32; 3] {
-    volume_albedo_of(SKIN_TRANSMITTED.map(colour_to_linear), SKIN_TRANSMITTED_DISTANCE, Scattering::Chromatic(SKIN_SSS_COLOR.map(colour_to_linear)), SKIN_SCATTERING_DISTANCE, 0.0)
-}
-
-/// How much more (or less) light a translucent prop's volume gives back
-/// than the Genesis 8 skins' volume, per channel: (Rd(α) / Rd(α₀))^0.5, Rd
-/// Jensen's diffusion reflectance (η 1.4) of the volume's reduced
-/// single-scattering albedo α. DAZ's MDL (`add_uber_volume`): σa =
-/// −ln(Transmitted Color) / d_t, σs = −ln(SSS Color) / d_s for chromatic
-/// SSS (`SSS Mode` 1), SSS Amount / d_s for mono, the colours linear. Only
-/// on props (Universal's diffuse transmission): skin takes the derived
-/// A(α) (`skin_albedo`, #19).
-///
-/// The square root and `PROP_VOLUME_LEVEL` are still fits (#83), and
-/// the spread they leave is the export's, not Iray's (#87): Iray's sphere
-/// is DAZ's MDL to 0.93 – 0.98 (`scripts/dev/prop-volume-mc.py` at each
-/// sphere's own light), a local diffuser, while the medium-less diffuse
-/// transmission here lights the whole ball from inside, so its ratio
-/// follows the sphere's place in the scene (V1 0.71, V7 — V1's material —
-/// 1.07 in red). Octane's scattering medium is the same physics per
-/// channel but leaks a saturated σ across channels (spectral): red 0.56 –
-/// 0.63 × Iray on Calib-SSSColor. The rule waits for Calib-PropVol-*.
-fn volume_factor(mat: &Material) -> [f32; 3] {
-    let alpha = volume_albedo(mat);
-    let reference = reference_volume_albedo();
-    [0, 1, 2].map(|k| (diffusion_reflectance(alpha[k]) / diffusion_reflectance(reference[k])).sqrt())
-}
-
-/// See [`volume_factor`]: the Genesis 8 skins' volume (Victoria 8's,
-/// sRGB colours, DAZ cm).
+/// The Genesis 8 skins' volume (Victoria 8's, sRGB colours, DAZ cm): the
+/// channels a skin leaves out ([`volume_albedo`]).
 const SKIN_TRANSMITTED: [f32; 3] = [0.9764706, 0.4823529, 0.3529412];
 const SKIN_TRANSMITTED_DISTANCE: f32 = 0.125;
 const SKIN_SSS_COLOR: [f32; 3] = [0.9764706, 0.6941177, 0.7607843];
@@ -5607,7 +5618,7 @@ enum Scattering {
 }
 
 /// The skin volume's reduced single-scattering albedo per channel; channels
-/// the material leaves out are the Genesis 8 skins'. See [`volume_factor`].
+/// the material leaves out are the Genesis 8 skins'.
 fn volume_albedo(mat: &Material) -> [f32; 3] {
     let linear = |c: [f32; 3]| c.map(colour_to_linear);
     let chromatic = Scattering::Chromatic(mat.color("SSS Color").unwrap_or(linear(SKIN_SSS_COLOR)));
@@ -5648,15 +5659,6 @@ fn volume_albedo_of(transmitted: [f32; 3], d_t: f32, scattering: Scattering, d_s
     })
 }
 
-/// Jensen's diffusion reflectance of a semi-infinite medium (dipole, η 1.4)
-/// at reduced albedo `alpha`.
-fn diffusion_reflectance(alpha: f32) -> f32 {
-    const ETA: f32 = 1.4;
-    let fdr = -1.44 / (ETA * ETA) + 0.71 / ETA + 0.668 + 0.0636 * ETA;
-    let a = (1.0 + fdr) / (1.0 - fdr);
-    let s = (3.0 * (1.0 - alpha.clamp(0.0, 1.0))).sqrt();
-    (alpha / 2.0 * (1.0 + (-4.0 / 3.0 * a * s).exp()) * (-s).exp()).max(1e-6)
-}
 
 
 /// Iray's weighted base mixing (2), translucent or not: the Mix's glossy
@@ -9052,26 +9054,42 @@ mod tests {
     }
 
     #[test]
-    fn a_translucent_props_volume_scales_its_transmission() {
-        let transmission = |extra: serde_json::Value| {
-            let mut ch = vec![json!({"channel": {"id": "diffuse", "current_value": [0.8, 0.8, 0.8]}}), json!({"channel": {"id": "Translucency Weight", "current_value": 0.9}})];
+    fn a_translucent_props_volume_is_the_balls_albedo() {
+        let ball = |extra: serde_json::Value| {
+            let mut ch = vec![
+                json!({"channel": {"id": "diffuse", "current_value": [0.8, 0.55, 0.45]}}),
+                json!({"channel": {"id": "Translucency Weight", "current_value": 0.9}}),
+                json!({"channel": {"id": "Translucency Color", "current_value": [0.9, 0.55, 0.45]}}),
+            ];
             ch.extend(extra.as_array().unwrap().iter().cloned());
-            let (x, _) = material_inputs(&[("Ball".into(), mat(serde_json::Value::Array(ch)), 1.0)], &[], HashMap::new(), 8000, SkinShader::None);
-            let t = &x[x.find("<pin name='transmission'>").unwrap()..];
+            // Calib-SSSColor's 15 cm sphere.
+            material_inputs(&[("Ball".into(), mat(serde_json::Value::Array(ch)), 4.0 * std::f64::consts::PI * 0.15 * 0.15)], &[], HashMap::new(), 8000, SkinShader::None).0
+        };
+        let rgb = |x: &str, pin: &str| {
+            let t = &x[x.find(&format!("<pin name='{pin}'>")).unwrap()..];
             t[t.find("type='8'>").unwrap() + 9..].split('<').next().unwrap().split(' ').map(|v| v.parse::<f32>().unwrap()).collect::<Vec<_>>()
         };
-        // No volume: the translucency as it is.
-        assert!((transmission(json!([]))[0] - 0.9).abs() < 1e-4);
-        // Victoria 8's volume (the reference): × the level alone.
-        let victoria = json!([
+        // No volume (an empty ball): the translucency as it is.
+        let empty = ball(json!([]));
+        assert!((rgb(&empty, "transmission")[0] - 0.9 * colour_to_linear(0.9)).abs() < 1e-3, "{empty}");
+        // Victoria 8's volume (Calib-SSSColor's V1): no transmission, the
+        // albedo `scripts/dev/prop-volume-mc.py` gives, 0.3135 / 0.0475 /
+        // 0.0233.
+        let v1 = ball(json!([
             {"channel": {"id": "Transmitted Color", "current_value": [0.9764706, 0.4823529, 0.3529412]}},
             {"channel": {"id": "Transmitted Measurement Distance", "current_value": 0.125}},
             {"channel": {"id": "Scattering Measurement Distance", "current_value": 0.015}},
             {"channel": {"id": "SSS Mode", "current_value": 1}},
             {"channel": {"id": "SSS Color", "current_value": [0.9764706, 0.6941177, 0.7607843]}},
-        ]);
-        let t = transmission(victoria);
-        assert!(t.iter().all(|v| (v - 0.9 * PROP_VOLUME_LEVEL).abs() < 1e-3), "{t:?}");
+        ]));
+        assert!(!v1.contains("<pin name='transmission'>") || rgb(&v1, "transmission").iter().all(|t| *t == 0.0), "{v1}");
+        let a = rgb(&v1, "albedo");
+        for (got, want) in a.iter().zip([0.3135, 0.0475, 0.0233]) {
+            assert!((got - want).abs() < 0.01, "{a:?}");
+        }
+        // Thin-walled: no volume in Iray, the transmission stays.
+        let thin = ball(json!([{"channel": {"id": "Thin Walled", "current_value": true}}, {"channel": {"id": "Transmitted Color", "current_value": [0.9764706, 0.4823529, 0.3529412]}}, {"channel": {"id": "Transmitted Measurement Distance", "current_value": 0.125}}]));
+        assert!(rgb(&thin, "transmission")[0] > 0.5, "{thin}");
     }
 
     /// DAZ's Round Corners (Calib-RoundCorners .mi: the channels as they
@@ -10046,42 +10064,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn skin_volume_scales_the_subsurface_share() {
-        // Victoria 8's volume is the reference: no change.
-        let victoria = json!([
-            {"channel": {"id": "Transmitted Color", "current_value": [0.9764706, 0.4823529, 0.3529412]}},
-            {"channel": {"id": "Transmitted Measurement Distance", "current_value": 0.125}},
-            {"channel": {"id": "Scattering Measurement Distance", "current_value": 0.015}},
-            {"channel": {"id": "SSS Mode", "current_value": 1}},
-            {"channel": {"id": "SSS Color", "current_value": [0.9764706, 0.6941177, 0.7607843]}},
-            {"channel": {"id": "SSS Amount", "current_value": 2}},
-        ]);
-        let with = |extra: serde_json::Value| {
-            let mut chs = victoria.as_array().unwrap().clone();
-            chs.extend(extra.as_array().unwrap().iter().cloned());
-            volume_factor(&mat(serde_json::Value::Array(chs)))
-        };
-        let near = |f: [f32; 3], want: [f32; 3]| f.iter().zip(want).all(|(a, b)| (a - b).abs() < 0.02);
-        assert!(near(with(json!([])), [1.0; 3]));
-        // Zurie's shorter distances, the same albedo.
-        let zurie = with(json!([
-            {"channel": {"id": "Transmitted Measurement Distance", "current_value": 0.063}},
-            {"channel": {"id": "Scattering Measurement Distance", "current_value": 0.008}},
-        ]));
-        assert!(near(zurie, [1.0; 3]), "{zurie:?}");
-        // A blue SSS Color scatters more red, less blue (Iray 1.69 / 0.92 / 0.52).
-        let blue = with(json!([{"channel": {"id": "SSS Color", "current_value": [0.6, 0.75, 0.95]}}]));
-        assert!(near(blue, [1.58, 0.93, 0.51]), "{blue:?}");
-        // Mono: SSS Amount per distance, the amount clamped to 1 as DAZ
-        // hands it to Iray (#105): Amount 2 scatters as Amount 1 (unclamped
-        // 1.65 / 1.24 / 1.40).
-        let mono = with(json!([{"channel": {"id": "SSS Mode", "current_value": 0}}]));
-        assert!(near(mono, [1.56, 1.05, 1.16]), "{mono:?}");
-        let one = with(json!([{"channel": {"id": "SSS Mode", "current_value": 0}}, {"channel": {"id": "SSS Amount", "current_value": 1}}]));
-        assert!(near(one, mono), "{one:?}");
-    }
-
     /// An anisotropic Top Coat outside Layering Mode 1: a Layered material
     /// of the uncoated surface and a Specular Layer with the coat's
     /// anisotropy and rotation; isotropic, or weighted, it stays as it was.
@@ -10400,7 +10382,7 @@ mod tests {
 
         // The Genesis 9 eye: both maps (tc resized to d), and one alone.
         let (base, tint, p) = ([0.9, 1.0, 0.8], [1.0, 0.7, 0.5], [0.6, 0.4, 0.3]);
-        let asset = tex.eye_bake(&dirs, Some("d.png"), Some("tc.png"), base, tint, 0.8, p).unwrap();
+        let asset = tex.eye_bake(&dirs, Some("d.png"), Some("tc.png"), base, tint, (0.2, 0.8), p).unwrap();
         let tc_file = image::open(dir.path().join("tc.png")).unwrap().to_rgb8();
         let tcr = image::imageops::resize(&tc_file, w, h, image::imageops::FilterType::Triangle);
         let want = image::RgbImage::from_fn(w, h, |x, y| {
@@ -10409,10 +10391,10 @@ mod tests {
         });
         let got = png(&tex, &asset);
         assert!(got.as_raw().iter().zip(want.as_raw()).all(|(g, w)| g.abs_diff(*w) <= 1), "eye bake");
-        let asset = tex.eye_bake(&dirs, None, Some("tc.png"), base, tint, 1.0, p).unwrap();
+        let asset = tex.eye_bake(&dirs, None, Some("tc.png"), base, tint, (0.0, 1.0), p).unwrap();
         let want = image::RgbImage::from_fn(tc_file.width(), tc_file.height(), |x, y| image::Rgb([0, 1, 2].map(|k| encode(crate::eye_volume::albedo(1.0, base[k], tint[k] * decode(tc_file.get_pixel(x, y).0[k]), p[k]), 2.2))));
         let got = png(&tex, &asset);
         assert!(got.dimensions() == want.dimensions() && got.as_raw().iter().zip(want.as_raw()).all(|(g, w)| g.abs_diff(*w) <= 1), "eye bake, translucency map alone");
-        assert!(tex.eye_bake(&dirs, None, None, base, tint, 0.8, p).is_none(), "no map: a flat colour");
+        assert!(tex.eye_bake(&dirs, None, None, base, tint, (0.2, 0.8), p).is_none(), "no map: a flat colour");
     }
 }

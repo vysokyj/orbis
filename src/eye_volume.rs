@@ -96,7 +96,21 @@ fn hg(g: f32, rng: &mut Rng) -> f32 {
 /// Light that crosses to the back half goes into the socket. Deterministic
 /// (fixed seed, `paths` per channel).
 pub fn escape(v: &Volume, radius_mm: f32, paths: u32) -> [f32; 3] {
-    [0, 1, 2].map(|ch| {
+    [0, 1, 2].map(|ch| walk(v, ch, radius_mm, paths, false, u64::MAX))
+}
+
+/// A free ball's escape (a translucent prop, #87): the share of the
+/// entering light that reaches the surface again anywhere - what a white
+/// furnace sees, `scripts/dev/prop-volume-mc.py`'s E with a white wall.
+/// A channel that absorbs nothing returns all of it. Paths stop being
+/// started after `steps` scattering events in all (a dense, nearly
+/// lossless volume walks ~(R σs)² steps a path); at least 256 run.
+pub fn escape_ball(v: &Volume, radius_mm: f32, paths: u32, steps: u64) -> [f32; 3] {
+    [0, 1, 2].map(|ch| if v.absorption[ch] == 0.0 { 1.0 } else { walk(v, ch, radius_mm, paths, true, steps) })
+}
+
+fn walk(v: &Volume, ch: usize, radius_mm: f32, paths: u32, anywhere: bool, steps: u64) -> f32 {
+    {
         let (sa, ss) = (v.absorption[ch], v.scattering[ch]);
         if !sa.is_finite() {
             return 0.0;
@@ -105,7 +119,9 @@ pub fn escape(v: &Volume, radius_mm: f32, paths: u32) -> [f32; 3] {
         let albedo = if st > 0.0 { ss / st } else { 0.0 };
         let mut rng = Rng(0x5EED + ch as u64);
         let mut out = 0.0f64;
-        for _ in 0..paths {
+        let (mut done, mut taken) = (0u32, 0u64);
+        while done < paths && (done < 256 || taken < steps) {
+            done += 1;
             let mut p = [0.0, 0.0, radius_mm];
             let mut d = turn([0.0, 0.0, -1.0], rng.next().sqrt(), &mut rng);
             let mut w = 1.0f32;
@@ -117,13 +133,14 @@ pub fn escape(v: &Volume, radius_mm: f32, paths: u32) -> [f32; 3] {
                 let s = if st > 0.0 { -(rng.next().ln()) / st } else { f32::INFINITY };
                 if s >= exit {
                     let at = [0, 1, 2].map(|k| p[k] + d[k] * exit);
-                    if at[2] > 0.0 {
+                    if anywhere || at[2] > 0.0 {
                         out += w as f64;
                     }
                     break;
                 }
                 p = [0, 1, 2].map(|k| p[k] + d[k] * s);
                 w *= albedo;
+                taken += 1;
                 if w < 1e-3 {
                     if rng.next() < 0.5 {
                         break;
@@ -133,8 +150,8 @@ pub fn escape(v: &Volume, radius_mm: f32, paths: u32) -> [f32; 3] {
                 d = turn(d, hg(v.direction, &mut rng), &mut rng);
             }
         }
-        (out / paths as f64) as f32
-    })
+        (out / done as f64) as f32
+    }
 }
 
 /// The eye's albedo for one channel: the diffuse layer, then the light the
@@ -142,8 +159,14 @@ pub fn escape(v: &Volume, radius_mm: f32, paths: u32) -> [f32; 3] {
 /// tint), the diffuse layer reflecting the rest back in ((1 − t) × base)
 /// for another round: (1 − t) B + t² T² P / (1 − (1 − t) B P). All linear.
 pub fn albedo(t: f32, base: f32, tint: f32, p: f32) -> f32 {
-    let r = (1.0 - t) * base;
-    r + t * t * tint * tint * p / (1.0 - r * p).max(1e-6)
+    ball_albedo((1.0 - t) * base, t * tint, p)
+}
+
+/// The same series for any wall: `r` reflected back in (the diffuse
+/// layer's weight × its colour), `t` let through each way (the
+/// translucency's weight × its tint): r + t² P / (1 − r P).
+pub fn ball_albedo(r: f32, t: f32, p: f32) -> f32 {
+    r + t * t * p / (1.0 - r * p).max(1e-6)
 }
 
 #[cfg(test)]
@@ -177,6 +200,20 @@ mod tests {
         }
         assert_eq!(albedo(0.0, 0.4, 0.7, 0.5), 0.4, "no translucency: the diffuse");
         assert!((albedo(1.0, 0.4, 0.5, 0.6) - 0.15).abs() < 1e-6, "t 1: T² P");
+    }
+
+    #[test]
+    fn a_free_ball_counts_every_exit() {
+        // The eye's volume in a free ball returns more than through the
+        // front half alone; a channel without absorption returns all.
+        let v = Volume { absorption: [g9().absorption[0], 0.0, g9().absorption[2]], ..g9() };
+        let front = escape(&v, G9_EYE_RADIUS_MM, 5_000);
+        let ball = escape_ball(&v, G9_EYE_RADIUS_MM, 5_000, u64::MAX);
+        assert!(ball[0] > front[0] && ball[2] >= front[2], "{ball:?} {front:?}");
+        assert_eq!(ball[1], 1.0);
+        // A step budget still runs 256 paths.
+        let few = escape_ball(&v, G9_EYE_RADIUS_MM, 5_000, 1);
+        assert!((few[0] - ball[0]).abs() < 0.1, "{few:?}");
     }
 
     #[test]

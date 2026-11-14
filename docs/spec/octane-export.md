@@ -916,34 +916,46 @@ leaves out, #15):
   `normalized_base` takes the same `diffuse_base` and mixes it whole
   against the gloss (#131) — Calib-WeightedTL (thin-walled, enhanced-final)
   W1 – W8 0.92 – 1.06 × Iray, translucency 0.5 / 1 0.92 / 1.00, with the
-  gloss 1.01 / 1.02, the hair maps 1.05 (all 1.06 – 2.5 before). A closed, non-thin solid with Iray's
-  volume under it (Transmitted Color set; ~313 installed materials) has its
-  `transmission` × the skin's volume factor (`volume_factor`, Rd(α) /
-  Rd(α₀))^0.5 per channel) × 0.7 (`PROP_VOLUME_LEVEL`). Both are fits
-  (#83), and the spread they leave is not the volume's (#87,
-  docs/notes/2026-11-13-prop-volume.md): Iray's closed translucent sphere
-  is exactly DAZ's MDL — a Lambertian wall ((1 − w) b reflected, w Tc
-  transmitted, both ways) around a homogeneous σa / σs volume. A Monte
-  Carlo of that (`scripts/dev/prop-volume-mc.py`) over each sphere's own
-  light (Octane's plain diffuse 0.5 at the same place) predicts every
-  Calib-SSSColor sphere 0.93 – 0.98 of Iray, as its plain diffuse sphere
-  (0.95 – 0.96). The 15 cm spheres are hundreds of mean free paths: no
-  thickness acts there, and mono Amount 2 is not darker than grey for its
-  volume — V7 (V1's material at another place) is 0.63 × V1 in Iray. The
-  export's hollow transmitter (no medium: the light that enters lights
-  the whole ball) misses that falloff, so its ratio follows the sphere's
-  place (V1 0.71, V7 1.07 in red). Octane's scattering medium (59) with
-  Iray's σa / σs under the diffuse transmission is the same physics per
-  channel (red over a grey medium 0.94 – 1.02 of the Monte Carlo) and
-  removes the place's spread (red 0.56 – 0.63 on all seven), but Octane
-  is spectral: a saturated σ (Transmitted Color 0.98 / 0.48 / 0.35, green
-  and blue 36 × red's σa) leaks into red, which loses 20 – 60 % (worse
-  where the red volume is thinner). Not shipped until Calib-PropVol-*
-  (a thickness series, Iray batch on #87) shows the rule for thin solids. Calib-SSSColor's
-  spheres with SSS Color grey / blue / deep 0.84 – 1.05 × Iray, before 1.05 –
-  2.68; mono 1.40 – 1.54 (before 1.40 – 1.69; Iray's mono spheres are darker
-  than Rd says, its figures weren't), SSS Reflectance Tint 1.34 (unread,
-  darkens there) (#28). Why: left out, Calib-SSS's spheres at
+  gloss 1.01 / 1.02, the hair maps 1.05 (all 1.06 – 2.5 before).
+  **A closed, non-thin solid with Iray's volume** under it (Transmitted
+  Color or SSS set: σa, σs as DAZ passes them; not metal, refraction,
+  strands or the eye, which has its own) has **no transmission: one
+  albedo, the ball's** (`prop_volume_escape`, `eye_volume::ball_albedo`,
+  per texel under the diffuse / Translucency Color maps as the eye's):
+  r + t² P / (1 − r P), r = (1 − w) b and t = w Tc (Base Color Effect's
+  shares, `base_color_effect_shares`), P the share of the light let in
+  that the volume returns to the wall, traced in a ball of the
+  material's surface area (R = √(A / 4π), every exit counts, a channel
+  that absorbs nothing returns all). Why: Iray's closed translucent
+  sphere is exactly DAZ's MDL — a Lambertian wall ((1 − w) b reflected,
+  w Tc transmitted, both ways) around a homogeneous σa / σs volume: a
+  Monte Carlo of it (`scripts/dev/prop-volume-mc.py`) at each sphere's
+  own light (Octane's plain diffuse 0.5 at the same place) predicts
+  Calib-SSSColor's spheres at 0.93 – 0.98 of Iray and Calib-PropVol-*'s
+  (the volume in a ball 1 / k the size) at 0.95 – 0.99 up to k 30, as
+  Iray's own plain diffuse sphere — light that comes out near where it
+  went in. Rendered (Octane / Iray, enhanced-final): Calib-SSSColor V1 –
+  V7 1.09 – 1.13 / 0.95 – 1.01 / 1.13 – 1.24, Calib-PropVol-* k ≤ 30
+  1.06 – 1.11 / 0.97 – 1.01 / 1.13 – 1.21, the Parts at k 1 (Tc / base
+  white, w 0.5 / 1, g ±0.6) 1.06 – 1.12 in red, Calib-SSS-Solid S7 1.08;
+  Octane's plain diffuse sphere at that place 1.08 / 1.03 / 1.08 (its
+  spectral rendering of the saturated albedo, blue the weakest channel
+  by 13 ×). Lossless volumes (no absorption) 1.15 – 1.27: the light
+  wanders the whole ball. Before, the transmission × a fitted volume factor
+  ((Rd(α) / Rd(α₀))^0.5 × 0.7) lit the hollow ball from inside, so its
+  ratio followed the sphere's place in the row (red 0.45 – 1.17); Octane's
+  scattering medium with Iray's σ (fake shadows off) is the same physics
+  per channel (over a grey σ 0.94 – 1.02 of the Monte Carlo) but
+  spectral: Victoria's Transmitted Color (σa 0.36 / 13 / 18 per cm) leaks
+  into red, 0.42 – 0.60 × Iray on every dense volume
+  (docs/notes/2026-11-14-prop-volume-bake.md). Limit: a volume thin for
+  its ball (k ≥ 100) passes light from behind, which an albedo can't —
+  red 0.82 – 1.04 (k 100 – 1000; the medium's 0.52 – 0.78), the thin
+  Parts 0.76 – 1.40. A closed
+  solid with no volume (Iray's empty ball) keeps the transmission (red
+  0.83 – 0.96, #134). SSS Reflectance Tint isn't passed to Iray (the .mi;
+  1.34 when it was read, #28).
+  Why the transmission at all: left out, Calib-SSS's spheres at
   w 0.5 / 1 rendered 1.6 – 1.7 / 3.2 × Iray and Calib-PBRSkin's Gladio cloth
   1.72; with it 0.91 – 0.96 and 1.23 (its neighbours 1.14 – 1.26), the two
   types alike on Calib-SSS's spheres (thin-walled shells through the base
@@ -1942,9 +1954,12 @@ leaves out, #15):
   ~10 % in its weak channels (Octane is spectral, as #87's props).
   Calib-Map-Misc's X7 0.94 × Iray (0.88 / 0.98 / 0.87). The σs × 0.3
   fitted on X7 before (#28) stood in for its missing g 0.4 (~1.35 ×)
-  and the fake shadows (#104). Translucent props keep
-  `volume_factor`; SSS Reflectance Tint isn't passed to Iray by DAZ at
-  all (the .mi export), so it has nothing to map.
+  and the fake shadows (#104). Translucent props without refraction
+  bake their volume into the albedo instead (**Translucency**, #87); SSS
+  Reflectance Tint isn't passed to Iray by DAZ at all (the .mi export),
+  so it has nothing to map. Chromatic SSS scatters whenever its SSS
+  Color is set, SSS Amount 0 included (DAZ's `sub_surface_enable`, the
+  Calib-PropVol-* .mi); mono by its amount.
 - **Refraction** (glass, water) → `transmission` = Refraction Weight ×
   the refraction's colour, IOR on `ior` (Dielectric IOR — Universal has no
   `index4`, probe 82; `ior` 2.0 brightened Calib-Materials' gloss 1.08 →
@@ -2855,14 +2870,14 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   0.94 / 1.09, 1.02 / 0.98 / 1.06, 1.02 / 0.90 / 1.01 (Calib-HDRI's G8F
   skin 1.07 / 1.06 / 1.08). The excess was the walk at S 1; at S² ≈ 0.2
   its +0.01 floor is a few thousandths. No compensation.
-- The **volume factor** (`volume_factor`, props' translucency only since
-  #19): (Rd(α) / Rd(α₀))^0.5 per channel, Rd Jensen's diffusion reflectance
-  (dipole, η 1.4) at the volume's reduced single-scattering albedo α =
-  σs(1 − g) / (σs(1 − g) + σa), α₀ Victoria 8's volume. DAZ's MDL: σa =
-  −ln(Transmitted Color) / d_t; σs = −ln(SSS Color) / d_s (chromatic) or
-  SSS Amount / d_s (mono); colours linear. The **mono SSS Amount is
-  clamped to 0 – 1** wherever σs is read (`mono_sss_amount`: volume
-  factor, the skin's A(α), the walk radius, a refractive volume's σs):
+- The **volume's albedo** (`volume_albedo`, the skin's A(α)): the
+  reduced single-scattering albedo α = σs(1 − g) / (σs(1 − g) + σa).
+  DAZ's MDL: σa = −ln(Transmitted Color) / d_t; σs = −ln(SSS Color) / d_s
+  (chromatic) or SSS Amount / d_s (mono); colours linear. (The props'
+  volume factor (Rd(α) / Rd(α₀))^0.5 × 0.7 was a fit and is gone: a
+  prop bakes its ball, **Translucency**, #87.) The **mono SSS Amount is
+  clamped to 0 – 1** wherever σs is read (`mono_sss_amount`: the skin's
+  A(α), the walk radius, a refractive volume's σs, a prop's ball):
   DAZ hands Iray `sub_surface_scattering_amount` clamped (`src/iray.rs`,
   Calib-SSSColor's .mi: Amount 2 → [1, 1, 1]). Unclamped (#105) Amount 2
   had twice Iray's σs: Calib-SSSColor's mono-2 sphere 1.26 / 1.53 / 1.59

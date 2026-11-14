@@ -363,12 +363,17 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     out.insert("absorption_enable", Arg::Bool(enters && transmitted.iter().any(|c| *c > 0.0)));
     out.insert("scattering_distance_of_measurement", Arg::Float(if volume { CM * ch.float("Scattering Measurement Distance", 0.1) } else { 1.0 }));
     out.insert("sub_surface_scattering_direction", Arg::Float(if volume { ch.float("SSS Direction", 0.0) } else { 0.3 }));
-    out.insert("sub_surface_enable", Arg::Bool(sss > 0.0));
+    // Chromatic mode switches the scattering on by the SSS Color, not the
+    // amount: Calib-PropVol-*'s "P8 no volume" / "Q4 no scattering" (SSS
+    // Amount 0, SSS Color set) keep `sub_surface_enable` with the colour,
+    // Calib-SSS-Solid's S7 (Amount 0, colour black) has it off (#87).
+    let amount = if sss_mode == 1 { ch.color("SSS Color", [0.0; 3]) } else { [sss.clamp(0.0, 1.0); 3] };
+    let scatters = if sss_mode == 1 { amount.iter().any(|c| *c > 0.0) } else { sss > 0.0 };
+    out.insert("sub_surface_enable", Arg::Bool(scatters));
     out.insert("logarithmic_scatter_enable", Arg::Bool(enters && sss_mode == 1));
     // Chromatic mode: the SSS Color, linear (the amount and the reflectance
     // tint don't reach the MDL); mono: the amount, clamped to 1, as grey.
-    let amount = if sss_mode == 1 { ch.color("SSS Color", [0.0; 3]) } else { [sss.clamp(0.0, 1.0); 3] };
-    out.insert("sub_surface_scattering_amount", Arg::Color(if sss > 0.0 { amount } else { [0.0; 3] }));
+    out.insert("sub_surface_scattering_amount", Arg::Color(if scatters { amount } else { [0.0; 3] }));
 
     // Top coat.
     let coat = ch.float("Top Coat Weight", 0.0);

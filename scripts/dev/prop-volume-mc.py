@@ -10,7 +10,7 @@ by Translucency Color (no Fresnel, no IOR: `diffuse_transmission_bsdf`);
 a closed, not thin-walled surface holds a homogeneous volume with
 sigma_a = -ln(Transmitted Color) / d_t and sigma_s = SSS Amount / d_s
 (mono, clamped to 1 as DAZ passes it) or -ln(SSS Color) / d_s (chromatic,
-`logarithmic_scatter_enable`), Henyey-Greenstein at SSS Direction; colours
+`logarithmic_scatter_enable`; on by the colour, the amount aside), Henyey-Greenstein at SSS Direction; colours
 linear, as in the .mi. Light that meets the surface from inside leaves
 with w Tc or is reflected back in with (1 - w) b.
 
@@ -26,7 +26,11 @@ sphere is not modelled (its line shows the wall's reflection alone, "thin").
 
 Checked on Calib-SSSColor (#87): Iray's spheres over this albedo, each at
 its position's light (Octane's plain diffuse 0.5 on the same sphere),
-0.93 - 0.98, as its plain diffuse sphere (0.95 - 0.96).
+0.93 - 0.98, as its plain diffuse sphere (0.95 - 0.96); on Calib-PropVol-*
+(the volume in a ball 1 / k the size) 0.95 - 0.99 up to k 30, Iray above
+it at k >= 100 (light through from behind, which a furnace leaves out).
+The export bakes the same albedo (src/material.rs `prop_volume_escape`,
+`eye_volume::escape_ball`).
 """
 import sys as _sys
 if any(a in ('-h', '--help') for a in _sys.argv[1:]):
@@ -149,12 +153,14 @@ def volume(ch):
     d_s = ch.get('Scattering Measurement Distance') or 0.0
     tc = srgb_lin(ch.get('Transmitted Color') or [1, 1, 1])
     sa = [(-math.log(min(max(c, 1e-4), 1.0)) / d_t) if d_t > 0 and any(x > 0 for x in tc) else 0.0 for c in tc]
-    if (ch.get('SSS Amount') or 0.0) <= 0:
-        # DAZ sets sub_surface_enable only with SSS Amount > 0, in both
-        # modes (Calib-SSS-Solid's .mi: S7, chromatic at Amount 0).
+    chromatic = int(ch.get('SSS Mode') or 0) == 1
+    sc = srgb_lin(ch.get('SSS Color') or [0, 0, 0])
+    if (chromatic and not any(c > 0 for c in sc)) or (not chromatic and (ch.get('SSS Amount') or 0.0) <= 0):
+        # DAZ sets sub_surface_enable by the SSS Color in chromatic mode
+        # (Calib-PropVol-*'s P8 / Q4: Amount 0, colour set -> on;
+        # Calib-SSS-Solid's S7: colour black -> off), by the amount in mono.
         ss = [0.0] * 3
-    elif int(ch.get('SSS Mode') or 0) == 1:
-        sc = srgb_lin(ch.get('SSS Color') or [0, 0, 0])
+    elif chromatic:
         ss = [(-math.log(min(max(c, 1e-4), 1.0)) / d_s) if d_s > 0 else 0.0 for c in sc]
     else:
         a = min(max(ch.get('SSS Amount') or 0.0, 0.0), 1.0)
