@@ -1142,14 +1142,19 @@ leaves out, #15):
   the texture budget, and a capped bake would lose the detail it is for.
   The inputs are dynamic pins, written with `dynamicType='5'` (without
   it Octane compiles the shader on load and leaves them at their default
-  colours: no detail). The Top Coat doesn't take it (`pbr_add_clearcoat`
-  blends its own bump onto the plain normal). DAZ hands Iray the map at
+  colours: no detail). The Top Coat doesn't take it in the export, though
+  DAZ wires `pbr_add_clearcoat`'s `top_coat_base_bump` to the same
+  `pbr_detail_normal` (#166). DAZ hands Iray the map at
   its definition's `default_image_gamma` 1, its weight and the tiles as
   the transform's scale (Calib-PBRSkin-Occlusion O8's `.mi`). Known
   input: O8's shading normal (Info kernel, `octane-probe-bumptilt.lua`)
   through the OSL is the same map baked 4 × 4 by hand to 0.18° RMS
-  (8.61° vs 8.62° tilt). Mode 0 (the map as a height map) and a map on
-  the weight aren't exported (the weight counts by its value).
+  (8.61° vs 8.62° tilt). Against Iray (Calib-PBRSkin-Occlusion O8):
+  tiling and phase as Iray's, level within 4 % of the plain sphere's, the
+  dimples ~25 % stronger in Octane although the formula is NVIDIA's
+  `base.mdl` to the letter (open: #140's Calib-PBRSkin-Detail). Mode 0
+  (the map as a height map) and a map on the weight aren't exported (the
+  weight counts by its value).
 - **PBRSkin Makeup** (#142, from `pbr_skin.mdl`'s `pbr_material`, no
   fit): under `Makeup Enable` (and Diffuse Enable) `diffuse_makeup_bsdf`
   lays a diffuse in `Makeup Base Color`, at the base's Diffuse Roughness,

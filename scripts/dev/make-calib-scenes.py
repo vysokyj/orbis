@@ -11,6 +11,9 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-PBRSkin-Occlusion: PBRSkin's Specular Occlusion (facing,
   grazing, weight, a map) and Detail (roughness mult, a tiled normal
   map), one change per sphere (#54).
+- Calib-PBRSkin-Detail, -Detail-NoDN: the Detail Normal Map decomposed -
+  no map, tiles 1 / 2 / 4 / 8, weight 1, the normal alone; -NoDN with
+  Iray's Post Denoiser off (#140).
 - Calib-PBRSkin-Makeup, -Makeup-TL: PBRSkin's Makeup layer (weight, a
   weight map, roughness mult, the metal's tint; over translucency, a top
   coat and the subsurface skin path), one change per sphere (#142).
@@ -2460,6 +2463,38 @@ if made[-1][0]:
         if i['id'] in BUMPS.values():
             i['map_gamma'] = 1
     open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+
+# --- PBRSkin Detail Normal Map, decomposed (#140): O8's dimples rendered
+# ~25 % stronger in Octane than in Iray, while the same map as an Uber coat
+# normal at 1 x 1 (Calib-CoatBump B5) matches. D1 is O8 without the map (its
+# own roughness baseline); D2 = O8; D3 - D5 the tiles 1 / 2 / 8 (footprint:
+# texels a pixel); D6 / D7 Detail Weight 1 at the same lobe roughness (mult
+# 0.625: lerp(1, m, w) = 0.625 as O8's 0.25 at 0.5); D8 the normal alone
+# (mult 1). -NoDN: the same with Iray's Post Denoiser off (does Iray's
+# denoiser smooth the small dimples?).
+DN = {**OCC, **DT, 'Detail Normal Map': 1.0, ('Detail Normal Map', 'image'): BUMPS['dimples-n']}
+def dn(tiles, w, mult):
+    return {**DN, 'Detail Weight': w, 'Detail Specular Roughness Mult': mult, 'Detail Horizontal Tiles': tiles, 'Detail Vertical Tiles': tiles}
+DETAIL_SPHERES = [
+    ('D1 rough 0.25 no map', RED, {**OCC, **DT, 'Detail Weight': 0.5, 'Detail Specular Roughness Mult': 0.25}),
+    ('D2 normal 4x4 w0.5', RED, dn(4.0, 0.5, 0.25)),
+    ('D3 normal 1x1 w0.5', RED, dn(1.0, 0.5, 0.25)),
+    ('D4 normal 2x2 w0.5', RED, dn(2.0, 0.5, 0.25)),
+    ('D5 normal 8x8 w0.5', RED, dn(8.0, 0.5, 0.25)),
+    ('D6 normal 4x4 w1', RED, dn(4.0, 1.0, 0.625)),
+    ('D7 normal 1x1 w1', RED, dn(1.0, 1.0, 0.625)),
+    ('D8 normal 4x4 w0.5 mult 1', RED, dn(4.0, 0.5, 1.0)),
+]
+for name, denoise in (('Calib-PBRSkin-Detail', True), ('Calib-PBRSkin-Detail-NoDN', False)):
+    pbr_spheres(name, DETAIL_SPHERES)
+    if made[-1][0]:
+        d = load(made[-1][0])
+        for i in d['image_library']:
+            if i['id'] in BUMPS.values():
+                i['map_gamma'] = 1
+        if not denoise:
+            render_option(d, 'Post Denoiser Enable', False)
+        open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
 
 # --- PBRSkin Makeup (#142): `pbr_material` lays a diffuse at Makeup Weight
 # in Makeup Base Color over the diffuse and its translucency (under the
