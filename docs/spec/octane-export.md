@@ -1676,7 +1676,11 @@ leaves out, #15):
   Mix holds that Mix as its `material2`; a full refraction or Glossy
   Weight 0 has none (DAZ passes no `backscattering_enable`,
   Calib-Mi-WeightedRefr2 V5 / V6). It was dropped until #155. Derived
-  from the MDL, awaiting Iray: Calib-WeightedBack.
+  from the MDL, confirmed against Iray (Calib-WeightedBack,
+  enhanced-final, Octane / Iray over the disc, floor 1.04): b 0.5 1.05,
+  weights summing to 1 1.06, rough lobe 1.08, per channel 1.03 – 1.09
+  (control without lobe 1.04); the lobe alone (b 1) 1.14, the lobe's own
+  level (#73); Glossy Weight 0 no lobe in either renderer, 1.09.
 - **Metallic Weight w → `metallic` w² / k, albedo and specular × k,**
   k = 1 − w + w² (a map: squared by twice its gamma, k from the
   channel's value); the glossy excess coating × (1 − w). Iray's metal is a
@@ -1937,8 +1941,10 @@ leaves out, #15):
   (#155): DAZ converts glossiness mode to `metallic_layered_base` and
   passes the backscattering (Calib-MetalTL-Back K7's `.mi`), its
   roughness from 1 − Backscattering Glossiness, no metal (DAZ drops it);
-  the export had left it out ("not calibrated there"). Awaiting Iray: K7,
-  Calib-WeightedBack's tie spheres. **Under a partial refraction**
+  the export had left it out ("not calibrated there", K7 0.34 × Iray).
+  Confirmed: K7 1.10, Calib-WeightedBack B7 (mode 1) = B8 (mode 0) 1.10
+  channel by channel; their red 1.32 – 1.36 is the lobe's hue under a
+  saturated unshared colour (#169), not the mixing. **Under a partial refraction**
   (0 < Refraction Weight < 1, #157) the refraction's Mix (refractive
   metal, above: the refraction part at Refraction Weight, no metal, no
   backscattering) lies outside, and this Mix is its base part (at
