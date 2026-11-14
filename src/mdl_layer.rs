@@ -342,12 +342,14 @@ pub fn tint_factor(iray: &Stack, octane: &Stack, tint: [f32; 3]) -> [f32; 3] {
 /// `lobe_albedo` is what Iray's base lobe alone (no coat, white) keeps in
 /// the furnace over the sphere's inner disk (r < 0.75 of the silhouette,
 /// as measured), and the `libbsdf` model meets it with an extra tint τ on
-/// every base event before the stack is traced (#115). A thin-walled
-/// sphere's measured profile is flat to the rim (Calib-Furnace-ArchGlass2
-/// H4 / H5, #147), so there the disk stands for the whole silhouette and τ
-/// is solved on it: at refr_gloss 0 `libbsdf`'s thin model rises towards
-/// the rim (0.43 → 0.58) where Iray stays at 0.386, and τ solved on the
-/// disk left the whole sphere 1.13 × Iray's.
+/// every base event before the stack is traced (#115). For a thin-walled
+/// sphere `lobe_albedo` is the whole silhouette and τ is solved on it
+/// (#147): at refr_gloss 0 `libbsdf`'s thin model rises towards the rim
+/// (0.43 → 0.58) where Iray stays at 0.386 (Calib-Furnace-ArchGlass2 H5,
+/// flat), and τ solved on the disk left the whole sphere 1.13 × Iray's; at
+/// 0.4 Iray falls to the rim (0.943 → 0.885, Calib-Furnace-ArchGlass3 J4,
+/// #149) and Octane's Thin Wall draws one flat k², so the whole sphere is
+/// what it can match.
 ///
 /// `lobe_ior` is the IOR `lobe_albedo` was measured at: τ is solved on the
 /// lobe of that IOR (a closed sphere's `libbsdf` lobe itself loses more

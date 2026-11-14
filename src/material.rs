@@ -1219,13 +1219,18 @@ const ARCH_GLASS_LOBE: [(f64, f64); 5] = [(0.0, 0.512), (0.2, 0.614), (0.4, 0.93
 /// The refr_ior `ARCH_GLASS_LOBE` was measured at (G1 – G5, #148).
 const ARCH_GLASS_LOBE_IOR: f64 = 1.5;
 
-/// `ARCH_GLASS_LOBE` for a thin-walled sphere (two walls, no bending):
-/// Calib-Furnace-ArchGlass2 H5 / H4 (refr_gloss 0 / 0.2, Iray Server 5000,
-/// #116), flat over the rings — at 0.2 `libbsdf`'s thin model keeps a
-/// flat 0.82 (Iray / model 0.61 at every ring), so the loss there is
-/// one constant per wall. Above 0.2 not measured: the closed spheres'
-/// values stand in (G3 – G1, ≤ 6 % lost; #149).
-const ARCH_GLASS_THIN_LOBE: [(f64, f64); 5] = [(0.0, 0.386), (0.2, 0.505), (0.4, 0.938), (0.6, 0.964), (1.0, 1.0)];
+/// `ARCH_GLASS_LOBE` for a thin-walled sphere (two walls, no bending),
+/// over the whole silhouette (r < 0.95): Calib-Furnace-ArchGlass2 H5 / H4
+/// (refr_gloss 0 / 0.2, Iray Server 5000, #116), flat over the rings — at
+/// 0.2 `libbsdf`'s thin model keeps a flat 0.82 (Iray / model 0.61 at
+/// every ring) — and Calib-Furnace-ArchGlass3 J4 – J1 (0.4 / 0.6 / 0.8 /
+/// 1, 5000, #149), where `libbsdf`'s thin wall keeps 0.975 – 1, so these
+/// are mostly NVIDIA's own loss: the `mdl 1.0` lobe's per-event g (#117)
+/// at `arch_glass_rough`'s roughness, squared — measured points, no curve
+/// of their own (J4 = the plain 1.0 lobe's thin r 0.2, 0.943 → 0.885 to
+/// the rim; disks 0.936 / 0.963 / 0.968 / 1). A mirror (1) loses nothing,
+/// any roughness ~2 % per wall. IOR 2 keeps the same (J8 = J4).
+const ARCH_GLASS_THIN_LOBE: [(f64, f64); 6] = [(0.0, 0.386), (0.2, 0.505), (0.4, 0.915), (0.6, 0.960), (0.8, 0.965), (1.0, 1.0)];
 
 /// mental ray's glossiness → MDL roughness by the MDL SDK's
 /// `base::architectural_gloss_to_rough` (`base.mdl`): √(2 · 2^(−4 − 14 g)),
@@ -7518,8 +7523,9 @@ mod tests {
         // thin_walled (#147): Thin Wall, no medium even with Enable
         // Absorption; the IOR stays (the coating's Fresnel). Reflectivity
         // 0: two unblurred walls of k each keep Iray's flat thin sphere,
-        // k² = 0.505 at refr_gloss 0.2, 0.386 at 0 (`ARCH_GLASS_THIN_LOBE`).
-        for (gloss, keeps) in [(0.2f32, 0.505f32), (0.0, 0.386)] {
+        // k² = 0.505 at refr_gloss 0.2, 0.386 at 0, 0.915 / 0.965 at 0.4 /
+        // 0.8 (`ARCH_GLASS_THIN_LOBE`, the whole silhouette).
+        for (gloss, keeps) in [(0.2f32, 0.505f32), (0.0, 0.386), (0.4, 0.915), (0.8, 0.965)] {
             let thin = arch(json!([
                 {"channel": {"id": "transparency", "current_value": 1}},
                 {"channel": {"id": "refr_gloss", "current_value": gloss}},

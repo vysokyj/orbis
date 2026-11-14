@@ -2572,11 +2572,16 @@ leaves out, #15):
     coating keeps it, MDL spec 13.1) — and k solved on a thin-walled
     sphere: Iray = `libbsdf`'s thin wall (the transmission the reflection
     mirrored through the surface, both faces the outside's) with the lobe's
-    loss measured on thin spheres (`ARCH_GLASS_THIN_LOBE`, by refr_gloss 0
-    / 0.2: 0.386 / 0.505, Calib-Furnace-ArchGlass2 H5 / H4, reflectivity 0;
-    above 0.2 the closed spheres' values stand in until measured, #149),
-    τ solved over the whole silhouette (Iray's thin profile is flat to the
-    rim; `libbsdf`'s at refr_gloss 0 rises 0.43 → 0.58); Octane = the
+    loss measured on thin spheres over the whole silhouette
+    (`ARCH_GLASS_THIN_LOBE`, by refr_gloss 0 / 0.2 / 0.4 / 0.6 / 0.8 / 1:
+    0.386 / 0.505 / 0.915 / 0.960 / 0.965 / 1, Calib-Furnace-ArchGlass2 H5
+    / H4 and -ArchGlass3 J4 – J1, reflectivity 0; above 0.2 `libbsdf`'s
+    thin wall loses nothing, so those are NVIDIA's `mdl 1.0` per-event
+    loss g at `arch_glass_rough`'s roughness, squared, #117 / #149 — no
+    curve of their own; the same at IOR 2), τ solved over the whole
+    silhouette (Iray's thin profile is flat to the rim at 0 / 0.2, falls
+    0.943 → 0.885 at 0.4 as g does; `libbsdf`'s at refr_gloss 0 rises
+    0.43 → 0.58); Octane = the
     coating over a wall that passes the ray straight on, unweighted (no
     roughness for Thin Wall transmission, #136 — a rough thin wall stays
     sharp). Reflectivity 0: k = √ of the thin sphere, 0.72 / 0.62. Why:
