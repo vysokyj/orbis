@@ -61,7 +61,9 @@ Hypotheses (by the Iray channels the variants stand for):
 - `hair-offset=<v>`: every Hair material's `offset` (its cuticle tilt) v.
 - `res=<w>,<h>`: the film resolution (a big scene at half size).
 - `coat-off`: every layered Top Coat (Specular layer "... top coat") at
-  specular 0.
+  specular 0. Only the coat's reflection: the coat's absorption, which the
+  export puts on the base albedo / transmission, stays (#161: Top Coat
+  Weight 0 in the scene lifts Morgan Hair 1.15 - 1.56 ×, coat-off 0.03).
 - `twosided-x1`: two-sided emitters at the one-sided power (the export
   doubles it, `TWO_SIDED_POWER`, assuming Octane splits it over both faces).
 The channel values come from the scene materials' names (Calib-Glossy /
