@@ -3370,11 +3370,11 @@ impl Ocs<'_> {
             // Iray's (#19).
             Some(dl) => {
                 self.dual_lobe_weight_pin(i, mat, "specular", dl.weight * lobe1, false);
-                self.ior_pin(i, "ior", mat, "Dual Lobe Specular Reflectivity", dl.f0);
+                self.dual_lobe_ior_pin(i, "ior", mat, dl.f0);
                 if lobe2_free && dl.lobe1 < 1.0 {
                     self.dual_lobe_weight_pin(i, mat, "coating", dl.weight * (1.0 - dl.lobe1), false);
                     self.float_pin(i, "coatingRoughness", phong_pin(dl.lobe2_roughness));
-                    self.ior_pin(i, "coatingIor", mat, "Dual Lobe Specular Reflectivity", dl.f0);
+                    self.dual_lobe_ior_pin(i, "coatingIor", mat, dl.f0);
                     self.float_pin(i, "coatingDarkening", 0.0);
                     return;
                 }
@@ -3393,10 +3393,52 @@ impl Ocs<'_> {
     /// `G9_Eyes_SLW`, gamma 1, a few % over the iris, 0 on the sclera).
     /// `rgb`: a colour pin's value without the map (Universal's).
     fn dual_lobe_weight_pin(&mut self, i: usize, mat: &Material, pin: &str, v: f32, rgb: bool) {
-        match self.channel_map(mat, "Dual Lobe Specular Weight") {
-            Some((asset, m)) => self.with_map(m, |w| w.image_pin(i, pin, &asset, true, w.textures.map_gamma(&asset, mat.image_gamma("Dual Lobe Specular Weight")), v)),
-            None if rgb => self.rgb_pin(i, pin, [v; 3]),
-            None => self.float_pin(i, pin, v),
+        if let Some((asset, m)) = self.channel_map(mat, "Dual Lobe Specular Weight") {
+            return self.with_map(m, |w| w.image_pin(i, pin, &asset, true, w.textures.map_gamma(&asset, mat.image_gamma("Dual Lobe Specular Weight")), v));
+        }
+        // A mapped occlusion weight: W · lerp(1, Grazing, w) per texel
+        // (`specular_occlusion_map`), the layer's share `v` the power.
+        let mut v = v;
+        if let Some(o) = specular_occlusion_map(mat) {
+            let asset = self.textures.derived_mono(self.dirs, &o.map, &o.key("weight", 1.0), 1.0, o.im.mono, |l| [o.at(l).1; 3]);
+            match asset {
+                Some(asset) => return self.with_map(o.im.placement(), |w| w.image_pin(i, pin, &asset, true, 1.0, v)),
+                // (A missing map: its channel value.)
+                None => v *= o.at(1.0).1,
+            }
+        }
+        if rgb {
+            self.rgb_pin(i, pin, [v; 3]);
+        } else {
+            self.float_pin(i, pin, v);
+        }
+    }
+
+    /// A dual lobe's IOR pin: `ior_pin` on Dual Lobe Specular Reflectivity,
+    /// or under a mapped occlusion weight (`specular_occlusion_map`) the
+    /// IOR of F0 · lerp(1, Facing, w) / lerp(1, Grazing, w) per texel,
+    /// baked as n / s at power s, s the curve's largest n (at w 0 or 1,
+    /// the ratio is monotonic in w) and at least `ior_pin`'s 2: Facing 0.6
+    /// over Grazing 0.1 takes F0 0.04 to 0.24, n 2.9.
+    fn dual_lobe_ior_pin(&mut self, i: usize, pin: &str, mat: &Material, f0: f32) {
+        let Some(o) = specular_occlusion_map(mat) else {
+            return self.ior_pin(i, pin, mat, "Dual Lobe Specular Reflectivity", f0);
+        };
+        let n = |w: f32| {
+            let (f, g) = occlusion_at(o.facing, o.grazing, w);
+            ior_from_f0(f0 * f / g)
+        };
+        let s = n(0.0).max(n(1.0)).max(2.0);
+        let asset = self.textures.derived_mono(self.dirs, &o.map, &o.key("ior", f0), 1.0, o.im.mono, |l| {
+            let (f, g) = o.at(l);
+            [ior_from_f0(f0 * f / g) / s; 3]
+        });
+        match asset {
+            Some(asset) => self.with_map(o.im.placement(), |w| w.image_pin(i, pin, &asset, true, 1.0, s)),
+            None => {
+                let (f, g) = o.at(1.0);
+                self.float_pin(i, pin, ior_from_f0(f0 * f / g));
+            }
         }
     }
 
@@ -4182,7 +4224,7 @@ impl Ocs<'_> {
             // Its weight map too (Genesis 9's eye: without it the whole
             // iris took a grey sheen, #133).
             let weight = (if coat > 0.0 || glossy_coat { dl.weight } else { dl.weight * dl.lobe1 }) * base_keep;
-            if weight != 1.0 || self.film.is_some() || self.metal_scale.is_some() || mat.image("Dual Lobe Specular Weight").is_some() {
+            if weight != 1.0 || self.film.is_some() || self.metal_scale.is_some() || mat.image("Dual Lobe Specular Weight").is_some() || specular_occlusion_map(mat).is_some() {
                 self.dual_lobe_weight_pin(i, mat, "specular", weight, true);
             }
         }
@@ -4317,7 +4359,7 @@ impl Ocs<'_> {
                 self.dual_lobe_weight_pin(i, mat, "coating", lobe2, true);
                 let r2 = self.gloss_roughness(dl.lobe2_roughness);
                 self.float_pin(i, "coatingRoughness", r2);
-                self.ior_pin(i, "coatingIor", mat, "Dual Lobe Specular Reflectivity", dl.f0);
+                self.dual_lobe_ior_pin(i, "coatingIor", mat, dl.f0);
             }
             // The reflectivity as the IOR of its F0 on both lobes, its map
             // per texel (Universal's `ior` and `coatingIor` take a texture,
@@ -4325,7 +4367,7 @@ impl Ocs<'_> {
             // stays W. As a share of the specular (W · min(2r, 1), the map
             // dropped) a dark gloss map shone ~3 × Iray's (Monique 8's
             // face, median 0.26). Calib-DualLobe r 1: 0.79 → 1.18 × Iray.
-            self.ior_pin(i, "ior", mat, "Dual Lobe Specular Reflectivity", dl.f0);
+            self.dual_lobe_ior_pin(i, "ior", mat, dl.f0);
         }
 
         if let Some((ch, r, _)) = gloss_coat_rough {
@@ -4563,18 +4605,76 @@ impl DualLobe {
 /// reflects lerp(1, Facing, w) × its F0 head-on and lerp(1, Grazing, w) at
 /// grazing instead of 1, w = Ambient Occlusion Weight — as (facing,
 /// grazing). DAZ hands the three over as saved (Calib-PBRSkin-Occlusion's
-/// `.mi`); an occlusion map counts by its channel value (no per-texel
-/// curve; the library's mapped skins sit at Facing = Grazing = 1, which
-/// leaves the curve as is).
+/// `.mi`); a map on the occlusion weight goes per texel instead
+/// (`specular_occlusion_map`; the library's mapped skins sit at Facing =
+/// Grazing = 1, which leaves the curve as is either way).
 fn specular_occlusion(mat: &Material) -> Option<(f32, f32)> {
-    if !crate::iray::is_pbrskin(mat) || mat.float("Specular Occlusion Enable").unwrap_or(0.0) <= 0.0 || mat.float("Dual Lobe Specular Weight").unwrap_or(0.0) <= 0.0 {
+    let (facing, grazing) = specular_occlusion_curve(mat)?;
+    // A mapped weight goes per texel on the pins instead (#158).
+    if specular_occlusion_map(mat).is_some() {
         return None;
     }
     let w = pbrskin(mat, "pbr_material.occlusion_weight").or_else(|| mat.float("Ambient Occlusion Weight")).unwrap_or(1.0).clamp(0.0, 1.0);
+    let (f, g) = occlusion_at(facing, grazing, w);
+    ((f, g) != (1.0, 1.0)).then_some((f, g))
+}
+
+/// Specular Occlusion's Facing and Grazing, when it is on (PBRSkin,
+/// Specular Occlusion Enable, a dual lobe) and not a no-op.
+fn specular_occlusion_curve(mat: &Material) -> Option<(f32, f32)> {
+    if !crate::iray::is_pbrskin(mat) || mat.float("Specular Occlusion Enable").unwrap_or(0.0) <= 0.0 || mat.float("Dual Lobe Specular Weight").unwrap_or(0.0) <= 0.0 {
+        return None;
+    }
     let facing = pbrskin(mat, "pbr_material.specular_occlusion_facing").unwrap_or(0.6).clamp(0.0, 1.0);
     let grazing = pbrskin(mat, "pbr_material.specular_occlusion_grazing").unwrap_or(0.1).clamp(0.0, 1.0);
-    let (f, g) = (1.0 + (facing - 1.0) * w, 1.0 + (grazing - 1.0) * w);
-    ((f, g) != (1.0, 1.0)).then_some((f, g.max(1e-4)))
+    ((facing, grazing) != (1.0, 1.0)).then_some((facing, grazing))
+}
+
+/// `pbr_material`'s reflection_occlusion_facing / _grazing at occlusion
+/// weight `w`: lerp(1, Facing, w), lerp(1, Grazing, w) (the grazing kept
+/// off 0, it divides the F0).
+fn occlusion_at(facing: f32, grazing: f32, w: f32) -> (f32, f32) {
+    let w = w.clamp(0.0, 1.0);
+    (1.0 + (facing - 1.0) * w, (1.0 + (grazing - 1.0) * w).max(1e-4))
+}
+
+/// A map on Ambient Occlusion Weight, per texel (#158): DAZ hands Iray the
+/// map itself as `occlusion_weight` (Calib-PBRSkin-Occlusion O6's `.mi`,
+/// gamma "auto", so an 8-bit grey 128 is 0.22 as every map, #93), and
+/// both of `pbr_material`'s lerps are per texel. The layer's weight W · g
+/// and its F0 n / g (`DualLobe`) then go on the pins as bakes of the map
+/// (`dual_lobe_weight_pin`, `dual_lobe_ior_pin`). Not when the Dual Lobe
+/// Weight or Reflectivity carry a map of their own (one bake reads one
+/// map): the occlusion weight counts by its channel value there, as before.
+struct OcclusionMap {
+    map: String,
+    im: crate::daz_material::ImageMod,
+    /// The channel value the map multiplies.
+    w: f32,
+    facing: f32,
+    grazing: f32,
+}
+
+impl OcclusionMap {
+    /// (lerp(1, Facing, w), lerp(1, Grazing, w)) at the decoded texel `l`.
+    fn at(&self, l: f32) -> (f32, f32) {
+        occlusion_at(self.facing, self.grazing, self.w * self.im.apply(l.max(0.0)))
+    }
+
+    /// The bake's cache key, `what` the baked quantity.
+    fn key(&self, what: &str, v: f32) -> String {
+        format!("occlusion|{what}|{}|{v}|{}|{}|{}|{:?}", self.map, self.w, self.facing, self.grazing, self.im)
+    }
+}
+
+fn specular_occlusion_map(mat: &Material) -> Option<OcclusionMap> {
+    let (facing, grazing) = specular_occlusion_curve(mat)?;
+    let map = mat.image("Ambient Occlusion Weight")?.to_string();
+    if mat.image("Dual Lobe Specular Weight").is_some() || mat.image("Dual Lobe Specular Reflectivity").is_some() {
+        return None;
+    }
+    let w = mat.float("Ambient Occlusion Weight").unwrap_or(1.0);
+    Some(OcclusionMap { map, im: mat.image_mod("Ambient Occlusion Weight"), w, facing, grazing })
 }
 
 /// Iray Base Mixing 1 (specular / glossiness): Glossy Specular is the gloss's
@@ -8091,6 +8191,68 @@ mod tests {
         assert!(pin(&x, "specular").contains(">0.85 0.85 0.85<"), "{x}");
         let n = num(ior_from_f0(0.02));
         assert!(pin(&x, "ior").contains(&format!(">{n}<")) && pin(&x, "coatingIor").contains(&format!(">{n}<")), "{x}");
+    }
+
+    /// PBRSkin's mapped occlusion weight per texel (#158): Calib-PBRSkin-
+    /// Occlusion O6's grey 128 reaches Iray as the map (gamma "auto", 0.216),
+    /// so the dual lobe's weight is W · lerp(1, 0.1, w) and its F0
+    /// 0.04 · lerp(1, 0.6, w) / lerp(1, 0.1, w) per texel, not the channel
+    /// value's full occlusion (O6 had rendered as O2).
+    #[test]
+    fn occlusion_weight_map_per_texel() {
+        let dir = tempfile::tempdir().unwrap();
+        image::GrayImage::from_pixel(2, 2, image::Luma([128])).save(dir.path().join("ao.png")).unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let m = |weight_map: bool| {
+            let mut weight = json!({"id": "Dual Lobe Specular Weight", "current_value": 1});
+            if weight_map {
+                weight["image_file"] = json!("/ao.png");
+            }
+            mat(json!([
+                {"channel": {"id": "Dual Lobe Specular Enable", "current_value": true}},
+                {"channel": weight},
+                {"channel": {"id": "Dual Lobe Specular Reflectivity", "current_value": 0.5}},
+                {"channel": {"id": "Specular Lobe 1 Roughness", "current_value": 0.4}},
+                {"channel": {"id": "Specular Lobe 2 Roughness Mult", "current_value": 0.4}},
+                {"channel": {"id": "Dual Lobe Specular Ratio", "current_value": 0.15}},
+                {"channel": {"id": "Specular Occlusion Enable", "current_value": true}},
+                {"channel": {"id": "Specular Occusion Facing", "current_value": 0.6}},
+                {"channel": {"id": "Specular Occlusion Grazing", "current_value": 0.1}},
+                {"channel": {"id": "Ambient Occlusion Weight", "current_value": 1, "image_file": "/ao.png"}},
+            ]))
+        };
+        let only = m(false);
+        assert!(specular_occlusion(&only).is_none() && specular_occlusion_map(&only).is_some());
+        let dl = DualLobe::of(&only).unwrap();
+        assert!(dl.weight == 1.0 && (dl.f0 - 0.04).abs() < 1e-6, "the pins carry the occlusion: {dl:?}");
+        let (x, tex) = material_inputs(&[("Skin".into(), only, 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
+        let pin = |name: &str| {
+            let p = &x[x.find(&format!("<pin name='{name}'>")).unwrap_or_else(|| panic!("no {name}: {x}"))..];
+            let end = p.find("\n  <pin name=").unwrap_or(p.len());
+            p[..end].to_string()
+        };
+        let texel = |s: &str| {
+            let f = &s[s.find("<attr name='filename' type='11'>").unwrap() + 32..];
+            let f = &f[..f.find('<').unwrap()];
+            let png = &tex.generated.iter().find(|(a, _)| a == f).unwrap_or_else(|| panic!("{f} not baked")).1;
+            f32::from(image::load_from_memory(png).unwrap().to_luma8().get_pixel(0, 0)[0]) / 255.0
+        };
+        let w = (128.0f32 / 255.0).powf(2.2);
+        let (f, g) = (1.0 - 0.4 * w, 1.0 - 0.9 * w);
+        let specular = pin("specular");
+        assert!(specular.contains("type='36'") && (texel(&specular) - g).abs() < 0.003, "W · g per texel: {specular}");
+        let s = ior_from_f0(0.24);
+        for p in ["ior", "coatingIor"] {
+            let v = pin(p);
+            assert!(v.contains(&format!(">{}<", num(s))), "{p} at power n(w 1): {v}");
+            assert!((texel(&v) * s - ior_from_f0(0.04 * f / g)).abs() < 0.015, "{p}: {v}");
+        }
+        // With a weight map of its own: the occlusion map's channel value,
+        // as before.
+        let both = m(true);
+        assert!(specular_occlusion_map(&both).is_none());
+        let dl = DualLobe::of(&both).unwrap();
+        assert!((dl.weight - 0.1).abs() < 1e-6 && (dl.f0 - 0.24).abs() < 1e-6, "{dl:?}");
     }
 
     /// Glossy Reflectivity reaches Universal as the IOR of its F0 too, a

@@ -1113,9 +1113,17 @@ leaves out, #15):
   DAZ's channel is spelled `Specular Occusion Facing`) instead of F0 and
   1. W (n + (g − n)(1 − cos)^5) is a Schlick curve at weight W · g and
   F0 n / g, so both paths take that weight (the layer's whole share on
-  Universal) and the IOR of n / g (`specular_occlusion`). An occlusion
-  map counts by its value only (the library's mapped skins sit at
-  Facing = Grazing = 1, a no-op). Under `Detail Enable` lobe 1's
+  Universal) and the IOR of n / g (`specular_occlusion`). A map on the
+  occlusion weight goes per texel (#158, `specular_occlusion_map`): DAZ
+  hands Iray the map itself (O6's `.mi`, gamma "auto", so an 8-bit grey
+  128 is w 0.22 by the one map-gamma rule, #93) and both lerps are per
+  texel, so the weight pin is W × a bake of lerp(1, Grazing, w) and the
+  IOR pins a bake of the IOR of F0 n / g (stored as n / s at power s, s
+  the curve's largest n, at least 2: F0 0.04 at Facing 0.6 / Grazing 0.1
+  is 0.24, n 2.9). Where the Dual Lobe Weight or Reflectivity carry a
+  map of their own the occlusion weight counts by its channel value (one
+  bake reads one map). The library's mapped skins sit at Facing =
+  Grazing = 1, a no-op. Under `Detail Enable` lobe 1's
   roughness is × lerp(1, `Detail Specular Roughness Mult`, `Detail
   Weight`) before Iray squares it, lobe 2 inheriting it
   (`Material::detail_roughness_mult`; a map on the multiplier counts by
@@ -1123,8 +1131,9 @@ leaves out, #15):
   (Calib-PBRSkin-Occlusion's `.mi`, a map on the occlusion weight as the
   map). Checked against Iray (Calib-PBRSkin-Occlusion, enhanced-final,
   denoised): O2 - O5 mean within 0.92 - 1.02 of the unoccluded sphere's
-  Octane / Iray, Detail roughness 0.5's peak 2.09 × vs Iray's 1.99 ×; the
-  mapped occlusion weight is the known gap (#158).
+  Octane / Iray, Detail roughness 0.5's peak 2.09 × vs Iray's 1.99 ×.
+  The per-texel occlusion map is not rendered yet (#158: O6 at the
+  channel value rendered as O2, mean 0.71 of O1's Octane / Iray).
 - **PBRSkin Detail Normal Map** (#140, from `pbr_skin.mdl`'s
   `pbr_detail_normal`, no fit): under `Detail Enable`, in `Detail Normal
   Map Mode` 1 (a tangent-space normal map), the detail map — tiled by
