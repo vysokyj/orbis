@@ -1658,8 +1658,13 @@ leaves out, #15):
   has 2/3 diffuse, 1/3 glass. **Diffuse Weight 0**: DAZ switches the
   diffuse off and the gloss part renders alone at full strength, so
   `amount` 1 and scale 1 whatever Glossy Weight (U1 / U2; it had taken
-  the gloss at Glossy Weight). Not yet confirmed against Iray (parked
-  Calib-WeightedRefr / -Thin, #154).
+  the gloss at Glossy Weight). Confirmed against Iray (Calib-WeightedRefr
+  / -Thin, enhanced-final, Octane / Iray per sphere over the disc, floor
+  1.03): glass alone (Diffuse 0) 1.02 / 1.03, glass + mirror Mix alone
+  1.03, diffuse + glass 1.04 – 1.05, diffuse + Mix 1.03 – 1.04, tinted
+  gloss 1.05 – 1.06, unshared 1.02 – 1.05, closed and thin-walled alike;
+  colour Iray's (R / G ≤ 1.08 × Iray's on the diffuse-and-glass spheres),
+  W1 the reddish half-glass and W3 the clear glass Iray shows.
   **Backscattering under weighted mixing** (#155) belongs to the gloss
   part too: `normalized_base` lays `backscattering_glossy_reflection_bsdf`
   at Backscattering Weight over the glossy BSDF (`weighted_layer`), under
