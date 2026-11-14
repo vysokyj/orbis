@@ -173,6 +173,12 @@ where a script maps that folder as an MDL directory (`daz-export-mi.dsa`,
    `current_camera` renders DAZ's Perspective View, not the camera `orbis`
    exports (#97). `iray-queue.sh` and `keep-refs.py` refuse such scenes,
    a test checks `calib/scenes`; `scripts/dev/duf_camera.py --fix` sets it.
+   A server that refuses the session ("session handler rejected the
+   session") fails the render within seconds and saves a black image; the
+   queue tells it from a fast good render by DAZ's log since the render
+   started, not by the time (a small scene at 400 samples takes 13 s, #160),
+   and retries the rejected ones every 30 s. `daz-queue-selftest.dsa`
+   checks that rule in a headless DAZ, no server needed.
    Worth it for small scenes; a figure's textures take long to upload.
 3. **Dump and export** — `scripts/dev/daz-dump.sh <out dir> <scene.duf>…`
    writes the scene dump (the posed geometry) and the `.orbx`.

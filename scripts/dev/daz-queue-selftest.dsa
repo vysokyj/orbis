@@ -1,0 +1,89 @@
+// ORBIS: checks the Iray Server queue's render verdict (daz-render-queue.dsa,
+// #160) inside DAZ Studio, without a server: evaluates the queue script's
+// "server verdict" block and runs it on synthetic log excerpts - a rejected
+// session, a 13 s render that succeeded, a log that says neither - read
+// from an offset as the queue reads DAZ's log. Headless:
+//   DONE_FILE=<out>/done scripts/dev/daz-script.sh $PWD/scripts/dev/daz-queue-selftest.dsa <out> --
+// Results in <out>/selftest.txt ("PASS"/"FAIL" lines, last line the total).
+// ECMAScript 3, ASCII only.
+(function () {
+    var sOut = App.scriptArgs[0];
+    var aLines = [];
+    var nFail = 0;
+    function put(s) { aLines.push(s); }
+    function check(sWhat, got, want) {
+        var bOk = got === want;
+        if (!bOk) nFail++;
+        put((bOk ? "PASS " : "FAIL ") + sWhat + ": got " + got + ", want " + want);
+    }
+    function write(p, s, bAppend) {
+        var f = new DzFile(p);
+        f.open(bAppend ? DzFile.Append : (DzFile.WriteOnly | DzFile.Truncate));
+        f.write(s);
+        f.close();
+    }
+    try {
+        var sQueueScript = new DzFileInfo(getScriptFileName()).path() + "/daz-render-queue.dsa";
+        var f = new DzFile(sQueueScript);
+        f.open(DzFile.ReadOnly);
+        var sSrc = String(f.read());
+        f.close();
+        var i0 = sSrc.indexOf("// --- server verdict");
+        var i1 = sSrc.indexOf("// --- end server verdict ---");
+        check("verdict block found", i0 >= 0 && i1 > i0, true);
+        eval(sSrc.substring(i0, i1));
+
+        // An earlier render's lines, then the one being judged.
+        var sOld = "2026-11-07 19:52:30.000 Iray [INFO] - IRAY_CLOUD_CLIENT:NETWORK :: iray_cloud(11): Successfully opened a session to Bridge Server ws://server/bridge.\n";
+        var sRejected = "2026-11-07 19:53:04.322 [INFO] :: Rendering image...\n" +
+            "2026-11-07 19:53:07.062 [WARNING] :: Iray [ERROR] - BRIDGE:NETWORK :: BRIDGE net  error: Server refused connection: session handler rejected the session. Protocol version: 1\n" +
+            "2026-11-07 19:53:07.063 [WARNING] :: Iray [ERROR] - IRAY_CLOUD_CLIENT:NETWORK :: IRAY_C net  error: iray_cloud(12): Failed to open session to Bridge Server ws://server/bridge\n" +
+            "2026-11-07 19:53:07.063 [ERROR] Iray :: Unknown render error\n" +
+            "2026-11-07 19:53:07.085 [INFO] :: Saved image: /tmp/x.png\n" +
+            "2026-11-07 19:53:07.372 [INFO] :: Total Rendering Time: 3.37 seconds\n";
+        var sFast = "2026-11-14 01:02:21.365 [INFO] :: Rendering image...\n" +
+            "2026-11-14 01:02:21.697 Iray [INFO] - IRAY_CLOUD_CLIENT:NETWORK :: IRAY_C net  info : iray_cloud(3): Successfully opened a session to Bridge Server ws://server/bridge.\n" +
+            "2026-11-14 01:02:34.299 [INFO] :: Saved image: /tmp/x.png\n" +
+            "2026-11-14 01:02:34.579 [INFO] :: Total Rendering Time: 13.49 seconds\n";
+        var sSilent = "2026-11-14 01:02:21.365 [INFO] :: Rendering image...\n" +
+            "2026-11-14 01:02:34.579 [INFO] :: Total Rendering Time: 13.49 seconds\n";
+
+        check("verdict rejected", serverVerdict(sRejected), "rejected");
+        check("verdict fast render", serverVerdict(sFast), "ok");
+        check("verdict silent log", serverVerdict(sSilent), "");
+        check("verdict unreadable", serverVerdict(null), "");
+
+        var sLog = sOut + "/selftest-log.txt";
+        // A rejected session after an earlier good one: only the new part counts.
+        write(sLog, sOld, false);
+        var n = fileSize(sLog);
+        check("size of the earlier part", n, sOld.length);
+        write(sLog, sRejected, true);
+        check("read from offset", readFrom(sLog, n) === sRejected, true);
+        check("rejected after a good session", serverVerdict(readFrom(sLog, n)), "rejected");
+        // A fast good render after the rejection.
+        n = fileSize(sLog);
+        write(sLog, sFast, true);
+        check("fast render after a rejection", serverVerdict(readFrom(sLog, n)), "ok");
+        // The log was replaced meanwhile (shorter than the offset): read it whole.
+        write(sLog, sRejected, false);
+        check("shrunk log read whole", serverVerdict(readFrom(sLog, 1000000)), "rejected");
+        check("missing file size", fileSize(sOut + "/no-such-file.txt") < 0 || fileSize(sOut + "/no-such-file.txt") === 0, true);
+        check("missing file read", readFrom(sOut + "/no-such-file.txt", 0), null);
+        new DzFile(sLog).remove();
+        // DAZ's own log (megabytes, open in another DAZ): its tail reads.
+        var sHome = App.getDocumentsPath().replace(/\/Documents(\/.*)?$/, "");
+        var sDaz = sHome + "/Library/Application Support/DAZ 3D/Studio6/log.txt";
+        var nDaz = fileSize(sDaz);
+        check("DAZ log size known", nDaz > 0, true);
+        var sTail = readFrom(sDaz, nDaz - 4096);
+        check("DAZ log tail read", sTail !== null && sTail.length > 0 && sTail.length <= 4096, true);
+    } catch (e) {
+        nFail++;
+        put("FAIL exception: " + e);
+    }
+    put(nFail == 0 ? "ALL PASS" : nFail + " FAILED");
+    write(sOut + "/selftest.txt", aLines.join("\n") + "\n", false);
+    write(sOut + "/done", "done\n", false);
+    App.delayedExit();
+})();

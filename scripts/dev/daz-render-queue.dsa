@@ -37,6 +37,41 @@
         print("ORBIS queue: " + s);
     }
     function exists(p) { return new DzFile(p).exists(); }
+    // --- server verdict (daz-queue-selftest.dsa evals this block) ---
+    // A render through the Iray Server is judged by what DAZ's log says
+    // about it, not by its wall time: a rejected session ("session handler
+    // rejected the session") fails within seconds and saves a black image,
+    // but a small scene at 400 samples also finishes in 13-14 s (#160).
+    // Byte size of a file, -1 when unknown.
+    function fileSize(p) {
+        try {
+            var n = new DzFile(p).size();
+            return typeof n == "number" && n >= 0 ? n : -1;
+        } catch (e) { return -1; }
+    }
+    // What was written to a file after byte nFrom (from the start when the
+    // file shrank meanwhile), null when it can't be read.
+    function readFrom(p, nFrom) {
+        try {
+            var f = new DzFile(p);
+            if (!f.open(DzFile.ReadOnly)) return null;
+            var n = f.size();
+            if (nFrom > 0 && nFrom <= n && f.seek(nFrom) === false) { f.close(); return null; }
+            var s = f.read();
+            f.close();
+            return s === undefined || s === null ? null : String(s);
+        } catch (e) { return null; }
+    }
+    // "rejected" (the server refused or dropped the session: retry), "ok"
+    // (a session opened and no error followed), "" (the log said neither).
+    function serverVerdict(sLog) {
+        if (sLog === null) return "";
+        if (/session handler rejected the session|Failed to open session to Bridge Server|Unknown render error/.test(sLog)) return "rejected";
+        if (/Successfully opened a session to Bridge Server/.test(sLog)) return "ok";
+        return "";
+    }
+    // --- end server verdict ---
+    var sDazLog = sHome + "/Library/Application Support/DAZ 3D/Studio6/log.txt";
     for (var i = 1; i < aArgs.length; i++) {
         oContent.addContentDirectory(aArgs[i], false);
         log("content dir " + aArgs[i]);
@@ -86,13 +121,29 @@
         // An Iray Server can refuse new sessions for minutes after a large
         // scene ("session handler rejected the session"): the render then
         // fails within seconds and leaves a black image. Wait and retry.
-        var t, secs, bOk;
+        // DAZ's log since the render started tells (serverVerdict); only
+        // when it can't be read, the old guess: under 15 s = rejected.
+        var t, secs, bOk, nLog, sVerdict;
         for (var iTry = 0; iTry < 10; iTry++) {
+            nLog = bLocal ? -1 : fileSize(sDazLog);
             t = new Date().getTime();
             bOk = oMgr.doRender(opts);
             secs = Math.round((new Date().getTime() - t) / 1000);
-            if (bOk !== false && (bLocal || secs >= 15)) break;
-            log("render of " + sName + " failed after " + secs + " s, retrying in 30 s");
+            if (bOk === false) {
+                sVerdict = "failed";
+            } else if (bLocal) {
+                break;
+            } else {
+                processEvents();
+                sVerdict = nLog < 0 ? "" : serverVerdict(readFrom(sDazLog, nLog));
+                if (sVerdict == "ok") break;
+                if (sVerdict == "") {
+                    log("DAZ log unreadable for " + sName + ", judging by time");
+                    if (secs >= 15) break;
+                    sVerdict = "under 15 s";
+                }
+            }
+            log("render of " + sName + " " + sVerdict + " after " + secs + " s, retrying in 30 s");
             new DzFile(sPng).remove();
             for (var iWait = 0; iWait < 30; iWait++) {
                 processEvents();
