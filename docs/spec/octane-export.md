@@ -1328,6 +1328,16 @@ leaves out, #15):
   – 1.10 on all eight spheres; the matte level 1.08). A specular-mode IOR
   is at least 1.1: Iray's curve still rises to 1 at grazing over a black
   Glossy Specular (that sphere 0.91 → 1.00).
+  The cost of GGX energy preserving above α 0.25 (#162): head-on (a point
+  light at the camera, Calib-Point-ArchAniso's r 0.354) its highlight is
+  GGX's core at Beckmann's α, 0.82 × as wide at 0.3 of the peak (half
+  maximum at tan²θ 0.41 α² against Beckmann's 0.69 α²), and on a white
+  lobe 1.17 × the peak (its compensation; plain GGX has Iray's peak);
+  Beckmann and STD (`brdf` 7, default spread) at the same pin draw Iray's
+  lobe there to a pixel, but under the HDRI STD's rough gloss is 1.22 –
+  1.28 × Iray at r 0.36 (the physical Fresnel's share, #137) and 1.46 –
+  1.58 at r 0.6 – 0.81, Beckmann's rim 1.9 – 3.2. Kept until Iray's
+  lobe at r 0.5 – 1 head-on is measured (Calib-Point-UberGloss).
 - **Anisotropy** (Glossy Anisotropy + Glossy Anisotropy Rotations on the
   gloss and the metal, Top Coat Anisotropy + Top Coat Rotations on the top
   coat; #23). Iray (`base::anisotropy_conversion`, MDL SDK's `base.mdl`):

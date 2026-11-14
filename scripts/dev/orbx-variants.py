@@ -33,6 +33,8 @@ Hypotheses (by the Iray channels the variants stand for):
 - `brdf=<n>`: Universal's BSDF model on every material but the floor
   (0 Octane, the default; 1 Beckmann; 2 GGX; 6 GGX energy preserving;
   7 STD) — Iray's Uber lobes are Phong ≈ Beckmann (#56).
+- `brdf6=<n>`: only the nodes exported at GGX energy preserving (6) to
+  model n (#162: the rough dielectric Phong lobes).
 - `daylight-model=<n>`: the Daylight environment's model (0 Preetham,
   1 Octane, 2 Nishita, 3 Hosek-Wilkie — the export's).
 - `daylight=<model>,<power>,<sun>,<ground start>`: the Daylight
@@ -320,6 +322,11 @@ def apply(ocs, hyp):
             if not mat.startswith('Plane'):
                 ocs = set_pin(ocs, mat, 'brdf', value_node(57, 2, hyp[5:]))
         return ocs
+    if hyp.startswith('brdf6='):
+        # Only the nodes the export put on GGX energy preserving (6) - the
+        # rough dielectric Phong lobes (`phong_brdf`) - to model n (#162).
+        return re.sub(r"(<pin name='brdf'>\s*<node[^>]*type='57'>\s*<attr name='value' type='2'>)6<",
+                      lambda m: m.group(1) + hyp[6:] + '<', ocs)
     if hyp == 'transm-x2':
         for mat, (w, thin) in TRANSLUCENT.items():
             t = None if thin else albedo_of(ocs, mat, 'transmission')

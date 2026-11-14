@@ -54,6 +54,11 @@ material file with one Shader Mixer brick material per module material
 - Calib-Point-ArchAniso (#114): that light on NVIDIA's Architectural
   preset (its reflection only) at glossiness 0 / 0.15 / 0.3, isotropic
   and anisotropic - the scene the export maps (Octane side).
+- Calib-Point-UberGloss (#162): that light on plain Uber spheres (no MDL
+  module of ours): a dielectric gloss over a black base at Iray r 0.25 /
+  0.354 / 0.5 / 0.7 / 1 and a dark grey metal at r 0.354 / 0.5 / 0.7 - the
+  Phong lobe's highlight head-on where the export's `phong_brdf` leaves
+  Beckmann (dielectric alpha > 0.25), the metals the Beckmann control.
 
 Calib-Mi-MdlPath's .mi (2026-11-13): only P1 resolves, and only once the
 script maps `<library>/shaders/iray` as an MDL directory - DAZ searches its
@@ -344,6 +349,51 @@ furnace_scene('Calib-Point-MdlAniso', ANISO, ev=9.0)
 # Architectural's glossiness 0.15 / 0.3 peak ~8x / ~50x above 0 (at EV 8.3
 # both clipped, glossiness 0 0.19): at EV 11.5 glossiness 0 ~0.02, 0.3 ~1.
 furnace_scene('Calib-Point-ArchAniso', ARCH_POINT, ev=11.5, arch=True)
+
+
+def uber_point_scene(name, spheres, ev):
+    """Calib-Furnace-Metal's Uber spheres (floor hidden) under `point_lit`,
+    sphere k on the channels of spheres[k] (label, {channel: value}, base
+    colour); its material_library entry carries the Uber channels."""
+    p = os.path.join(SCENES, name + '.duf')
+    if os.path.exists(p) and not FORCE:
+        return p
+    d = load(FURNACE_METAL)
+    d['asset_info']['id'] = '/Scenes/' + name + '.duf'
+    point_lit(d, ev)
+    geo_node = {g['id']: n for n in d['scene']['nodes'] for g in n.get('geometries', [])}
+    mlib = {m['id']: m for m in d['material_library']}
+    for m in d['scene']['materials']:
+        n = geo_node.get(m['geometry'].lstrip('#'))
+        if not n or not n.get('label', '').startswith('F'):
+            continue
+        label, chans, colour = spheres[int(n['label'][1]) - 1]
+        n['label'] = label
+        m['diffuse'] = {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': colour}}
+        lm = mlib[m['url'].lstrip('#')]
+        lm['diffuse']['channel']['current_value'] = colour
+        chs = next(e for e in lm['extra'] if e['type'] == 'studio_material_channels')['channels']
+        vals = dict(chans)
+        for c in chs:
+            if c['channel']['id'] in vals:
+                c['channel']['current_value'] = vals.pop(c['channel']['id'])
+        assert not vals, vals
+    duf_camera.ensure(d)
+    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    shutil.copyfile(p, os.path.join(REPO, 'calib/scenes', name + '.duf'))
+    print(p)
+    return p
+
+
+# #162: the dielectric gloss (Glossy Layered Weight 1, Reflectivity 0.5:
+# F0 0.04) peaks ~0.04 x Calib-Point-ArchAniso's white lobe (0.018 at r
+# 0.354, EV 11.5): EV 3.4 puts r 0.354 near 0.2, r 0.25 ~0.4, r 1 ~0.05;
+# the metals at base 0.1 stay below 1 at r 0.354.
+DIEL = lambda r: {'Metallic Weight': 0.0, 'Glossy Layered Weight': 1.0, 'Glossy Reflectivity': 0.5, 'Glossy Roughness': round(r ** 0.5, 4)}
+METAL = lambda r: {'Metallic Weight': 1.0, 'Glossy Roughness': round(r ** 0.5, 4)}
+UBER_POINT = [(f'U{k + 1} dielectric r {r}', DIEL(r), [0.0, 0.0, 0.0]) for k, r in enumerate((0.25, 0.354, 0.5, 0.7, 1.0))] + \
+             [(f'U{k + 6} metal r {r}', METAL(r), [0.1, 0.1, 0.1]) for k, r in enumerate((0.354, 0.5, 0.7))]
+uber_point_scene('Calib-Point-UberGloss', UBER_POINT, ev=3.4)
 furnace_scene('Calib-Furnace-MdlTir', TIR)
 furnace_scene('Calib-Furnace-MdlResin', RESIN)
 furnace_scene('Calib-Furnace-MdlGeneric', GENERIC)
