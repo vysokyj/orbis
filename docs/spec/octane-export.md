@@ -2367,9 +2367,14 @@ leaves out, #15):
     reflection of k1 about the base's microfacet. Light leaving a rough
     base from inside meets k2_refl past the critical angle (F = 1): the
     base keeps 1 − w there, a loss that grows with roughness. **On top,
-    Iray's base lobe loses more than `libbsdf`'s** — not Iray's df: the
-    Uber's reflect_transmit lobe keeps `libbsdf`'s value, the NVIDIA
-    module's doesn't (#116, at the architectural glass): what the lobe
+    Iray's base lobe loses more than `libbsdf`'s** — the module's `mdl
+    1.0`: Iray reads `simple_glossy_bsdf` with a legacy behaviour in
+    modules below 1.3 (our own 1.0 module's reflect_transmit lobe renders
+    Calib-Furnace-Resin2's U3 – U6 to 0.003 per ring, its 1.3 twin is
+    `libbsdf`'s, as the Uber's 1.7 lobe; Calib-Furnace-MdlResin, #117).
+    The legacy loss is per surface event, grows with roughness and towards
+    grazing, and isn't total internal reflection or a rougher lobe
+    (note 2026-11-14-legacy-transmit-lobe); not documented, so what the lobe
     alone (no coat, white) keeps in the furnace over the sphere's inner
     disk is measured (`RESIN_LOBE`, by MDL roughness: 0.971 / 0.963 /
     0.920 / 0.678 / 0.462 / 0.324 at r 0.02 / 0.1 / 0.25 / 0.5 / 0.75 / 1,
@@ -2472,10 +2477,10 @@ leaves out, #15):
     Iray disk 0.89 / 1.05 / 1.32 on Calib-Furnace-ArchGlass2 H6 / H2 / H7;
     held at 1.5, k 0.86 / 0.85 / 0.85 and 1.01 / 1.05 / 1.10). The rest
     splits into Octane over its Smith model (1.03 / 1.04 / 1.04, flat in
-    the IOR) and Iray under `libbsdf` × τ (0.98 / 1.02 / 1.06): Iray's own
-    loss grows a little with the IOR beyond `libbsdf`'s, which two IORs
-    don't pin down (#117's Calib-Furnace-MdlTir decides it, not a fitted
-    IOR curve); Octane = the coating at its IOR, the lobe Beckmann at
+    the IOR) and Iray under `libbsdf` × τ (0.98 / 1.02 / 1.06): the
+    legacy lobe's per-event loss met on `libbsdf`'s longer bent paths, not
+    an IOR term (Calib-Furnace-MdlTir, #117) — τ as one constant per event
+    holds the disk, its angular spread is still open; Octane = the coating at its IOR, the lobe Beckmann at
     α r_t, Smith, physical layering. Reflectivity 0, refr_gloss 0.6 / 0.4
     / 0.2 / 0: k 0.98 / 0.97 / 0.85 / 0.93 (Octane caps α at 1 too); 0.2
     under reflectivity 0.6 0.85, with the Fresnel term 0.73. Why: the
@@ -2491,8 +2496,14 @@ leaves out, #15):
     0.82 / 0.72 / 0.52) — not the Firefly Filter (off: the same), not
     light trapped inside (Calib-Furnace-Resin3 at Max Path Length 3 loses
     the share `libbsdf` predicts), not a roughness (no `libbsdf` roughness
-    draws the rings, rms 0.05). It is in how Iray renders the NVIDIA
-    module DAZ wraps (`add_geometry`), not in the MDL or its docs, so the
+    draws the rings, rms 0.05). It is the module's `mdl 1.0` (#117):
+    Iray's legacy `simple_glossy_bsdf` below MDL 1.3 is `libbsdf`'s lobe
+    times a per-event loss g(r, cos), the same with or without refraction
+    and at every IOR (Calib-Furnace-MdlTir / -MdlTransmit: thin walls
+    predict the closed spheres at IOR 1.2 / 1.5 / 2 to 1 – 3 %; not total
+    internal reflection — a thin wall loses too); architectural's lobe is
+    that legacy lobe at ~r_t, not at the formula's roughness (G3 = our 1.0
+    lobe at r 0.2). The legacy behaviour isn't documented, so the
     lobe alone stays measured; with it `libbsdf`'s layer weights
     predict the coated spheres — refr_gloss 0.2 under reflectivity 0.6
     Schlick 0.657 v Iray 0.655, Fresnel term 0.421 v 0.416 — while

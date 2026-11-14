@@ -36,6 +36,15 @@ material file with one Shader Mixer brick material per module material
 - Calib-Furnace-MdlResin (#117): resin's base lobe (reflect_transmit, IOR
   1.49) at r 0.25 / 0.5 / 0.75 / 1 in 1.0 / 1.3 - Calib-Furnace-Resin2
   U3 - U6's twins.
+- Calib-Furnace-MdlArch (#117, second round): why NVIDIA's architectural
+  transmit lobe loses more than the plain 1.0 lobe at its formula's
+  roughness - the lobe with base::architectural_gloss_to_rough(refr_gloss
+  0.4 / 0.2 / 0) (1.0, and 0.2 at 1.3), architectural's layer structure
+  around it at that roughness and at the same value as a constant, thin
+  walls (Calib-Furnace-ArchGlass G3 - G5 / -ArchGlass2 H4's twins).
+- Calib-Furnace-MdlLegacy (#117, second round): the 1.0 transmit lobe at
+  r 0.3 / 0.5 / 0.7 / 1 closed and 0.1 / 0.6 / 1 thin-walled, one 1.3 twin
+  (r 0.5) - the per-event loss g(r, cos) above r 0.4.
 - Calib-Furnace-MdlGeneric (#112, second round): what is left of
   metal_generic one piece at a time, each at 1.0 / 1.3 - the lobe's tint
   (0.65, r 0.4), anisotropy (B6's u 0.42 / v 0.35, default tangent_u), a
@@ -161,6 +170,21 @@ TIR = [(f'X{k + 1} v{v} {what}', f'v{v.replace(".", "")}_tir_{mat}', f'orbis/orb
                                            for v in ('1.0', '1.3')])]
 RESIN = [(f'R{k + 1} v{v} resin r {r}', f'v{v.replace(".", "")}_resin_r{R_NAME(r)}', f'orbis/orbis_resin_v{v.replace(".", "")}.mdl#resin_r{R_NAME(r)}')
          for k, (v, r) in enumerate([(v, r) for v in ('1.0', '1.3') for r in (0.25, 0.5, 0.75, 1.0)])]
+# #117 second round: the legacy lobe is `libbsdf`'s x a per-event loss
+# g(r, cos), IOR- and wall-independent (MdlTir / MdlTransmit), NVIDIA's
+# resin base = the plain 1.0 lobe ring for ring (MdlResin v Resin2), but
+# architectural's G3 matches the 1.0 lobe only at ~3.7 x its formula's
+# roughness: the base:: roughness call, the layer structure, or a constant.
+ARCH_MDL = [(f'A{k + 1} v{v} {what}', f'v{v.replace(".", "")}_arch_{mat}', f'orbis/orbis_arch_v{v.replace(".", "")}.mdl#{mat}')
+            for k, (what, mat, v) in enumerate([('gtr(0.4)', 'gtr04', '1.0'), ('gtr(0.2)', 'gtr02', '1.0'), ('gtr(0)', 'gtr0', '1.0'),
+                                                ('gtr(0.2)', 'gtr02', '1.3'), ('struct gtr(0.2)', 'struct_gtr02', '1.0'),
+                                                ('struct r 0.134', 'struct_r0134', '1.0'), ('thin gtr(0.2)', 'thin_gtr02', '1.0'),
+                                                ('thin struct gtr(0.2)', 'thin_struct_gtr02', '1.0')])]
+LEGACY = [(f'K{k + 1} v{v} {what}', f'v{v.replace(".", "")}_legacy_{mat}', f'orbis/orbis_legacy_v{v.replace(".", "")}.mdl#{mat}')
+          for k, (what, mat, v) in enumerate([('transmit r 0.3', 'transmit_r03', '1.0'), ('transmit r 0.5', 'transmit_r05', '1.0'),
+                                              ('transmit r 0.7', 'transmit_r07', '1.0'), ('transmit r 1', 'transmit_r1', '1.0'),
+                                              ('thin transmit r 0.1', 'thin_transmit_r01', '1.0'), ('thin transmit r 0.6', 'thin_transmit_r06', '1.0'),
+                                              ('thin transmit r 1', 'thin_transmit_r1', '1.0'), ('transmit r 0.5', 'transmit_r05', '1.3')])]
 # #112 second round: MdlVersion's white isotropic 1.0 lobe is only 2 - 7 %
 # below 1.3, not Metal Brushed's ~30 % rim; split the rest of
 # metal_generic (orbis_generic_v10 / _v13, see the module).
@@ -195,7 +219,7 @@ for _, _, c, root in PATH_PROBE:
     open(os.path.join(d, c.split('/')[1].split('#')[0]), 'w').write(probe)
 
 os.makedirs(os.path.dirname(DSF), exist_ok=True)
-lib_mats = [brick_material(mid, c) for _, mid, c, *_ in PATH_PROBE + VERSION + LOBE + TRANSMIT + ANISO + TIR + RESIN + GENERIC]
+lib_mats = [brick_material(mid, c) for _, mid, c, *_ in PATH_PROBE + VERSION + LOBE + TRANSMIT + ANISO + TIR + RESIN + GENERIC + ARCH_MDL + LEGACY]
 dsf = {'file_version': '0.6.0.0',
        'asset_info': {'id': DSF_URL, 'type': 'material', 'contributor': {'author': 'ORBIS', 'email': '', 'website': ''}, 'revision': '1.0'},
        'material_library': lib_mats}
@@ -323,3 +347,5 @@ furnace_scene('Calib-Point-ArchAniso', ARCH_POINT, ev=11.5, arch=True)
 furnace_scene('Calib-Furnace-MdlTir', TIR)
 furnace_scene('Calib-Furnace-MdlResin', RESIN)
 furnace_scene('Calib-Furnace-MdlGeneric', GENERIC)
+furnace_scene('Calib-Furnace-MdlArch', ARCH_MDL)
+furnace_scene('Calib-Furnace-MdlLegacy', LEGACY)

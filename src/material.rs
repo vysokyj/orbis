@@ -967,7 +967,9 @@ fn resin_lobe_albedo(r: f32, weight: f32, ior: f32, tint: [f32; 3]) -> [f32; 3] 
 /// (Iray Server 5000, #115). Measured, not derived: `libbsdf` keeps 1.000
 /// / 0.999 / 0.973 / 0.824 / 0.655 / 0.531 there — Iray loses more
 /// with NVIDIA's module, ~3 % even at r 0.02, while the same lobe through
-/// the Uber keeps `libbsdf`'s value (Calib-Furnace-UberGlass, #116). With it the `libbsdf` layering predicts the coated
+/// the Uber keeps `libbsdf`'s value (Calib-Furnace-UberGlass, #116): it is
+/// the module's `mdl 1.0` (Iray's legacy `simple_glossy_bsdf`; our own 1.0
+/// lobe renders U3 – U6 to 0.003 per ring, Calib-Furnace-MdlResin, #117). With it the `libbsdf` layering predicts the coated
 /// spheres (grey r 0.1 0.605 v Iray 0.605, r 0.25 0.473 v 0.473).
 const RESIN_LOBE: [(f64, f64); 6] = [(0.02, 0.971), (0.1, 0.963), (0.25, 0.920), (0.5, 0.678), (0.75, 0.462), (1.0, 0.324)];
 

@@ -1,0 +1,82 @@
+// ORBIS calibration module (#117), written for ORBIS (GPL-3.0-or-later).
+// Why NVIDIA's architectural glass loses more than the plain "mdl 1.3"
+// transmit lobe at its own roughness: Calib-Furnace-ArchGlass G3 (refr_gloss
+// 0.4) rings match the legacy lobe at ~3.7 x architectural_gloss_to_rough,
+// not at the formula's 0.051. One piece at a time, closed IOR 1.5 unless
+// thin: the lobe with its roughness from base::architectural_gloss_to_rough
+// (refr_gloss 0.4 / 0.2 / 0), and architectural's whole layer structure
+// around it (weighted_layer(transparency 1, weighted_layer(0, diffuse
+// transmission, the lobe), a diffuse mix) under a weight-0 custom curve
+// layer), at the function's roughness and at the same roughness written as
+// a constant. White, no reflection.
+mdl 1.3;
+
+import df::*;
+import base::*;
+
+export material gtr04() = material(
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(tint: color(1.0), roughness_u: base::architectural_gloss_to_rough(0.4), mode: df::scatter_transmit)));
+
+export material gtr02() = material(
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(tint: color(1.0), roughness_u: base::architectural_gloss_to_rough(0.2), mode: df::scatter_transmit)));
+
+export material gtr0() = material(
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(tint: color(1.0), roughness_u: base::architectural_gloss_to_rough(0.0), mode: df::scatter_transmit)));
+
+export material struct_gtr02() = material(
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::custom_curve_layer(
+            weight: 0.0, normal_reflectivity: 0.2, grazing_reflectivity: 1.0, exponent: 5.0,
+            layer: df::simple_glossy_bsdf(tint: color(1.0), roughness_u: base::architectural_gloss_to_rough(1.0), roughness_v: base::architectural_gloss_to_rough(1.0), mode: df::scatter_reflect),
+            base: df::weighted_layer(
+                weight: 1.0,
+                layer: df::weighted_layer(
+                    weight: 0.0,
+                    layer: df::diffuse_transmission_bsdf(tint: color(1.0)),
+                    base: df::simple_glossy_bsdf(tint: color(1.0), roughness_u: base::architectural_gloss_to_rough(0.2), mode: df::scatter_transmit)),
+                base: df::normalized_mix(components: df::bsdf_component[](
+                    df::bsdf_component(weight: 1.0, component: df::diffuse_reflection_bsdf(roughness: 0.0, tint: color(0.5)))))))));
+
+export material struct_r0134() = material(
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::custom_curve_layer(
+            weight: 0.0, normal_reflectivity: 0.2, grazing_reflectivity: 1.0, exponent: 5.0,
+            layer: df::simple_glossy_bsdf(tint: color(1.0), roughness_u: base::architectural_gloss_to_rough(1.0), roughness_v: base::architectural_gloss_to_rough(1.0), mode: df::scatter_reflect),
+            base: df::weighted_layer(
+                weight: 1.0,
+                layer: df::weighted_layer(
+                    weight: 0.0,
+                    layer: df::diffuse_transmission_bsdf(tint: color(1.0)),
+                    base: df::simple_glossy_bsdf(tint: color(1.0), roughness_u: 0.13397, mode: df::scatter_transmit)),
+                base: df::normalized_mix(components: df::bsdf_component[](
+                    df::bsdf_component(weight: 1.0, component: df::diffuse_reflection_bsdf(roughness: 0.0, tint: color(0.5)))))))));
+
+export material thin_gtr02() = material(
+    thin_walled: true,
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(tint: color(1.0), roughness_u: base::architectural_gloss_to_rough(0.2), mode: df::scatter_transmit)));
+
+export material thin_struct_gtr02() = material(
+    thin_walled: true,
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::custom_curve_layer(
+            weight: 0.0, normal_reflectivity: 0.2, grazing_reflectivity: 1.0, exponent: 5.0,
+            layer: df::simple_glossy_bsdf(tint: color(1.0), roughness_u: base::architectural_gloss_to_rough(1.0), roughness_v: base::architectural_gloss_to_rough(1.0), mode: df::scatter_reflect),
+            base: df::weighted_layer(
+                weight: 1.0,
+                layer: df::weighted_layer(
+                    weight: 0.0,
+                    layer: df::diffuse_transmission_bsdf(tint: color(1.0)),
+                    base: df::simple_glossy_bsdf(tint: color(1.0), roughness_u: base::architectural_gloss_to_rough(0.2), mode: df::scatter_transmit)),
+                base: df::normalized_mix(components: df::bsdf_component[](
+                    df::bsdf_component(weight: 1.0, component: df::diffuse_reflection_bsdf(roughness: 0.0, tint: color(0.5)))))))));

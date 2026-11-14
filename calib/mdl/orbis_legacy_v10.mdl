@@ -1,0 +1,48 @@
+// ORBIS calibration module (#117), written for ORBIS (GPL-3.0-or-later).
+// The "mdl 1.0" transmit lobe above the roughnesses Calib-Furnace-MdlTransmit
+// / -MdlTir measured (0.05 - 0.4): Iray's legacy lobe is `libbsdf`'s times a
+// per-event loss g(r, cos) that doesn't depend on the IOR or on the wall
+// (closed spheres predicted from the thin ones); this extends g to the
+// roughnesses architectural glass and resin reach. Closed IOR 1.5 unless
+// thin. White.
+mdl 1.0;
+
+import df::*;
+
+export material transmit_r03() = material(
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.3, roughness_v: 0.3)));
+
+export material transmit_r05() = material(
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.5, roughness_v: 0.5)));
+
+export material transmit_r07() = material(
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.7, roughness_v: 0.7)));
+
+export material transmit_r1() = material(
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 1.0, roughness_v: 1.0)));
+
+export material thin_transmit_r01() = material(
+    thin_walled: true,
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.1, roughness_v: 0.1)));
+
+export material thin_transmit_r06() = material(
+    thin_walled: true,
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.6, roughness_v: 0.6)));
+
+export material thin_transmit_r1() = material(
+    thin_walled: true,
+    ior: color(1.5),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 1.0, roughness_v: 1.0)));

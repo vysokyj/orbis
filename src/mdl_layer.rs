@@ -36,9 +36,13 @@
 //!
 //! Iray's rough transmission through NVIDIA's modules loses more than
 //! `libbsdf`'s lobe — the same `simple_glossy_bsdf` through DAZ's Uber
-//! doesn't (#116), so it isn't the df and can't be derived from it: the
-//! base lobe alone, measured in the furnace (`tint_factor_measured`), sets
-//! an extra per-event tint τ on the `libbsdf` model; the layering on top is
+//! doesn't (#116): NVIDIA's modules are `mdl 1.0`, and Iray reads the df
+//! with an undocumented legacy behaviour below 1.3 (our own 1.0 / 1.3
+//! twins, #117: 1.3 is this tracer ring for ring, 1.0 is it times a
+//! per-event loss that grows with roughness and towards grazing, at any
+//! IOR, with or without refraction). Not derivable, so the base lobe alone,
+//! measured in the furnace (`tint_factor_measured`), sets an extra
+//! per-event tint τ on the `libbsdf` model; the layering on top is
 //! `libbsdf`'s, and predicts Iray's coated spheres within 1 – 7 %.
 
 /// Sphere paths per model.
