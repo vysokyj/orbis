@@ -1380,7 +1380,14 @@ leaves out, #15):
   1.07 – 1.13 × Iray, the crown 2.98 → 2.24 (#52). On the measured
   anisotropy (#96) its lengths rose 1.00 – 1.17 → 1.11 – 1.31 × Iray: the
   lobes as wide across the strand as Iray's show more of the strands'
-  too-strong gloss (#99).
+  gloss. That excess (crown / middle 1.2 – 1.8 × the ribbon reference)
+  is the ribbons' shape, not the lobe, and stays: Morgan as Iray fibres
+  (Line Tessellation 1) renders 1.3 – 3.5 × its ribbons in Iray, gloss
+  and base alike, and its gloss then lands where Octane's does (gloss /
+  own base on the hilite and middle 1.67 / 1.28 in Iray, 1.53 / 1.19 in
+  Octane); Morgan's ribbons turned 65° in place (Calib-Strand-UberM-Edge-T2)
+  darken every Uber part in Iray, not the gloss alone (#99, notes
+  2026-11-14). Against Iray's fibres the base is low instead (#161).
   Backscattering Anisotropy reaches Iray only from a channel saved
   shown; DAZ's default material (our generated scenes) hides it, so
   Calib-Backscatter B8 and Calib-Aniso2 K6 stayed isotropic
