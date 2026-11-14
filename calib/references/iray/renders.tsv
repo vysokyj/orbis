@@ -181,6 +181,7 @@ Calib-Map-TopCoat	5000	0	Iray Server (Boost for Daz)	2026-10-31 19:44	109	on@8
 Calib-MapDepth	5000	0	DAZ Studio Iray (CPU)	2026-11-10 02:00		on@8
 Calib-MapDepth2	5000	0	DAZ Studio Iray (CPU)	2026-11-10 02:02		on@8
 Calib-MetalRefr	400	0	DAZ Studio Iray (CPU)	2026-11-11 17:53	16	on@8
+Calib-MetalRefr-Solid	1000	0	DAZ Studio Iray (CPU)	2026-11-14 01:10		on@8
 Calib-MetalRefr-TL	400	0	DAZ Studio Iray (CPU)	2026-11-11 18:08	15	on@8
 Calib-MetalRefr-TL-Solid	400	0	DAZ Studio Iray (CPU)	2026-11-14 00:43		on@8
 Calib-MetalRefr-g0	400	0	DAZ Studio Iray (CPU)	2026-11-11 18:07	23	on@8
