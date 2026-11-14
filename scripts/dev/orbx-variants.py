@@ -59,6 +59,9 @@ Hypotheses (by the Iray channels the variants stand for):
   for path tracing's filter size); a vector's other components stay.
 - `hair=<k>,<s>`: every Hair material (147) at albedo × k and specular s.
 - `hair-offset=<v>`: every Hair material's `offset` (its cuticle tilt) v.
+- `res=<w>,<h>`: the film resolution (a big scene at half size).
+- `coat-off`: every layered Top Coat (Specular layer "... top coat") at
+  specular 0.
 - `twosided-x1`: two-sided emitters at the one-sided power (the export
   doubles it, `TWO_SIDED_POWER`, assuming Octane splits it over both faces).
 The channel values come from the scene materials' names (Calib-Glossy /
@@ -198,6 +201,22 @@ def apply(ocs, hyp):
         return ocs
     if hyp == 'twosided-x1':
         return halve_double_sided(ocs)
+    if hyp.startswith('res='):
+        # The film resolution (a big scene at half size, #161).
+        w, h = hyp[4:].split(',')
+        ocs, n = re.subn(r"(<pin name='filmSettings'>\s*<node id='1\d+' type='100'>\s*<pin name='resolution'>\s*<node[^>]*>\s*<attr name='value' type='4'>)\d+ \d+",
+                         lambda m: m.group(1) + f'{w} {h}', ocs)
+        if not n:
+            sys.exit('no film resolution')
+        return ocs
+    if hyp == 'coat-off':
+        # Every layered Top Coat (a Specular layer, 139, named "... top
+        # coat") at specular 0: the coat's part, the base left as it is.
+        pat = r"(<node id='\d+' type='139' name='[^']* top coat'>\s*(?:<attr[^\n]*\n\s*)?<pin name='specular'>\s*<node[^>]*>\s*<attr name='value' type='8'>)[^<]*"
+        ocs, n = re.subn(pat, lambda m: m.group(1) + '0 0 0', ocs)
+        if not n:
+            sys.exit('no top coat layer')
+        return ocs
     if hyp.startswith('set='):
         for item in hyp[4:].split('+'):
             target, value = item.split('=', 1)
