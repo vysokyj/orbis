@@ -4097,17 +4097,16 @@ impl Ocs<'_> {
             // An open sheet that isn't thin-walled (a leaf or grass card)
             // passes twice as much in Iray: Calib-Leaf's card 0.48 × Iray at
             // w, 0.81 at min(2w, 1); Calib-SSS's spheres stay at w (1.25 –
-            // 1.38 at 2w) - thin-walled shells, so a closed solid at w is
-            // unmeasured until Calib-SSS-Solid (#134).
+            // 1.38 at 2w); closed solids too: Iray renders the -Solid twins
+            // as their shells to 1 / 255, Octane at w 0.91 - 1.08 (#134).
             let share = if mat.open && !thin { (2.0 * transmit).min(1.0) } else { transmit } * transmit_share * (1.0 - refraction);
             match mat.image("Translucency Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
                 Some(asset) => self.overlaid_pin(i, "transmission", mat, "Translucency Color", &asset, share, tc),
                 None => self.rgb_pin(i, "transmission", tc.map(|c| c * share)),
             }
             // Diffuse (1), or Thin Wall (Diffuse) (3) for a thin-walled sheet:
-            // Calib-SSS rendered the two alike on its spheres - thin-walled
-            // shells (#134), so Diffuse on a closed solid waits for
-            // Calib-SSS-Solid - (and on
+            // Calib-SSS rendered the two alike on its thin-walled shells and
+            // Diffuse on Calib-SSS-Solid's closed spheres (#134) (and on
             // strands: Calib-Strand-UberM, Morgan Hair within 7 %).
             self.value_pin(i, "transmissionType", 57, 2, if thin { "3" } else { "1" });
         }

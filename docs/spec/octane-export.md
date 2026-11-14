@@ -952,14 +952,22 @@ leaves out, #15):
   its ball (k ≥ 100) passes light from behind, which an albedo can't —
   red 0.82 – 1.04 (k 100 – 1000; the medium's 0.52 – 0.78), the thin
   Parts 0.76 – 1.40. A closed
-  solid with no volume (Iray's empty ball) keeps the transmission (red
-  0.83 – 0.96, #134). SSS Reflectance Tint isn't passed to Iray (the .mi;
+  solid with no volume (Iray's empty ball) keeps the transmission: Iray
+  renders it as its thin-walled twin to 1 / 255 (Calib-SSS-Solid S2 / S3 /
+  S8, Calib-WeightedTL-Solid, Calib-DualLobeWeightedTL-Solid against their
+  thin twins), Octane too (0.91 – 1.00 Y either way); the red deficit
+  (0.84 – 0.96) is the same on the shells, not the wall's (#163). Where
+  the solid holds a volume Iray darkens it (S5 / S7, Transmitted Color,
+  0.80 / 0.76 × the shell, red 0.70 / 0.65; S6, SSS, 0.95) and the baked
+  albedo follows: 1.05 / 1.08 / 1.05 × Iray, the shells (no volume in
+  Iray: `add_uber_volume` needs a closed wall) 0.94 – 0.96 (#134). SSS Reflectance Tint isn't passed to Iray (the .mi;
   1.34 when it was read, #28).
   Why the transmission at all: left out, Calib-SSS's spheres at
   w 0.5 / 1 rendered 1.6 – 1.7 / 3.2 × Iray and Calib-PBRSkin's Gladio cloth
   1.72; with it 0.91 – 0.96 and 1.23 (its neighbours 1.14 – 1.26), the two
   types alike on Calib-SSS's spheres (thin-walled shells through the base
-  material, not solids: #134; Calib-SSS-Solid measures the closed case). On P8 (metallic 0.75) the transmission
+  material) and on Calib-SSS-Solid's closed ones (Diffuse, 1), both 0.92 –
+  1.00 × Iray where no volume enters (#134). On P8 (metallic 0.75) the transmission
   swallowed the metal (0.23 × Iray). Thin-walled or not, figure or prop
   alike — Iray knows only the material: Calib-Thin's thin-walled cards (w
   0 / 0.3 / 0.5 / 0.65, Translucency Color white / the diffuse / dark, lit
@@ -1004,8 +1012,9 @@ leaves out, #15):
   0.9 / 0.6 / 0.4) R1 (refraction 0.3) 0.51 × Iray (R G B 0.55 0.48 0.60),
   R2 (0.7) 0.90; as the Mix 1.04 (1.03 1.05 1.04) and 1.07, beside the same
   spheres without translucency (1.01 / 1.04) and its metal spheres (1.10 –
-  1.13, unchanged) (#135). A closed solid (-TL-Solid) waits for its Iray
-  reference (#134). Where the material stays one node (Base Mixing 1,
+  1.13, unchanged) (#135). On closed solids (-TL-Solid) the same Mix
+  renders R1 / R2 1.05 / 1.04, beside the solids without translucency
+  (Calib-MetalRefr-Solid 1.05 / 1.03): the split holds (#134). Where the material stays one node (Base Mixing 1,
   PBRSkin, inside another Mix) a refraction below 0.5 leaves Universal's
   transmission to the translucency (the refraction's own goes; its IOR
   and gloss stay). Morgan Hair (Base Mixing 1, w 0.059, effect 2,
@@ -1019,8 +1028,10 @@ leaves out, #15):
   shares: cards, leaves, a cloak) passes Tc × min(2w, 1): Iray lit
   Calib-Leaf's backlit card 1.9 × its thin-walled twin, Octane rendered them
   alike (0.48 / 0.90 × Iray at w; 0.81 at min(2w, 1)); doubled on Calib-SSS's
-  spheres it overshot (1.25 – 1.38) - thin-walled shells, so a closed
-  non-thin solid (w here) is unmeasured until Calib-SSS-Solid (#134). Opaque card 0.97.
+  spheres it overshot (1.25 – 1.38). A closed solid stays at w: Iray
+  renders Calib-SSS-Solid / -WeightedTL-Solid / -DualLobeWeightedTL-Solid
+  as their thin-walled twins to 1 / 255 where no volume enters, and
+  Octane at w within 0.91 – 1.08 of it (#134). Opaque card 0.97.
 - **Glossy Reflectivity** r is the head-on reflectance of the glossy
   layer's custom curve, Glossy Layered Weight × (F0 + (1 − F0)(1 − cos)^5),
   F0 = 0.08 r × its map (`metallic_layered_base`; DAZ hands Iray the map ×
@@ -1728,6 +1739,11 @@ leaves out, #15):
   R as Iray's (±0.06). The -g0 (no glossy layer) and -TL (translucency
   0.5) variants alike (1.10 – 1.14) except the last sphere, which sits
   in front of the floor's edge (refraction 0.7: 0.67 / 0.95).
+  Those are thin-walled shells; as closed solids (Calib-MetalRefr-Solid,
+  projected discs, #146) the Mix renders X1 – X4 1.05 / 1.03 / 1.05 /
+  1.03 × Iray beside the metals 1.11 / 1.13 and the refractions 1.05 /
+  1.03, where the shells now measure 1.20 / 1.22 / 1.17 / 0.82 (#134;
+  the shells' excess #164, X4's blur #136).
 
   Why: Calib-Map-Metal's red spheres at 0.25 / 0.5 / 0.75 went from 1.23
   / 1.38 / 1.39 to 1.12 / 1.16 / 1.22 × Iray (the full metal 1.19), the

@@ -64,7 +64,9 @@ Calib-Mi-Hair) — they are in
 [`calib/references/iray`](../calib/references). Each family varies one
 thing at a time. The sphere scenes (`make-calib-scenes.py`) inherit
 Calib-Materials's thin-walled sphere material: a sphere is a closed solid
-only where its scene sets `Thin Walled` false (#134).
+only where its scene sets `Thin Walled` false (#134). Without a volume Iray
+renders the two alike (the `-Solid` twins to 1 / 255); they differ where a
+volume enters (Transmitted Color, SSS) or a refraction bends.
 
 | Scenes | Measures | Spec | Issues |
 |---|---|---|---|
