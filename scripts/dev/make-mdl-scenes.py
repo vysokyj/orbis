@@ -45,6 +45,12 @@ material file with one Shader Mixer brick material per module material
 - Calib-Furnace-MdlLegacy (#117, second round): the 1.0 transmit lobe at
   r 0.3 / 0.5 / 0.7 / 1 closed and 0.1 / 0.6 / 1 thin-walled, one 1.3 twin
   (r 0.5) - the per-event loss g(r, cos) above r 0.4.
+- Calib-Furnace-MdlLegacy2 (#117, third round): the 1.0 transmit lobe at
+  r 0.6 / 1 over the IOR - closed at 1.05 (two barely bent events, as a
+  thin wall's), 1.2 / 2 at r 0.6, 2 at r 1 - and the 1.3 lobe's thin walls
+  at r 0.6 / 1 and closed 1.05 r 1: whether the per-event loss depends on
+  the bending (thin walls lose more per event than closed spheres at 1.5)
+  or `libbsdf`'s thin model is off at high r.
 - Calib-Furnace-MdlGeneric (#112, second round): what is left of
   metal_generic one piece at a time, each at 1.0 / 1.3 - the lobe's tint
   (0.65, r 0.4), anisotropy (B6's u 0.42 / v 0.35, default tangent_u), a
@@ -200,6 +206,13 @@ LEGACY = [(f'K{k + 1} v{v} {what}', f'v{v.replace(".", "")}_legacy_{mat}', f'orb
                                               ('transmit r 0.7', 'transmit_r07', '1.0'), ('transmit r 1', 'transmit_r1', '1.0'),
                                               ('thin transmit r 0.1', 'thin_transmit_r01', '1.0'), ('thin transmit r 0.6', 'thin_transmit_r06', '1.0'),
                                               ('thin transmit r 1', 'thin_transmit_r1', '1.0'), ('transmit r 0.5', 'transmit_r05', '1.3')])]
+# #117 third round: the thin walls' per-event g over-predicts the closed
+# spheres' loss above r 0.3 (r 1: 0.24 v Iray 0.34) - the IOR / bending.
+LEGACY2 = [(f'L{k + 1} v{v} {what}', f'v{v.replace(".", "")}_legacy2_{mat}', f'orbis/orbis_legacy2_v{v.replace(".", "")}.mdl#{mat}')
+           for k, (what, mat, v) in enumerate([('ior 1.05 r 0.6', 'ior105_r06', '1.0'), ('ior 1.05 r 1', 'ior105_r1', '1.0'),
+                                               ('ior 1.2 r 0.6', 'ior12_r06', '1.0'), ('ior 2 r 0.6', 'ior2_r06', '1.0'),
+                                               ('thin r 0.6', 'thin_r06', '1.3'), ('thin r 1', 'thin_r1', '1.3'),
+                                               ('ior 2 r 1', 'ior2_r1', '1.0'), ('ior 1.05 r 1', 'ior105_r1', '1.3')])]
 # #112 second round: MdlVersion's white isotropic 1.0 lobe is only 2 - 7 %
 # below 1.3, not Metal Brushed's ~30 % rim; split the rest of
 # metal_generic (orbis_generic_v10 / _v13, see the module).
@@ -245,7 +258,7 @@ for _, _, c, root in PATH_PROBE:
     open(os.path.join(d, c.split('/')[1].split('#')[0]), 'w').write(probe)
 
 os.makedirs(os.path.dirname(DSF), exist_ok=True)
-lib_mats = [brick_material(mid, c) for _, mid, c, *_ in PATH_PROBE + VERSION + LOBE + TRANSMIT + ANISO + TIR + RESIN + GENERIC + ARCH_MDL + LEGACY + TEXTURED]
+lib_mats = [brick_material(mid, c) for _, mid, c, *_ in PATH_PROBE + VERSION + LOBE + TRANSMIT + ANISO + TIR + RESIN + GENERIC + ARCH_MDL + LEGACY + TEXTURED + LEGACY2]
 dsf = {'file_version': '0.6.0.0',
        'asset_info': {'id': DSF_URL, 'type': 'material', 'contributor': {'author': 'ORBIS', 'email': '', 'website': ''}, 'revision': '1.0'},
        'material_library': lib_mats}
@@ -421,3 +434,4 @@ furnace_scene('Calib-Furnace-MdlGeneric', GENERIC)
 furnace_scene('Calib-Furnace-MdlArch', ARCH_MDL)
 furnace_scene('Calib-Furnace-MdlLegacy', LEGACY)
 furnace_scene('Calib-Furnace-MdlTextured', TEXTURED)
+furnace_scene('Calib-Furnace-MdlLegacy2', LEGACY2)

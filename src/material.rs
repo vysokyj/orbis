@@ -1088,7 +1088,7 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
             let transparency = mat.float("transparency").unwrap_or(0.0).clamp(0.0, 1.0);
             if transparency > 0.0 {
                 let refr_gloss = mat.float("refr_gloss").unwrap_or(1.0);
-                let refr = arch_glass_rough(architectural_gloss_to_rough(refr_gloss));
+                let refr = arch_glass_rough(refr_gloss);
                 let refr_ior = mat.float("Index of Refraction").unwrap_or(1.4);
                 let colour = mat.color("refr_color").unwrap_or([1.0; 3]);
                 let weight = if let MdlGloss::Weight(w) = d.gloss { w } else { 0.0 };
@@ -1116,17 +1116,34 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
 }
 
 /// The roughness Iray's Arch+Design glass (its `scatter_transmit` lobe)
-/// renders with: `ARCH_GLASS_ROUGH` × the MDL's, at most 1, under the
-/// rough-glass rule. Calib-NVIDIA3's refr_gloss 0.6 and 0.2 (MDL 0.020 /
-/// 0.134) matched Octane's Beckmann at r 0.06 – 0.09 and ~0.5 (pins
-/// 0.25 – 0.3 and 0.7 – 0.85): 3.7 × the formula, not the reflection's
-/// curve (which gives 0.08 and 0.22; at 0.2 Iray's interior is an even
-/// frosted grey).
-fn arch_glass_rough(r: f32) -> f32 {
-    (r * ARCH_GLASS_ROUGH).min(1.0)
+/// renders with, by refr_gloss, read off our own `mdl 1.0` modules (#117,
+/// Calib-Furnace-MdlArch): the lobe with `base::architectural_gloss_to_rough
+/// (refr_gloss)` (A1 - A3) renders NVIDIA's G3 - G5 ring for ring, the
+/// module's layer structure around it adds nothing (A5 = A2), and the same
+/// structure with the formula's value written as a constant (0.134 at 0.2,
+/// A6) keeps 0.960 where the call keeps 0.609 — so Iray's compiled call
+/// returns more in a transmit lobe than the SDK's √(2 · 2^(−4 − 14 g)) it
+/// returns for a reflection (#114 / #156), at 1.3 as at 1.0 (A4) and on a
+/// thin wall as closed (A7 = H4). Not documented; the value is where each
+/// sphere's rings sit among the plain lobe's at a constant r
+/// (Calib-Furnace-MdlTransmit / -MdlLegacy): 0.72 / 0.60 / 0.21 at
+/// refr_gloss 0 / 0.2 / 0.4. Above 0.4 the lobe's loss can't tell r ≲ 0.13
+/// apart, so the 0.4 point's ratio to the formula (`ARCH_GLASS_ROUGH`)
+/// carries on (refr_gloss 0.6 → 0.08: Calib-NVIDIA3's look matched Octane
+/// at r 0.06 – 0.09).
+fn arch_glass_rough(refr_gloss: f32) -> f32 {
+    let g = refr_gloss.clamp(0.0, 1.0);
+    if g >= ARCH_GLASS_RT[2].0 {
+        return architectural_gloss_to_rough(g) * ARCH_GLASS_ROUGH;
+    }
+    crate::mdl_layer::interp(&ARCH_GLASS_RT.map(|(a, b)| (a as f64, b as f64)), g as f64) as f32
 }
 
-const ARCH_GLASS_ROUGH: f32 = 3.7;
+/// Iray's transmit roughness at refr_gloss 0 / 0.2 / 0.4 (A3 / A2 / A1).
+const ARCH_GLASS_RT: [(f32, f32); 3] = [(0.0, 0.72), (0.2, 0.60), (0.4, 0.21)];
+
+/// r_t / the formula at refr_gloss 0.4 (0.21 / 0.0508), held above it.
+const ARCH_GLASS_ROUGH: f32 = 4.13;
 
 /// The glass's refr_color × this (per channel) = Octane's transmission:
 /// a closed sphere of the material keeps in Octane what it keeps in Iray in
@@ -1208,8 +1225,8 @@ fn uber_glass_level(u: &crate::iray::Uber, rough: f32, own: bool, colour: [f32; 
 /// white) in the furnace, over the sphere's inner disk, by refr_gloss:
 /// Calib-Furnace-ArchGlass G5 – G1 (Iray Server 5000, #115). Measured, not
 /// derived: `libbsdf` at the formula's roughness keeps 0.87 – 1.00 (it
-/// loses only to v-cavities masking), at `arch_glass_rough`'s 0.56 / 0.85 /
-/// 0.995 / 1.00 / 1 — Iray loses more with NVIDIA's module, at every
+/// loses only to v-cavities masking), at `arch_glass_rough`'s (0.72 / 0.60
+/// / 0.21 / 0.08 / 0) 0.72 / 0.78 / 0.99 / 1.00 / 1 — Iray loses more with NVIDIA's module, at every
 /// surface event, while the same lobe through the Uber keeps `libbsdf`'s
 /// value (Calib-Furnace-UberGlass / -ArchGlass2, #116). With it the `libbsdf` layering
 /// predicts the coated spheres (refr_gloss 0.2 under reflectivity 0.6:
@@ -7671,11 +7688,12 @@ mod tests {
         };
         assert_eq!(pin(&x, "brdf"), GLASS_BRDF, "{x}");
         assert_eq!(pin(&x, "specular"), "0 0 0", "{x}");
-        // Iray's glass roughness (3.7 × the MDL's), Beckmann at √r (the pin
-        // it was fitted on); the transmission × what the furnace sphere
+        // Iray's glass roughness (0.60 at refr_gloss 0.2, #117), Beckmann
+        // at √r (the pin it was swept on); the transmission × what the furnace sphere
         // keeps (reflectivity 0.6 by default, Schlick's curve, a mirror
         // reflection at its 0.2 → IOR 2.62).
-        let rr = architectural_gloss_to_rough(0.2) * ARCH_GLASS_ROUGH;
+        let rr = arch_glass_rough(0.2);
+        assert!((rr - 0.60).abs() < 1e-6 && (arch_glass_rough(0.0) - 0.72).abs() < 1e-6 && (arch_glass_rough(0.4) - 0.21).abs() < 2e-3, "{rr}");
         assert_eq!(pin(&x, "roughness"), num(rr.sqrt()), "{x}");
         let k = arch_glass_albedo(rr, 0.2, 1.5, 0.6, 0.0, (1.0 + 0.2f32.sqrt()) / (1.0 - 0.2f32.sqrt()), Some((0.2, 1.0, 5.0)), false, [1.0; 3]);
         assert!((0.8..0.92).contains(&k[0]), "{k:?}");
@@ -10462,7 +10480,7 @@ mod tests {
                             check("isotropic", d.aniso.is_none());
                         }
                         if pass("transparency").as_f64().unwrap() > 0.0 {
-                            let refr = architectural_gloss_to_rough(pass("refr_gloss").as_f64().unwrap() as f32);
+                            let refr = pass("refr_gloss").as_f64().unwrap() as f32;
                             check("refraction", d.refraction.is_some_and(|(rr, ior)| near(rr, f64::from(arch_glass_rough(refr))) && near(ior, args["refr_ior"].as_f64().unwrap())));
                             // Enable Absorption: −ln(colour) / distance (m), the MDL's.
                             match args["refr_falloff_on"].as_bool() {

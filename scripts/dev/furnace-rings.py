@@ -22,7 +22,8 @@ renders against the `libbsdf` and Octane (Smith) sphere models.
       event; --loss is a per-base-event factor in `ci` (|n.k1|, the macro
       cosine the event is entered from), `co` (|n.k2|, the one it leaves
       to), `ce` (the camera ray's cosine at the entry point) and `inside`
-      (1 when the event is met from inside), e.g.
+      (1 when the event is met from inside) and `refr` (1 when the base
+      event passes through the surface, 0 when it reflects), e.g.
       "0.8 + 0.2 * ci" - a hypothesis to hold against Iray's rings;
       --tir-dies: a transmit-only lobe kills a totally reflected sample
       instead of reflecting it.
@@ -114,6 +115,9 @@ def vcav(nh, kh, nk):
     return np.minimum(2.0 * nh * nk / np.maximum(kh, 1e-12), 1.0)
 
 
+MASK = 'vcav'
+
+
 def lobe(model, rough, n, v, h, eta, mode, thin, rng, tir_dies=False):
     """Direction, weight (0 = dead), refracted?"""
     vh, nv, nh = dot(v, h), dot(n, v), dot(n, h)
@@ -140,6 +144,8 @@ def lobe(model, rough, n, v, h, eta, mode, thin, rng, tir_dies=False):
     if model == 'libbsdf':
         g1, g2 = vcav(nh, vh, nv), vcav(nh, np.abs(dot(l, h)), np.abs(nl))
         g = np.where(refr & (not thin), np.maximum(g1 + g2 - 1.0, 0.0), np.minimum(g1, g2))
+        if MASK == 'prod':
+            g = g1 * g2
     else:
         g = smith_g1(nv, rough) * smith_g1(nl, rough)
     w = np.where(ok, vh * g / np.maximum(nv * nh, 1e-12), 0.0)
@@ -195,7 +201,7 @@ def trace(a):
             wb = wb * base / np.maximum(1 - p_layer, 1e-12)
         ci, co = nk1, np.abs(dot(n, lb))
         ce = np.sqrt(np.maximum(1 - rr[idx] ** 2, 0))
-        wb = wb * a.tau * eval(a.loss, {'np': np}, {'ci': ci, 'co': co, 'ce': ce, 'inside': I.astype(float)})
+        wb = wb * a.tau * eval(a.loss, {'np': np}, {'ci': ci, 'co': co, 'ce': ce, 'inside': I.astype(float), 'refr': rb.astype(float)})
         l = np.where(pick_coat[:, None], lc, lb)
         w = np.where(pick_coat, wc, wb)
         refr = ~pick_coat & rb
@@ -243,8 +249,12 @@ def main():
     ap.add_argument('--tau', type=float, default=1.0)
     ap.add_argument('--tir-dies', action='store_true', help='a transmit lobe kills a totally reflected sample (hypothesis)')
     ap.add_argument('--loss', default='1.0')
+    ap.add_argument('--mask', default='vcav', choices=['vcav', 'prod'], help="v-cavities masking as libbsdf (vcav) or g1 * g2 at every event (prod, hypothesis)")
     ap.add_argument('--paths', type=int, default=1 << 18)
-    model(ap.parse_args(sys.argv[2:]))
+    a = ap.parse_args(sys.argv[2:])
+    global MASK
+    MASK = a.mask
+    model(a)
 
 
 if __name__ == '__main__':

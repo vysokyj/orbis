@@ -2563,8 +2563,9 @@ leaves out, #15):
     × (1 − t), `transmission` = refr_color × t × **k per channel**
     (`arch_glass_albedo`, `mdl_layer::tint_factor_measured`, as resin's)
     through a transmit-only lobe — `specular` 0 (Octane still refracts) —
-    at **r_t = 3.7 × architectural_gloss_to_rough(refr_gloss)**, at most 1
-    (`arch_glass_rough`), and `ior` = Index of Refraction (refr_ior), under
+    at **r_t = Iray's transmit roughness by refr_gloss: 0.72 / 0.60 /
+    0.21 at 0 / 0.2 / 0.4 (linear between), 4.13 × architectural_gloss_to
+    _rough(refr_gloss) above 0.4** (`arch_glass_rough`), and `ior` = Index of Refraction (refr_ior), under
     the rough-glass rule (Beckmann at √r); the reflection on the coating
     at √r of its own roughness and the reflection curve's IOR. k makes a
     closed sphere keep in Octane what it keeps in Iray in a white furnace:
@@ -2607,12 +2608,12 @@ leaves out, #15):
     the share `libbsdf` predicts), not a roughness (no `libbsdf` roughness
     draws the rings, rms 0.05). It is the module's `mdl 1.0` (#117):
     Iray's legacy `simple_glossy_bsdf` below MDL 1.3 is `libbsdf`'s lobe
-    times a per-event loss g(r, cos), the same with or without refraction
-    and at every IOR (Calib-Furnace-MdlTir / -MdlTransmit: thin walls
-    predict the closed spheres at IOR 1.2 / 1.5 / 2 to 1 – 3 %; not total
-    internal reflection — a thin wall loses too); architectural's lobe is
-    that legacy lobe at ~r_t, not at the formula's roughness (G3 = our 1.0
-    lobe at r 0.2). The legacy behaviour isn't documented, so the
+    times a per-event loss g(r, cos) up to r 0.2 (Calib-Furnace-MdlTir /
+    -MdlTransmit: thin walls predict the closed spheres at IOR 1.2 / 1.5 /
+    2 to 1 – 3 %; not total internal reflection — a thin wall loses too);
+    above r 0.3 the thin walls' g over-predicts the closed spheres' loss
+    (r 1: 0.24 v Iray 0.34, Calib-Furnace-MdlLegacy, open in #117);
+    architectural's lobe is that legacy lobe at r_t (A1 – A3 = G3 – G5). The legacy behaviour isn't documented, so the
     lobe alone stays measured; with it `libbsdf`'s layer weights
     predict the coated spheres — refr_gloss 0.2 under reflectivity 0.6
     Schlick 0.657 v Iray 0.655, Fresnel term 0.421 v 0.416 — while
@@ -2620,11 +2621,21 @@ leaves out, #15):
     0.886; Smith model 0.87). The former 1 − 0.36 r_t (`ARCH_GLASS_LOSS`,
     fitted on Calib-NVIDIA3's HDRI at two refr_gloss values) was the same
     level at 0.2 but 0.51 × Iray at refr_gloss 0 and missed the Fresnel
-    term's weights (1.75 ×). r_t (3.7 ×) is still the look's fit: refr_gloss
-    0.6 and 0.2 (MDL 0.020 / 0.134) matched Octane's Beckmann at r 0.06 –
-    0.09 and ~0.5; the reflection's curve would give 0.08 and 0.22, and at
-    0.2 Iray's interior is an even frosted grey that only r ~0.5 draws —
-    part of #116. Octane / Iray disk, floor 1.04 (furnace 1.02): Calib-
+    term's weights (1.75 ×). r_t is read, not fitted (#117,
+    Calib-Furnace-MdlArch, our own `mdl 1.0` / `1.3` modules): the plain
+    transmit lobe with `base::architectural_gloss_to_rough(refr_gloss)`
+    renders NVIDIA's G3 / G4 / G5 ring for ring (and the thin H4), the
+    module's layer structure around it adds nothing, and the same structure
+    with the SDK formula's value as a constant (0.134 at 0.2) keeps 0.960
+    where the call keeps 0.609 — Iray's compiled call returns more in a
+    transmit lobe than the SDK formula it returns in a reflection (#114 /
+    #156), at MDL 1.3 as at 1.0, thin as closed. Undocumented, so r_t is
+    where each sphere's rings sit among the plain lobe's at a constant r
+    (Calib-Furnace-MdlTransmit / -MdlLegacy); above 0.4 the lobe's loss
+    can't tell r ≲ 0.13 apart and the 0.4 point's ratio carries on (0.6 →
+    0.08, where Calib-NVIDIA3's look matched Octane at r 0.06 – 0.09). It
+    replaces the former 3.7 × the formula, at most 1 (the look's fit on
+    Calib-NVIDIA3: 1.0 / 0.50 / 0.19 at refr_gloss 0 / 0.2 / 0.4). Octane / Iray disk, floor 1.04 (furnace 1.02): Calib-
     ArchGlass refr_gloss 1 / 0.6 / 0.4 / 0.2 / 0 1.03 / 1.02 / 1.03 /
     1.07 / 1.08 (was 0.51 at 0), reflectivity 0.6 smooth 1.02, at 0.2
     1.06, with the Fresnel term 1.75 → 1.40 (furnace 1.45 → 1.17: the

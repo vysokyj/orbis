@@ -1,0 +1,36 @@
+// ORBIS calibration module (#117, third round), written for ORBIS
+// (GPL-3.0-or-later). The "mdl 1.0" transmit lobe at r 0.6 / 1: thin walls
+// (Calib-Furnace-MdlLegacy K6 / K7) lose more per event than the closed
+// spheres at IOR 1.5 (K2 - K4) let a per-event g apply, so g isn't wall-
+// and IOR-independent above r 0.3 - or the `libbsdf` thin wall it was read
+// against is off there. Closed at IOR 1.05 (two barely bent
+// events, no total reflection, as a thin wall's) at r 0.6 / 1, at 1.2 / 2
+// at r 0.6 and 2 at r 1 (g's IOR trend). White.
+mdl 1.0;
+
+import df::*;
+
+export material ior105_r06() = material(
+    ior: color(1.05),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.6, roughness_v: 0.6)));
+
+export material ior105_r1() = material(
+    ior: color(1.05),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 1.0, roughness_v: 1.0)));
+
+export material ior12_r06() = material(
+    ior: color(1.2),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.6, roughness_v: 0.6)));
+
+export material ior2_r06() = material(
+    ior: color(2.0),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 0.6, roughness_v: 0.6)));
+
+export material ior2_r1() = material(
+    ior: color(2.0),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_transmit, tint: color(1.0), roughness_u: 1.0, roughness_v: 1.0)));
