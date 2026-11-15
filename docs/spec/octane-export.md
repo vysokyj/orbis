@@ -2447,6 +2447,30 @@ leaves out, #15):
   paler, softer strands) is the per-map tiling Iray gets — the diffuse
   map at 0.6 tiles on u, the gloss weight at 1.2 (`image_modification`,
   exported since [#77](https://github.com/vysokyj/orbis/issues/77)) — and the glints.
+- **OOT Hairblending 2 Cap** (its scalp shader, a brick graph on Iray
+  Uber's PBR metallicity base, [#141](https://github.com/vysokyj/orbis/issues/141)):
+  the diffuse colour DAZ hands Iray is NVIDIA's
+  `blend_colors(color_1: Diffuse Color map × colour, color_2: Cap Base
+  Texture map × colour, mode: Cap Color Mix, weight: Cap Color Mix
+  Weight)` with `linear_blend` at its default (true) — DAZ's .mi of
+  Calib-OOT (local only: store content, so no fixture and nothing in
+  `src/iray.rs`): Cap Color Mix 4 = `color_layer_overlay` (the enum's
+  index), weight 1 left out at the default, both maps at gamma "auto".
+  The export bakes that per texel (`cap_bake`): both maps decoded at 2.2,
+  `base::color_layer_mode` as the MDL base module's table gives it (per
+  channel; overlay: 2·t·b where the bottom b < 0.5, else
+  2·(t + b − t·b − 0.5)), mixed with the bottom at the weight, written
+  sRGB at the larger map's size in the diffuse map's placement (the
+  graph has one tiler) and used as the albedo map with the colour taken
+  out of the tint. Cap Base Texture's colour goes through 8 bits (a
+  `color` channel). All 11 library scenes with the shader use overlay at
+  weight 1 with white colours; other modes, weights and colours follow the
+  MDL table unverified, a weight map isn't read, and the modes that aren't
+  per channel (brightness, color, hue, saturation, pinlight) leave the
+  diffuse map alone. Over Rose's cap the overlay takes the scalp to
+  ~0.45 / 0.38 / 0.33 of the diffuse map's mean (R / G / B) and adds the
+  cap map's strand detail; Calib-OOT's camera sees the cap only under the
+  hair, so no render compare was run.
 - **Howie Farkes's terrain shader** (Grassy Grove's HFGG Terrain, a brick
   graph): the albedo is its diffuse map × its AO map (both tiled with the
   material's Map Tiles) darkened toward `Damp Color` by `Damp Map` (Blend

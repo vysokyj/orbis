@@ -452,6 +452,49 @@ impl Textures {
         Some(asset)
     }
 
+    /// OOT's Cap diffuse per texel (`CapBlend`, #141): `color_layer` of the
+    /// cap map × its colour (top) over the diffuse map `d` × `base` (bottom;
+    /// the colour alone without a map), mixed with the bottom at the weight,
+    /// in linear; written sRGB-encoded (gamma 2.2) at the larger map's
+    /// size. The two maps share the graph's one tiler, so the result takes
+    /// the diffuse map's placement.
+    fn cap_bake(&mut self, dirs: &[PathBuf], d: Option<&str>, base: [f32; 3], cap: &CapBlend) -> Option<String> {
+        let key = format!("cap|{d:?}|{base:?}|{cap:?}");
+        if let Some(asset) = self.by_source.get(&key) {
+            return Some(asset.clone());
+        }
+        let top = self.open_colour_or_layered(dirs, &cap.texture)?;
+        let bottom = d.and_then(|a| self.open_colour_or_layered(dirs, a));
+        let (w, h) = match &bottom {
+            Some(b) if (b.width() as u64 * b.height() as u64) > (top.width() as u64 * top.height() as u64) => b.dimensions(),
+            _ => top.dimensions(),
+        };
+        let fit = |i: image::RgbImage| if i.dimensions() == (w, h) { i } else { image::imageops::resize(&i, w, h, image::imageops::FilterType::Triangle) };
+        let (top, bottom) = (fit(top), bottom.map(fit));
+        let (lin, enc) = (crate::bake::decode_lut(), crate::bake::Encoder::srgb());
+        let stride = w as usize * 3;
+        let out = crate::bake::par_rgb(w, h, |y, px| {
+            let at = y as usize * stride;
+            let rt = &top.as_raw()[at..at + stride];
+            let rb = bottom.as_ref().map(|i| &i.as_raw()[at..at + stride]);
+            for (i, o) in px.iter_mut().enumerate() {
+                let k = i % 3;
+                let b = base[k] * rb.map_or(1.0, |r| lin[r[i] as usize]);
+                let t = cap.colour[k] * lin[rt[i] as usize];
+                let f = color_layer(cap.mode, b, t).unwrap_or(b);
+                *o = enc.encode(b + (f - b) * cap.weight);
+            }
+        });
+        let mut png = Vec::new();
+        out.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).ok()?;
+        let stem = Path::new(d.unwrap_or(&cap.texture).trim_start_matches('/')).file_stem().and_then(|n| n.to_str()).unwrap_or("map");
+        let safe: String = stem.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect();
+        let asset = format!("assets/tex/{:04}_{safe}_cap.png", self.files.len() + self.generated.len());
+        self.generated.push((asset.clone(), png));
+        self.by_source.insert(key, asset.clone());
+        Some(asset)
+    }
+
     /// A packed image's channel `mono` picks (DAZ's `grayscale_mode`, #77)
     /// as a one-channel PNG of the same bytes (the same encoding, so the
     /// image node decodes it as it would the original); None when the
@@ -4032,7 +4075,10 @@ impl Ocs<'_> {
         // W2 = W1, W4 = W3 in Iray, #131).
         // (The refraction of a weighted mix's gloss part is a plain glass.)
         let weighted = if self.weighted_refraction.is_some() { None } else { weighted_gloss(mat) };
-        let tint = if mat.image("diffuse").is_some() { mat.base_color() } else { [1.0; 3] };
+        // OOT's Cap: the diffuse map × colour blended with the cap map,
+        // baked with the colour in it (`cap_bake`, #141).
+        let cap_asset = cap_blend(mat).and_then(|c| self.textures.cap_bake(self.dirs, mat.image("diffuse"), mat.base_color(), &c));
+        let tint = if cap_asset.is_some() { [1.0; 3] } else if mat.image("diffuse").is_some() { mat.base_color() } else { [1.0; 3] };
         // Iray's diffuse is Oren-Nayar at Diffuse Roughness σ (DAZ's MDL).
         // Universal's Oren-Nayar (`diffuseBrdf` 2) takes the one roughness
         // pin the gloss, metal and transmission use too: only where none
@@ -4146,7 +4192,7 @@ impl Ocs<'_> {
             // `attenuate_color`, Calib-Mi-AoA3): a Multiply of the map (its
             // value is in `base_color` / the power already) and the albedo.
             let strength_map = mat.image("Diffuse Strength").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)).filter(|_| overlay.is_none() && !self.has_damp_or_ao(mat));
-            let diffuse_asset = diffuse.and_then(|t| self.textures.asset(self.dirs, &t));
+            let diffuse_asset = cap_asset.or_else(|| diffuse.and_then(|t| self.textures.asset(self.dirs, &t)));
             let dm = mat.image_mod("diffuse");
             if let Some(map) = strength_map {
                 let id = self.id();
@@ -4977,6 +5023,73 @@ fn base_color_effect_shares(mode: i32, colour: [f32; 3], w: f32) -> (f32, f32) {
     }
     let m = color_effect_mono(mode, colour).min(1.0);
     (m / top, 1.0 - (1.0 - w) * m)
+}
+
+/// OOT Hairblending 2's "Cap" shader (a store brick graph on Iray Uber's
+/// PBR metallicity base, #141): its diffuse colour is NVIDIA's
+/// `blend_colors(color_1: the Diffuse Color map × colour, color_2: the
+/// Cap Base Texture map × colour, mode: Cap Color Mix, weight: Cap Color
+/// Mix Weight)`, linear (`linear_blend` at its default) — what DAZ's .mi
+/// of Calib-OOT (local: store content) hands Iray: mode 4 =
+/// `color_layer_overlay`, weight 1 left out at its default, both maps
+/// at gamma "auto". The colour is a `color` channel (8 bits, as PBRSkin's;
+/// unverified off white). A Cap Color Mix Weight map isn't read (no
+/// scene has one).
+#[derive(Debug, Clone, PartialEq)]
+struct CapBlend {
+    texture: String,
+    /// Linear.
+    colour: [f32; 3],
+    /// `base::color_layer_mode` by its index.
+    mode: i32,
+    weight: f32,
+}
+
+fn cap_blend(mat: &Material) -> Option<CapBlend> {
+    if !mat.brick || !mat.channels.contains_key("Cap Color Mix") {
+        return None;
+    }
+    let texture = mat.image("Cap Base Texture")?.to_string();
+    let raw = mat.channel("Cap Base Texture").and_then(|c| c.value.as_array().cloned()).unwrap_or_default();
+    let colour = [0, 1, 2].map(|i| crate::daz_material::colour_to_linear(crate::daz_material::colour_8bit(raw.get(i).and_then(serde_json::Value::as_f64).unwrap_or(1.0) as f32)));
+    let mode = mat.float("Cap Color Mix").unwrap_or(0.0) as i32;
+    let weight = mat.float("Cap Color Mix Weight").unwrap_or(1.0).clamp(0.0, 1.0);
+    color_layer(mode, 0.5, 0.5).map(|_| CapBlend { texture, colour, mode, weight })
+}
+
+/// NVIDIA's `base::color_layer_mode` on one channel (the MDL base module's
+/// table, in its order): the layer `top` combined with `bottom`; None for
+/// the modes that aren't per channel (brightness, color, hue, saturation)
+/// or that the table leaves undefined (pinlight). `blend_color_layers`
+/// then mixes the result with `bottom` at the layer's weight.
+fn color_layer(mode: i32, bottom: f32, top: f32) -> Option<f32> {
+    let (b, t) = (bottom, top);
+    Some(match mode {
+        0 => t,
+        1 => t + b,
+        2 => t * b,
+        3 => 1.0 - (1.0 - t) * (1.0 - b),
+        4 => if b < 0.5 { 2.0 * t * b } else { 2.0 * (t + b - t * b - 0.5) },
+        7 => b + t - 2.0 * b * t,
+        8 => (b + t) / 2.0,
+        9 => b.max(t),
+        10 => b.min(t),
+        11 => b + t - 1.0,
+        12 => 1.0 - (1.0 - (b + t)).abs(),
+        13 => (b - t).abs(),
+        14 => if t < 0.5 { 2.0 * (t * b + b * b * (0.5 - t)) } else { 2.0 * (b.max(0.0).sqrt() * (t - 0.5) + b - t * b) },
+        15 => b / (1.0 - t).max(1e-6),
+        16 => b * b / (1.0 - t).max(1e-6),
+        17 => 1.0 - (1.0 - b) / t.max(1e-6),
+        18 => b.min(t) - b.max(t) + 1.0,
+        19 => if t > 0.5 { t * b * 2.0 } else { 2.0 * (t + b - t * b - 0.5) },
+        21 => if t + b <= 1.0 { 0.0 } else { 1.0 },
+        22 => (t + b).clamp(0.0, 1.0),
+        23 => (b + t - 1.0).clamp(0.0, 1.0),
+        24 => 2.0 * t * b,
+        25 => t * b + b,
+        _ => return None,
+    })
 }
 
 /// Iray Uber's own Diffuse Overlay: a second diffuse at its weight over
@@ -9406,6 +9519,56 @@ mod tests {
         // A mostly refractive surface keeps its refraction instead.
         let g = card(0.8, 1);
         assert!((t(&g) - 0.8).abs() < 1e-3, "{}", t(&g));
+    }
+
+    /// OOT Hairblending's Cap graph (#141), synthetic: the albedo is the
+    /// diffuse map × colour overlaid (`color_layer_overlay`, linear) by the
+    /// cap map, baked at the larger map's size; without the graph's
+    /// channels, or on a plain Uber material, the diffuse map alone.
+    #[test]
+    fn an_oot_cap_overlays_its_cap_texture_on_the_diffuse() {
+        let dir = tempfile::tempdir().unwrap();
+        let t = dir.path().join("t");
+        std::fs::create_dir_all(&t).unwrap();
+        // Bottom: 2 × 1, a dark and a light texel; top: 4 × 2 mid grey.
+        image::RgbImage::from_fn(2, 1, |x, _| image::Rgb(if x == 0 { [100, 100, 100] } else { [230, 230, 230] })).save(t.join("d.png")).unwrap();
+        image::RgbImage::from_pixel(4, 2, image::Rgb([180, 120, 60])).save(t.join("c.png")).unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let export = |mode: i32, weight: f64, brick: bool| {
+            let mut extra = vec![json!({"type": "studio_material_channels", "channels": [
+                {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/t/d.png"}},
+                {"channel": {"id": "Cap Color Mix", "current_value": mode}},
+                {"channel": {"id": "Cap Base Texture", "current_value": [1, 1, 1], "image_file": "/t/c.png"}},
+                {"channel": {"id": "Cap Color Mix Weight", "current_value": weight}},
+            ]})];
+            if brick {
+                extra.push(json!({"type": "studio/material/daz_brick"}));
+            }
+            let m = Material::from_dson(&json!({"extra": extra}), &HashMap::new());
+            material_inputs(&[("Cap".into(), Rc::new(m), 1.0)], &dirs, HashMap::new(), 9500, SkinShader::None)
+        };
+        let lin = |c: u8| colour_to_linear(f32::from(c) / 255.0);
+        let (x, tex) = export(4, 1.0, true);
+        let (asset, png) = tex.generated.iter().find(|(a, _)| a.ends_with("_cap.png")).expect("a cap bake");
+        assert!(x.contains(asset.as_str()), "{x}");
+        let img = image::load_from_memory(png).unwrap().to_rgb8();
+        assert_eq!(img.dimensions(), (4, 2));
+        let got = |x: u32, k: usize| colour_to_linear(f32::from(img.get_pixel(x, 0)[k]) / 255.0);
+        for (px, b) in [(0, lin(100)), (3, lin(230))] {
+            for (k, c) in [180u8, 120, 60].into_iter().enumerate() {
+                let top = lin(c);
+                let want = if b < 0.5 { 2.0 * top * b } else { 2.0 * (top + b - top * b - 0.5) };
+                assert!((got(px, k) - want).abs() < 0.01, "texel {px} channel {k}: {} v {want}", got(px, k));
+            }
+        }
+        // Multiply at half weight: lerp(bottom, bottom × top, 0.5).
+        let (_, tex) = export(2, 0.5, true);
+        let img = image::load_from_memory(&tex.generated.iter().find(|(a, _)| a.ends_with("_cap.png")).unwrap().1).unwrap().to_rgb8();
+        let want = lin(100) * (1.0 + lin(180)) / 2.0;
+        assert!((colour_to_linear(f32::from(img.get_pixel(0, 0)[0]) / 255.0) - want).abs() < 0.01);
+        // Not the graph: no bake.
+        let (x, tex) = export(4, 1.0, false);
+        assert!(tex.generated.iter().all(|(a, _)| !a.ends_with("_cap.png")) && x.contains("d.png"), "{x}");
     }
 
     #[test]
