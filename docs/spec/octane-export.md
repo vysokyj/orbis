@@ -1862,8 +1862,18 @@ leaves out, #15):
   Those are thin-walled shells; as closed solids (Calib-MetalRefr-Solid,
   projected discs, #146) the Mix renders X1 – X4 1.05 / 1.03 / 1.05 /
   1.03 × Iray beside the metals 1.11 / 1.13 and the refractions 1.05 /
-  1.03, where the shells now measure 1.20 / 1.22 / 1.17 / 0.82 (#134;
-  the shells' excess #164, X4's blur #136).
+  1.03, where the shells measure 1.19 / 1.22 / 1.17 / 0.81 (#134). The
+  shells' excess is the view through them, not the Mix (#164): their
+  front reflections alone (the refraction part's transmission 0) and the
+  shell's inside (its metal black on back faces: −0.01 to −0.03) leave
+  it whole, the refraction parts as a Mix render R1 / R2 as the single
+  node does (0.96 / 1.09 against 1.01 / 1.09), and the transmitted part
+  (render − front reflections) is 1.20 – 1.24 × Iray's on the shells,
+  1.00 on the solids. It is the sharp thin wall below (#136): X1 – X3
+  sit before the floor's back edge, a bright patch that Iray's blur
+  spreads into the dark backdrop; the transmitted part scaled by the
+  background's own loss under a Gaussian blur (σ 24 px, Octane's render
+  with the spheres clear) brings X1 – X4 to 1.08 / 1.06 / 1.07 / 1.09.
 
   Why: Calib-Map-Metal's red spheres at 0.25 / 0.5 / 0.75 went from 1.23
   / 1.38 / 1.39 to 1.12 / 1.16 / 1.22 × Iray (the full metal 1.19), the
@@ -2215,8 +2225,11 @@ leaves out, #15):
   sees the floor (0.78 / 0.55), and Octane's straight-through background
   Gaussian-blurred (σ 16 px, a check, not a rule) brings -g0's X4 to
   0.94 × Iray (pixel rms 17 → 5.5 ‰); R2's edge wants σ 24 – 32 px (its
-  floor edge is farther behind: the blur is angular). Over an even
-  background (R2, X2) the blur moves the mean by ≤ 4 %.
+  floor edge is farther behind: the blur is angular). Before the floor's
+  back edge the blur moves the mean a lot: the background behind X1 – X3
+  loses 15 % within 0.6 R at σ 24, R1's (a bright surround) gains 14 %,
+  so a thin shell before an edge reads 0.8 – 1.25 × Iray where its
+  closed twin fits (#164).
   **Dispersion** (`dispersion_enable`: refraction and Abbe > 0, the .mi
   export) → `dispersion_coefficient_B` = Iray's Abbe number as is, in
   Universal's default dispersion mode 1 (Abbe number), not on thin walls.
