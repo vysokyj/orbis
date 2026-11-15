@@ -9,8 +9,8 @@ description: Prepare and run Iray Server renders through the ORBIS render queue 
 
 ## Agreement (2026-11-02)
 1. **Prepare the whole batch first.** Before asking, have everything ready: generated scenes (`make-*.py`, `daz-build-*.dsa`; DAZ built-ins/primitives or free DAZ add-ons only for calib/scenes), checked that they open and that their dumps/references exist. Add what will probably be needed next, not only what is needed now. Write the ordered list (scene, samples, why) and an ETA from `python3 scripts/dev/status.py` (avg s/scene).
-2. **One call:** "Batch ready: N scenes, ~X min. Start the Iray Server." Nothing is queued before that.
-3. **After the user says the server runs**, queue the announced batch in one go: `scripts/dev/iray-queue.sh [-s samples] [-o out dir] <scene.duf>...` (default 400; references use 5000). Their go-ahead covers exactly that announced batch; anything beyond it is a new question.
+2. **Queue it first, then one call** (the user's rule, 2026-11-15): `scripts/dev/iray-queue.sh -n [-s samples] [-o out dir] <scene.duf>...` (default 400; references use 5000), one call per sample count, in the batch's order. DAZ, the server and the queue script need not run: the scenes wait in the queue folder. Then: "Batch queued: N scenes, ~X min. Start DAZ, the Iray Server and the queue script." A scene dropped into a running, idle queue froze DAZ until a restart (#170) - never queue into an idle running queue and then ask the user to wait; queue before they start, or while the queue is still rendering.
+3. A scene that needs a queue-side DAZ restart before it (#94, below) is **held back**: say so in the call, and queue it when the user says they restart (before the new queue script starts). `iray-queue.sh --collect` moves the finished renders to their out dir (`-n` doesn't wait for them).
 4. **While it runs, work on Octane** (Octane may render beside the Iray Server queue; never beside a local CPU Iray render) and on anything else; check `progress` instead of polling.
 5. Never reorder (no backdated mtimes). The next batch goes after the running one, or ask. `--stop` only on request.
 6. Finished renders -> `iray-refs` skill.
@@ -26,5 +26,5 @@ DAZ renders through the viewport's camera. A scene saved through the Perspective
 
 ## Stalls
 - `progress` shows `STALLED` or the DAZ log (`~/Library/Application Support/DAZ 3D/Studio6/log.txt`) shows "Server refused connection: session handler rejected the session" = the server reset its password. **Tell the user**; they fix it and restart the queue script in DAZ (it retries every 30 s). We never start the queue-side DAZ.
-- `iray-queue.sh` refuses (exit 1, nothing queued) when no queue script was started, when DAZ Studio is not running, or when the DAZ log shows the rejected session - the moment to tell the user, not to retry.
+- `iray-queue.sh` queues even when DAZ Studio or the queue script isn't running (the scenes wait), and notes a rejected session in the DAZ log - tell the user. It refuses only scenes without a camera and a stale menu path.
 Principles: `docs/calibration.md`.

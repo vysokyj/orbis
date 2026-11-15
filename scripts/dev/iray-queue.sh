@@ -1,13 +1,17 @@
 #!/bin/sh
-# Render scenes through the render queue of a running DAZ Studio
-# (daz-render-queue.dsa, there connected to an Iray Server), capped by samples:
-#   scripts/dev/iray-queue.sh [-s samples] [-o out dir] <scene.duf>...
+# Render scenes through the render queue of DAZ Studio (daz-render-queue.dsa,
+# there connected to an Iray Server), capped by samples:
+#   scripts/dev/iray-queue.sh [-n] [-s samples] [-o out dir] <scene.duf>...
+#   scripts/dev/iray-queue.sh --collect
 #   scripts/dev/iray-queue.sh --stop
 # Each scene goes into ~/Library/Caches/orbis/calib/queue as a copy with Max
 # Samples set and no time or quality stop (Boost for Daz: Max Time 0, or
 # the streamed render is cut off); its render lands in <out dir>/<scene>.png
 # (default ~/Library/Caches/orbis/calib/iray, beside the CPU references).
-case ${1:-} in -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
+# Queue a batch BEFORE the user starts the queue script: a scene dropped into
+# a running, idle queue froze DAZ until a restart. Without DAZ or a started
+# queue the scenes wait; -n returns at once, --collect moves finished renders.
+case ${1:-} in -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 set -eu
 queue="$HOME/Library/Caches/orbis/calib/queue"
 out="$HOME/Library/Caches/orbis/calib/iray"
@@ -18,8 +22,32 @@ if [ "${1:-}" = --stop ]; then
     echo "asked the queue to stop"
     exit 0
 fi
+# Each queued scene keeps its out dir in <queue>/<scene>.out (the queue
+# script only reads *.duf).
+collect() {
+    for job in "$queue"/done/*.duf; do
+        [ -f "$job" ] || continue
+        name=$(basename "$job" .duf)
+        [ -f "$queue/$name.out" ] || continue
+        dir=$(cat "$queue/$name.out")
+        if [ -f "$queue/$name.png" ]; then
+            mkdir -p "$dir"
+            mv "$queue/$name.png" "$dir/$name.png"
+            echo "$name: $dir/$name.png"
+        else
+            echo "$name: FAILED (see $queue/queue.log)"
+        fi
+        rm -f "$queue/$name.out"
+    done
+}
+if [ "${1:-}" = --collect ]; then
+    collect
+    exit 0
+fi
+wait=1
 while [ $# -gt 0 ]; do
     case $1 in
+        -n) wait=0; shift ;;
         -s) samples=$2; shift 2 ;;
         -o) out=$2; shift 2 ;;
         *) break ;;
@@ -34,20 +62,20 @@ if [ -n "$menu" ] && [ "$menu" != "$own" ]; then
     echo "DAZ's ORBIS Iray Queue menu runs $menu, not $own: quit DAZ Studio, then run daz-add-queue-menu.dsa with that path" >&2
     exit 1
 fi
-if ! grep -q started "$queue/queue.log" 2>/dev/null; then
-    echo "no queue running: open daz-render-queue.dsa in the connected DAZ Studio" >&2
-    exit 1
-fi
-# A "started" line outlives the DAZ that wrote it: the queue only runs while
-# the connected DAZ Studio does. Tell the user instead of filling a dead queue.
+# The batch goes in before the user starts the queue: a scene dropped into a
+# running, idle queue froze DAZ until a restart (#170). So no running DAZ or
+# queue is fine here - the scenes wait for the queue script's start.
 # The headless helper instance (orbis-render) is not the connected DAZ.
-if ! pgrep -fl "DAZStudio" | grep -qv "instanceName orbis-render"; then
-    echo "the queue script was started, but DAZ Studio is not running: ask the user to start DAZ and the Iray Server queue" >&2
-    exit 1
-fi
-if tail -n 300 "$HOME/Library/Application Support/DAZ 3D/Studio6/log.txt" 2>/dev/null | grep -q "session handler rejected the session"; then
-    echo "the Iray Server rejects the session (it reset its password): tell the user, they fix it and restart the queue script" >&2
-    exit 1
+if pgrep -fl "DAZStudio" | grep -qv "instanceName orbis-render"; then
+    busy=$(ls "$queue"/*.duf "$queue"/active/*.duf 2>/dev/null | head -1)
+    if [ -z "$busy" ] && grep -q started "$queue/queue.log" 2>/dev/null; then
+        echo "note: DAZ runs and its queue may be idle - a scene dropped into an idle queue froze DAZ (#170); if nothing starts, the user restarts the queue script" >&2
+    fi
+    if tail -n 300 "$HOME/Library/Application Support/DAZ 3D/Studio6/log.txt" 2>/dev/null | grep -q "session handler rejected the session"; then
+        echo "note: the Iray Server rejected the session (it reset its password): tell the user, they fix it and restart the queue script" >&2
+    fi
+else
+    echo "queued for later: DAZ Studio is not running; the scenes render once the user starts DAZ, the Iray Server and the queue script" >&2
 fi
 # A scene without current_camera renders DAZ's Perspective View, not the
 # camera orbis exports (#97): refuse the whole batch, nothing queued.
@@ -76,19 +104,16 @@ for e in d['scene'].get('extra', []):
         cap(e)
 open(dst, 'wb').write(gzip.compress(json.dumps(d).encode()))
 EOF
+    echo "$out" > "$queue/$name.out"
     # Whole, then visible to the queue.
     mv "$queue/$name.duf.part" "$queue/$name.duf"
     sleep 1   # distinct modification times: the queue takes the oldest first
 done
+echo "queued $# scene(s) at $samples samples"
+[ "$wait" = 1 ] || exit 0
 # All queued; collect the renders as they come.
 for scene in "$@"; do
     name=$(basename "$scene" .duf)
-    start=$(date +%s)
     until [ -f "$queue/done/$name.duf" ]; do sleep 2; done
-    if [ -f "$queue/$name.png" ]; then
-        mv "$queue/$name.png" "$out/$name.png"
-        echo "$name: $(( $(date +%s) - start )) s"
-    else
-        echo "$name: FAILED (see $queue/queue.log)"
-    fi
 done
+collect

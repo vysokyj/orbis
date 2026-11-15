@@ -97,13 +97,17 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   hold). Each issue is worked by the `issue-worker` agent (Opus), one at
   a time. An issue that needs Iray is not a call to the user: prepare its
   scenes, write the batch into the issue (`## Iray batch`), label it
-  `needs-iray` and take the next issue. The user's "server runs" queues
-  every parked batch at once.
+  `needs-iray` and take the next issue. The orchestrating session queues
+  each parked batch right away (`iray-queue.sh -n`).
 - **Iray only on the Iray Server, in big batches** (skill `iray-queue`):
-  prepare the whole batch first, then one call to the user to start the
-  server; queue the announced batch after their "server runs", never reorder,
-  never add unannounced scenes. Octane may render alongside it. Stalled queue
-  / "session handler rejected the session" = tell the user.
+  prepare the whole batch, **queue it before the user starts anything**
+  (the user's rule, 2026-11-15: a scene dropped into a running, idle queue
+  froze DAZ until a restart, #170), then tell the user it waits; they start
+  DAZ, the server and the queue script whenever they like. Never reorder;
+  scenes that need a queue-side DAZ restart before them (#94) are held back
+  and queued once the user says the restart is coming. Octane may render
+  alongside it. Stalled queue / "session handler rejected the session" =
+  tell the user.
 - **A failed Octane render/probe: leave Octane X open** so the user can read
   its error dialog (#50). Big scenes (the teens scene, 1.2 M faces) in a
   series of full renders froze the Mac — experiment on small Calib-* scenes

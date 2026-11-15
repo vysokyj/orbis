@@ -166,9 +166,13 @@ where a script maps that folder as an MDL directory (`daz-export-mi.dsa`,
    Iray Queue (`scripts/dev/daz-render-queue.dsa`; it replaces the open
    scene). The menu item is added once by `daz-add-queue-menu.dsa` (run
    in a DAZ Studio instance with the queue script's path as argument).
-   `scripts/dev/iray-queue.sh [-s samples] [-o out dir] <scene.duf>…`
+   `scripts/dev/iray-queue.sh [-n] [-s samples] [-o out dir] <scene.duf>…`
    queues capped copies (Max Time 0, as Boost asks) and collects the
-   renders into the Iray references; `iray-queue.sh --stop` ends the queue.
+   renders into the Iray references (`-n` returns at once, `--collect`
+   moves what finished since); `iray-queue.sh --stop` ends the queue.
+   Queue a batch **before** the queue script starts: a scene dropped into
+   a running, idle queue froze DAZ until a restart (#170). The scenes wait
+   in the queue folder until the script starts.
    DAZ renders through the viewport's camera: a scene saved without
    `current_camera` renders DAZ's Perspective View, not the camera `orbis`
    exports (#97). `iray-queue.sh` and `keep-refs.py` refuse such scenes,

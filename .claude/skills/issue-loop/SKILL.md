@@ -10,7 +10,7 @@ The user's rule (2026-11-11): don't call them for an Iray run per task. Work goe
 **Standing permission inside this loop** (2026-11-11): headless DAZ (`daz-script.sh`, `daz-dump.sh`, `daz-build-*.dsa`, `make-*`) and Octane X renders / probes (`octane-render.sh`, `octane-run.sh`, `calib-variants.sh`) start **without a question**. Still:
 - `python3 scripts/dev/status.py` before the first render of an iteration; the scripts take turns through the render lock, call them and let them wait.
 - The user said they work in an app -> hands off that app until they say otherwise.
-- **Never** local CPU Iray (`daz-render.sh`), never queue the Iray Server on our own, never start the queue-side DAZ.
+- **Never** local CPU Iray (`daz-render.sh`), never start the queue-side DAZ. Parked batches are queued up front by the orchestrating session (below); a worker never queues.
 - Octane failed -> leave Octane X open (#50), don't retry; park the issue (below, `question`) and go on with issues that need no Octane. Small `Calib-*` scenes or half resolution only.
 
 ## One iteration
@@ -61,13 +61,13 @@ The worker's job. Do everything that doesn't need the server first, so the resum
 
    Paths relative to the repo; a private scene by its name only (never its content). A newer `## Iray batch` comment replaces an older one.
 
-## The user says the server runs ("server bezi", "pust Iray davku")
-The orchestrating session's job, never a worker's. The comments are the announcement: their go-ahead covers **every batch parked under `needs-iray` at that moment**, nothing else.
+## Queue parked batches up front (the user's rule, 2026-11-15)
+The orchestrating session's job, never a worker's. Waiting for "server runs" and queueing afterwards made the user start an empty queue, and a scene dropped into a running, idle queue froze DAZ until a restart (#170). So the batch is in the queue **before** the user starts anything; they start DAZ, the Iray Server and the queue script whenever they like.
 
-1. `gh issue list --label needs-iray --json number,title`; read each issue's last `## Iray batch` comment.
-2. Merge into one ordered list (issue order, references before variants; identical scene + samples once). Check NVIDIA preset repeats across the whole batch and against what the running queue DAZ already rendered: a repeat needs a queue-side DAZ restart - say where to split **before** queueing.
-3. Show the list (scene, samples, issue) and the ETA, then queue it in one go per sample count: `scripts/dev/iray-queue.sh -s <samples> <scene.duf>...`. A refusal (no queue script, DAZ not running, rejected session) = tell the user, don't retry.
-4. Meanwhile keep looping on issues that don't wait (Octane may render beside the server queue); `progress` instead of polling.
+1. After a worker parks an issue (step 4 checked), queue its batch at once: `scripts/dev/iray-queue.sh -n -s <samples> <scene.duf>...` per sample count, in the batch's order (a private scene by its My Library path). DAZ / the queue script need not run.
+2. Before queueing, check NVIDIA preset / module repeats (`pbr_skin`, `dual_lobe_hair`, NVIDIA presets: one import per DAZ session, #94) against what is already queued and what the running queue DAZ rendered. A repeat is **held back**: list it in `issue-status`'s note and tell the user it needs a queue-side DAZ restart; queue it only after they say DAZ is down (a running queue grabs a new scene at once, in the old session).
+3. Don't queue into a running queue that is idle; if one is running and idle, queue anyway only when the user is about to restart it.
+4. Meanwhile keep looping (Octane may render beside the server queue); `progress` instead of polling. `iray-queue.sh --collect` moves finished renders to their out dir.
 5. Renders done -> `iray-refs` (`keep-refs.py`, commit as they come). Per issue: comment `Iray references in: <commit>` and `gh issue edit N --remove-label needs-iray`. The next iteration resumes it.
 
-Asked "what waits for Iray?" at any time: the `issue-status` table, and steps 1-2 for the scene list; nothing queued.
+Asked "what waits for Iray?" at any time: the `issue-status` table, the queue folder (`ls ~/Library/Caches/orbis/calib/queue/*.duf`) and the held-back scenes.
