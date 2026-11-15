@@ -1109,7 +1109,15 @@ leaves out, #15):
   `specular` at W × its part; lobe 2 the `coating` at the rest, `coatingRoughness` the **Phong pin of r2²**
   (both lobes are `simple_glossy_bsdf`; 2 · r2² until #95, a fit that made
   up for the GGX curve's sharpness — Calib-DualLobe2's lobe-2-only sphere
-  then 0.42 × Iray's detail at the Phong pin). Under a
+  then 0.42 × Iray's detail at the Phong pin). The coating takes the
+  base's normal (`coatingNormal` / `coatingBump` as `normal` / `bump`,
+  PBRSkin's detail included): Iray lays both lobes on it — Uber's
+  `add_dual_lobe_specular` is one `weighted_layer` on `combined_bump`,
+  PBRSkin's lobe 2 sits over lobe 1 at the default normal inside the
+  `custom_curve_layer` on `pbr_detail_normal` — while Universal's coating
+  without its own pins keeps the plain shading normal (manual); until
+  #140 lobe 2 stayed smooth, one sharp glint over the dimples where Iray
+  has none (Calib-PBRSkin-Detail). Under a
   Top Coat (which takes the coating) one lobe at the full W and the
   ratio's blend of both roughnesses. The same on OpenPBR skin. Until #81
   Universal took the reflectivity as a share of the specular (W · min(2r,
@@ -1192,9 +1200,14 @@ leaves out, #15):
   input: O8's shading normal (Info kernel, `octane-probe-bumptilt.lua`)
   through the OSL is the same map baked 4 × 4 by hand to 0.18° RMS
   (8.61° vs 8.62° tilt). Against Iray (Calib-PBRSkin-Occlusion O8):
-  tiling and phase as Iray's, level within 4 % of the plain sphere's, the
-  dimples ~25 % stronger in Octane although the formula is NVIDIA's
-  `base.mdl` to the letter (open: #140's Calib-PBRSkin-Detail). Mode 0
+  tiling and phase as Iray's, level within 4 % of the plain sphere's.
+  The dual lobe's lobe 2 (Universal's coating) takes the same normal (see
+  Dual lobe specular): smooth until #140, it added the plain sphere's
+  sun glint over the dimples; with it Calib-PBRSkin-Detail's dimples
+  correlate 0.95 - 0.98 with Iray's at every tiling and weight (0.65 -
+  0.95 before; O8 0.87 → 0.98). Their contrast still reads 1.14 - 1.6 × Iray's although
+  the formula is NVIDIA's `base.mdl` to the letter (open: #140,
+  Calib-PBRSkin-DetailLayers splits it by layer). Mode 0
   (the map as a height map) and a map on the weight aren't exported (the
   weight counts by its value).
 - **PBRSkin Makeup** (#142, from `pbr_skin.mdl`'s `pbr_material`, no

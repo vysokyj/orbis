@@ -3393,6 +3393,9 @@ impl Ocs<'_> {
                     self.float_pin(i, "coatingRoughness", phong_pin(dl.lobe2_roughness));
                     self.dual_lobe_ior_pin(i, "coatingIor", mat, dl.f0);
                     self.float_pin(i, "coatingDarkening", 0.0);
+                    // Both lobes on the base's normal, as in Iray (see
+                    // `universal`'s lobe 2, #140).
+                    self.base_detail_pins(i, mat, "coatingNormal", "coatingBump");
                     return;
                 }
             }
@@ -4399,6 +4402,15 @@ impl Ocs<'_> {
                 let r2 = self.gloss_roughness(dl.lobe2_roughness);
                 self.float_pin(i, "coatingRoughness", r2);
                 self.dual_lobe_ior_pin(i, "coatingIor", mat, dl.f0);
+                // Iray lays both lobes on the base's normal: Uber's
+                // `add_dual_lobe_specular` one `weighted_layer` on
+                // `combined_bump`, PBRSkin's lobe 2 over lobe 1 at the
+                // default normal inside the `custom_curve_layer` on
+                // `pbr_detail_normal`. Universal's coating takes only its
+                // own pins (else the plain shading normal, manual): lobe 2
+                // stayed smooth, a sharp glint over the dimples Iray
+                // doesn't have (#140, Calib-PBRSkin-Detail).
+                self.base_detail_pins(i, mat, "coatingNormal", "coatingBump");
             }
             // The reflectivity as the IOR of its F0 on both lobes, its map
             // per texel (Universal's `ior` and `coatingIor` take a texture,
@@ -7376,6 +7388,51 @@ mod tests {
         let x = coated(0.0, true);
         let c = &x[x.find("<pin name='coatingNormal'>").expect(&x)..];
         assert!(!x.contains("OrbisDetailNormal") && c[..400.min(c.len())].contains("n.png"), "{x}");
+    }
+
+    /// A dual lobe's lobe 2 on Universal's coating takes the base's normal
+    /// (#140): Iray lays both lobes on it (Uber's `combined_bump`,
+    /// PBRSkin's `pbr_detail_normal`); without `coatingNormal` the coating
+    /// stays smooth.
+    #[test]
+    fn dual_lobe_coating_takes_the_base_normal() {
+        let dir = tempfile::tempdir().unwrap();
+        image::RgbImage::from_pixel(8, 8, image::Rgb([128, 128, 255])).save(dir.path().join("n.png")).unwrap();
+        image::RgbImage::from_pixel(8, 8, image::Rgb([160, 128, 250])).save(dir.path().join("d.png")).unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let lobes = [
+            json!({"channel": {"id": "Dual Lobe Specular Weight", "current_value": 1.0}}),
+            json!({"channel": {"id": "Dual Lobe Specular Ratio", "current_value": 0.15}}),
+            json!({"channel": {"id": "Bump Enable", "current_value": true}}),
+            json!({"channel": {"id": "Normal Map", "current_value": 1, "image_file": "/n.png"}}),
+        ];
+        // Uber's lobe 2 by its own roughness, PBRSkin's by a multiplier.
+        let uber = [json!({"channel": {"id": "Specular Lobe 2 Roughness", "current_value": 0.1}})];
+        let detail = [
+            json!({"channel": {"id": "Dual Lobe Specular Enable", "current_value": true}}),
+            json!({"channel": {"id": "Specular Lobe 2 Roughness Mult", "current_value": 0.4}}),
+            json!({"channel": {"id": "Detail Enable", "current_value": true}}),
+            json!({"channel": {"id": "Detail Weight", "current_value": 0.5}}),
+            json!({"channel": {"id": "Detail Normal Map", "current_value": 1, "image_file": "/d.png"}}),
+            json!({"channel": {"id": "Detail Normal Map Mode", "current_value": 1}}),
+        ];
+        for pbr in [true, false] {
+            let ch: Vec<_> = lobes.iter().chain(if pbr { &detail[..] } else { &uber[..] }).cloned().collect();
+            let mut m = Material::from_dson(&json!({"extra": [{"channels": ch}]}), &HashMap::new());
+            for c in ["Detail Normal Map", "Normal Map"] {
+                if let Some(c) = m.channels.get_mut(c) {
+                    c.gamma = Some(1.0);
+                }
+            }
+            assert_eq!(crate::iray::is_pbrskin(&m), pbr);
+            let x = material_inputs(&[("Skin".into(), Rc::new(m), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None).0;
+            assert!(x.contains("<pin name='coatingRoughness'>"), "lobe 2 on the coating: {x}");
+            let c = &x[x.find("<pin name='coatingNormal'>").expect(&x)..];
+            let c = &c[..c.find("</pin>\n").map_or(c.len(), |k| k)];
+            assert!(c.contains("n.png"), "{pbr}: {x}");
+            assert_eq!(c.contains("OrbisDetailNormal"), pbr, "{x}");
+            assert_eq!(x.matches("OrbisDetailNormal").count(), if pbr { 2 } else { 0 }, "base and lobe 2: {x}");
+        }
     }
 
     fn mat(chs: serde_json::Value) -> Rc<Material> {

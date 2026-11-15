@@ -13,7 +13,9 @@ a plane under an HDRI) that each change one thing, written beside it.
   map), one change per sphere (#54).
 - Calib-PBRSkin-Detail, -Detail-NoDN: the Detail Normal Map decomposed -
   no map, tiles 1 / 2 / 4 / 8, weight 1, the normal alone; -NoDN with
-  Iray's Post Denoiser off (#140).
+  Iray's Post Denoiser off (#140). Calib-PBRSkin-DetailLayers: the map
+  at 1 x 1, weight 1 under each layer alone (diffuse, lobe 1, lobe 2, a
+  Top Coat), each beside its no-map twin (#140).
 - Calib-PBRSkin-Makeup, -Makeup-TL: PBRSkin's Makeup layer (weight, a
   weight map, roughness mult, the metal's tint; over translucency, a top
   coat and the subsurface skin path), one change per sphere (#142).
@@ -2495,6 +2497,34 @@ for name, denoise in (('Calib-PBRSkin-Detail', True), ('Calib-PBRSkin-Detail-NoD
         if not denoise:
             render_option(d, 'Post Denoiser Enable', False)
         open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+
+# --- PBRSkin Detail Normal Map by layer (#140, round 3): with lobe 2 on the
+# detail normal too the dimples correlate 0.97 - 0.98 with Iray's, but
+# read 1.14 - 1.6 x stronger. Each layer alone, the map at 1 x 1 and
+# weight 1 (no footprint, no blend), mult 1 (the lobe's roughness as
+# without the map), each beside its no-map twin: the diffuse alone (the
+# tilt itself, no lobe), lobe 1 alone (ratio 0), lobe 2 alone (ratio 1),
+# and the dual lobe under a Top Coat (weight 1, roughness 0.05: does the
+# coat carry the dimples, #166).
+DL1 = {**DT, 'Detail Normal Map': 1.0, ('Detail Normal Map', 'image'): BUMPS['dimples-n'],
+       'Detail Weight': 1.0, 'Detail Specular Roughness Mult': 1.0, 'Detail Horizontal Tiles': 1.0, 'Detail Vertical Tiles': 1.0}
+LTC = {'Top Coat Enable': True, 'Top Coat Weight': 1.0, 'Top Coat Roughness': 0.05}
+pbr_spheres('Calib-PBRSkin-DetailLayers', [
+    ('E1 diffuse no map', RED, {}),
+    ('E2 diffuse normal', RED, DL1),
+    ('E3 lobe 1 no map', RED, {**OCC, 'Dual Lobe Specular Ratio': 0.0}),
+    ('E4 lobe 1 normal', RED, {**OCC, 'Dual Lobe Specular Ratio': 0.0, **DL1}),
+    ('E5 lobe 2 no map', RED, {**OCC, 'Dual Lobe Specular Ratio': 1.0}),
+    ('E6 lobe 2 normal', RED, {**OCC, 'Dual Lobe Specular Ratio': 1.0, **DL1}),
+    ('E7 top coat no map', RED, {**OCC, **LTC}),
+    ('E8 top coat normal', RED, {**OCC, **LTC, **DL1}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for i in d['image_library']:
+        if i['id'] in BUMPS.values():
+            i['map_gamma'] = 1
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
 
 # --- PBRSkin Makeup (#142): `pbr_material` lays a diffuse at Makeup Weight
 # in Makeup Base Color over the diffuse and its translucency (under the
