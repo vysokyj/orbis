@@ -41,6 +41,8 @@ a plane under an HDRI) that each change one thing, written beside it.
   here. Calib-NVIDIA-BumpG1: Calib-NVIDIA's bump maps at `map_gamma` 1.
   Calib-NVIDIA-CastFlat / -NoComp (#92); Calib-NVIDIA-Brushed (#98): Metal
   Brushed on all eight spheres, its maps flat or its bump off one at a time.
+- Calib-Metal-Rough (#172): rough Uber metals (dark, light grey, gold, r
+  0.354 - 1) under the HDRI.
 - Calib-Furnace-Metal / -Brushed (#98), -MetalBump / -CoatTint (#111): white
   Uber metals, Metal Brushed, flat-bumped metals, tinted Weighted coats
   under a uniform dome, the floor hidden - each lobe's directional albedo.
@@ -2085,6 +2087,15 @@ if os.path.exists(nvb):
     d['image_library'] = [i for i in d['image_library'] if 'RuinsB' not in i['map'][0]['url']] + [
         {'id': 'calib-furnace.hdr', 'name': 'calib-furnace.hdr', 'map_gamma': 1, 'map_type': 'LatLong', 'map': [{'url': FURNACE, 'label': 'calib-furnace.hdr'}]}]
     made.append((save(d, 'Calib-Furnace-Brushed'), None))
+# Calib-Metal-Rough (#172): Uber metals (Metallic Weight 1) at MDL roughness
+# 0.354 - 1 under the HDRI - a dark grey (0.1, Calib-Point-UberGloss's
+# metal), a light grey (0.8) and a gold (directional tint) - where the
+# export switches a rough metal from Beckmann to STD: the point light and
+# the furnace measured it, this is the light in between.
+uber_spheres('Calib-Metal-Rough', [0.1, 0.1, 0.1], {'Metallic Weight': 1.0}, [
+    (f'R{k + 1} {name} r {r}', {'Glossy Roughness': round(r ** 0.5, 4), '_base': c})
+    for k, (name, c, r) in enumerate([('dark', [0.1] * 3, 0.354), ('dark', [0.1] * 3, 0.5), ('dark', [0.1] * 3, 0.7), ('dark', [0.1] * 3, 1.0),
+                                      ('light', [0.8] * 3, 0.5), ('light', [0.8] * 3, 0.7), ('light', [0.8] * 3, 1.0), ('gold', [0.9, 0.6, 0.2], 0.7)])])
 # Calib-Furnace-MetalBump (#111): Calib-Furnace-Metal's white Uber metals,
 # F5 - F8 with a flat grey bump map at Bump Strength 1 - a zero gradient, so
 # the normal is unchanged, but the layers' normal becomes a

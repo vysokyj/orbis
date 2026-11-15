@@ -1352,8 +1352,11 @@ leaves out, #15):
   **Beckmann** (1), Phong's own distribution; **GGX energy preserving**
   (6) at the same pin when a dielectric lobe on the node (the gloss unless
   the surface is all metal, lobe 2 of a dual lobe, a Top Coat) has α >
-  **0.25** — Octane's limit for a dielectric Beckmann (below). Metals take
-  Beckmann at any roughness, rough glass too (Refraction). Exceptions:
+  **0.25** — Octane's limit for a dielectric Beckmann (below). An
+  isotropic all-metal node (Metallic Weight 1) past the same α takes
+  **STD** (7, default spread) unless a dielectric lobe on it asks for GGX
+  energy preserving (`metal_brdf`, #172); sharp metals take Beckmann,
+  rough glass at any roughness (Refraction). Exceptions:
   architectural's glass keeps the pins its rule was swept on and its
   anisotropy has its own α ratio (NVIDIA MDL examples), a saturated anisotropic metal lobe plain GGX (Anisotropy), the flakes
   GGX energy preserving (their roughness stands for the flakes' normals).
@@ -1403,6 +1406,22 @@ leaves out, #15):
   lobes (whole spheres 1.15 – 1.24, Calib-Glossy G7 1.20, Calib-NVIDIA2 A4
   1.09) where GGX energy preserving keeps 1.02 – 1.08 / 1.02 – 1.22. The
   choice between them is open (#162).
+  Rough metals (#172): Octane's Beckmann past α 0.25 is not Beckmann
+  under a small light. Calib-Point-UberGloss's dark metal (base 0.1, Fresnel
+  F0 everywhere head-on, Iray's custom curve taken at k · h: its profile
+  is the dielectric's) rendered sphere means 1.10 / 1.74 / 4.15 × Iray at
+  r 0.354 / 0.5 / 0.7, a ring 3.6 / 13 × Iray at sin θ 0.6 / 0.75, where
+  the analytic Beckmann at that α falls like Iray's lobe; the dielectric
+  at the same pin rises less (1.3 × at sin θ 0.6), and an edge tint at the
+  metal's colour cuts the metal's ring under Beckmann (13 → 4.6) but
+  changes nothing under STD: Beckmann weighs the metal's Fresnel off the
+  half vector. STD at the pin: means 1.00 / 1.02 / 1.07, peaks 1.00, widths
+  ± 2 px, profile 0.98 – 1.10 × Iray to sin θ 0.8. Furnace
+  (Calib-Furnace-Metal r 0.3 – 1): 1.04 / 1.06 / 1.08 / 1.13 / 1.20, was
+  1.05 / 1.08 / 1.11 / 1.19 / 1.27 (the rest is Iray's v-cavities). Under
+  the HDRI (Calib-Metal-Rough, Octane only so far) STD / Beckmann: dark
+  metal core 0.95 – 0.43, rim 0.68 – 0.13 at r 0.354 – 1; light grey and
+  gold 0.93 – 0.96 / 0.86 – 0.95.
 - **Anisotropy** (Glossy Anisotropy + Glossy Anisotropy Rotations on the
   gloss and the metal, Top Coat Anisotropy + Top Coat Rotations on the top
   coat; #23). Iray (`base::anisotropy_conversion`, MDL SDK's `base.mdl`):

@@ -4374,7 +4374,7 @@ impl Ocs<'_> {
         self.gloss_brdf = if glass {
             Some(GLASS_BRDF)
         } else {
-            (!refraction_rough).then(|| phong_brdf(&dielectric))
+            (!refraction_rough).then(|| if all_metal && aniso.amount <= 0.0 { metal_brdf(&dielectric, rough) } else { phong_brdf(&dielectric) })
         };
         let curve = if glass {
             self.value_pin(i, "brdf", 57, 2, GLASS_BRDF);
@@ -6091,6 +6091,8 @@ const BRDF_BECKMANN: &str = "1";
 const BRDF_GGX_EP: &str = "6";
 /// `brdf` 2, plain GGX.
 const BRDF_GGX: &str = "2";
+/// `brdf` 7, STD at its default spread.
+const BRDF_STD: &str = "7";
 
 /// Universal's `brdf` for a node whose Phong lobes (`phong_pin`) are
 /// metal and dielectric lobes of Iray's roughness `dielectric` (the gloss,
@@ -6132,6 +6134,36 @@ impl RoughCurve {
             RoughCurve::Linear => "false",
             RoughCurve::Phong => "phong",
         }
+    }
+}
+
+/// Universal's `brdf` for an isotropic all-metal node (Uber Metallic
+/// Weight 1) of Iray roughness `metal`, with the node's `dielectric` lobes
+/// (a Top Coat, a dual lobe's second): as `phong_brdf`, but STD (7) at the
+/// same pin when the metal's α is past `BECKMANN_DIELECTRIC_MAX_ALPHA` and
+/// no dielectric lobe asks for GGX energy preserving. Octane's Beckmann
+/// past that α is not Beckmann under a small light (#172,
+/// Calib-Point-UberGloss, a point light at the camera, so h = v = l and
+/// every Fresnel is F0): its dark metal at r 0.5 / 0.7 rose towards the
+/// rim (sphere means 1.74 / 4.15 × Iray, a ring 3.6 / 13 × at sin θ 0.6 /
+/// 0.75) where the analytic Beckmann at that α falls as Iray's does; the
+/// dielectric at the same pin rises too (1.3 × at sin θ 0.6), less, and a
+/// metal edge tint at its colour halves the metal's excess under Beckmann
+/// but not under STD, so Octane's Beckmann weighs the metal's Fresnel off
+/// the half vector. STD at the pin draws Iray's metal head-on: profile
+/// 0.98 – 1.03 × Iray at r 0.5 to sin θ 0.8, 1.00 – 1.10 at 0.7; peaks
+/// 1.00 / 1.00 / 1.00 and widths ± 2 px at r 0.354 / 0.5 / 0.7. In the
+/// white furnace (Calib-Furnace-Metal, F5 – F8, r 0.4 – 1) STD loses less
+/// of Beckmann's excess over Iray's v-cavities: 1.06 / 1.08 / 1.13 / 1.20
+/// against 1.08 / 1.11 / 1.19 / 1.27 (GGX energy preserving 1.11 – 1.88).
+/// Sharp metals keep Beckmann (Cast Iron's detail, #92); anisotropic ones
+/// keep their own rule (`aniso_brdf_pin`).
+fn metal_brdf(dielectric: &[f32], metal: f32) -> &'static str {
+    let b = phong_brdf(dielectric);
+    if b == BRDF_BECKMANN && phong_pin(metal).powi(2) > BECKMANN_DIELECTRIC_MAX_ALPHA + 1e-6 {
+        BRDF_STD
+    } else {
+        b
     }
 }
 
@@ -9746,6 +9778,11 @@ mod tests {
         assert_eq!(phong_brdf(&[0.09, 0.25]), BRDF_BECKMANN);
         assert_eq!(phong_brdf(&[0.09, 0.27]), BRDF_GGX_EP);
         assert_eq!(phong_brdf(&[1.0]), BRDF_GGX_EP);
+        // An all-metal node: STD past the limit, unless a dielectric lobe asks for GGX EP (#172).
+        assert_eq!(metal_brdf(&[], 0.25), BRDF_BECKMANN);
+        assert_eq!(metal_brdf(&[], 0.5), BRDF_STD);
+        assert_eq!(metal_brdf(&[0.09], 0.7), BRDF_STD);
+        assert_eq!(metal_brdf(&[0.5], 0.7), BRDF_GGX_EP);
     }
 
     #[test]
