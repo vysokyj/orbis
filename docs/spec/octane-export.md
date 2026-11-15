@@ -917,6 +917,30 @@ leaves out, #15):
   against the gloss (#131) — Calib-WeightedTL (thin-walled, enhanced-final)
   W1 – W8 0.92 – 1.06 × Iray, translucency 0.5 / 1 0.92 / 1.00, with the
   gloss 1.01 / 1.02, the hair maps 1.05 (all 1.06 – 2.5 before).
+  **The transmission pin is that ÷ (1 − albedo)** per channel (the albedo
+  as exported, a map's mean over the covered texels; at most 1): Universal
+  passes transmission × (1 − albedo), which the manual doesn't say (#163).
+  Measured on Calib-SSS's thin-walled S2 / S8 with albedo 0, transmission
+  0 and both: the light through the sphere with the albedo on was 0.70 ×
+  the light without it at grey 0.3 in all three channels (0.73 / 0.86 /
+  0.95 at the export's 0.31 / 0.13 / 0.09) — 1 − a — where Iray's sphere
+  (DAZ's MDL, the surface on both sides of the wall) gains 1 / (1 − a)
+  from the inner wall's reflection; Thin Wall (Diffuse) and Diffuse alike.
+  So the red channel, the brightest albedo, lost most: plain translucent
+  spheres 0.84 – 0.92 × Iray in red, now 1.03 – 1.05 beside their opaque
+  neighbour (S1 1.06, W1 1.08): Calib-SSS / -Solid S2, S4 – S8 1.04 –
+  1.05 / 1.03 – 1.04 / 1.05 – 1.06 (R G B), Calib-WeightedTL / -Solid W3 /
+  W4 1.03 1.05 1.04 (0.86 – 0.88 in red before), W6 / W7 1.03 / 1.04,
+  Calib-DualLobeWeightedTL T2 0.91 → 0.98, Calib-ColorEffect C1 – C3, C7
+  red 0.83 – 0.90 → 0.90 – 0.95, Calib-MetalTL-Back K8 0.93 → 1.03; a
+  single pass too: Calib-Thin-back-A's backlit cards green 0.86 / 0.88 →
+  1.00, Calib-Leaf's thin-walled card 0.88 → 1.00 (the open one, 2w,
+  0.78 → 0.90). A transmission without albedo (w 1) is unchanged; its
+  remaining tint is Octane's spectral rendering of a saturated colour,
+  squared by the two walls: Calib-WeightedTL W5 (Tc linear 0.79 / 0.33 /
+  0.13) 0.94 1.09 0.73, and the same sphere with each channel's grey
+  renders 1.03 1.04 1.01 × Iray (Calib-SSS S3 0.96 1.05 1.00 → 1.03 1.04
+  1.02), as #87's medium.
   **A closed, non-thin solid with Iray's volume** under it (Transmitted
   Color or SSS set: σa, σs as DAZ passes them; not metal, refraction,
   strands or the eye, which has its own) has **no transmission: one
@@ -955,8 +979,9 @@ leaves out, #15):
   solid with no volume (Iray's empty ball) keeps the transmission: Iray
   renders it as its thin-walled twin to 1 / 255 (Calib-SSS-Solid S2 / S3 /
   S8, Calib-WeightedTL-Solid, Calib-DualLobeWeightedTL-Solid against their
-  thin twins), Octane too (0.91 – 1.00 Y either way); the red deficit
-  (0.84 – 0.96) is the same on the shells, not the wall's (#163). Where
+  thin twins), Octane too (0.91 – 1.00 Y either way, before the
+  ÷ (1 − albedo) above; its red deficit 0.84 – 0.96 was the same on the
+  shells, Universal's loss, not the wall's, #163). Where
   the solid holds a volume Iray darkens it (S5 / S7, Transmitted Color,
   0.80 / 0.76 × the shell, red 0.70 / 0.65; S6, SSS, 0.95) and the baked
   albedo follows: 1.05 / 1.08 / 1.05 × Iray, the shells (no volume in
@@ -1028,7 +1053,8 @@ leaves out, #15):
   shares: cards, leaves, a cloak) passes Tc × min(2w, 1): Iray lit
   Calib-Leaf's backlit card 1.9 × its thin-walled twin, Octane rendered them
   alike (0.48 / 0.90 × Iray at w; 0.81 at min(2w, 1)); doubled on Calib-SSS's
-  spheres it overshot (1.25 – 1.38). A closed solid stays at w: Iray
+  spheres it overshot (1.25 – 1.38); with the ÷ (1 − albedo) (#163) the
+  open card's green 0.90, its thin-walled twin 1.00. A closed solid stays at w: Iray
   renders Calib-SSS-Solid / -WeightedTL-Solid / -DualLobeWeightedTL-Solid
   as their thin-walled twins to 1 / 255 where no volume enters, and
   Octane at w within 0.91 – 1.08 of it (#134). Opaque card 0.97.

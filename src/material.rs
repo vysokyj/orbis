@@ -4067,6 +4067,25 @@ impl Ocs<'_> {
         });
         let share = share.map(|s| s * base_keep);
         let tint = [0, 1, 2].map(|k| tint[k] * share[k]);
+        // Universal's diffuse transmission passes only what its albedo
+        // leaves: transmission × (1 − albedo) per channel (#163; not in the
+        // manual, measured: Calib-SSS's thin-walled S2 / S8 at albedo 0 /
+        // transmission 0 / both, grey 0.3 and coloured, the transmitted
+        // light with the albedo on 0.70 × without it for grey 0.3 in every
+        // channel, where Iray's cavity, DAZ's MDL with the surface on both
+        // sides, adds 1 / (1 − a) = 1.43). So the pin takes the share ÷
+        // (1 − albedo), the albedo as exported, its map's mean under a map.
+        let albedo_mean = if transmit > 0.0 {
+            let cover = self.map_cover(mat, if mat.image("diffuse").is_some() { "diffuse" } else { "Translucency Color" });
+            let mean = diffuse.as_deref().and_then(|t| self.textures.mean_covered_colour(self.dirs, t, cover.as_deref()));
+            let colour = match mean {
+                Some(m) => [0, 1, 2].map(|k| m[k] * tint[k]),
+                None => [0, 1, 2].map(|k| mat.base_color()[k] * share[k]),
+            };
+            colour.map(|c| (c * diffuse_weight * base_flat).clamp(0.0, 0.999))
+        } else {
+            [0.0; 3]
+        };
         // The weighted blend scales the diffuse map (not a translucency
         // map standing in for a missing one — the HS CB cap went grey).
         // Genesis 9's eye: the diffuse layer and what its volume sends back
@@ -4154,9 +4173,12 @@ impl Ocs<'_> {
             // 1.38 at 2w); closed solids too: Iray renders the -Solid twins
             // as their shells to 1 / 255, Octane at w 0.91 - 1.08 (#134).
             let share = if mat.open && !thin { (2.0 * transmit).min(1.0) } else { transmit } * transmit_share * (1.0 - refraction);
+            // ÷ (1 − albedo), Universal's own loss (`albedo_mean`, above),
+            // at most a full transmission.
+            let keep = albedo_mean.map(|a| 1.0 / (1.0 - a));
             match mat.image("Translucency Color").map(str::to_string).and_then(|t| self.textures.asset(self.dirs, &t)) {
-                Some(asset) => self.overlaid_pin(i, "transmission", mat, "Translucency Color", &asset, share, tc),
-                None => self.rgb_pin(i, "transmission", tc.map(|c| c * share)),
+                Some(asset) => self.overlaid_pin(i, "transmission", mat, "Translucency Color", &asset, share, [0, 1, 2].map(|k| (tc[k] * keep[k]).min(1.0 / share.max(1e-6)))),
+                None => self.rgb_pin(i, "transmission", [0, 1, 2].map(|k| (tc[k] * share * keep[k]).min(1.0))),
             }
             // Diffuse (1), or Thin Wall (Diffuse) (3) for a thin-walled sheet:
             // Calib-SSS rendered the two alike on its thin-walled shells and
@@ -8655,9 +8677,14 @@ mod tests {
         let (ex, _) = material_inputs(&[("Socket".into(), scatter, 1.0)], &dirs, HashMap::new(), 8720, SkinShader::IrayAlbedo);
         let power = |x: &str| x[x.find("<pin name='albedo'>").unwrap()..].split("<pin name='power'>").nth(1).unwrap().split("</attr>").next().unwrap().rsplit('>').next().unwrap().to_string();
         let transmission = |x: &str| x[x.find("<pin name='transmission'>").unwrap()..].split("</attr>").next().unwrap().rsplit('>').next().unwrap().to_string();
-        assert_eq!((power(&tx), transmission(&tx)), ("0.7".to_string(), "0.3 0.3 0.3".to_string()), "{tx}");
+        // The transmission ÷ (1 − albedo), Universal's own loss (#163),
+        // the albedo the map's mean at the power.
+        let means = [0.58f32, 0.31, 0.19];
+        let tt = transmission(&tx).split(' ').map(|v| v.parse::<f32>().unwrap()).collect::<Vec<_>>();
+        assert_eq!(power(&tx), "0.7", "{tx}");
+        assert!((0..3).all(|k| (tt[k] - 0.3 / (1.0 - 0.7 * means[k])).abs() < 0.02), "{tt:?}");
         let (p, t) = (power(&ex).parse::<f32>().unwrap(), transmission(&ex).split(' ').next().unwrap().parse::<f32>().unwrap());
-        assert!((p - 0.7 * 0.62).abs() < 0.02 && (t - (1.0 - 0.7 * 0.36)).abs() < 0.02, "{p} {t}");
+        assert!((p - 0.7 * 0.62).abs() < 0.02 && (t - (1.0 - 0.7 * 0.36) / (1.0 - p * means[0])).abs() < 0.02, "{p} {t}");
         let cloak = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}},
             {"channel": {"id": "Translucency Weight", "current_value": 0.5}},
@@ -8871,7 +8898,8 @@ mod tests {
         let pin = |p: &str| cx[cx.find(&format!("<pin name='{p}'>")).unwrap()..].split("</attr>").next().unwrap().rsplit('>').next().unwrap().to_string();
         assert_eq!((pin("roughness"), pin("coatingRoughness")), (num(phong_pin(0.09)), num(phong_pin(0.0016))), "{cx}");
         assert!(pin("coatingIor").starts_with("1.36"), "{cx}");
-        // On an open card it passes twice the share.
+        // On an open card it passes twice the share, ÷ (1 − albedo) (#163:
+        // 0.5 / 0.25 here, at most 1).
         let leaf = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1]}},
             {"channel": {"id": "Translucency Weight", "current_value": 0.25}},
@@ -8880,7 +8908,7 @@ mod tests {
         let leaf = Rc::new(crate::daz_material::Material { open: true, ..(*leaf).clone() });
         let (fx, _) = material_inputs(&[("Leaf".into(), leaf, 1.0)], &dirs, HashMap::new(), 8970, SkinShader::None);
         let tr = &fx[fx.find("<pin name='transmission'>").unwrap()..];
-        assert!(tr[..200].contains("0.5 0.5 0.5"), "{tr}");
+        assert!(tr[..200].contains("'8'>1 1 1<"), "{tr}");
         let wall = mat(json!([
             {"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}},
             {"channel": {"id": "Horizontal Tiles", "current_value": 6}},
@@ -9225,6 +9253,11 @@ mod tests {
             let p = &x[x.find("<pin name='transmission'>").unwrap()..];
             p[p.find("type='8'>").unwrap() + 9..].split(' ').next().unwrap().parse::<f32>().unwrap()
         };
+        // The transmission is ÷ (1 − albedo), Universal's own loss (#163).
+        let albedo = |x: &str| {
+            let p = &x[x.find("<pin name='albedo'>").unwrap()..];
+            p[p.find("type='8'>").unwrap() + 9..].split(' ').next().unwrap().parse::<f32>().unwrap()
+        };
         let part = |x: &str, name: &str| {
             let p = &x[x.find(&format!("name='{name}'>")).unwrap()..];
             p[..p[1..].find("type='130'").map_or(p.len(), |e| e + 1)].to_string()
@@ -9239,14 +9272,14 @@ mod tests {
             let refr = part(&x, "Card refraction");
             assert!((t(&refr) - 1.0).abs() < 1e-3 && refr.contains("<pin name='transmissionType'>"), "{refr}");
             let base = part(&x, "Card base");
-            assert!((t(&base) - 0.4).abs() < 1e-3, "{base}");
+            assert!((t(&base) - 0.4 / (1.0 - albedo(&base))).abs() < 1e-3, "{base}");
         }
         // One node (Base Mixing 1, Morgan Hair's strands, refraction 0.106):
         // the translucency holds the transmission at (1 − r) of its share.
         let x = card(0.1, 1);
         assert!(!x.contains("type='19'"), "{x}");
         assert_eq!(x.matches("<pin name='transmission'>").count(), 1, "{x}");
-        assert!((t(&x) - 0.4 * 0.9).abs() < 1e-3, "{}", t(&x));
+        assert!((t(&x) - 0.4 * 0.9 / (1.0 - albedo(&x))).abs() < 1e-3, "{}", t(&x));
         assert!(x.contains("<pin name='transmissionType'>") && x.matches("<pin name='transmissionType'>").count() == 1);
         // A mostly refractive surface keeps its refraction instead.
         let g = card(0.8, 1);
@@ -9271,7 +9304,8 @@ mod tests {
         };
         // No volume (an empty ball): the translucency as it is.
         let empty = ball(json!([]));
-        assert!((rgb(&empty, "transmission")[0] - 0.9 * colour_to_linear(0.9)).abs() < 1e-3, "{empty}");
+        // (÷ (1 − albedo), Universal's own loss, #163.)
+        assert!((rgb(&empty, "transmission")[0] - 0.9 * colour_to_linear(0.9) / (1.0 - rgb(&empty, "albedo")[0])).abs() < 1e-3, "{empty}");
         // Victoria 8's volume (Calib-SSSColor's V1): no transmission, the
         // albedo `scripts/dev/prop-volume-mc.py` gives, 0.3135 / 0.0475 /
         // 0.0233.
