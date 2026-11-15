@@ -13,12 +13,14 @@ renders against the `libbsdf` and Octane (Smith) sphere models.
   furnace-rings.py model [--model libbsdf|smith] [--mode transmit|rt|reflect]
                          [--rough R] [--ior N] [--thin] [--weight W]
                          [--curve fresnel|schlick] [--coat-rough R]
-                         [--coat-ior N] [--tau T] [--loss EXPR] [--paths N]
+                         [--coat-ior N] [--r0 R0] [--tau T] [--loss EXPR]
+                         [--paths N]
       The same rings for a closed (or thin-walled) unit sphere traced as
       src/mdl_layer.rs traces it (a numpy port: Phong half-vector
       sampling + v-cavities for `libbsdf`, Beckmann + Smith for Octane;
       `fresnel_layer` / `custom_curve_layer`'s macro-normal weights for
-      `libbsdf`, physical layering for Octane). --tau multiplies every base
+      `libbsdf`, physical layering for Octane; Schlick's r0 is the IOR's
+      unless --r0 gives it, r90 1, exponent 5). --tau multiplies every base
       event; --loss is a per-base-event factor in `ci` (|n.k1|, the macro
       cosine the event is entered from), `co` (|n.k2|, the one it leaves
       to), `ce` (the camera ray's cosine at the entry point) and `inside`
@@ -170,7 +172,7 @@ def trace(a):
     alive = np.ones(N, bool)
     out = np.zeros(N)
     coat_ior = a.coat_ior or a.ior
-    r0 = ((a.ior - 1) / (a.ior + 1)) ** 2
+    r0 = ((a.ior - 1) / (a.ior + 1)) ** 2 if a.r0 is None else a.r0
     shared = a.coat_rough is None or a.coat_rough == a.rough
     coat_rough = a.rough if a.coat_rough is None else a.coat_rough
     for _ in range(32):
@@ -246,6 +248,7 @@ def main():
     ap.add_argument('--curve', default='fresnel', choices=['fresnel', 'schlick'])
     ap.add_argument('--coat-rough', type=float, default=None)
     ap.add_argument('--coat-ior', type=float, default=None)
+    ap.add_argument('--r0', type=float, default=None, help="schlick's normal reflectivity (default: the IOR's Fresnel r0; architectural's brdf_0_degree_refl is 0.2)")
     ap.add_argument('--tau', type=float, default=1.0)
     ap.add_argument('--tir-dies', action='store_true', help='a transmit lobe kills a totally reflected sample (hypothesis)')
     ap.add_argument('--loss', default='1.0')

@@ -2721,7 +2721,14 @@ leaves out, #15):
     0.43 → 0.58); Octane = the
     coating over a wall that passes the ray straight on, unweighted (no
     roughness for Thin Wall transmission, #136 — a rough thin wall stays
-    sharp). Reflectivity 0: k = √ of the thin sphere, 0.72 / 0.62. Why:
+    sharp); met from inside, the coating lies under the base on half the
+    hits, so the inner face reflects R (1 + k²) / 2 and transmits k (1 −
+    R) (R the coating's w · F; measured with orbx variants of known
+    coating, coating IOR and k, centre rings within 0.003, #168). Under a
+    reflection layer (refr_gloss 0.2, reflectivity 0.6 Schlick
+    0.2 / 1 / 5, Calib-Furnace-ArchGlass3 J7) `libbsdf`'s thin layering
+    predicts Iray (0.551 v 0.554 whole); with the inner face's ordering
+    Octane / Iray 0.95 → 0.99 whole, 0.98 disk. Reflectivity 0: k = √ of the thin sphere, 0.72 / 0.62. Why:
     the glass went out as a refracting solid and H4 / H5 rendered as the
     closed H2 / H3 (0.729 → 0.507 centre to rim v Iray's flat 0.52 / 0.39);
     now Octane / Iray 1.02 / 1.01 on the disk, 0.99 – 1.03 per ring

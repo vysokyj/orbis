@@ -268,7 +268,7 @@ fn sphere_paths_disk(model: Model, s: &Stack, disk: f64) -> Vec<(f64, i32)> {
                 Model::Libbsdf => {
                     let p_layer = s.weight * s.curve.eval(!outside, nk1);
                     if rng.next() < p_layer {
-                        lobe(model, s.coat_rough, n, v, hc, eta, Scatter::Reflect, s.thin, &mut rng).map(|(l, w, _)| (l, w * s.weight * s.curve.eval(!outside, dot(v, hc)) / p_layer, false, false))
+                        lobe(model, s.coat_rough, n, v, hc, eta, Scatter::Reflect, s.thin, &mut rng).map(|(l, w, _)| (l, w * s.weight * s.curve.eval(!outside, dot(v, hc)) / p_layer, false, 0))
                     } else {
                         lobe(model, s.base_rough, n, v, h, eta, s.base, s.thin, &mut rng).map(|(l, w, refr)| {
                             let nk2 = match s.curve {
@@ -276,21 +276,27 @@ fn sphere_paths_disk(model: Model, s: &Stack, disk: f64) -> Vec<(f64, i32)> {
                                 _ => dot(n, l).abs(),
                             };
                             let base = 1.0 - s.weight * s.curve.eval(!outside, nk1).max(s.curve.eval(!outside, nk2));
-                            (l, w * base / (1.0 - p_layer), refr, true)
+                            (l, w * base / (1.0 - p_layer), refr, 1)
                         })
                     }
                 }
                 Model::Smith => {
                     if rng.next() < s.weight * s.curve.eval(!outside, dot(v, hc)) {
-                        lobe(model, s.coat_rough, n, v, hc, eta, Scatter::Reflect, s.thin, &mut rng).map(|(l, w, _)| (l, w, false, false))
+                        // Octane's Thin Wall met from inside lays the
+                        // coating under the base on half the hits: that
+                        // reflection passes the transmission twice (#168:
+                        // probes with a known coating and k, the inner face's
+                        // reflection R (1 + k²) / 2, its transmission k (1 − R)).
+                        let under = s.thin && inside && s.base == Scatter::Transmit && rng.next() < 0.5;
+                        lobe(model, s.coat_rough, n, v, hc, eta, Scatter::Reflect, s.thin, &mut rng).map(|(l, w, _)| (l, w, false, if under { 2 } else { 0 }))
                     } else {
-                        lobe(model, s.base_rough, n, v, h, eta, s.base, s.thin, &mut rng).map(|(l, w, refr)| (l, w, refr, true))
+                        lobe(model, s.base_rough, n, v, h, eta, s.base, s.thin, &mut rng).map(|(l, w, refr)| (l, w, refr, 1))
                     }
                 }
             };
             let Some((l, w, refr, tinted)) = ev else { break };
             thr *= w;
-            m += tinted as i32;
+            m += tinted;
             if refr {
                 inside = !inside;
             }

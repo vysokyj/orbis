@@ -192,6 +192,17 @@ pure power (Calib-Skin, 2026-11-07).
   `roughnessExtra` too) and OpenPBR's (`thinWall`; pins `transmission`,
   `transmissionColor`, `roughness`, `ior`) blurs only the reflection.
   Universal's Specular transmission at IOR 1 doesn't blur either.
+- **A coated Thin Wall from inside** (#168, orbx variants of
+  Calib-Furnace-ArchGlass3, Universal Thin Wall, specular 0, mirror
+  coating): the coating's reflection is w · F at `coatingIor` from either
+  face and energy is conserved (k 1 keeps 1.00, k 0 keeps w · F), but a
+  ray met from inside sees the coating under the base on half the hits:
+  inner reflection R (1 + k²) / 2, inner transmission k (1 − R). Coating
+  1 at IOR 6 with k 0.5 / 0.7 / 0.85 and 0.6 / 1 at IOR 2.62 with k 0.69
+  / 0.7 rendered 0.597 / 0.703 / 0.819 / 0.528 / 0.569 at the centre, that
+  rule 0.598 / 0.700 / 0.819 / 0.527 / 0.569 (coating outside on both
+  faces 0.633 / 0.750 / 0.864 / 0.542 / 0.592, always under 0.579 / 0.667
+  / 0.785 / 0.514 / 0.548).
 - **Falloff Map (50) is evaluated per hit, with that hit's incoming ray**
   (#117, orbx variant on Calib-Furnace-ArchGlass2): a Mix (38) of 1 → 0
   by a Falloff (normal vs. eye ray, skew 1) on a closed glass sphere's
