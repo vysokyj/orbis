@@ -170,9 +170,12 @@ where a script maps that folder as an MDL directory (`daz-export-mi.dsa`,
    queues capped copies (Max Time 0, as Boost asks) and collects the
    renders into the Iray references (`-n` returns at once, `--collect`
    moves what finished since); `iray-queue.sh --stop` ends the queue.
-   Queue a batch **before** the queue script starts: a scene dropped into
-   a running, idle queue froze DAZ until a restart (#170). The scenes wait
-   in the queue folder until the script starts.
+   Queue a batch **before** the queue script starts; the scenes wait in
+   the queue folder until it does. The "idle queue" freezes of #170 were a
+   second click on Render > ORBIS Iray Queue while the script ran (DAZ
+   deadlocks re-running a custom action that is still running); the queue
+   now greys its own menu item out while it runs
+   (`daz-queue-menutest.dsa` checks that headful).
    DAZ renders through the viewport's camera: a scene saved without
    `current_camera` renders DAZ's Perspective View, not the camera `orbis`
    exports (#97). `iray-queue.sh` and `keep-refs.py` refuse such scenes,

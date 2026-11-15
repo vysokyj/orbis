@@ -71,7 +71,43 @@
         return "";
     }
     // --- end server verdict ---
+    // --- menu guard (daz-queue-selftest.dsa, daz-queue-menutest.dsa eval this block) ---
+    // DAZ runs a custom action under a lock of its own: triggering the
+    // action again while its script runs (a second click on Render > ORBIS
+    // Iray Queue, delivered while this script sleeps or renders) waits on
+    // that lock forever and freezes DAZ (#170; both hang reports of
+    // 2026-11-15, and reproduced headful). An idle queue shows nothing, so a
+    // second click was the natural thing to do. While the queue runs, every
+    // custom action that runs this script is disabled (a disabled QAction
+    // ignores triggers); re-applied each loop in case DAZ resets it.
+    // Returns how many actions it set; 0 headless (no MainWindow).
+    // A path with symlinks resolved (the menu may point through one).
+    function canonical(p) {
+        var s = "";
+        try { s = String(new DzFileInfo(p).canonicalFilePath()); } catch (e) {}
+        return s ? s : String(p);
+    }
+    function guardMenu(bRunning) {
+        var n = 0;
+        try {
+            if (typeof MainWindow == "undefined" || !MainWindow) return 0;
+            var oActions = MainWindow.getActionMgr();
+            if (!oActions) return 0;
+            var sSelf = canonical(getScriptFileName());
+            for (var a = 0; a < oActions.getNumCustomActions(); a++) {
+                if (canonical(oActions.getCustomActionFile(a)) != sSelf) continue;
+                var oAction = oActions.getCustomActionByIndex(a);
+                if (!oAction) continue;
+                if (oAction.enabled == bRunning) oAction.enabled = !bRunning;
+                n++;
+            }
+        } catch (e) { print("ORBIS queue: menu guard: " + e); }
+        return n;
+    }
+    // --- end menu guard ---
     var sDazLog = sHome + "/Library/Application Support/DAZ 3D/Studio6/log.txt";
+    // Before anything pumps events: a second click may already be queued.
+    var nGuarded = guardMenu(true);
     for (var i = 1; i < aArgs.length; i++) {
         oContent.addContentDirectory(aArgs[i], false);
         log("content dir " + aArgs[i]);
@@ -95,65 +131,71 @@
         new DzFile(sQueue + "/active/" + aStale[j]).rename(sQueue + "/" + aStale[j]);
         log("requeued " + aStale[j] + " (left in active/)");
     }
-    log("started, watching " + sQueue);
+    log("started, watching " + sQueue + (nGuarded ? " (menu item disabled while it runs)" : ""));
     append(sQueue + "/ready", "started");
-    while (!exists(sQueue + "/stop")) {
-        var aJobs = new DzDir(sQueue).entryList(["*.duf"], DzDir.Files, DzDir.Time | DzDir.Reversed);
-        if (aJobs.length == 0) {
-            processEvents();
-            sleep(1000);
-            continue;
-        }
-        // Rendering in active/, then done/: DAZ goes by the .duf extension.
-        var sName = aJobs[0];
-        var sActive = sQueue + "/active/" + sName;
-        var sPng = sQueue + "/" + sName.replace(/\.duf$/, ".png");
-        var sJobLog = sQueue + "/" + sName.replace(/\.duf$/, ".log");
-        new DzFile(sQueue + "/" + sName).rename(sActive);
-        log("open " + sName);
-        append(sJobLog, "open " + sName);
-        var bOpened = oContent.openFile(sActive, false);
-        append(sJobLog, "opened: " + bOpened);
-        if (!bOpened) log("open failed: " + sName);
-        var opts = oMgr.getRenderOptions();
-        opts.renderImgToId = DzRenderOptions.DirectToFile;
-        opts.renderImgFilename = sPng;
-        // An Iray Server can refuse new sessions for minutes after a large
-        // scene ("session handler rejected the session"): the render then
-        // fails within seconds and leaves a black image. Wait and retry.
-        // DAZ's log since the render started tells (serverVerdict); only
-        // when it can't be read, the old guess: under 15 s = rejected.
-        var t, secs, bOk, nLog, sVerdict;
-        for (var iTry = 0; iTry < 10; iTry++) {
-            nLog = bLocal ? -1 : fileSize(sDazLog);
-            t = new Date().getTime();
-            bOk = oMgr.doRender(opts);
-            secs = Math.round((new Date().getTime() - t) / 1000);
-            if (bOk === false) {
-                sVerdict = "failed";
-            } else if (bLocal) {
-                break;
-            } else {
-                processEvents();
-                sVerdict = nLog < 0 ? "" : serverVerdict(readFrom(sDazLog, nLog));
-                if (sVerdict == "ok") break;
-                if (sVerdict == "") {
-                    log("DAZ log unreadable for " + sName + ", judging by time");
-                    if (secs >= 15) break;
-                    sVerdict = "under 15 s";
-                }
-            }
-            log("render of " + sName + " " + sVerdict + " after " + secs + " s, retrying in 30 s");
-            new DzFile(sPng).remove();
-            for (var iWait = 0; iWait < 30; iWait++) {
+    try {
+        while (!exists(sQueue + "/stop")) {
+            guardMenu(true);
+            var aJobs = new DzDir(sQueue).entryList(["*.duf"], DzDir.Files, DzDir.Time | DzDir.Reversed);
+            if (aJobs.length == 0) {
                 processEvents();
                 sleep(1000);
+                continue;
             }
+            // Rendering in active/, then done/: DAZ goes by the .duf extension.
+            var sName = aJobs[0];
+            var sActive = sQueue + "/active/" + sName;
+            var sPng = sQueue + "/" + sName.replace(/\.duf$/, ".png");
+            var sJobLog = sQueue + "/" + sName.replace(/\.duf$/, ".log");
+            new DzFile(sQueue + "/" + sName).rename(sActive);
+            log("open " + sName);
+            append(sJobLog, "open " + sName);
+            var bOpened = oContent.openFile(sActive, false);
+            append(sJobLog, "opened: " + bOpened);
+            if (!bOpened) log("open failed: " + sName);
+            guardMenu(true);
+            var opts = oMgr.getRenderOptions();
+            opts.renderImgToId = DzRenderOptions.DirectToFile;
+            opts.renderImgFilename = sPng;
+            // An Iray Server can refuse new sessions for minutes after a large
+            // scene ("session handler rejected the session"): the render then
+            // fails within seconds and leaves a black image. Wait and retry.
+            // DAZ's log since the render started tells (serverVerdict); only
+            // when it can't be read, the old guess: under 15 s = rejected.
+            var t, secs, bOk, nLog, sVerdict;
+            for (var iTry = 0; iTry < 10; iTry++) {
+                nLog = bLocal ? -1 : fileSize(sDazLog);
+                t = new Date().getTime();
+                bOk = oMgr.doRender(opts);
+                secs = Math.round((new Date().getTime() - t) / 1000);
+                if (bOk === false) {
+                    sVerdict = "failed";
+                } else if (bLocal) {
+                    break;
+                } else {
+                    processEvents();
+                    sVerdict = nLog < 0 ? "" : serverVerdict(readFrom(sDazLog, nLog));
+                    if (sVerdict == "ok") break;
+                    if (sVerdict == "") {
+                        log("DAZ log unreadable for " + sName + ", judging by time");
+                        if (secs >= 15) break;
+                        sVerdict = "under 15 s";
+                    }
+                }
+                log("render of " + sName + " " + sVerdict + " after " + secs + " s, retrying in 30 s");
+                new DzFile(sPng).remove();
+                for (var iWait = 0; iWait < 30; iWait++) {
+                    processEvents();
+                    sleep(1000);
+                }
+            }
+            log("rendered " + sName + " in " + secs + " s" + (exists(sPng) ? "" : " - NO IMAGE"));
+            append(sJobLog, "rendered in " + secs + " s");
+            append(sJobLog, "done");
+            new DzFile(sActive).rename(sQueue + "/done/" + sName);
         }
-        log("rendered " + sName + " in " + secs + " s" + (exists(sPng) ? "" : " - NO IMAGE"));
-        append(sJobLog, "rendered in " + secs + " s");
-        append(sJobLog, "done");
-        new DzFile(sActive).rename(sQueue + "/done/" + sName);
+    } finally {
+        guardMenu(false);
     }
     new DzFile(sQueue + "/stop").remove();
     new DzFile(sQueue + "/ready").remove();

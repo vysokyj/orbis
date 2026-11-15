@@ -1,0 +1,92 @@
+// ORBIS: checks the Iray queue's menu guard (daz-render-queue.dsa, #170) in
+// a DAZ Studio with a window, without the queue or a render. Triggering a
+// custom action again while its script runs deadlocks DAZ; the queue
+// disables its own menu item while it runs. This script registers itself as
+// a custom action, triggers it; the action run evals the queue script's
+// "menu guard" block, guards, triggers itself again (the second click) and
+// must get control back at once. Needs the GUI (HEADLESS=0), its own
+// instance:
+//   HEADLESS=0 DONE_FILE=<out>/done scripts/dev/daz-script.sh $PWD/scripts/dev/daz-queue-menutest.dsa <out> --
+// Results in <out>/menutest.txt ("PASS"/"FAIL" lines, last line the total).
+// No <out>/done after a minute = the deadlock (FAIL); kill the instance
+// (pgrep -f "instanceName orbis-render"). ECMAScript 3, ASCII only.
+(function () {
+    var sNote = App.getTempPath() + "/orbis-menutest-out.txt";
+    var sText = "ORBIS Menu Guard Test";
+    function readAll(p) {
+        var f = new DzFile(p);
+        if (!f.open(DzFile.ReadOnly)) return "";
+        var s = String(f.read());
+        f.close();
+        return s;
+    }
+    function write(p, s, bAppend) {
+        var f = new DzFile(p);
+        f.open(bAppend ? DzFile.Append : (DzFile.WriteOnly | DzFile.Truncate));
+        f.write(s);
+        f.close();
+    }
+    var bOuter = App.scriptArgs.length > 0 && !new DzFile(App.scriptArgs[0] + "/phase").exists();
+    var sOut = bOuter ? App.scriptArgs[0] : readAll(sNote);
+    var sResult = sOut + "/menutest.txt";
+    function put(s) { write(sResult, s + "\n", true); }
+    function check(sWhat, got, want) {
+        put((got === want ? "PASS " : "FAIL ") + sWhat + ": got " + got + ", want " + want);
+        return got === want;
+    }
+    var oActions = MainWindow ? MainWindow.getActionMgr() : null;
+    function findOwn() {
+        if (!oActions) return null;
+        for (var i = 0; i < oActions.getNumCustomActions(); i++)
+            if (oActions.getCustomActionText(i) == sText) return oActions.getCustomActionByIndex(i);
+        return null;
+    }
+    if (bOuter) {
+        write(sResult, "", false);
+        write(sNote, sOut, false);
+        write(sOut + "/phase", "outer", false);
+        check("action manager (needs HEADLESS=0)", oActions !== null, true);
+        if (oActions) {
+            oActions.addCustomAction(sText, "ORBIS #170 test", getScriptFileName(), true, "", "");
+            var oAction = findOwn();
+            check("test action registered", oAction !== null, true);
+            if (oAction) {
+                oAction.trigger();
+                put("outer: the action run returned");
+                var sLines = readAll(sResult);
+                check("action ran", sLines.indexOf("action: running") >= 0, true);
+                check("not re-entered", sLines.indexOf("RE-ENTERED") < 0, true);
+                check("enabled again after the run", oAction.enabled, true);
+            }
+            for (var r = oActions.getNumCustomActions() - 1; r >= 0; r--)
+                if (oActions.getCustomActionText(r) == sText) oActions.removeCustomAction(oActions.getCustomActionName(r));
+        }
+        new DzFile(sNote).remove();
+        new DzFile(sOut + "/phase").remove();
+        var nFail = (readAll(sResult).match(/^FAIL /mg) || []).length;
+        put(nFail == 0 ? "ALL PASS" : nFail + " FAILED");
+        write(sOut + "/done", "done\n", false);
+        App.delayedExit();
+        return;
+    }
+    // The action run.
+    if (readAll(sOut + "/phase") != "outer") {
+        put("FAIL RE-ENTERED: the second trigger ran the script");
+        return;
+    }
+    write(sOut + "/phase", "action", false);
+    put("action: running " + getScriptFileName());
+    var sQueueScript = new DzFileInfo(getScriptFileName()).path() + "/daz-render-queue.dsa";
+    var sSrc = readAll(sQueueScript);
+    var i0 = sSrc.indexOf("// --- menu guard");
+    var i1 = sSrc.indexOf("// --- end menu guard ---");
+    if (!check("menu guard block found", i0 >= 0 && i1 > i0, true)) return;
+    eval(sSrc.substring(i0, i1));
+    var oSelf = findOwn();
+    check("guard sets the action running this script", guardMenu(true), 1);
+    check("disabled while running", oSelf.enabled, false);
+    oSelf.trigger();
+    put("action: the second trigger returned");
+    check("guard releases it", guardMenu(false), 1);
+    check("enabled after release", oSelf.enabled, true);
+})();

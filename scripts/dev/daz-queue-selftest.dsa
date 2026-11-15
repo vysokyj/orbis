@@ -78,6 +78,14 @@
         check("DAZ log size known", nDaz > 0, true);
         var sTail = readFrom(sDaz, nDaz - 4096);
         check("DAZ log tail read", sTail !== null && sTail.length > 0 && sTail.length <= 4096, true);
+        // The menu guard (#170) is a no-op headless; the GUI side is
+        // daz-queue-menutest.dsa.
+        var j0 = sSrc.indexOf("// --- menu guard");
+        var j1 = sSrc.indexOf("// --- end menu guard ---");
+        check("menu guard block found", j0 >= 0 && j1 > j0, true);
+        eval(sSrc.substring(j0, j1));
+        check("menu guard headless", guardMenu(true), 0);
+        check("menu guard release headless", guardMenu(false), 0);
     } catch (e) {
         nFail++;
         put("FAIL exception: " + e);

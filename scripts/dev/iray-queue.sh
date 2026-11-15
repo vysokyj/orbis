@@ -8,10 +8,10 @@
 # Samples set and no time or quality stop (Boost for Daz: Max Time 0, or
 # the streamed render is cut off); its render lands in <out dir>/<scene>.png
 # (default ~/Library/Caches/orbis/calib/iray, beside the CPU references).
-# Queue a batch BEFORE the user starts the queue script: a scene dropped into
-# a running, idle queue froze DAZ until a restart. Without DAZ or a started
-# queue the scenes wait; -n returns at once, --collect moves finished renders.
-case ${1:-} in -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
+# Queue a batch BEFORE the user starts the queue script; without DAZ or a
+# started queue the scenes wait; -n returns at once, --collect moves finished
+# renders. A running queue picks a new scene up within a second.
+case ${1:-} in -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 set -eu
 queue="$HOME/Library/Caches/orbis/calib/queue"
 out="$HOME/Library/Caches/orbis/calib/iray"
@@ -62,14 +62,15 @@ if [ -n "$menu" ] && [ "$menu" != "$own" ]; then
     echo "DAZ's ORBIS Iray Queue menu runs $menu, not $own: quit DAZ Studio, then run daz-add-queue-menu.dsa with that path" >&2
     exit 1
 fi
-# The batch goes in before the user starts the queue: a scene dropped into a
-# running, idle queue froze DAZ until a restart (#170). So no running DAZ or
-# queue is fine here - the scenes wait for the queue script's start.
+# The batch goes in before the user starts the queue (the user's rule), so no
+# running DAZ or queue is fine here - the scenes wait for the queue script's
+# start. The "idle queue" freeze (#170) was a second click on the menu item
+# while the script ran: DAZ deadlocks re-running a running custom action.
 # The headless helper instance (orbis-render) is not the connected DAZ.
 if pgrep -fl "DAZStudio" | grep -qv "instanceName orbis-render"; then
     busy=$(ls "$queue"/*.duf "$queue"/active/*.duf 2>/dev/null | head -1)
     if [ -z "$busy" ] && grep -q started "$queue/queue.log" 2>/dev/null; then
-        echo "note: DAZ runs and its queue may be idle - a scene dropped into an idle queue froze DAZ (#170); if nothing starts, the user restarts the queue script" >&2
+        echo "note: DAZ runs and its queue may be idle; it should pick the scenes up within a second. If nothing starts, the user must NOT click ORBIS Iray Queue again while it runs (DAZ deadlocks, #170): check queue.log, restart DAZ if needed" >&2
     fi
     if tail -n 300 "$HOME/Library/Application Support/DAZ 3D/Studio6/log.txt" 2>/dev/null | grep -q "session handler rejected the session"; then
         echo "note: the Iray Server rejected the session (it reset its password): tell the user, they fix it and restart the queue script" >&2
