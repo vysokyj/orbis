@@ -324,7 +324,14 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   one thick fibre 0.99 – 1.04 × Iray at 1×, 1.55 – 2.0 at 2×. The earlier
   2× stood in for the Hair material's fitted albedo shares on thin hair
   (Calib-Eye's close-up "covered" the background as Iray's at it), the 4×
-  before was fitted on guide-only strands (#16).
+  before was fitted on guide-only strands (#16). **The taper is
+  quadratic**: at a strand's k-th of n points the width is start + (end −
+  start) · s², s = k / (n − 1). Why: DAZ hands Iray that profile, read
+  off its `.mi` to 1e-5 cm on a plain polyline (Calib-Strand's thin rows,
+  fibre radii) and on Morgan Hair as fibres (radii per control point) and
+  as ribbons (widths by the strand's v); the linear taper drew every
+  strand up to 17 % thinner mid-length (#161). On Morgan's dense pile it
+  moves the render by ≤ 0.01.
 - **Line Tessellation**: the scene's modifier on the strand node (`Render
   Line Tessellation Sides`) says how DAZ hands the strands to Iray: fewer
   than 2 sides or no modifier → Iray's `hair` fibres (`Material::fibres`),

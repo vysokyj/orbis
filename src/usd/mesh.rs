@@ -338,6 +338,17 @@ pub(super) fn line_tessellation_sides(lib: &mut Library, node_id: &str) -> Optio
     Some(def.as_ref().and_then(|d| sides(d, "current_value").or_else(|| sides(d, "value"))).unwrap_or(2))
 }
 
+/// A strand's width at its `k`-th of `points` points: `Line Start Width` →
+/// `Line End Width` along the square of the point's index share, as DAZ
+/// hands strands to Iray. Its `.mi` (fibre radii, ribbon widths: Morgan
+/// Hair, a plain polyline of Calib-Strand) reads root + (tip − root) · s²,
+/// s = k / (points − 1), to 1e-5 cm (#161); a linear taper made every
+/// strand up to 17 % thinner than Iray's, 10 % over its length.
+pub(super) fn strand_width(root: f32, tip: f32, k: usize, points: usize) -> f32 {
+    let s = k as f32 / (points.max(2) as f32 - 1.0);
+    root + (tip - root) * s * s
+}
+
 /// One `Mesh` (curves) per material group of a strand-hair figure, its
 /// strands' widths tapering from root to tip as DAZ's hair shader sets them.
 pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DumpNode, names: &mut HashSet<String>) -> Vec<Mesh> {
@@ -367,11 +378,10 @@ pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DumpNode, names:
         };
         let mut widths = Vec::new();
         for s in &strands {
-            let len = s.len().max(2) as f32 - 1.0;
             for (k, &v) in s.iter().enumerate() {
                 let p = fig.vertices.get(v as usize).copied().unwrap_or_default();
                 mesh.points.push(p.map(|c| c * CM));
-                widths.push(root + (tip - root) * k as f32 / len);
+                widths.push(strand_width(root, tip, k, s.len()));
             }
             mesh.face_counts.push(s.len() as u32);
         }

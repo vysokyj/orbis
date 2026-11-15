@@ -316,6 +316,17 @@ fn lifts_a_skin_tight_item_off_its_figure() {
 }
 
 #[test]
+fn strand_width_tapers_along_the_square_of_the_point_share() {
+    // DAZ's .mi of Calib-Strand (8 points, Line Start / End Width 0.2 /
+    // 0.1): fibre radii 0.01 → 0.005 cm at its inner control points (#161).
+    let iray = [0.01, 0.0099, 0.00959, 0.00908, 0.00837, 0.00745, 0.00633, 0.005];
+    for (k, r) in iray.iter().enumerate() {
+        assert!((mesh::strand_width(0.01, 0.005, k, 8) - r).abs() < 1e-5, "{k}");
+    }
+    assert_eq!(mesh::strand_width(0.2, 0.1, 0, 1), 0.2);
+}
+
+#[test]
 fn strand_hair_is_written_as_basis_curves() {
     let mut m = Mesh { name: "Curls_Bangs".into(), label: "Curls Bangs".into(), ..Default::default() };
     m.points = vec![[0.0, 1.0, 0.0], [0.0, 0.9, 0.0], [0.0, 0.8, 0.0], [0.1, 1.0, 0.0], [0.1, 0.9, 0.0]];
