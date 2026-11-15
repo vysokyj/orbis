@@ -1331,10 +1331,22 @@ leaves out, #15):
 - **BSDF model and roughness.** Every Uber lobe is `simple_glossy_bsdf`
   (`choose_bsdf` at `dfm_glossy`; DAZ never sets `df_mode`): the gloss,
   the dual lobe's two, the Top Coat, the refraction — and the NVIDIA
-  dielectrics' gloss. Phong of exponent 2 / r² (r = Iray's roughness after
-  its squaring) = Beckmann at α = r / √(1 + r²); Octane's roughness pin is
-  √α. So every Phong lobe's pin is **√(r / √(1 + r²))** (`phong_pin`;
-  derived, no constant) — on Universal's roughness and coating, the
+  dielectrics' gloss. Phong of exponent e = 2 / r² (r = Iray's roughness
+  after its squaring), after Ashikhmin & Shirley: `libbsdf` samples the
+  half vector at cos θ = (1 − u)^(1 / (e + 1)), so D (n · h) = (e + 1) / 2π
+  cosᵉ — D is Walter's normalised Phong of exponent e − 1, D(0) = (e + 1)
+  / 2π — = Beckmann at **α = √(2 / (e + 1)) = r √(2 / (2 + r²))**, at
+  most 1 (reached at r √2, e = 1, where D is flat); Octane's roughness
+  pin is √α (`phong_pin`; derived, no constant). The earlier r / √(1 +
+  r²) (Walter's √(2 / (e + 2)), a Phong of exponent e) had Octane's
+  head-on peak (e + 2) / (e + 1) × Iray's (#162): Calib-Point-UberGloss
+  (Uber dielectric gloss over black, point light at the camera, Iray
+  2000) measured 1.05 / 1.07 / 1.12 / 1.21 / 1.35 at r 0.25 / 0.354 /
+  0.5 / 0.7 / 1 against 1.03 / 1.06 / 1.11 / 1.20 / 1.33; the
+  v-cavities lobe with this D (`mdl_layer`) draws Iray's widths at 0.3 /
+  0.5 of the peak to a pixel (26 × 20 … 72 × 64 px against 27 × 21 … 71 ×
+  63), and Octane's STD at the new pin does too (27 × 21, 37 × 29, 53 ×
+  43, 71 × 63; peaks 1.01 – 1.03 × Iray) — on Universal's roughness and coating, the
   Layered material's Specular Layer, the weighted gloss and coat, the
   skins' OpenPBR. Universal's **`brdf`** (one per node, `phong_brdf`):
   **Beckmann** (1), Phong's own distribution; **GGX energy preserving**
@@ -1382,14 +1394,21 @@ leaves out, #15):
   Beckmann and STD (`brdf` 7, default spread) at the same pin draw Iray's
   lobe there to a pixel, but under the HDRI STD's rough gloss is 1.22 –
   1.28 × Iray at r 0.36 (the physical Fresnel's share, #137) and 1.46 –
-  1.58 at r 0.6 – 0.81, Beckmann's rim 1.9 – 3.2. Kept until Iray's
-  lobe at r 0.5 – 1 head-on is measured (Calib-Point-UberGloss).
+  1.58 at r 0.6 – 0.81, Beckmann's rim 1.9 – 3.2. At the derived pin
+  above (Calib-Point-UberGloss, r 0.354 – 0.7): GGX energy preserving
+  0.76 – 0.84 × Iray's width at half the peak, sphere means 0.87 – 0.91;
+  STD Iray's lobe (peaks 1.01 – 1.03, widths ± 1 px, means 1.01 – 1.07),
+  but under the HDRI its rough gloss (core / rim) 1.22 / 1.25 at r 0.36 on
+  Calib-Glossy, 1.23 – 1.47 / 1.36 – 1.45 on Calib-DualLobe2's rough
+  lobes (whole spheres 1.15 – 1.24, Calib-Glossy G7 1.20, Calib-NVIDIA2 A4
+  1.09) where GGX energy preserving keeps 1.02 – 1.08 / 1.02 – 1.22. The
+  choice between them is open (#162).
 - **Anisotropy** (Glossy Anisotropy + Glossy Anisotropy Rotations on the
   gloss and the metal, Top Coat Anisotropy + Top Coat Rotations on the top
   coat; #23). Iray (`base::anisotropy_conversion`, MDL SDK's `base.mdl`):
   roughness_u = r, roughness_v = r / (1 − a) (r / 0.0001 at a = 1), the
   tangent turned by 2π · rotation. Octane: each axis at the Phong pin
-  above (not capped: r / 0.0001 gives pin → 1), **`roughness` = v** (the
+  above (not capped at r 1: r / 0.0001 gives pin 1, reached at r √2), **`roughness` = v** (the
   long axis), **`anisotropyTexture` = 1 − pin_u / pin_v** (1 stretches
   along the texture's v, like Iray; negative when u is the longer),
   **`rotation` = 1 − Iray's rotation** (both in turns; Octane's slider 0 –
@@ -2118,14 +2137,15 @@ leaves out, #15):
   `crate::iray`; N5 - N7, Shown twins alike). A mostly refractive surface (weight ≥ 0.5) with its own
   roughness gets it on Universal's one `roughness`, squared as usual.
   **Rough glass** (refraction ≥ 0.5, not thin-walled; shared or own
-  roughness) → `brdf` 1 (Beckmann) at the **Phong pin √(r / √(1 + r²))**
+  roughness) → `brdf` 1 (Beckmann) at the **Phong pin** (`phong_pin` above)
   (`phong_pin`, r = Iray's roughness after its squaring; √r until #95,
   0.6 against 0.58 at r 0.36), at any roughness. Why (DAZ's MDL, #72): Uber refracts through
   `simple_glossy_bsdf` — Phong of exponent 2 / r², v-cavities shadowing —
   with no multiple-scattering compensation (`multiscatter_tint` 0, so its
-  rough lobes lose light, MDL spec 21.1.3). Phong of exponent n is
-  Beckmann at α = √(2 / (n + 2)) = r / √(1 + r²), and Octane's roughness
-  is √α: no fitted constant. GGX energy preserving (the gloss rule above) gives
+  rough lobes lose light, MDL spec 21.1.3). `libbsdf`'s Phong of exponent
+  e is Beckmann at α = √(2 / (e + 1)) = r √(2 / (2 + r²)) (the gloss rule
+  above, #162; rendered on the gloss, not yet on rough glass), and
+  Octane's roughness is √α: no fitted constant. GGX energy preserving (the gloss rule above) gives
   back the light Iray's lobe loses: Calib-Dispersion-Rough's spheres at
   r 0.36 1.19 (shared) / 1.14 (own, then at Octane's default BSDF × 0.3,
   a Calib-Glass R6 fit, too sharp) × Iray; plain GGX loses more than Iray
@@ -2411,9 +2431,9 @@ leaves out, #15):
     reflection map) clamped to 0 – 1 (`weighted_layer` clamps its weight;
     Cast Iron's 0.5 + 3 · map is mostly 1; the tinted `simple_glossy_bsdf`
     has no Fresnel). The lobe is `simple_glossy_bsdf`, Phong of exponent
-    2 / r² per axis = Beckmann at α = r / √(1 + r²), Octane's pin √α: the
-    rough-glass rule, **Beckmann** (`brdf` 1) at **√(r / √(1 + r²))**
-    (`phong_pin`) — no constant. Octane's roughness = the longer
+    2 / r² per axis = Beckmann at α = r √(2 / (2 + r²)) (#162), Octane's
+    pin √α: the rough-glass rule, **Beckmann** (`brdf` 1) at `phong_pin`
+    — no constant. Octane's roughness = the longer
     axis per texel, anisotropy = **1 − pin_u / pin_v** of the two axes'
     pins **per texel** (Octane's semantics, Anisotropy above) (a derived map when one map drives both axes, as
     in both presets; else at a mid-grey texel), the bump baked into a
@@ -3086,7 +3106,7 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
 - **Gloss** (`skin_gloss`): **roughness derived, `phong_pin`** —
   Iray's lobes (and Top Coat) are `simple_glossy_bsdf`, a Phong microfacet
   lobe of exponent 2 / r² (r the MDL roughness, the slider squared), as
-  Beckmann α = r / √(1 + r²); GGX has the same peak at that α, and OpenPBR's
+  Beckmann α = r √(2 / (2 + r²)) (#162); GGX has the same peak at that α, and OpenPBR's
   roughness is √α (α = roughness²). Lobe 1, lobe 2 (the coating, from
   Iray's r2², as Universal's since #95) and the Top Coat; under a Top Coat
   the lobes blend in Iray's roughness. Why: Calib-Skin's Iray variants

@@ -24,7 +24,8 @@
       `libbsdf`'s model (Phong half-vector D, v-cavities, the curve:
       Schlick at k.h for the glossy layer; W * Schlick at max(n.k1, n.k2)
       for the dual lobe, the custom_curve_layer's base) against Octane's
-      (Beckmann at alpha = r / sqrt(1 + r^2), Smith, Fresnel at the IOR of
+      (Beckmann at alpha = r sqrt(2 / (2 + r^2)), phong_pin, #162; Smith,
+      Fresnel at the IOR of
       F0) - Octane / Iray over the disc, the core (r < 0.7) and the peak.
 """
 import sys
@@ -118,7 +119,7 @@ def sun(dx, dy, rough, f0, dual, n_px=301):
                 continue
             e = 2 / r ** 2
             d_phong = (e + 1) / (2 * np.pi) * np.clip(nh, 0, 1) ** (e - 1)
-            a = r / np.sqrt(1 + r * r)
+            a = r * np.sqrt(2 / (2 + r * r))
             c2 = np.clip(nh, 1e-6, 1) ** 2
             d_beck = np.exp(-(1 - c2) / (c2 * a * a)) / (np.pi * a * a * c2 * c2)
             vcav = np.minimum(np.minimum(2 * nh * nv / vh, 1), np.minimum(2 * nh * nl / vh, 1))

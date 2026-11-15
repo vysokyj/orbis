@@ -6038,8 +6038,16 @@ fn has_metal(mat: &Material) -> bool {
 /// `simple_glossy_bsdf` — every Uber lobe (gloss, dual lobe, Top Coat,
 /// refraction; DAZ never sets `choose_bsdf`'s `df_mode`, no `.mi` has it)
 /// and the NVIDIA presets' gloss: a Phong microfacet lobe of exponent
-/// n = 2 / r² (MDL spec 21.1.3), as Beckmann α = √(2 / (n + 2)) =
-/// r / √(1 + r²) (Walter et al. 2007); Octane's pin is √α — under Beckmann
+/// e = 2 / r² (MDL spec 21.1.3, after Ashikhmin & Shirley). `libbsdf`
+/// samples its half vector as A-S do, cos θ = (1 − u)^(1 / (e + 1)), so
+/// D(h) (n · h) = (e + 1) / 2π cos^e: D is Walter's normalised Phong of
+/// exponent e − 1, D(0) = (e + 1) / 2π, and Beckmann's equivalent is
+/// α = √(2 / (e + 1)) = r √(2 / (2 + r²)) (Walter et al. 2007), not the
+/// √(2 / (e + 2)) of a Phong of exponent e (#162: that one had Octane's
+/// head-on peak (e + 2) / (e + 1) × Iray's, 1.03 – 1.33 from r 0.25 to 1,
+/// measured 1.05 – 1.35 on Calib-Point-UberGloss; this one draws Iray's
+/// head-on widths to a pixel, as the v-cavities lobe of `mdl_layer`
+/// does). Octane's pin is √α, at most 1 — under Beckmann
 /// (furnace probe: Octane's `brdf` 1 renders single-scatter Smith-Beckmann
 /// at α = pin², 0.966 / 0.807 at pin 0.6 / 0.8 against 0.964 / 0.823) as
 /// under GGX and OpenPBR (whose α is its roughness²; GGX at that α has
@@ -6050,10 +6058,16 @@ fn has_metal(mat: &Material) -> bool {
 /// (Beckmann here 0.98 / 0.99 at 0.999 / 0.994), Calib-Aniso's isotropic
 /// r 0.16 3.34 at 0.69 (1.02 at 0.996). The skin's lobes (#19): its
 /// face's highlight 0.82 – 0.91 × Iray. Not capped at r 1: an anisotropic
-/// long axis runs to r / 0.0001, where α → 1 (#96).
+/// long axis runs to r / 0.0001, where α reaches 1 (at r √2, #96).
 fn phong_pin(r: f32) -> f32 {
+    phong_alpha(r).sqrt()
+}
+
+/// Beckmann's α for Iray's Phong lobe at MDL roughness `r` (`phong_pin`),
+/// at most 1.
+pub(crate) fn phong_alpha(r: f32) -> f32 {
     let r = r.max(0.0);
-    (r / (1.0 + r * r).sqrt()).sqrt()
+    (r * (2.0 / (2.0 + r * r)).sqrt()).min(1.0)
 }
 
 /// The largest Beckmann α (`phong_pin`²) Octane renders a *dielectric*
@@ -7809,7 +7823,8 @@ mod tests {
         assert!((architectural_gloss_to_rough(0.5) - (2.0f32 * 2f32.powi(-11)).sqrt()).abs() < 1e-6);
         // Iray renders the reflection at that roughness as a Phong lobe
         // (#156): Calib-NVIDIA3's glossiness 0.15 / 0.3 / 0.5 / 0.7 pins.
-        for (g, want) in [(0.15f32, 0.410), (0.3, 0.287), (0.5, 0.177), (0.7, 0.109)] {
+        // (#162's α moved g 0.15's 0.410 to 0.412, the rest < 0.001.)
+        for (g, want) in [(0.15f32, 0.412), (0.3, 0.287), (0.5, 0.177), (0.7, 0.109)] {
             assert!((phong_pin(architectural_gloss_to_rough(g)) - want).abs() < 1e-3, "{g}");
         }
     }
@@ -9716,12 +9731,17 @@ mod tests {
 
     #[test]
     fn phong_lobes_take_the_derived_pin_and_beckmann_within_octanes_limit() {
-        // Phong of exponent 2 / r² = Beckmann α = r / √(1 + r²), pin √α.
+        // `libbsdf`'s Phong of exponent e = 2 / r², D(0) = (e + 1) / 2π =
+        // Beckmann α = √(2 / (e + 1)) = r √(2 / (2 + r²)), pin √α (#162);
+        // α 1 at r √2 (e = 1: D flat) and above.
         for r in [0.0f32, 0.01, 0.09, 0.36, 1.0] {
-            let a = r / (1.0 + r * r).sqrt();
+            let e = 2.0 / r.max(1e-9).powi(2);
+            let a = if r == 0.0 { 0.0 } else { (2.0 / (e + 1.0)).sqrt() };
             assert!((phong_pin(r) - a.sqrt()).abs() < 1e-6, "{r}");
+            assert!(r == 0.0 || (1.0 / (std::f32::consts::PI * a * a) / ((e + 1.0) / (2.0 * std::f32::consts::PI)) - 1.0).abs() < 1e-4, "{r}: D(0)");
         }
-        // A metal at any roughness, dielectric lobes up to α 0.25 (r ≈ 0.258).
+        assert!((phong_pin(2f32.sqrt()) - 1.0).abs() < 1e-6 && phong_pin(10.0) == 1.0);
+        // A metal at any roughness, dielectric lobes up to α 0.25 (r ≈ 0.252).
         assert_eq!(phong_brdf(&[]), BRDF_BECKMANN);
         assert_eq!(phong_brdf(&[0.09, 0.25]), BRDF_BECKMANN);
         assert_eq!(phong_brdf(&[0.09, 0.27]), BRDF_GGX_EP);
@@ -10421,8 +10441,8 @@ mod tests {
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;
         // u 0.22, v 0.5125 at mid-grey: roughness √α of v (Beckmann α =
-        // r / √(1 + r²)), anisotropy 1 − √α_u / √α_v, Beckmann.
-        let al = |r: f32| r / (1.0 + r * r).sqrt();
+        // r √(2 / (2 + r²)), #162), anisotropy 1 − √α_u / √α_v, Beckmann.
+        let al = |r: f32| r * (2.0 / (2.0 + r * r)).sqrt();
         let (u, v) = (al(0.22), al(0.5125));
         let rough = &x[x.find("<pin name='roughness'>").unwrap()..];
         assert!(rough.contains(&format!("type='6'>{}<", num(v.sqrt()))), "{x}");

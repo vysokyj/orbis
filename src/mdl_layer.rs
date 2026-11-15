@@ -411,7 +411,7 @@ mod tests {
     use super::*;
 
     fn pin2(r: f32) -> f32 {
-        r / (1.0 + r * r).sqrt()
+        crate::material::phong_alpha(r)
     }
 
     #[test]
@@ -461,9 +461,10 @@ mod tests {
         let k = |base, r| tint_factor(&s(base, r), &Stack { base: Scatter::Transmit, weight: if base == Scatter::Transmit { 0.0 } else { 1.0 }, ..s(base, alpha(r)) }, [1.0; 3])[0];
         assert!(k(Scatter::Transmit, 0.051) > 0.999);
         let (k354, k6) = (k(Scatter::Transmit, 0.354), k(Scatter::Transmit, 0.6));
-        assert!((0.98..0.995).contains(&k354) && (0.95..0.975).contains(&k6), "{k354} {k6}");
+        // (Octane at `phong_alpha`, #162's α: k at r 0.6 → 0.975, k5 → 0.977.)
+        assert!((0.98..0.995).contains(&k354) && (0.95..0.98).contains(&k6), "{k354} {k6}");
         let k5 = k(Scatter::ReflectTransmit, 0.5);
-        assert!((0.95..0.975).contains(&k5), "{k5}");
+        assert!((0.95..0.98).contains(&k5), "{k5}");
     }
 
     #[test]
