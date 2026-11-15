@@ -1,0 +1,104 @@
+// ORBIS calibration module (#112), written for ORBIS (GPL-3.0-or-later).
+// metal_generic's rim, third round. Calib-Furnace-MdlGeneric's G7
+// (metal_generic's structure at Metal Brushed B6's constants, mdl 1.0)
+// keeps M3's rim (rim / centre 0.89) where B6 itself falls to 0.65: B6 /
+// G7 is about 0.94 * sqrt(cos theta_v) ring by ring. What B6 has and G7
+// hasn't: the base::file_texture lookups (weight, roughness u / v) and a
+// valid bump texture - G7's file_bump_texture had texture_2d() (invalid,
+// constant-folded to the normal); B6's is a real image at factor 0, which
+// triggers Iray's builtin bump path (its release notes: "normal clamping if
+// bump/normal mapping is triggered", "darkening ... at grazing angles").
+// One piece at a time on top of G7, then all of them, then NVIDIA's own
+// metal_brushed with B6's flat maps through our brick (the same call DAZ's
+// preset makes). Flat maps: ORBIS's calib-disp-* (grey 128, white, black),
+// installed next to this module by make-mdl-scenes.py.
+mdl 1.0;
+
+import df::*;
+import base::*;
+import nvidia::metal_examples::*;
+
+// metal_generic's structure (weighted glossy over a weighted diffuse base,
+// both under a base::file_bump_texture normal on the tiled coordinate),
+// written the way metal_generic writes it, with tint 0.65 and base weight 0
+// (metal_brushed's); weight, roughness u / v and the bump texture / amount
+// are the parameters the variants below change.
+material generic(
+    float metal_weight = 0.609,
+    float metal_roughness_u = 0.42,
+    float metal_roughness_v = 0.35,
+    uniform texture_2d bump_texture = texture_2d(),
+    uniform float bump_amount = 0.0
+) = let {
+    base::texture_coordinate_info coordinate = base::transform_coordinate(
+        transform: base::rotation_translation_scale(float3(0.0), float3(0.0), float3(3.0, 3.0, 1.0)));
+    float3 bump = base::file_bump_texture(texture: bump_texture, factor: bump_amount, uvw: coordinate);
+} in material(
+    surface: material_surface(
+        scattering: df::weighted_layer(
+            weight: metal_weight,
+            layer: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(0.65),
+                                          roughness_u: metal_roughness_u, roughness_v: metal_roughness_v),
+            normal: bump,
+            base: df::weighted_layer(
+                weight: 0.0,
+                layer: df::diffuse_reflection_bsdf(tint: color(0.5)),
+                normal: bump))));
+
+// H1: G7, the bump a valid flat texture at factor 0 (B6's Bump Strength 0).
+export material bump0() = generic(bump_texture: texture_2d("/orbis/calib-disp-grey.png"), bump_amount: 0.0);
+
+// H2: as H1 at metal_brushed's bump_amount 0.4 (a flat map has no slope).
+export material bump04() = generic(bump_texture: texture_2d("/orbis/calib-disp-grey.png"), bump_amount: 0.4);
+
+// H3: G7, the weight from the flat grey map (metal_brushed's 0.5 + 0.5 L).
+export material weight_map() = let {
+    base::texture_coordinate_info coordinate = base::transform_coordinate(
+        transform: base::rotation_translation_scale(float3(0.0), float3(0.0), float3(3.0, 3.0, 1.0)));
+    base::texture_return weight = base::file_texture(texture: texture_2d("/orbis/calib-disp-grey.png"),
+        color_scale: color(0.5), color_offset: color(0.5), mono_source: base::mono_luminance, uvw: coordinate);
+} in generic(metal_weight: weight.mono);
+
+// H4: G7, roughness u / v from the white / black maps (0.02 + 0.4 L, 0.35 + 0.325 L).
+export material rough_map() = let {
+    base::texture_coordinate_info coordinate = base::transform_coordinate(
+        transform: base::rotation_translation_scale(float3(0.0), float3(0.0), float3(3.0, 3.0, 1.0)));
+    base::texture_return u = base::file_texture(texture: texture_2d("/orbis/calib-disp-white.png"),
+        color_scale: color(0.4), color_offset: color(0.02), mono_source: base::mono_luminance, uvw: coordinate);
+    base::texture_return v = base::file_texture(texture: texture_2d("/orbis/calib-disp-black.png"),
+        color_scale: color(0.325), color_offset: color(0.35), mono_source: base::mono_luminance, uvw: coordinate);
+} in generic(metal_roughness_u: u.mono, metal_roughness_v: v.mono);
+
+// H5: H1 + H3 + H4 - metal_brushed's path written out.
+export material all_maps() = let {
+    base::texture_coordinate_info coordinate = base::transform_coordinate(
+        transform: base::rotation_translation_scale(float3(0.0), float3(0.0), float3(3.0, 3.0, 1.0)));
+    base::texture_return weight = base::file_texture(texture: texture_2d("/orbis/calib-disp-grey.png"),
+        color_scale: color(0.5), color_offset: color(0.5), mono_source: base::mono_luminance, uvw: coordinate);
+    base::texture_return u = base::file_texture(texture: texture_2d("/orbis/calib-disp-white.png"),
+        color_scale: color(0.4), color_offset: color(0.02), mono_source: base::mono_luminance, uvw: coordinate);
+    base::texture_return v = base::file_texture(texture: texture_2d("/orbis/calib-disp-black.png"),
+        color_scale: color(0.325), color_offset: color(0.35), mono_source: base::mono_luminance, uvw: coordinate);
+} in generic(metal_weight: weight.mono, metal_roughness_u: u.mono, metal_roughness_v: v.mono,
+             bump_texture: texture_2d("/orbis/calib-disp-grey.png"), bump_amount: 0.0);
+
+// H6: NVIDIA's metal_brushed itself at B6's inputs (the flat bump map at 0).
+export material nvidia_b6() = nvidia::metal_examples::metal_brushed(
+    brush_texture: texture_2d("/orbis/calib-disp-grey.png"),
+    roughness_texture_u: texture_2d("/orbis/calib-disp-white.png"),
+    roughness_texture_v: texture_2d("/orbis/calib-disp-black.png"),
+    bump_texture: texture_2d("/orbis/calib-disp-grey.png"),
+    bump_amount: 0.0,
+    tiling: float3(3.0, 3.0, 1.0));
+
+// H8: the bare white lobe r 0.4 (MdlVersion M3) under the valid flat bump at 0.
+export material white_bump0() = let {
+    base::texture_coordinate_info coordinate = base::transform_coordinate(
+        transform: base::rotation_translation_scale(float3(0.0), float3(0.0), float3(3.0, 3.0, 1.0)));
+    float3 bump = base::file_bump_texture(texture: texture_2d("/orbis/calib-disp-grey.png"), factor: 0.0, uvw: coordinate);
+} in material(
+    surface: material_surface(
+        scattering: df::weighted_layer(
+            weight: 1.0,
+            layer: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(1.0), roughness_u: 0.4, roughness_v: 0.4),
+            normal: bump)));

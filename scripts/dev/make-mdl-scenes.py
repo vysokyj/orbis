@@ -51,6 +51,16 @@ material file with one Shader Mixer brick material per module material
   varying roughness expression (value 0.4), and metal_generic's whole
   structure (weighted layers, file_bump_texture normal) at
   Calib-Furnace-Brushed B6's constants.
+- Calib-Furnace-MdlTextured (#112, third round): G7 keeps M3's rim where
+  B6 falls (B6 / G7 ~ 0.94 sqrt(cos theta_v)); what B6 has on top, one
+  piece at a time on G7 (all "mdl 1.0"): a valid flat bump texture at
+  factor 0 and at 0.4 (Iray's builtin bump path), the weight and the
+  roughness u / v through base::file_texture on the flat maps, all of
+  them, NVIDIA's metal_brushed itself at B6's inputs through our brick,
+  the bump at factor 0 at "mdl 1.3", and the bare white r 0.4 lobe under
+  that bump. The flat maps (calib-disp-grey / -white / -black from
+  `<library>/Runtime/Textures/ORBIS`, make-calib-scenes.py's) are copied
+  next to the modules.
 - Calib-Point-ArchAniso (#114): that light on NVIDIA's Architectural
   preset (its reflection only) at glossiness 0 / 0.15 / 0.3, isotropic
   and anisotropic - the scene the export maps (Octane side).
@@ -197,6 +207,14 @@ GENERIC = [(f'G{k + 1} v{v} {what}', f'v{v.replace(".", "")}_generic_{mat}', f'o
            for k, (what, mat, v) in enumerate([(w, m, v) for w, m in (('tint 0.65 r 0.4', 'tint_r04'), ('aniso u 0.42 v 0.35', 'aniso_b6'),
                                                                       ('varying r 0.4', 'varying_r04'), ('generic B6', 'generic_b6'))
                                                for v in ('1.0', '1.3')])]
+# #112 third round: the pieces between G7 and B6 (orbis_textured_v10 /
+# _v13, see the module); H6 imports nvidia::metal_examples (Calib-NVIDIA*'s
+# Metal Brushed / Cast Iron module: one import per DAZ session, #94).
+TEXTURED = [(f'H{k + 1} v{v} {what}', f'v{v.replace(".", "")}_textured_{mat}', f'orbis/orbis_textured_v{v.replace(".", "")}.mdl#{mat}')
+            for k, (what, mat, v) in enumerate([('bump 0', 'bump0', '1.0'), ('bump 0.4', 'bump04', '1.0'),
+                                                ('weight map', 'weight_map', '1.0'), ('rough map', 'rough_map', '1.0'),
+                                                ('all maps', 'all_maps', '1.0'), ('nvidia B6', 'nvidia_b6', '1.0'),
+                                                ('bump 0', 'bump0', '1.3'), ('white r 0.4 bump 0', 'white_bump0', '1.0')])]
 # NVIDIA's architectural preset itself under the same light, its lobe alone
 # (diffuse black, reflectivity 1, Schlick 1 / 1: a white constant lobe): the
 # scene the export maps, so it has an Octane side. (label, channels).
@@ -217,6 +235,9 @@ os.makedirs(dst, exist_ok=True)
 for f in sorted(os.listdir(src)):
     if f.endswith('.mdl') and not f.startswith('orbis_path'):
         shutil.copyfile(os.path.join(src, f), os.path.join(dst, f))
+# The flat maps orbis_textured_* reads as /orbis/calib-disp-*.png: B6's own.
+for c in ('grey', 'white', 'black'):
+    shutil.copyfile(os.path.join(LIB, 'Runtime/Textures/ORBIS', f'calib-disp-{c}.png'), os.path.join(dst, f'calib-disp-{c}.png'))
 probe = open(os.path.join(src, 'orbis_path.mdl')).read()
 for _, _, c, root in PATH_PROBE:
     d = os.path.join(LIB, root, 'orbis')
@@ -224,7 +245,7 @@ for _, _, c, root in PATH_PROBE:
     open(os.path.join(d, c.split('/')[1].split('#')[0]), 'w').write(probe)
 
 os.makedirs(os.path.dirname(DSF), exist_ok=True)
-lib_mats = [brick_material(mid, c) for _, mid, c, *_ in PATH_PROBE + VERSION + LOBE + TRANSMIT + ANISO + TIR + RESIN + GENERIC + ARCH_MDL + LEGACY]
+lib_mats = [brick_material(mid, c) for _, mid, c, *_ in PATH_PROBE + VERSION + LOBE + TRANSMIT + ANISO + TIR + RESIN + GENERIC + ARCH_MDL + LEGACY + TEXTURED]
 dsf = {'file_version': '0.6.0.0',
        'asset_info': {'id': DSF_URL, 'type': 'material', 'contributor': {'author': 'ORBIS', 'email': '', 'website': ''}, 'revision': '1.0'},
        'material_library': lib_mats}
@@ -399,3 +420,4 @@ furnace_scene('Calib-Furnace-MdlResin', RESIN)
 furnace_scene('Calib-Furnace-MdlGeneric', GENERIC)
 furnace_scene('Calib-Furnace-MdlArch', ARCH_MDL)
 furnace_scene('Calib-Furnace-MdlLegacy', LEGACY)
+furnace_scene('Calib-Furnace-MdlTextured', TEXTURED)

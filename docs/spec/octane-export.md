@@ -2436,10 +2436,15 @@ leaves out, #15):
     at r 0.4 0.98 → 0.93 at the rim, at r 0.7 / 1 0.91 / 0.83 head-on
     (disk 0.87 / 0.78) — about a fifth of the rim at Brushed's roughness,
     2 – 6 % on NVIDIA's metals' disks, left as Octane over Iray with the
-    rough lobe's energy; the nested empty base adds nothing. Left: the
-    1.0 lobe with the tint, the anisotropy or a varying roughness, and
-    `metal_generic`'s structure at constants (Calib-Furnace-MdlGeneric,
-    #112).
+    rough lobe's energy; the nested empty base adds nothing. Nor, with
+    the 1.0 lobe, the tint (it scales), the anisotropy (u 0.42 / v 0.35
+    = isotropic 0.4), a varying roughness, or `metal_generic`'s whole
+    structure at Brushed B6's constants: rim / centre 0.89 = the bare
+    1.0 lobe's, B6 0.65 (Calib-Furnace-MdlGeneric, #112; B6 / that
+    structure ≈ 0.94 · √cos θ_v per ring). Left: what B6 has on top -
+    `base::file_texture` lookups and a valid bump texture (Iray's
+    builtin bump path) - and NVIDIA's own call through our brick
+    (Calib-Furnace-MdlTextured, #112).
   - Dielectrics (concrete, concrete polished, asphalt, ceramic tiles small,
     granite black, porcelain, resin polyurethane matte, architectural):
     `df::fresnel_layer(ior, weight, glossy, diffuse)` → Universal albedo,
