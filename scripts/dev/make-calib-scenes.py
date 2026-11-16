@@ -93,6 +93,10 @@ a plane under an HDRI) that each change one thing, written beside it.
   Bump in Mode 1 off strength 1 (0.5, 0, 2, under a height map), for the
   .mi: the factor DAZ hands `tangent_space_normal_texture`; -2: the maps
   at 0 beside the other bumps, small strengths, the coat off.
+- Calib-Mi-PBRSkin-NormalStrength (#177): the same for PBRSkin - its
+  Normal Map at 1 / 0.5 / 0 / 2, under a height map and a top coat, the
+  Detail Normal Map at 0.5 and 2; -2 the same with Bump Enable on (it
+  gates the Normal Map), maps at 0, translucency; .mi only.
 - Calib-DualLobePores (#175): the same lobes over pore-sized noise (about
   a pixel on screen): heights at two strengths, the same slopes as a
   normal map at 1 and 0.5, both blended, the diffuse alone, both lobes.
@@ -2746,5 +2750,58 @@ pbr_spheres('Calib-PBRSkin-Colour8', [
     ('C7 makeup lo', CB_HI, {**CB_DL, 'Makeup Enable': True, 'Makeup Weight': 0.5, 'Makeup Base Color': CB_LO}),
     ('C8 makeup hi', CB_LO, {**CB_DL, 'Makeup Enable': True, 'Makeup Weight': 0.5, 'Makeup Base Color': CB_HI}),
 ])
+
+# --- PBRSkin normal map strength (#177): does DAZ hand PBRSkin's Normal Map
+# value (range 0 .. 2) to Iray as `tangent_space_normal_texture`'s factor,
+# as it does the Uber's (#176, Calib-Mi-NormalStrength)? The base Normal
+# Map at 1 / 0.5 / 0 / 2, under a height map (Bump Enable) and a top coat,
+# and the Detail Normal Map (range 0 .. 50) at 0.5 and 2. A `.mi`-only
+# scene. (DL and RED are redefined above for other scenes: spelled out.)
+NS_DL = {'Dual Lobe Specular Enable': True, 'Dual Lobe Specular Weight': 1.0, 'Dual Lobe Specular Reflectivity': 0.5,
+         'Specular Lobe 1 Roughness': 0.4, 'Specular Lobe 2 Roughness Mult': 0.4, 'Dual Lobe Specular Ratio': 0.15}
+NS_RED = [0.45, 0.05, 0.04]
+NS_N = lambda s: {'Normal Map': s, ('Normal Map', 'image'): BUMPS['ridges-n']}
+NS_DN = lambda s: {'Detail Enable': True, 'Detail Weight': 1.0, 'Detail Normal Map': s, ('Detail Normal Map', 'image'): BUMPS['dimples-n'],
+                   'Detail Horizontal Tiles': 1.0, 'Detail Vertical Tiles': 1.0}
+pbr_spheres('Calib-Mi-PBRSkin-NormalStrength', [
+    ('K1 normal 1', NS_RED, {**NS_DL, **NS_N(1.0)}),
+    ('K2 normal 0.5', NS_RED, {**NS_DL, **NS_N(0.5)}),
+    ('K3 normal 0', NS_RED, {**NS_DL, **NS_N(0.0)}),
+    ('K4 normal 2', NS_RED, {**NS_DL, **NS_N(2.0)}),
+    ('K5 normal 0.5 + height', NS_RED, {**NS_DL, **NS_N(0.5), 'Bump Enable': True, 'Bump Strength': 1.0, ('Bump Strength', 'image'): BUMPS['dimples']}),
+    ('K6 normal 0.5 + top coat', NS_RED, {**NS_DL, **NS_N(0.5), 'Top Coat Enable': True, 'Top Coat Weight': 0.5, 'Top Coat Reflectivity': 0.5,
+                                          'Top Coat Roughness': 0.2}),
+    ('K7 detail normal 0.5', NS_RED, {**NS_DL, **NS_DN(0.5)}),
+    ('K8 normal 0.5 + detail normal 2', NS_RED, {**NS_DL, **NS_N(0.5), **NS_DN(2.0)}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for i in d['image_library']:
+        if i['id'] in BUMPS.values():
+            i['map_gamma'] = 1
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+# The .mi of the first showed the Normal Map gated by Bump Enable (only K5
+# enables it): the same strengths with Bump Enable on, a map at 0 beside a
+# height map and under a detail normal, the inverted normal under
+# translucency, a height map at 0.5, a detail weight 0.5.
+NS_B = {'Bump Enable': True}
+NS_H = lambda s: {'Bump Strength': s, ('Bump Strength', 'image'): BUMPS['dimples']}
+pbr_spheres('Calib-Mi-PBRSkin-NormalStrength2', [
+    ('J1 normal 1 bump on', NS_RED, {**NS_DL, **NS_B, **NS_N(1.0)}),
+    ('J2 normal 0.5 bump on', NS_RED, {**NS_DL, **NS_B, **NS_N(0.5)}),
+    ('J3 normal 0 + height', NS_RED, {**NS_DL, **NS_B, **NS_N(0.0), **NS_H(1.0)}),
+    ('J4 normal 0.5 + detail normal 0', NS_RED, {**NS_DL, **NS_B, **NS_N(0.5), **NS_DN(0.0)}),
+    ('J5 normal 0.5 translucent', NS_RED, {**NS_DL, **NS_B, **NS_N(0.5), 'Translucency Enable': True, 'Translucency Weight': 0.5}),
+    ('J6 normal 1 + height 0.5', NS_RED, {**NS_DL, **NS_B, **NS_N(1.0), **NS_H(0.5)}),
+    ('J7 detail normal 0.5 w0.5', NS_RED, {**NS_DL, **NS_DN(0.5), 'Detail Weight': 0.5}),
+    ('J8 normal 0.5 + detail 0.5 + top coat', NS_RED, {**NS_DL, **NS_B, **NS_N(0.5), **NS_DN(0.5), 'Top Coat Enable': True,
+                                                       'Top Coat Weight': 0.5, 'Top Coat Reflectivity': 0.5, 'Top Coat Roughness': 0.2}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for i in d['image_library']:
+        if i['id'] in BUMPS.values():
+            i['map_gamma'] = 1
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
 
 # Scene dumps: scripts/dev/daz-dump.sh (DAZ evaluates each scene headless).

@@ -37,6 +37,14 @@ stacked as below (summarised from the MDL, read 2026-10-31; #57).
    metallic flakes on top, as Iray Uber's.
 
 `Detail *` adds a tiled detail normal and a roughness multiplier.
+
+Bumps (`pbr_detail_normal`, Calib-Mi-PBRSkin-NormalStrength .mi): `Normal
+Map` (0 .. 2) and `Bump Strength` (0 .. 2) reach Iray as the factor of
+their `tangent_space_normal_texture` / `file_bump_texture`, `Detail
+Normal Map` (0 .. 50) likewise; a map at 0 is not passed. Both base maps
+are switched by `Bump Enable` (the graph's `normal_enable` / `bump_enable`
+= Bump Enable ∧ mapped ∧ |value| > 1e-5): a Normal Map without Bump Enable
+does nothing. `detail_enable` is Detail Enable alone.
 `Specular Occlusion *` dims the lobes by an occlusion map.
 
 ## Volume

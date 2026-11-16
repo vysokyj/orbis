@@ -143,12 +143,11 @@ enum BumpKind {
 /// Uber normal map channel (Normal Map, or Top Coat Bump in Mode 1): the
 /// channel's value, held in its definition's range (`Channel::range`;
 /// Normal Map 0 .. 1), None at 0 — the map doesn't reach Iray then
-/// (Calib-Mi-NormalStrength, -2; `iray::uber`). PBRSkin's Normal Map at 1:
-/// no `.mi` shows its value reaching Iray.
+/// (Calib-Mi-NormalStrength, -2; `iray::uber`). PBRSkin's the same, its
+/// range 0 .. 2, and gated by Bump Enable (`Material::float`): DAZ hands
+/// `pbr_detail_normal` the map at its value, and `normal_enable` = Bump
+/// Enable ∧ mapped ∧ value > 0 (Calib-Mi-PBRSkin-NormalStrength, -2; #177).
 fn normal_factor(mat: &Material, id: &str) -> Option<f32> {
-    if crate::iray::is_pbrskin(mat) {
-        return Some(1.0);
-    }
     Some(mat.float(id).unwrap_or(1.0)).filter(|f| *f > 0.0)
 }
 
@@ -2742,11 +2741,13 @@ impl Ocs<'_> {
     }
 
     /// PBRSkin's Detail Normal Map (`Material::pbr_detail_normal`) as a
-    /// linear normal map: its weight, the asset and its placement.
+    /// linear normal map at its strength (the channel's value, DAZ's
+    /// `tangent_space_normal_texture` factor; Calib-Mi-PBRSkin-NormalStrength
+    /// K7, K8, -2 J7, #177): its weight, the asset and its placement.
     fn pbr_detail(&mut self, mat: &Material) -> Option<(f32, String, ImageMod)> {
         let (w, placement) = mat.pbr_detail_normal()?;
         let (a, _) = self.channel_map(mat, "Detail Normal Map")?;
-        let a = self.linear_normal_map(&a, mat.image_gamma("Detail Normal Map"), 1.0);
+        let a = self.linear_normal_map(&a, mat.image_gamma("Detail Normal Map"), mat.float("Detail Normal Map").unwrap_or(1.0));
         Some((w, a, placement))
     }
 
@@ -7548,6 +7549,66 @@ mod tests {
         assert!(nx(&x, &t, "coatingNormal").is_some_and(|g| (g - half).abs() < 0.012), "{x}");
         let (x, _) = export("Top Coat Bump", 0.0, coat);
         assert!(!x.contains("<pin name='coatingNormal'>"), "{x}");
+    }
+
+    /// PBRSkin's Normal Map (#177): the same factor, its range 0 .. 2 (2
+    /// steeper than 1), gated by Bump Enable (Calib-Mi-PBRSkin-NormalStrength
+    /// K1 - K4: none without it); the Detail Normal Map at its value too,
+    /// none at 0 (-2 J4).
+    #[test]
+    fn pbrskin_normal_map_strength_is_the_factor() {
+        let dir = tempfile::tempdir().unwrap();
+        // A texel tilted to (0.6, 0, 0.8).
+        image::RgbImage::from_pixel(8, 8, image::Rgb([204, 128, 230])).save(dir.path().join("n.png")).unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let skin = |bump_enable: bool, f: f64, detail: Option<f64>| {
+            let mut ch = vec![
+                json!({"channel": {"id": "Dual Lobe Specular Enable", "current_value": true}}),
+                json!({"channel": {"id": "Specular Lobe 2 Roughness Mult", "current_value": 0.4}}),
+                json!({"channel": {"id": "Bump Enable", "current_value": bump_enable}}),
+                json!({"channel": {"id": "Normal Map", "current_value": f, "min": 0, "max": 2, "clamped": true, "image_file": "/n.png"}}),
+            ];
+            if let Some(d) = detail {
+                ch.push(json!({"channel": {"id": "Detail Enable", "current_value": true}}));
+                ch.push(json!({"channel": {"id": "Detail Weight", "current_value": 1}}));
+                ch.push(json!({"channel": {"id": "Detail Normal Map", "current_value": d, "image_file": "/n.png"}}));
+                ch.push(json!({"channel": {"id": "Detail Normal Map Mode", "current_value": 1}}));
+            }
+            let mut m = Material::from_dson(&json!({"extra": [{"channels": ch}]}), &HashMap::new());
+            for c in ["Detail Normal Map", "Normal Map"] {
+                if let Some(c) = m.channels.get_mut(c) {
+                    c.gamma = Some(1.0);
+                }
+            }
+            assert!(crate::iray::is_pbrskin(&m));
+            material_inputs(&[("Skin".into(), Rc::new(m), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None)
+        };
+        let nx = |x: &str, textures: &Textures| -> Option<f32> {
+            let n = &x[x.find("<pin name='normal'>")?..];
+            let asset = n[n.find("type='11'>").unwrap() + 10..].split('<').next().unwrap().to_string();
+            match textures.generated.iter().find(|(a, _)| *a == asset) {
+                Some((_, png)) => Some(image::load_from_memory(png).unwrap().to_rgb8().get_pixel(3, 3)[0] as f32 / 255.0 * 2.0 - 1.0),
+                None => Some(204.0 / 255.0 * 2.0 - 1.0),
+            }
+        };
+        // MDL lerps the plain normal to the map's by the factor, then normalizes.
+        let tilt = |f: f32| 0.6 * f / ((0.6 * f) * (0.6 * f) + (1.0 - 0.2 * f) * (1.0 - 0.2 * f)).sqrt();
+        for (f, want) in [(1.0, Some(0.6)), (0.5, Some(tilt(0.5))), (2.0, Some(tilt(2.0))), (0.0, None)] {
+            let (x, t) = skin(true, f, None);
+            let got = nx(&x, &t);
+            assert_eq!(got.is_some(), want.is_some(), "Normal Map {f}: {x}");
+            if let (Some(g), Some(w)) = (got, want) {
+                assert!((g - w).abs() < 0.012, "Normal Map {f}: {g} vs {w}");
+            }
+        }
+        let (x, _) = skin(false, 1.0, None);
+        assert!(!x.contains("n.png"), "Bump Enable off: {x}");
+        // The detail map at 0.5 is a baked copy (onto the flat normal: the
+        // base is off), at 0 left out.
+        let (x, _) = skin(false, 1.0, Some(0.5));
+        assert!(x.contains("OrbisDetailNormal") && x.contains("_n.png") && !x.contains("<pin name='base'"), "{x}");
+        let (x, _) = skin(false, 1.0, Some(0.0));
+        assert!(!x.contains("OrbisDetailNormal") && !x.contains("<pin name='normal'>"), "{x}");
     }
 
     /// PBRSkin's Detail Normal Map (#140): an OSL texture on `normal`

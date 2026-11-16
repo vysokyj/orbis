@@ -1209,7 +1209,8 @@ leaves out, #15):
   own. Not rendered: no Iray reference has a coat over a normal map
   yet. DAZ hands Iray the map at
   its definition's `default_image_gamma` 1, its weight and the tiles as
-  the transform's scale (Calib-PBRSkin-Occlusion O8's `.mi`). Known
+  the transform's scale (Calib-PBRSkin-Occlusion O8's `.mi`), its value
+  as the factor (Normal map strength, below). Known
   input: O8's shading normal (Info kernel, `octane-probe-bumptilt.lua`)
   through the OSL is the same map baked 4 × 4 by hand to 0.18° RMS
   (8.61° vs 8.62° tilt). Against Iray (Calib-PBRSkin-Occlusion O8):
@@ -1637,8 +1638,16 @@ leaves out, #15):
   every normal map went in at 1, so a dialled-down map rendered fully
   bumped (the "no normal map" twins of #19 / #175 kept theirs). The
   formula is MDL's, no constant; Calib-DualLobePores P5 (0.5) against P4
-  (1) is its Iray check. PBRSkin's Normal Map stays at 1: no `.mi` shows
-  its value reaching Iray yet.
+  (1) is its Iray check. **PBRSkin** alike (#177,
+  Calib-Mi-PBRSkin-NormalStrength, -2): its Normal Map (range 0 .. 2:
+  2 passes as 2, steeper than 1), Bump Strength and Detail Normal Map
+  (0 .. 50) each go to `pbr_detail_normal` at their value as the factor,
+  a map at 0 not at all; and **Bump Enable gates the Normal Map too**:
+  DAZ's `normal_enable` is Bump Enable ∧ mapped ∧ value > 0, so a PBRSkin
+  normal map without Bump Enable doesn't reach the surface (K1 – K4), and
+  the export leaves it out (before, it went in at 1 regardless). A Detail
+  Normal Map at 0 is left out: DAZ passes none, and `blend_normals` onto
+  the flat normal keeps the base (J4).
 - **Height and normal maps are decoded at the gamma Iray reads them
   with** (#91): the image's own gamma (Textures, image gamma below),
   else gamma "auto" by the file's pixel type (Map gamma, below: 2.2 for

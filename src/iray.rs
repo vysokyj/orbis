@@ -1172,6 +1172,22 @@ pub fn pbrskin(mat: &Material) -> BTreeMap<&'static str, Arg> {
     // Lobe 1's roughness × lerp(1, this, Detail Weight) under Detail Enable
     // (Calib-PBRSkin-Occlusion O7 / O8).
     out.insert("pbr_material.roughness_detail", Arg::Float(ch.float("Detail Specular Roughness Mult", 1.0)));
+    // The base bumps (#177, Calib-Mi-PBRSkin-NormalStrength, -2): the
+    // Normal Map and the Bump Strength height map, each at its value as
+    // the factor (Normal Map 0.5 / 2 as saved, its range 0 .. 2), enabled
+    // by Bump Enable ∧ mapped ∧ value > 0 — Bump Enable gates the Normal
+    // Map too (K1 - K4: a map without it doesn't reach the surface). A
+    // map at 0 isn't passed (K3, J3). Both: `blend_normals` (the normal
+    // map the base, the height map the detail).
+    let bump_on = on("Bump Enable");
+    for (param, id, kind) in [("normal", "Normal Map", MapKind::Normal), ("bump", "Bump Strength", MapKind::Bump)] {
+        let f = ch.float(id, 1.0);
+        let enable = if param == "normal" { "pbr_detail_normal.normal_enable" } else { "pbr_detail_normal.bump_enable" };
+        out.insert(enable, Arg::Bool(bump_on && ch.image(id).is_some() && f > 1e-5));
+        if let Some(m) = ch.map(id, kind, [f; 3]).filter(|_| bump_on && f > 0.0) {
+            out.insert(if param == "normal" { "pbr_detail_normal.normal" } else { "pbr_detail_normal.bump" }, Arg::Map(m));
+        }
+    }
     // The Detail Normal Map (`pbr_detail_normal`, Calib-PBRSkin-Occlusion
     // O8): blended onto the base normal at Detail Weight, tiled by the
     // Detail Tiles (the transform's scale) — `Material::pbr_detail_normal`.
@@ -2390,6 +2406,37 @@ mod tests {
         assert!(checked > 0 && wrong.is_empty(), "{} of {checked} values differ from DAZ's .mi:\n{}", wrong.len(), wrong.join("\n"));
     }
 
+    /// A constant boolean expression of DAZ's brick graph (`operator&&`,
+    /// `operator||`, `operator>`, `math::abs`, `pass_*`), evaluated.
+    fn const_bool(v: &Value) -> Option<bool> {
+        fn num(v: &Value) -> Option<f64> {
+            if let Some(f) = v.as_f64() {
+                return Some(f);
+            }
+            let m = v["mdl"].as_str()?;
+            let a = &v["args"];
+            if m.starts_with("math::abs") {
+                return num(&a["a"]).map(f64::abs);
+            }
+            m.starts_with("daz_3d::basic::pass_").then(|| num(&a["v"])).flatten()
+        }
+        if let Some(b) = v.as_bool() {
+            return Some(b);
+        }
+        let m = v["mdl"].as_str()?;
+        let a = &v["args"];
+        if m.starts_with("operator&&") {
+            return Some(const_bool(&a["x"])? && const_bool(&a["y"])?);
+        }
+        if m.starts_with("operator||") {
+            return Some(const_bool(&a["x"])? || const_bool(&a["y"])?);
+        }
+        if m.starts_with("operator>(") {
+            return Some(num(&a["x"])? > num(&a["y"])?);
+        }
+        m.starts_with("daz_3d::basic::pass_bool").then(|| const_bool(&a["v"])).flatten()
+    }
+
     /// A PBRSkin call tree's arguments as `function.param`: `pass_*`
     /// wrappers unwrapped, nested layers flattened; expressions (enable
     /// switches DAZ computes in MDL) left out.
@@ -2399,12 +2446,19 @@ mod tests {
         for (k, a) in v["args"].as_object().into_iter().flatten() {
             match a["mdl"].as_str() {
                 Some(n) if (n.contains("pbr_") || n.contains("::add_")) && (!n.contains("normal") || n.contains("pbr_detail_normal")) => flatten_pbr(a, out),
-                // A normal map: the whole texture call (`fixture_map`).
-                Some(n) if n.starts_with("base::tangent_space_normal_texture") => {
+                // A normal or height map: the whole texture call (`fixture_map`).
+                Some(n) if n.starts_with("base::tangent_space_normal_texture") || n.starts_with("base::file_bump_texture") => {
                     out.insert(format!("{func}.{k}"), a.clone());
                 }
                 Some(n) if n.starts_with("daz_3d::basic::pass_") && !a["args"]["v"].is_object() => {
                     out.insert(format!("{func}.{k}"), a["args"]["v"].clone());
+                }
+                // `pbr_detail_normal`'s switches: DAZ's graph of constants
+                // (Bump Enable ∧ mapped ∧ |value| > 1e-5), evaluated.
+                Some(_) if func == "pbr_detail_normal" && k.ends_with("_enable") => {
+                    if let Some(b) = const_bool(a) {
+                        out.insert(format!("{func}.{k}"), Value::Bool(b));
+                    }
                 }
                 // A map: the whole texture call (`fixture_map` reads it).
                 Some(n) if n.starts_with("base::texture_return") => {

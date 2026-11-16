@@ -311,9 +311,15 @@ impl Material {
     /// Detail Weight and its placement — the map's own (`image_mod`) with
     /// the Detail Tiles and Offsets on it, as the material's tiles lie on
     /// a map's (`iray::Channels::map`; Calib-PBRSkin-Occlusion O8: 4 × 4
-    /// tiles reach Iray as the transform's scale 4). None at weight 0.
+    /// tiles reach Iray as the transform's scale 4). None at weight 0, and
+    /// with the map's value (its factor) at 0: DAZ leaves the map out, and
+    /// `blend_normals` onto the flat normal keeps the base
+    /// (Calib-Mi-PBRSkin-NormalStrength2 J4, #177).
     pub fn pbr_detail_normal(&self) -> Option<(f32, ImageMod)> {
         self.image("Detail Normal Map")?;
+        if self.float_as_saved("Detail Normal Map").unwrap_or(1.0) <= 0.0 {
+            return None;
+        }
         if self.float_as_saved("Detail Normal Map Mode").map_or(1, |m| m.round() as i32) != 1 {
             return None;
         }
