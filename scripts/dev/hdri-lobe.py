@@ -16,8 +16,19 @@ scene's own HDRI or a white dome (#186; #95's lost `hdrint3.py`).
       (the raw pass serves: disc and ring means). From a
       Calib-Point-UberGloss export: its eight spheres at POINT_PINS under
       its one small light (no Lambert, no floor; compare with `ratio`).
+      From a Calib-{Point,Furnace}-DualLobeBase-* export (#193): its
+      spheres P1 - P8 at the pins in their names, under its own light.
   hdri-lobe.py ratio <scene> <a.png> <b.png>
       Per sphere disc (< 0.93 R, linear), render a over render b.
+  hdri-lobe.py share <scene> <with.png> <lobe.png> <base.png>
+      Per sphere and ring of r / R: (with - lobe) / base - what a lobe
+      leaves of the diffuse under it, from three twins (grey under the
+      lobe, the lobe over black, the grey alone; Octane or Iray renders).
+  hdri-lobe.py predict <W> <R>
+      Iray's diffuse share under Uber's dual lobe as libbsdf weighs it
+      (custom_curve_layer, the diffuse its layer; R the MDL reflectivity,
+      0.08 x the channel): per ring under the light at the camera and in
+      a white furnace.
   hdri-lobe.py measure <render.png> <hdr> ggx|beckmann diel|metal [--white] [--corr]
       Per sphere and ring of r / R: (Octane / Octane's Lambert G1) over
       (analytic / analytic Lambert). The analytic lobe at alpha = pin^2:
@@ -90,7 +101,11 @@ def variants(src, out, specs):
         return ocs[:start] + xml + ocs[block_end(ocs, start):]
 
     scene = os.path.basename(src).split('.')[0]
-    point = 'Point' in scene
+    point = 'Point' in scene or 'Furnace' in scene
+    # Calib-*-DualLobeBase-* (#193): spheres P1 - P8 named by their pin.
+    pins = POINT_PINS if 'UberGloss' in scene else PINS if not point else {
+        m.group(1): float(f'{m.group(2)}.{m.group(3)}') for m in re.finditer(r"name='/Scene/Materials/(P\d_pin_(\d+)_(\d+))_", ocs0)}
+    assert pins, f'{scene}: no spheres to replace'
     for spec in specs:
         label, brdf, kind, env, *nrm = spec.split(':')
         # Upper case: the base a grey diffuse of albedo 0.5 instead of black
@@ -104,7 +119,7 @@ def variants(src, out, specs):
         else:
             ocs = replace_mat(ocs0, 'Plane', uni('Plane_Default', {'opacity': val(31, 6, 0)}))
             ocs = replace_mat(ocs, 'G1_matte', uni('G1_matte_Default', {'albedo': val(33, 8, '0.2 0.2 0.2'), 'specular': val(33, 8, '0 0 0')}))
-        for mat, pin in (POINT_PINS if point else PINS).items():
+        for mat, pin in pins.items():
             if kind == 'b':
                 ocs = replace_mat(ocs, mat, f"<node id='{n()}' type='505' name='{mat}_Default'><attr name='compatibilityVersion' type='2'>15050000</attr>"
                                   f"<pin name='base'>{val(31, 6, 1)}</pin><pin name='baseColor'>{val(33, 8, grey)}</pin><pin name='specular'>{val(31, 6, 0)}</pin></node>")
@@ -355,8 +370,61 @@ def ratio(scene, a, b):
     print(f'{os.path.basename(a)} / {os.path.basename(b)}: ' + ' '.join(f'{x:.3f}' for x in out))
 
 
+def rings(scene, png):
+    """Per sphere (left to right) the linear luminance summed per ring of
+    r / R (EDGES) and over the disc < 0.93 R, and each ring's pixel count."""
+    from PIL import Image
+    import octane_pass
+    import sphere_discs as sd
+    path, label = octane_pass.pick(png)
+    im = (np.asarray(Image.open(path).convert('RGB'), float) / 255.0) ** 2.2 @ np.array([0.2126, 0.7152, 0.0722])
+    ds, _ = sd.discs(scene, shape=im.shape)
+    ys, xs = np.mgrid[0:im.shape[0], 0:im.shape[1]]
+    out = []
+    for d in ds:
+        rr = np.sqrt(((xs - d.cx) / d.rx) ** 2 + ((ys - d.cy) / d.ry) ** 2)
+        out.append([(im[(rr >= lo) & (rr < hi)].sum(), ((rr >= lo) & (rr < hi)).sum()) for lo, hi in zip(EDGES, EDGES[1:])] + [(im[rr < 0.93].sum(), (rr < 0.93).sum())])
+    return np.array(out), label
+
+
+def share(scene, with_, lobe, base):
+    """(with - lobe) / base per sphere and ring: what the lobe leaves of
+    the diffuse under it (#193), the twins of one scene."""
+    (w, lw), (l, ll), (b, lb) = rings(scene, with_), rings(scene, lobe), rings(scene, base)
+    print(f'{os.path.basename(with_)} ({lw}) - {os.path.basename(lobe)} ({ll}), over {os.path.basename(base)} ({lb})')
+    print('sphere ' + ' '.join(f'{lo:.2f}-{hi:.2f}' for lo, hi in zip(EDGES, EDGES[1:])) + '    disc  lobe/base')
+    for k in range(len(w)):
+        s = (w[k, :, 0] - l[k, :, 0]) / np.maximum(b[k, :, 0], 1e-9)
+        print(f'{k + 1:<6} ' + ' '.join(f'{x:9.3f}' for x in s) + f'   {l[k, -1, 0] / max(b[k, -1, 0], 1e-9):.3f}')
+
+
+def predict(w, r, n=200000):
+    """libbsdf's custom_curve_layer with the diffuse as its layer
+    (`add_dual_lobe_specular`): the layer weighted c(k1 . h), c the Schlick
+    curve from 1 - R W (head-on) to 1 - W (grazing), exponent 5. Per ring
+    of r / R (orthographic view, n . v = sqrt(1 - s^2)) the diffuse's
+    share under the light at the camera (k1 . h = 1: flat 1 - R W) and in
+    a white furnace (cosine-weighted light, Monte Carlo)."""
+    c = lambda x: (1 - r * w) + ((1 - w) - (1 - r * w)) * (1 - np.clip(x, 0, 1)) ** 5
+    rng = np.random.default_rng(1)
+    row = []
+    for lo, hi in list(zip(EDGES, EDGES[1:])) + [(0, 0.93)]:
+        s = np.sqrt(rng.uniform(lo * lo, hi * hi, n))  # uniform over the ring's area
+        v = np.stack([s, np.zeros(n), np.sqrt(1 - s * s)], 1)
+        u1, u2 = rng.random(n), rng.random(n)
+        l = np.stack([np.sqrt(u1) * np.cos(2 * np.pi * u2), np.sqrt(u1) * np.sin(2 * np.pi * u2), np.sqrt(1 - u1)], 1)
+        h = v + l
+        h /= np.linalg.norm(h, axis=1)[:, None]
+        row.append(c((v * h).sum(1)).mean())
+    print(f'W {w} R {r}: coaxial {c(1.0):.3f} flat; furnace ' + ' '.join(f'{x:.3f}' for x in row[:-1]) + f'   disc {row[-1]:.3f}')
+
+
 if sys.argv[1] == 'ratio':
     ratio(sys.argv[2], sys.argv[3], sys.argv[4])
+elif sys.argv[1] == 'share':
+    share(*sys.argv[2:6])
+elif sys.argv[1] == 'predict':
+    predict(float(sys.argv[2]), float(sys.argv[3]))
 elif sys.argv[1] == 'variants':
     variants(sys.argv[2], sys.argv[3], sys.argv[4:])
 elif sys.argv[1] == 'measure':

@@ -3684,7 +3684,8 @@ impl Ocs<'_> {
     /// face kept 0.77 × Iray's dual lobe energy (both lobes α 0.20; STD
     /// 1.05, OpenPBR's GGX 1.03; its p99.5 0.92 at Beckmann, 0.89 at STD) -
     /// not the lobe but the base under it, which a Beckmann dielectric
-    /// lobe dims more (0.963 vs 0.982 head-on, Universal alike; #190, #193),
+    /// lobe dims toward the rim where STD keeps 1 − F0 flat under a light
+    /// at the camera, as Iray's curve layer would (Universal alike; #190, #193),
     /// and STD on the lobes 2 of Victoria, Kayo and Gabriela (α 0.09 -
     /// 0.16) moved their p99.5 by about −0.01. Lobe 1 on the base's bump /
     /// normal, lobe 2 smooth (#174). Two lobes in a Material Layer Group

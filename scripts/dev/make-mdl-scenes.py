@@ -82,6 +82,13 @@ material file with one Shader Mixer brick material per module material
   0.354 / 0.5 / 0.7 / 1 and a dark grey metal at r 0.354 / 0.5 / 0.7 - the
   Phong lobe's highlight head-on where the export's `phong_brdf` leaves
   Beckmann (dielectric alpha > 0.25), the metals the Beckmann control.
+- Calib-Point-DualLobeBase-Grey / -Black / -Off, Calib-Point-DualLobeCurve-
+  Grey / -Black and their Calib-Furnace-* twins (#193): Uber's dual lobe
+  (no gloss) over a grey diffuse 0.5, over black, and the grey alone -
+  what the lobe leaves of the diffuse per angle; P1 - P8 at Phong pins 0.3
+  - 0.9 (W 1, F0 0.04), C1 - C8 at pin 0.448 over the curve's W / R and the
+  two lobes' roughnesses / ratio. The point twins at EV 6.1 (the grey
+  unclipped), the furnace ones at Calib-Furnace-Metal's exposure.
 
 Calib-Mi-MdlPath's .mi (2026-11-13): only P1 resolves, and only once the
 script maps `<library>/shaders/iray` as an MDL directory - DAZ searches its
@@ -401,15 +408,17 @@ furnace_scene('Calib-Point-ArchAniso', ARCH_POINT, ev=11.5, arch=True)
 
 
 def uber_point_scene(name, spheres, ev):
-    """Calib-Furnace-Metal's Uber spheres (floor hidden) under `point_lit`,
-    sphere k on the channels of spheres[k] (label, {channel: value}, base
-    colour); its material_library entry carries the Uber channels."""
+    """Calib-Furnace-Metal's Uber spheres (floor hidden) under `point_lit`
+    (`ev` None: under its own uniform dome, the furnace), sphere k on the
+    channels of spheres[k] (label, {channel: value}, base colour); its
+    material_library entry carries the Uber channels."""
     p = os.path.join(SCENES, name + '.duf')
     if os.path.exists(p) and not FORCE:
         return p
     d = load(FURNACE_METAL)
     d['asset_info']['id'] = '/Scenes/' + name + '.duf'
-    point_lit(d, ev)
+    if ev is not None:
+        point_lit(d, ev)
     geo_node = {g['id']: n for n in d['scene']['nodes'] for g in n.get('geometries', [])}
     mlib = {m['id']: m for m in d['material_library']}
     for m in d['scene']['materials']:
@@ -443,6 +452,49 @@ METAL = lambda r: {'Metallic Weight': 1.0, 'Glossy Roughness': round(r ** 0.5, 4
 UBER_POINT = [(f'U{k + 1} dielectric r {r}', DIEL(r), [0.0, 0.0, 0.0]) for k, r in enumerate((0.25, 0.354, 0.5, 0.7, 1.0))] + \
              [(f'U{k + 6} metal r {r}', METAL(r), [0.1, 0.1, 0.1]) for k, r in enumerate((0.354, 0.5, 0.7))]
 uber_point_scene('Calib-Point-UberGloss', UBER_POINT, ev=3.4)
+
+
+# #193: what Iray's dual lobe leaves of the diffuse under it, per angle.
+# `add_dual_lobe_specular` makes the diffuse the *layer* of a
+# custom_curve_layer (1 - R W head-on, 1 - W at grazing) over the lobes;
+# libbsdf weighs that layer w c(k1 . h) (flat 1 - R W under a light at the
+# camera) and the lobes 1 - w max(c(n . k1), c(n . k2)). Each scene in
+# three twins - a grey diffuse 0.5 under the dual lobe, the lobe over
+# black (the lobe alone), the grey without the lobe - so (grey - black) /
+# off is the diffuse's share per ring; under the point light at the camera
+# and in the uniform furnace. P1 - P8: W 1, Reflectivity 0.5 (F0 0.04),
+# both lobes at the MDL roughness whose `phong_pin` is the label's pin
+# (0.448 Calib-Skin-Nishi's); C1 - C8 at pin 0.448 vary the curve (W, R)
+# and the lobes. #190's grey base at Calib-Point-UberGloss's EV 3.4
+# clipped 38 - 56 % of each disc; EV 6.1 puts the grey's centre near 0.2
+# and pin 0.3's lobe on it under 1.
+def dl_rough(pin):
+    """The MDL roughness r whose Phong pin (`phong_pin`: alpha =
+    r sqrt(2 / (2 + r^2))) is `pin`, as the Uber channel (sqrt r: Roughness
+    Squared)."""
+    lo, hi = 0.0, 1.5
+    for _ in range(60):
+        m = (lo + hi) / 2
+        lo, hi = (m, hi) if m * (2 / (2 + m * m)) ** 0.5 < pin * pin else (lo, m)
+    return round(lo ** 0.5, 4)
+
+
+def DL(w, refl, pin1, pin2=None, ratio=0.85):
+    # Calib-Furnace-Metal's spheres are metals: Metallic Weight 0 here.
+    return {'Metallic Weight': 0.0, 'Glossy Layered Weight': 0.0, 'Dual Lobe Specular Weight': w, 'Dual Lobe Specular Reflectivity': refl, 'Specular Lobe 1 Roughness': dl_rough(pin1),
+            'Specular Lobe 2 Roughness': dl_rough(pin2 if pin2 is not None else pin1), 'Dual Lobe Specular Ratio': ratio}
+
+
+DL_PINS = (0.3, 0.4, 0.448, 0.5, 0.6, 0.7, 0.8, 0.9)
+DL_BASE = [(f'P{k + 1} pin {p}', DL(1.0, 0.5, p)) for k, p in enumerate(DL_PINS)]
+DL_CURVE = [('C1 w1 r0.5', DL(1.0, 0.5, 0.448)), ('C2 w1 r1', DL(1.0, 1.0, 0.448)), ('C3 w1 r0.25', DL(1.0, 0.25, 0.448)),
+            ('C4 w1 r0', DL(1.0, 0.0, 0.448)), ('C5 w0.5 r0.5', DL(0.5, 0.5, 0.448)), ('C6 w0.25 r0.5', DL(0.25, 0.5, 0.448)),
+            ('C7 lobe2 pin 0.3', DL(1.0, 0.5, 0.448, 0.3)), ('C8 lobe2 pin 0.8 ratio 0.5', DL(1.0, 0.5, 0.448, 0.8, 0.5))]
+for light, ev in (('Point', 6.1), ('Furnace', None)):
+    for set_, spheres in (('Base', DL_BASE), ('Curve', DL_CURVE)):
+        uber_point_scene(f'Calib-{light}-DualLobe{set_}-Grey', [(l, c, [0.5] * 3) for l, c in spheres], ev)
+        uber_point_scene(f'Calib-{light}-DualLobe{set_}-Black', [(l, c, [0.0] * 3) for l, c in spheres], ev)
+    uber_point_scene(f'Calib-{light}-DualLobeBase-Off', [(l, {**c, 'Dual Lobe Specular Weight': 0.0}, [0.5] * 3) for l, c in DL_BASE], ev)
 furnace_scene('Calib-Furnace-MdlTir', TIR)
 furnace_scene('Calib-Furnace-MdlResin', RESIN)
 furnace_scene('Calib-Furnace-MdlGeneric', GENERIC)

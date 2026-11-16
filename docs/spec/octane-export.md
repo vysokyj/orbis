@@ -3562,9 +3562,14 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   (#190): a Specular Layer draws Universal's lobe at every model (black
   base, small light / HDRI / furnace, ±0.3 %), Beckmann's lobe is STD's
   (+0.01 on the face's peak pixels); the base under a Beckmann
-  dielectric lobe keeps less (head-on 0.963 against STD's 0.982, F0
-  0.04, on Universal too; Nishi's face base 0.975 ×), and dlflat −
-  gloss0 counts that loss. Which share is Iray's curve: #193. With a
+  dielectric lobe keeps less (Nishi's face base 0.975 × STD's), and
+  dlflat − gloss0 counts that loss. Under a light at the camera (#193,
+  unclipped; #190's 0.963 / 0.982 were half-clipped discs) STD leaves
+  the diffuse 1 − F0 flat at every angle and roughness, as `libbsdf`'s
+  `custom_curve_layer` (the diffuse its layer, weighted c(k1 · h))
+  predicts for Iray, Beckmann 1 − F0 head-on falling to 0.75 – 0.87 at
+  0.9 – 0.93 R; in a white furnace every model falls at the rim. Iray's
+  share per angle: #193. With a
   Top Coat or glossy layer on the coating, one layer at the blended
   roughness, lying over the coating where Iray has it under. PBRSkin
   keeps OpenPBR's lobes in both Looks (its MDL lobes are GGX, #186).
