@@ -102,7 +102,8 @@ the loop, references in `calib/references`): `docs/calibration.md`.
 - **Iray only on the home Iray Server** (skill `iray-queue`; the user's
   rule, 2026-11-16, until they say otherwise): free, but **4 GB VRAM**.
   Generic scenes (`calib/scenes`, generated `Calib-*`) go there on Claude's
-  judgment without asking, in batches of any size; `Demo-*` and private
+  judgment without asking, in batches of any size, headless with
+  `scripts/dev/iray-server.py submit` (#195; login in the git-ignored `.env`); `Demo-*` and private
   scenes only after asking (they may not fit). Claude may start, quit and
   restart the queue-side DAZ and its queue script (2026-11-16; the Iray
   Server itself and its password stay the user's). Never reorder; scenes

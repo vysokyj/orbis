@@ -171,6 +171,14 @@ where a script maps that folder as an MDL directory (`daz-export-mi.dsa`,
    in the user's DAZ Studio, not through `daz-script.sh`: its header has
    the command). `daz-script.sh` puts `customactions.dsx`, shared by every
    instance, back after each run (#181).
+   **Headless** (#195, preferred): `python3 scripts/dev/iray-server.py submit
+   [-s samples] [-o out dir] <scene.duf>…` needs no window and no Bridge: a
+   headless DAZ sets the login (`setBridgeConfiguration`, a `DzSettings` with
+   the Bridge pane's keys; from the git-ignored `.env`) and uploads each
+   capped scene with `exportRenderToBridgeQueue` into the Iray Server's own
+   job queue; the script drives the server's web API (the REST calls of its
+   UI: `POST session`, `GET queue`, `results/<job>.zip`) and lands the PNGs
+   like the Bridge queue does.
    `scripts/dev/iray-queue.sh [-n] [-s samples] [-o out dir] <scene.duf>…`
    queues capped copies (Max Time 0, as Boost asks) and collects the
    renders into the Iray references (`-n` returns at once, `--collect`

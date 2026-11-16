@@ -10,8 +10,10 @@ calib/references/iray/renders.tsv (samples, time cap, renderer, date, render
 time, and `denoiser`: DAZ's Post Denoiser as the image had it, `on@<start
 iteration>` or `off` - the compare scripts read Octane's matching pass, #139).
 The renderer is told by the copy the render was made from: one in the
-queue's done/ folder went through the Iray Server (iray-queue.sh), any other
-through the local CPU Iray (daz-render.sh); --renderer overrides it. The Iray
+queue's done/ folder went through the Iray Server (iray-queue.sh), one
+whose <png>.run.txt names the Iray Server through its own job queue
+(iray-server.py submit, #195), any other through the local CPU Iray
+(daz-render.sh); --renderer overrides it. The Iray
 Server applies the Post Denoiser; the local CPU Iray never does (NVIDIA's
 deep-learning denoiser runs on GPUs only), whatever the scene says, so a CPU
 render is recorded `off` (#171). Only scenes that are in calib/scenes are taken (generated from scratch,
@@ -51,6 +53,7 @@ if demo:
     import demo as demo_lib
 tsv = os.path.join(refs, 'renders.tsv')
 SERVER = 'Iray Server (Boost for Daz)'
+HEADLESS = 'Iray Server (headless submit)'
 CPU = 'DAZ Studio Iray (CPU)'
 renderer = None
 logs = []
@@ -141,7 +144,10 @@ for png in pngs:
               'not the scene\'s camera (#97). Fix the scene (duf_camera.py --fix) and re-render it.')
         continue
     c = caps(copy)
-    how = renderer or (SERVER if os.path.dirname(copy) == os.path.join(calib, 'queue', 'done') else CPU)
+    # iray-server.py submit (#195) leaves <png>.run.txt naming the server.
+    run = png + '.run.txt'
+    headless = os.path.exists(run) and 'Iray Server' in open(run).read()
+    how = renderer or (SERVER if os.path.dirname(copy) == os.path.join(calib, 'queue', 'done') else HEADLESS if headless else CPU)
     samples = int(c.get('Max Samples', 0))
     old = rows.get(name)
     dst = os.path.join(refs, name + '.png')

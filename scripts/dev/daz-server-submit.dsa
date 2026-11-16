@@ -1,0 +1,76 @@
+// ORBIS: send scenes into the Iray Server's own job queue from a headless
+// DAZ Studio - no window, no Bridge Connect (#195). Run by
+// `scripts/dev/iray-server.py submit`, not by hand:
+//   DONE_FILE=<out>/done scripts/dev/daz-script.sh daz-server-submit.dsa <out> <.env> <n> <scene.duf> <camera id> <job name> [...]
+// (n triples; daz-script.sh appends the content directories after them).
+// The login comes from the repo's .env (IRAY_SERVER_HOST/_PORT/_USER/
+// _PASSWORD) and is never written anywhere. DzIrayRenderer.
+// setBridgeConfiguration takes a DzSettings with the Bridge pane's keys
+// (Connection, Server, Port, Secure, Username, Password, Streaming);
+// exportRenderToBridgeQueue(job, "", camera, render options) uploads the
+// open scene as a job and returns a DzError (errorCode 0 = queued). The
+// render runs on the server, never on this Mac's CPU. <out>/submit.txt gets
+// one line per job: "ok <job>" or "failed <job>: <message>".
+// ECMAScript 3, ASCII only.
+(function () {
+    var aArgs = App.scriptArgs;
+    var sOut = aArgs[0], sEnv = aArgs[1];
+    var aLines = [];
+    function write(p, s) {
+        var f = new DzFile(p);
+        f.open(DzFile.WriteOnly | DzFile.Truncate);
+        f.write(s);
+        f.close();
+    }
+    try {
+        var f = new DzFile(sEnv);
+        f.open(DzFile.ReadOnly);
+        var aEnv = String(f.read()).split("\n");
+        f.close();
+        var oEnv = {};
+        for (var i = 0; i < aEnv.length; i++) {
+            var m = /^\s*([A-Z_]+)\s*=\s*(.*?)\s*$/.exec(aEnv[i]);
+            if (m) oEnv[m[1]] = m[2].replace(/^["']|["']$/g, "");
+        }
+        var nPort = parseInt(oEnv.IRAY_SERVER_PORT || "9090", 10);
+        var oSettings = new DzSettings();
+        oSettings.setStringValue("Connection", "Iray Server");
+        oSettings.setStringValue("Server", (oEnv.IRAY_SERVER_HOST || "localhost") + ":" + nPort);
+        oSettings.setIntValue("Port", nPort);
+        oSettings.setBoolValue("Secure", false);
+        oSettings.setStringValue("Username", oEnv.IRAY_SERVER_USER || "");
+        oSettings.setStringValue("Password", oEnv.IRAY_SERVER_PASSWORD || "");
+        oSettings.setBoolValue("Streaming", false);
+        var oRenderer = App.getRenderMgr().getActiveRenderer();
+        oRenderer.setBridgeConfiguration(oSettings);
+        var nJobs = parseInt(aArgs[2], 10);
+        for (var k = 0; k < nJobs; k++) {
+            var j = 3 + 3 * k;
+            var sScene = aArgs[j], sCamera = aArgs[j + 1], sJob = aArgs[j + 2];
+            if (!App.getContentMgr().openFile(sScene, false)) {
+                aLines.push("failed " + sJob + ": could not open " + sScene);
+                continue;
+            }
+            // The scene's current camera by its node id (DAZ's node name);
+            // the only camera when the id is "-".
+            var oCamera = null, nCameras = Scene.getNumCameras();
+            for (var c = 0; c < nCameras; c++) {
+                if (Scene.getCamera(c).name == sCamera) oCamera = Scene.getCamera(c);
+            }
+            if (!oCamera && nCameras == 1) oCamera = Scene.getCamera(0);
+            if (!oCamera) {
+                aLines.push("failed " + sJob + ": camera " + sCamera + " not found (" + nCameras + " cameras)");
+                continue;
+            }
+            var oErr = oRenderer.exportRenderToBridgeQueue(sJob, "", oCamera, App.getRenderMgr().getRenderOptions());
+            var nCode = oErr ? oErr.errorCode : 0;
+            if (nCode) aLines.push("failed " + sJob + ": " + nCode + " " + oErr.errorMsg);
+            else aLines.push("ok " + sJob);
+        }
+    } catch (e) {
+        aLines.push("failed: " + e);
+    }
+    write(sOut + "/submit.txt", aLines.join("\n") + "\n");
+    write(sOut + "/done", "done");
+    App.delayedExit();
+})();
