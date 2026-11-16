@@ -89,6 +89,10 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-DualLobeBump (#174): Uber's dual lobe over a normal map by lobe
   (lobe 1, lobe 2, both; a height map; the diffuse alone), each beside
   its no-map twin: which lobe sees the base normal.
+- Calib-Mi-NormalStrength, -Shown (#176): the Normal Map and the Top Coat
+  Bump in Mode 1 off strength 1 (0.5, 0, 2, under a height map), for the
+  .mi: the factor DAZ hands `tangent_space_normal_texture`; -2: the maps
+  at 0 beside the other bumps, small strengths, the coat off.
 - Calib-DualLobePores (#175): the same lobes over pore-sized noise (about
   a pixel on screen): heights at two strengths, the same slopes as a
   normal map at 1 and 0.5, both blended, the diffuse alone, both lobes.
@@ -1745,6 +1749,55 @@ uber_spheres('Calib-CoatBump', [0.45, 0.05, 0.04], CB, [
     ('B6 base normal', {('Normal Map', 'image'): BUMPS['ridges-n'], 'Normal Map': 1.0}),
     ('B7 coat + base bump', {**COAT_H, ('Bump Strength', 'image'): BUMPS['ridges'], 'Bump Strength': 1.0}),
     ('B8 coat + base normal', {**COAT_H, ('Normal Map', 'image'): BUMPS['ridges-n'], 'Normal Map': 1.0}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for i in d['image_library']:
+        if i['id'] in BUMPS.values():
+            i['map_gamma'] = 1
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+
+# --- Normal map strength (#176): the value DAZ hands Iray as
+# `tangent_space_normal_texture`'s factor - the base Normal Map at 0.5, 0,
+# 2, under a height map, and the Top Coat Bump in Mode 1 at 0.5 and 0, over
+# Calib-CoatBump's maps. .mi only; -Shown: every channel shown.
+NRM = lambda s: {('Normal Map', 'image'): BUMPS['ridges-n'], 'Normal Map': s}
+COAT_N = lambda s: {('Top Coat Bump', 'image'): BUMPS['dimples-n'], 'Top Coat Bump': s, 'Top Coat Bump Mode': 1}
+uber_spheres('Calib-Mi-NormalStrength', [0.45, 0.05, 0.04], CB, [
+    ('N1 normal 1', NRM(1.0)),
+    ('N2 normal 0.5', NRM(0.5)),
+    ('N3 normal 0', NRM(0.0)),
+    ('N4 normal 2', NRM(2.0)),
+    ('N5 normal 0.5 + height', {**NRM(0.5), ('Bump Strength', 'image'): BUMPS['dimples'], 'Bump Strength': 1.0}),
+    ('N6 coat normal 0.5', COAT_N(0.5)),
+    ('N7 coat normal 0.5 + base normal 0.5', {**COAT_N(0.5), **NRM(0.5)}),
+    ('N8 coat normal 0', COAT_N(0.0)),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for i in d['image_library']:
+        if i['id'] in BUMPS.values():
+            i['map_gamma'] = 1
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    for m in d['material_library']:
+        for e in m.get('extra', []):
+            for c in e.get('channels', []) or []:
+                c['channel'].pop('visible', None)
+    p = os.path.join(out_dir, 'Calib-Mi-NormalStrength-Shown.duf')
+    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    print(p)
+# The maps at 0 (N3, N8: DAZ leaves them out) beside the other bumps, and
+# small strengths.
+HGT = lambda s: {('Bump Strength', 'image'): BUMPS['dimples'], 'Bump Strength': s}
+uber_spheres('Calib-Mi-NormalStrength2', [0.45, 0.05, 0.04], CB, [
+    ('Z1 normal 0 + height 1', {**NRM(0.0), **HGT(1.0)}),
+    ('Z2 height 0', HGT(0.0)),
+    ('Z3 normal 0 + height 0', {**NRM(0.0), **HGT(0.0)}),
+    ('Z4 coat height 0', {('Top Coat Bump', 'image'): BUMPS['dimples'], 'Top Coat Bump': 0.0, 'Top Coat Bump Mode': 0}),
+    ('Z5 coat normal 0 + base normal', {**COAT_N(0.0), **NRM(1.0)}),
+    ('Z6 normal 0.25 + coat normal 1', {**NRM(0.25), **COAT_N(1.0)}),
+    ('Z7 normal 0.01', NRM(0.01)),
+    ('Z8 normal + coat normal 0.5, coat off', {**NRM(1.0), **COAT_N(0.5), 'Top Coat Weight': 0.0}),
 ])
 if made[-1][0]:
     d = load(made[-1][0])

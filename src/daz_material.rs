@@ -32,6 +32,10 @@ pub struct Channel {
     /// Color Effect leaves the SSS Reflectance Tint out of the diffuse
     /// (Calib-Mi-SSSTint, #52).
     pub hidden: bool,
+    /// The definition's `min` / `max` where it says `clamped`: DAZ holds
+    /// the value inside them (Calib-Mi-NormalStrength N4: a Normal Map
+    /// saved at 2 reached Iray at its max, 1, #176).
+    pub range: Option<(f32, f32)>,
 }
 
 /// DAZ's per-map settings of one channel's image (`image_modification`,
@@ -194,7 +198,12 @@ impl Material {
             };
             // An override without one keeps the definition's.
             let default_gamma = c.get("default_image_gamma").and_then(Value::as_f64).map(|g| g as f32).or_else(|| self.channels.get(id).and_then(|c| c.default_gamma));
-            self.channels.insert(id.to_string(), Channel { value, image, gamma: None, default_gamma, image_mod, hidden });
+            let range = match (c.get("clamped").and_then(Value::as_bool), c.get("min").and_then(Value::as_f64), c.get("max").and_then(Value::as_f64)) {
+                (Some(true), Some(lo), Some(hi)) if lo <= hi => Some((lo as f32, hi as f32)),
+                (Some(false), ..) => None,
+                _ => self.channels.get(id).and_then(|c| c.range),
+            };
+            self.channels.insert(id.to_string(), Channel { value, image, gamma: None, default_gamma, image_mod, hidden, range });
         };
         if let Some(obj) = m.as_object() {
             for v in obj.values() {
@@ -322,8 +331,9 @@ impl Material {
         if self.gated_off(id) {
             return Some(0.0);
         }
-        match &self.channel(id)?.value {
-            Value::Number(n) => n.as_f64().map(|f| f as f32),
+        let c = self.channel(id)?;
+        match &c.value {
+            Value::Number(n) => n.as_f64().map(|f| c.range.map_or(f as f32, |(lo, hi)| (f as f32).clamp(lo, hi))),
             Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
             // A custom shader's colour-typed map strength (HFGG's "Roughness
             // Map" [1, 1, 1]) read as a scalar: its mean.

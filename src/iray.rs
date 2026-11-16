@@ -411,9 +411,13 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
     // Bumps (#61): the base's height map (Bump Strength) or normal map, and
     // the Top Coat Bump — a height map, or a normal map in Top Coat Bump
     // Mode 1 — each at its channel's value as the factor (Calib-CoatBump,
-    // Calib-Mi-Maps). The MDL gives the coat the two blended
-    // (`calc_mix_layer_normal`); without its own, the base's.
-    let base_bump = match (ch.image("Bump Strength").is_some(), ch.image("Normal Map").is_some()) {
+    // Calib-Mi-Maps, Calib-Mi-NormalStrength: Normal Map 0.5 / 0.25 / 0.01
+    // as the factor, 2 held at its max 1). The MDL gives the coat the two
+    // blended (`calc_mix_layer_normal`); without its own, the base's. A map
+    // at 0 doesn't reach Iray (Calib-Mi-NormalStrength N3, N8, -2 Z1..Z5:
+    // a Normal Map at 0 leaves the height map the base bump).
+    let on = |id: &str| ch.image(id).is_some() && ch.float(id, 1.0) > 0.0;
+    let base_bump = match (on("Bump Strength"), on("Normal Map")) {
         (true, false) => ch.map("Bump Strength", MapKind::Bump, [ch.float("Bump Strength", 1.0); 3]),
         (false, true) => ch.map("Normal Map", MapKind::Normal, [ch.float("Normal Map", 1.0); 3]),
         // Both (Calib-Mi-AoA3): the normal map is the base bump, the height
@@ -422,17 +426,17 @@ pub fn uber(mat: &Material) -> BTreeMap<&'static str, Arg> {
         (true, true) => ch.map("Normal Map", MapKind::Normal, [ch.float("Normal Map", 1.0); 3]),
         _ => None,
     };
-    out.insert("base_bump_enable", Arg::Bool(ch.image("Bump Strength").is_some() || ch.image("Normal Map").is_some()));
+    out.insert("base_bump_enable", Arg::Bool(on("Bump Strength") || on("Normal Map")));
     if let Some(m) = base_bump {
         out.insert("base_bump", Arg::Map(m));
     }
-    let both = ch.image("Bump Strength").is_some() && ch.image("Normal Map").is_some();
+    let both = on("Bump Strength") && on("Normal Map");
     out.insert("base_bump2_enable", Arg::Bool(both));
     if let Some(m) = ch.map("Bump Strength", MapKind::Bump, [ch.float("Bump Strength", 1.0); 3]).filter(|_| both) {
         out.insert("base_bump2", Arg::Map(m));
     }
     let coat_kind = if ch.int("Top Coat Bump Mode", 0) == 1 { MapKind::Normal } else { MapKind::Bump };
-    match ch.map("Top Coat Bump", coat_kind, [ch.float("Top Coat Bump", 1.0); 3]).filter(|_| coat > 0.0) {
+    match ch.map("Top Coat Bump", coat_kind, [ch.float("Top Coat Bump", 1.0); 3]).filter(|_| coat > 0.0 && on("Top Coat Bump")) {
         Some(m) => {
             out.insert("top_coat_bump_enable", Arg::Bool(true));
             out.insert("top_coat_bump", Arg::Map(m));
@@ -484,9 +488,12 @@ impl Channels<'_> {
         self.0.channels.get(id).and_then(|c| c.image.as_deref())
     }
 
+    /// A channel's value, held inside its definition's range where it is
+    /// `clamped` (`Channel::range`, #176).
     fn float(&self, id: &str, default: f32) -> f32 {
+        let range = self.0.channels.get(id).and_then(|c| c.range);
         match self.value(id) {
-            Some(Value::Number(n)) => n.as_f64().map_or(default, |f| f as f32),
+            Some(Value::Number(n)) => n.as_f64().map_or(default, |f| range.map_or(f as f32, |(lo, hi)| (f as f32).clamp(lo, hi))),
             Some(Value::Bool(b)) => f32::from(u8::from(*b)),
             _ => default,
         }

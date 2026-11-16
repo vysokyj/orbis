@@ -1580,7 +1580,9 @@ leaves out, #15):
   Mode 0 (Height Map) a `file_bump_texture`, Mode 1 (Normal Map) a
   `tangent_space_normal_texture`, the channel's value as the factor
   (Calib-CoatBump's .mi, `src/iray.rs`); the base's `base_bump` likewise
-  from Bump Strength or Normal Map. The MDL's coat normal
+  from Bump Strength or Normal Map. A map whose channel is at 0 doesn't
+  reach Iray at all, and a Normal Map at 0 leaves the height map the base
+  bump (Calib-Mi-NormalStrength N3, N8, -2 Z1 – Z5, #176). The MDL's coat normal
   (`calc_mix_layer_normal`) is the coat's bump blended with the base's,
   and **the base's alone when the coat has none** — Octane's coating
   instead takes the unbumped shading normal unless its pins are set (the
@@ -1602,8 +1604,9 @@ leaves out, #15):
   difference of the texels either side, `h[i+1] − h[i−1]`, v up the
   image, the map's luminance decoded at its gamma — below) on unit tangents
   (`apply_bump`: n = normalize(−f · du, −f · dv, 1), f the channel's
-  value), the normal map (`tangent_space_normal_texture`: 2c − 1, |z|)
-  the base and the height map blended onto it by `base::blend_normals`
+  value), the normal map the base (`tangent_space_normal_texture`, MDL
+  SDK `base.mdl`: t = (2c − 1) · f, n = normalize(t.x, t.y, |t.z| + 1 −
+  f), f its channel's value) and the height map blended onto it by `base::blend_normals`
   (reoriented normal mapping; DAZ's `add_detail_normal`), at the larger
   map's size (a coarser height map's slope per its own texel), 8 bits
   ((n + 1) / 2). The inputs leave the package (only what `project.ocs`
@@ -1616,13 +1619,26 @@ leaves out, #15):
   stripes the same from a 48- to a 2-texel period, where MDL's central
   difference gives 0). Its normal map Octane interpolates bilinearly
   (correlation 0.99 with the bilinear normal) and reads as Iray at
-  strength 1 (B5, B6, B8). So the mapping is exact and has no constant:
+  strength 1 (B5, B6, B8), so a normal map alone goes in as it is at
+  strength 1 (and gamma 1, below) and baked at any other strength.
+  So the mapping is exact and has no constant:
   Calib-BumpRes against Iray (`bump-ladder-fit.py`, band-passed residual
   per sphere) 1.18 / 1.22 / 0.23 / 0.77 / 0.80 / 0.34 / 0.56 / 0.17 →
   0.27 / 0.14 / 0.09 / 0.09 / 0.25 / 0.18 / 0.16 / 0.10, Calib-CoatBump
   (RMS of the grey image per sphere) B2 3.5 → 2.5, B3 6.5 → 2.2, B4 9.9
   → 3.3, the rest unchanged or lower; the skin's dual lobe narrows with
   the bump as Iray's does (below, Gloss).
+- **Normal map strength** (#176): DAZ hands Iray the Normal Map's value
+  (and the Top Coat Bump's in Mode 1) as `tangent_space_normal_texture`'s
+  `factor` — 0.5 / 0.25 / 0.01 as they are, 2 at the channel's max 1:
+  DAZ holds a `clamped` channel inside its definition's `min` / `max`
+  (`Channel::range`), 0 leaves the map out (Calib-Mi-NormalStrength,
+  -Shown, -2, Calib-DualLobePores P5; hidden and shown alike). Before,
+  every normal map went in at 1, so a dialled-down map rendered fully
+  bumped (the "no normal map" twins of #19 / #175 kept theirs). The
+  formula is MDL's, no constant; Calib-DualLobePores P5 (0.5) against P4
+  (1) is its Iray check. PBRSkin's Normal Map stays at 1: no `.mi` shows
+  its value reaching Iray yet.
 - **Height and normal maps are decoded at the gamma Iray reads them
   with** (#91): the image's own gamma (Textures, image gamma below),
   else gamma "auto" by the file's pixel type (Map gamma, below: 2.2 for
@@ -1687,7 +1703,8 @@ leaves out, #15):
     for all eight (256 / 1024 / 4096 px, factors 1 / 4 / 16, tiles 2 / 4,
     half size; R2 / R4 between 0.71 and 1, T2 between 1 and 1.41). Iray's
     native bump follows MDL's reference, and the constant holds. Normal
-  maps stay at power 1 (B5, B6, B8 match Iray at Normal Map 1).
+  maps stay at power 1 (B5, B6, B8 match Iray at Normal Map 1; another
+  strength is baked, **normal map strength** above).
 - **Thin-walled refraction with its own inputs** (Share Glossy Inputs off:
   the cornea, the tear film) takes the glossy layer's roughness, not the
   refraction's — Octane's Thin Wall transmission ignores roughness, so the

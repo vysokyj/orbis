@@ -112,7 +112,10 @@ Found beyond it:
   `file_bump_texture` at Bump Strength (`base_bump`; a Normal Map
   `tangent_space_normal_texture` there instead), Top Coat Bump as
   `top_coat_bump` — Mode 0 a `file_bump_texture`, 1 a
-  `tangent_space_normal_texture`, the value as the factor (Calib-CoatBump); UV transform Horizontal / Vertical
+  `tangent_space_normal_texture`, the value as the factor (Calib-CoatBump;
+  a Normal Map's value too, held in its channel's 0 .. 1, and a bump or
+  normal map at 0 not passed at all, a Normal Map at 0 leaving the height
+  map the base bump: Calib-Mi-NormalStrength, #176); UV transform Horizontal / Vertical
   Tiles and Offset, the vertical offset negated; gamma the image's own, else
   "auto" (Iray decides: its loader gives 8 bits a channel 2.2, 16 bits
   2.2 with colour or alpha and 1.0 as one channel, half / float 1.0,

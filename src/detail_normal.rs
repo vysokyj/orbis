@@ -13,7 +13,8 @@
 //! tilts in a one-pixel line at each texel edge). Its normals scatter where
 //! Iray's stay smooth, which widened the skin's highlights (#85). Octane
 //! interpolates a normal map bilinearly and reads it as Iray does at
-//! strength 1, so the height maps go in baked.
+//! strength 1, so the height maps go in baked, and so does a normal map
+//! at another strength (`tangent_space_normal_texture`'s `factor`, #176).
 //!
 //! A normal map and a height map together are DAZ's base and detail bump,
 //! combined by `base::blend_normals` (reoriented normal mapping; DAZ's
@@ -27,11 +28,11 @@
 //! and as a 16-bit PNG as the linear slope.
 
 /// One input: a height map read as MDL's `file_bump_texture` at `factor`,
-/// or a tangent-space normal map (`tangent_space_normal_texture`, factor 1);
-/// its texels decoded at `gamma`.
+/// or a tangent-space normal map read as `tangent_space_normal_texture` at
+/// `factor`; its texels decoded at `gamma`.
 pub enum Source<'a> {
     Height { image: &'a image::DynamicImage, factor: f32, gamma: f32 },
-    Normal { image: &'a image::DynamicImage, gamma: f32 },
+    Normal { image: &'a image::DynamicImage, factor: f32, gamma: f32 },
 }
 
 impl Source<'_> {
@@ -69,11 +70,12 @@ fn field(src: &Source, w: u32, h: u32) -> Field {
     };
     let (wu, hu) = (w as usize, h as usize);
     match src {
-        Source::Normal { image, gamma } => {
-            // MDL: (texel − 0.5) · 2, then apply_bump with the normal's
-            // weight |z|.
+        Source::Normal { image, factor: f, gamma } => {
+            // MDL SDK `base.mdl`: t = (texel − 0.5) · 2 · factor, then
+            // apply_bump on the tangents with the normal's weight
+            // |t.z| + 1 − factor: the plain normal at 0, the map at 1.
             let rgb = decode(resize(image), *gamma);
-            let n = rgb.pixels().map(|p| normalize([2.0 * p[0] - 1.0, 2.0 * p[1] - 1.0, (2.0 * p[2] - 1.0).abs()])).collect();
+            let n = rgb.pixels().map(|p| normalize([f * (2.0 * p[0] - 1.0), f * (2.0 * p[1] - 1.0), (f * (2.0 * p[2] - 1.0)).abs() + 1.0 - f])).collect();
             Field { w: wu, n }
         }
         Source::Height { image, factor, gamma } => {
@@ -178,7 +180,7 @@ mod tests {
         // map twice its size: the slope per the height map's own texel.
         let img = grey(32, 4, |x, _| 0.2 + 0.02 * (x as f32));
         let flat = image::DynamicImage::ImageRgb8(image::ImageBuffer::from_pixel(64, 8, image::Rgb([128, 128, 255])));
-        let out = bake(&Source::Normal { image: &flat, gamma: 1.0 }, Some(&Source::Height { image: &img, factor: 1.0, gamma: 1.0 }));
+        let out = bake(&Source::Normal { image: &flat, factor: 1.0, gamma: 1.0 }, Some(&Source::Height { image: &img, factor: 1.0, gamma: 1.0 }));
         assert_eq!(out.dimensions(), (64, 8));
         let n = decode(out.get_pixel(30, 4));
         assert!((n[0] + 0.04).abs() < 0.012, "{n:?}");
@@ -198,6 +200,19 @@ mod tests {
             let want = normalize([0.0, -4.0 * (d(j + 1) - d(j - 1)), 1.0]);
             let n = decode(out.get_pixel(1, 31 - j));
             assert!((n[1] - want[1]).abs() < 0.01, "j {j}: {n:?} vs {want:?}");
+        }
+    }
+
+    #[test]
+    fn normal_map_strength_is_mdls_factor() {
+        // A tilted texel (0.6, 0, 0.8): at factor 1 as it is, at 0 the
+        // plain normal, at 0.5 normalize(0.3, 0, 0.4 + 0.5) (#176).
+        let t = [0.6f32, 0.0, 0.8];
+        let px = image::Rgb(t.map(|c| ((c * 0.5 + 0.5) * 255.0).round() as u8));
+        let img = image::DynamicImage::ImageRgb8(image::ImageBuffer::from_pixel(4, 4, px));
+        for (f, want) in [(1.0, normalize(t)), (0.0, [0.0, 0.0, 1.0]), (0.5, normalize([0.3, 0.0, 0.9]))] {
+            let n = decode(bake(&Source::Normal { image: &img, factor: f, gamma: 1.0 }, None).get_pixel(1, 1));
+            assert!((0..3).all(|k| (n[k] - want[k]).abs() < 0.01), "factor {f}: {n:?} vs {want:?}");
         }
     }
 

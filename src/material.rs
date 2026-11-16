@@ -123,13 +123,33 @@ impl Textures {
     }
 }
 
-/// A bump input for `Textures::detail_normal`: a packed map, its
-/// `file_bump_texture` factor (None: a normal map) and its image's own
-/// `map_gamma` (None: gamma "auto").
+/// A bump input for `Textures::detail_normal`: a packed map, what it is
+/// and its image's own `map_gamma` (None: gamma "auto").
 struct Bump<'a> {
     asset: &'a str,
-    factor: Option<f32>,
+    kind: BumpKind,
     gamma: Option<f32>,
+}
+
+/// A height map at its `file_bump_texture` factor, or a tangent-space
+/// normal map at its `tangent_space_normal_texture` factor (#176).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum BumpKind {
+    Height(f32),
+    Normal(f32),
+}
+
+/// The factor DAZ hands Iray's `tangent_space_normal_texture` for an
+/// Uber normal map channel (Normal Map, or Top Coat Bump in Mode 1): the
+/// channel's value, held in its definition's range (`Channel::range`;
+/// Normal Map 0 .. 1), None at 0 — the map doesn't reach Iray then
+/// (Calib-Mi-NormalStrength, -2; `iray::uber`). PBRSkin's Normal Map at 1:
+/// no `.mi` shows its value reaching Iray.
+fn normal_factor(mat: &Material, id: &str) -> Option<f32> {
+    if crate::iray::is_pbrskin(mat) {
+        return Some(1.0);
+    }
+    Some(mat.float(id).unwrap_or(1.0)).filter(|f| *f > 0.0)
 }
 
 impl Textures {
@@ -361,7 +381,14 @@ impl Textures {
     /// with its image's own `map_gamma` (None: gamma "auto", by the pixel
     /// type, #91).
     fn detail_normal(&mut self, base: Bump, detail: Option<Bump>) -> Option<String> {
-        let tag = |b: &Bump| format!("{}{}:{}", b.factor.map_or("n".to_string(), |f| format!("h{f}")), b.gamma.map_or(String::new(), |g| format!("g{g}")), b.asset);
+        let tag = |b: &Bump| {
+            let kind = match b.kind {
+                BumpKind::Height(f) => format!("h{f}"),
+                BumpKind::Normal(f) if f == 1.0 => "n".to_string(),
+                BumpKind::Normal(f) => format!("n{f}"),
+            };
+            format!("{kind}{}:{}", b.gamma.map_or(String::new(), |g| format!("g{g}")), b.asset)
+        };
         let key = format!("detail-normal|{}|{}", tag(&base), detail.as_ref().map(tag).unwrap_or_default());
         if let Some(a) = self.by_source.get(&key) {
             return Some(a.clone());
@@ -373,9 +400,9 @@ impl Textures {
         };
         fn src<'a>(img: &'a image::DynamicImage, b: &Bump) -> crate::detail_normal::Source<'a> {
             let gamma = b.gamma.unwrap_or_else(|| crate::daz_material::auto_gamma(img.color()));
-            match b.factor {
-                Some(factor) => crate::detail_normal::Source::Height { image: img, factor, gamma },
-                None => crate::detail_normal::Source::Normal { image: img, gamma },
+            match b.kind {
+                BumpKind::Height(factor) => crate::detail_normal::Source::Height { image: img, factor, gamma },
+                BumpKind::Normal(factor) => crate::detail_normal::Source::Normal { image: img, factor, gamma },
             }
         }
         let bs = src(&bi, &base);
@@ -2488,7 +2515,7 @@ impl Ocs<'_> {
             return;
         }
         let Some(asset) = self.textures.asset(self.dirs, map) else { return };
-        match self.textures.detail_normal(Bump { asset: &asset, factor: Some(amount), gamma }, None) {
+        match self.textures.detail_normal(Bump { asset: &asset, kind: BumpKind::Height(amount), gamma }, None) {
             Some(baked) => self.image_pin(i, "normal", &baked, false, 1.0, 1.0),
             None => {
                 let p = self.bump_power(&asset, amount);
@@ -2580,24 +2607,24 @@ impl Ocs<'_> {
         let coat_normal = mat.float("Top Coat Bump Mode").unwrap_or(0.0) as i32 == 1;
         let layer = coat.and_then(|(a, m)| {
             if coat_normal {
-                Some((a, None, m))
+                normal_factor(mat, "Top Coat Bump").map(|f| (a, BumpKind::Normal(f), m))
             } else {
                 let f = mat.float("Top Coat Bump").unwrap_or(1.0);
-                (f > 0.0).then_some((a, Some(f), m))
+                (f > 0.0).then_some((a, BumpKind::Height(f), m))
             }
         });
-        let base = match self.channel_map(mat, "Normal Map") {
-            Some((a, m)) => Some((a, None, m.placement())),
-            None => self.base_bump(mat).map(|(a, f, m)| (a, Some(f), m)),
+        let base = match self.channel_map(mat, "Normal Map").zip(normal_factor(mat, "Normal Map")) {
+            Some(((a, m), f)) => Some((a, BumpKind::Normal(f), m.placement())),
+            None => self.base_bump(mat).map(|(a, f, m)| (a, BumpKind::Height(f), m)),
         };
         let baked = match (&layer, &base) {
             (None, Some(_)) => return self.surface_detail_pins(i, mat, normal_pin, bump_pin, false),
             (None, None) => return,
-            (Some((l, lf, lm)), Some((b, bf, bm))) if lm == bm => {
-                let bg = mat.image_gamma(if bf.is_some() { "Bump Strength" } else { "Normal Map" });
-                self.textures.detail_normal(Bump { asset: b, factor: *bf, gamma: bg }, Some(Bump { asset: l, factor: *lf, gamma: mat.image_gamma("Top Coat Bump") })).map(|a| (a, *lm))
+            (Some((l, lk, lm)), Some((b, bk, bm))) if lm == bm => {
+                let bg = mat.image_gamma(if matches!(bk, BumpKind::Height(_)) { "Bump Strength" } else { "Normal Map" });
+                self.textures.detail_normal(Bump { asset: b, kind: *bk, gamma: bg }, Some(Bump { asset: l, kind: *lk, gamma: mat.image_gamma("Top Coat Bump") })).map(|a| (a, *lm))
             }
-            (Some((l, lf @ Some(_), lm)), None) => self.textures.detail_normal(Bump { asset: l, factor: *lf, gamma: mat.image_gamma("Top Coat Bump") }, None).map(|a| (a, *lm)),
+            (Some((l, lk @ BumpKind::Height(_), lm)), None) => self.textures.detail_normal(Bump { asset: l, kind: *lk, gamma: mat.image_gamma("Top Coat Bump") }, None).map(|a| (a, *lm)),
             _ => None,
         };
         match baked {
@@ -2645,12 +2672,14 @@ impl Ocs<'_> {
         }
         match (&coat, coat_normal) {
             (Some((a, m)), true) => {
-                let a = self.linear_normal_map(a, gc);
-                self.with_map(*m, |w| w.image_pin(i, normal_pin, &a, false, 1.0, 1.0))
+                if let Some(f) = normal_factor(mat, "Top Coat Bump") {
+                    let a = self.linear_normal_map(a, gc, f);
+                    self.with_map(*m, |w| w.image_pin(i, normal_pin, &a, false, 1.0, 1.0))
+                }
             }
             _ => {
-                if let Some((a, m)) = asset(self, "Normal Map") {
-                    let a = self.linear_normal_map(&a, gn);
+                if let Some(((a, m), f)) = asset(self, "Normal Map").zip(normal_factor(mat, "Normal Map")) {
+                    let a = self.linear_normal_map(&a, gn, f);
                     self.with_map(m, |w| w.image_pin(i, normal_pin, &a, false, 1.0, 1.0));
                 }
             }
@@ -2684,13 +2713,14 @@ impl Ocs<'_> {
     /// too, `coat_bump_pins`). Off for an Uber coat's base maps.
     fn surface_detail_pins(&mut self, i: usize, mat: &Material, normal_pin: &str, bump_pin: &str, detail: bool) {
         let detail = if detail { self.pbr_detail(mat) } else { None };
-        let nm = self.channel_map(mat, "Normal Map").map(|(a, m)| (a, m.placement()));
+        // The Normal Map at its strength; at 0 none (`normal_factor`).
+        let nm = self.channel_map(mat, "Normal Map").zip(normal_factor(mat, "Normal Map")).map(|((a, m), f)| (a, m.placement(), f));
         let bump = self.base_bump(mat);
         if let Some((b, f, bm)) = &bump {
-            if nm.as_ref().map_or(true, |(_, m)| m == bm) {
-                let height = Bump { asset: b, factor: Some(*f), gamma: mat.image_gamma("Bump Strength") };
+            if nm.as_ref().map_or(true, |(_, m, _)| m == bm) {
+                let height = Bump { asset: b, kind: BumpKind::Height(*f), gamma: mat.image_gamma("Bump Strength") };
                 let baked = match &nm {
-                    Some((a, _)) => self.textures.detail_normal(Bump { asset: a, factor: None, gamma: mat.image_gamma("Normal Map") }, Some(height)),
+                    Some((a, _, nf)) => self.textures.detail_normal(Bump { asset: a, kind: BumpKind::Normal(*nf), gamma: mat.image_gamma("Normal Map") }, Some(height)),
                     None => self.textures.detail_normal(height, None),
                 };
                 if let Some(asset) = baked {
@@ -2698,7 +2728,7 @@ impl Ocs<'_> {
                 }
             }
         }
-        let base = nm.map(|(a, m)| (self.linear_normal_map(&a, mat.image_gamma("Normal Map")), m));
+        let base = nm.map(|(a, m, f)| (self.linear_normal_map(&a, mat.image_gamma("Normal Map"), f), m));
         if base.is_some() || detail.is_some() {
             self.normal_pin(i, normal_pin, base, detail);
         }
@@ -2716,7 +2746,7 @@ impl Ocs<'_> {
     fn pbr_detail(&mut self, mat: &Material) -> Option<(f32, String, ImageMod)> {
         let (w, placement) = mat.pbr_detail_normal()?;
         let (a, _) = self.channel_map(mat, "Detail Normal Map")?;
-        let a = self.linear_normal_map(&a, mat.image_gamma("Detail Normal Map"));
+        let a = self.linear_normal_map(&a, mat.image_gamma("Detail Normal Map"), 1.0);
         Some((w, a, placement))
     }
 
@@ -2763,13 +2793,15 @@ impl Ocs<'_> {
     /// says (Calib-BumpGamma-Uber2: its 8-bit map at gamma 2.2 in the
     /// legacy-gamma space rendered as at 1.0). One Iray decodes at another
     /// gamma (`map_gamma` 0 = "auto": 2.2 for 8 bits, #91) goes in re-baked
-    /// linear (`Textures::detail_normal`); at 1, or unreadable, as it is.
-    fn linear_normal_map(&mut self, asset: &str, own: Option<f32>) -> String {
+    /// linear (`Textures::detail_normal`), and so does one at a strength
+    /// (`factor`, `normal_factor`) other than 1 (#176); at gamma 1 and
+    /// factor 1, or unreadable, as it is.
+    fn linear_normal_map(&mut self, asset: &str, own: Option<f32>, factor: f32) -> String {
         let g = self.textures.map_gamma(asset, own);
-        if g == 1.0 {
+        if g == 1.0 && factor == 1.0 {
             return asset.to_string();
         }
-        self.textures.detail_normal(Bump { asset, factor: None, gamma: Some(g) }, None).unwrap_or_else(|| asset.to_string())
+        self.textures.detail_normal(Bump { asset, kind: BumpKind::Normal(factor), gamma: Some(g) }, None).unwrap_or_else(|| asset.to_string())
     }
 
     /// An absorption medium (58) on `medium`: `sigma` (1/m per channel) as
@@ -7472,6 +7504,50 @@ mod tests {
             let nx = img.get_pixel(30, 4)[0] as f32 / 255.0 * 2.0 - 1.0;
             assert!((nx + want).abs() < 0.005, "{gamma:?}: {nx} vs {}", -want);
         }
+    }
+
+    /// The Normal Map's strength is `tangent_space_normal_texture`'s factor
+    /// (#176): at 1 the map as it is, at 0.5 baked half way to the plain
+    /// normal, at 0 none, above 1 held at the channel's max 1; the Top
+    /// Coat Bump's Mode 1 map alike, on the coat.
+    #[test]
+    fn normal_map_strength_is_the_factor() {
+        let dir = tempfile::tempdir().unwrap();
+        // A texel tilted to (0.6, 0, 0.8).
+        image::RgbImage::from_pixel(8, 8, image::Rgb([204, 128, 230])).save(dir.path().join("n.png")).unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let range = json!({"min": 0, "max": 1, "clamped": true});
+        let export = |id: &str, f: f64, extra: Vec<serde_json::Value>| {
+            let mut c = json!({"id": id, "current_value": f, "image_file": "/n.png"});
+            c.as_object_mut().unwrap().extend(range.as_object().unwrap().clone());
+            let mut ch = vec![json!({"channel": c})];
+            ch.extend(extra);
+            let mut m = Material::from_dson(&json!({"extra": [{"channels": ch}]}), &HashMap::new());
+            m.channels.get_mut(id).unwrap().gamma = Some(1.0);
+            material_inputs(&[("M".into(), Rc::new(m), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None)
+        };
+        let nx = |x: &str, textures: &Textures, pin: &str| -> Option<f32> {
+            let n = &x[x.find(&format!("<pin name='{pin}'>"))?..];
+            let asset = n[n.find("type='11'>").unwrap() + 10..].split('<').next().unwrap().to_string();
+            match textures.generated.iter().find(|(a, _)| *a == asset) {
+                Some((_, png)) => Some(image::load_from_memory(png).unwrap().to_rgb8().get_pixel(3, 3)[0] as f32 / 255.0 * 2.0 - 1.0),
+                None => Some(204.0 / 255.0 * 2.0 - 1.0),
+            }
+        };
+        let half = 0.3 / (0.3f32 * 0.3 + 0.9 * 0.9).sqrt();
+        for (f, want) in [(1.0, Some(0.6)), (2.0, Some(0.6)), (0.5, Some(half)), (0.0, None)] {
+            let (x, t) = export("Normal Map", f, vec![]);
+            let got = nx(&x, &t, "normal");
+            assert_eq!(got.is_some(), want.is_some(), "Normal Map {f}: {x}");
+            if let (Some(g), Some(w)) = (got, want) {
+                assert!((g - w).abs() < 0.012, "Normal Map {f}: {g} vs {w}");
+            }
+        }
+        let coat = vec![json!({"channel": {"id": "Top Coat Weight", "current_value": 1}}), json!({"channel": {"id": "Top Coat Bump Mode", "current_value": 1}})];
+        let (x, t) = export("Top Coat Bump", 0.5, coat.clone());
+        assert!(nx(&x, &t, "coatingNormal").is_some_and(|g| (g - half).abs() < 0.012), "{x}");
+        let (x, _) = export("Top Coat Bump", 0.0, coat);
+        assert!(!x.contains("<pin name='coatingNormal'>"), "{x}");
     }
 
     /// PBRSkin's Detail Normal Map (#140): an OSL texture on `normal`
