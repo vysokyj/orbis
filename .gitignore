@@ -44,3 +44,6 @@ __pycache__/
 !/calib/scenes/*.duf
 *.dbz
 !/demo/scenes/*.duf
+
+# Local secrets: the Iray Server login for the headless queue (#195)
+/.env
