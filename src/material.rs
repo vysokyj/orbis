@@ -858,11 +858,12 @@ fn legacy_metal_falloff(r: f32) -> (f32, f32, f32) {
     (l(a.2 .0, b.2 .0), l(a.2 .1, b.2 .1), l(a.2 .2, b.2 .2))
 }
 
-/// Octane's `anisotropyTexture` for an MDL lobe of roughness `u` along
-/// the tangent and `v` across: each axis at its `phong_pin`
-/// (`octane_anisotropy`).
+/// Octane's `anisotropyTexture` for an NVIDIA (`mdl 1.0`) lobe of
+/// roughness `u` along the tangent and `v` across: each axis at its
+/// `legacy_phong_pin` (`octane_anisotropy`; #184: Iray's legacy lobe along
+/// an axis is its isotropic lobe at that axis's roughness).
 fn mdl_anisotropy(u: f32, v: f32) -> f32 {
-    octane_anisotropy(phong_pin(u), phong_pin(v))
+    octane_anisotropy(legacy_phong_pin(u), legacy_phong_pin(v))
 }
 
 /// Octane's `anisotropyTexture` for a lobe whose pins along the tangent
@@ -2505,9 +2506,10 @@ impl Ocs<'_> {
             }
         }
         self.float_pin(i, "metallic", 1.0);
-        // `metal_generic`'s lobe is `simple_glossy_bsdf`: Phong of exponent
-        // 2 / r², which is Beckmann at α = r / √(1 + r²), and Octane's pin
-        // is √α (`phong_pin`) — the rough-glass rule, no constant.
+        // `metal_generic`'s lobe is `simple_glossy_bsdf` in an `mdl 1.0`
+        // module: Iray's legacy Phong of exponent 2 / r², which is
+        // Beckmann at α = r / √(1 + r²), and Octane's pin is √α
+        // (`legacy_phong_pin`, #184) — no constant.
         // Under the Uber gloss's GGX curve (≈ r for a sharp lobe, α ≈ r²)
         // Cast Iron (r ≈ 0.11) reflected the sky 2.4 × too sharply: its
         // band-passed detail 1.30 × Iray with the bump, 1.52 × without
@@ -2517,7 +2519,7 @@ impl Ocs<'_> {
         self.value_pin(i, "brdf", 57, 2, "1");
         // Octane's roughness is the long axis, its anisotropy narrows the
         // other (#23).
-        let rough = |l: f32| phong_pin((uoff + uscale * l).max(voff + vscale * l));
+        let rough = |l: f32| legacy_phong_pin((uoff + uscale * l).max(voff + vscale * l));
         let key = format!("mdl-metal-rough-beckmann|{umap}|{uoff}|{uscale}|{voff}|{vscale}");
         let derived = if umap.is_empty() { None } else { self.textures.derived(self.dirs, umap, &key, 1.0, |l| [rough(l); 3]) };
         match derived {
@@ -2591,14 +2593,25 @@ impl Ocs<'_> {
         // correlation 0.93 → 0.99 (#95).
         // Architectural's glass keeps the pins its roughness rule was swept
         // on (`MdlDielectric::arch_glass_pins`); its reflection is the
-        // Phong lobe (#156).
-        let pin = |r: f32| if m.arch_glass_pins && m.transmission.is_some() { r.clamp(0.0, 1.0).sqrt() } else { phong_pin(r) };
+        // Phong lobe (#156). A reflect-only lobe is the module's `mdl 1.0`
+        // Phong of exponent e (`legacy_phong_pin`, #184); a transmitting
+        // stack keeps `phong_pin`, which its measured tables were fitted on.
+        let pin = |r: f32| {
+            if m.arch_glass_pins && m.transmission.is_some() {
+                r.clamp(0.0, 1.0).sqrt()
+            } else if m.transmission.is_some() {
+                phong_pin(r)
+            } else {
+                legacy_phong_pin(r)
+            }
+        };
         if let Some((u, v, rotation)) = m.aniso.filter(|_| m.transmission.is_none()) {
             // Octane's roughness the long axis, the anisotropy of the α's
             // (`mdl_anisotropy`, as the metals'): each axis at its Phong
             // pin, architectural's too (#114: Iray's lobe reads u / v per
-            // axis at MDL 1.0 as at 1.3).
-            let brdf = phong_brdf(&[u.max(v)], self.rough_lobe);
+            // axis; #184: along an axis it is the isotropic lobe of that
+            // axis's roughness, at 1.0 as at 1.3).
+            let brdf = lobe_brdf(pin(u.max(v)), self.rough_lobe);
             self.value_pin(i, "brdf", 57, 2, brdf);
             let (pu, pv) = (pin(u), pin(v));
             self.float_pin(i, roughness_pin, pu.max(pv));
@@ -2613,7 +2626,7 @@ impl Ocs<'_> {
             let brdf = if m.transmission.is_some() {
                 GLASS_BRDF
             } else {
-                phong_brdf(&[m.roughness], self.rough_lobe)
+                lobe_brdf(pin(m.roughness), self.rough_lobe)
             };
             self.value_pin(i, "brdf", 57, 2, brdf);
             self.float_pin(i, roughness_pin, pin(m.roughness));
@@ -6521,6 +6534,27 @@ pub(crate) fn phong_alpha(r: f32) -> f32 {
     (r * (2.0 / (2.0 + r * r)).sqrt()).min(1.0)
 }
 
+/// Octane's roughness pin for the reflect-only `simple_glossy_bsdf` of an
+/// NVIDIA preset (`metal_examples`, `architectural` and the other
+/// dielectrics, all `mdl 1.0`): Iray's legacy lobe below MDL 1.3 is a
+/// Phong of exponent **e** = 2 / r² (D ∝ cosᵉ), not `libbsdf`'s cos^(e − 1)
+/// (`phong_pin`), so Beckmann's equivalent is Walter's α = √(2 / (e + 2))
+/// = r / √(1 + r²), at most 1; the pin is √α. Derived, no constant
+/// (#184): head-on (Calib-Point-MdlAniso, our own module at 1.0 v 1.3,
+/// the same `base::anisotropy_conversion`; Calib-Point-ArchAniso,
+/// NVIDIA's preset) every 1.0 lobe is the head-on cosᵉ profile to a
+/// pixel at 0.3 / 0.5 of the peak, isotropic or along either axis (r 0.354
+/// 35 × 27 v the model's 35.5 × 27.4; u 0.5 51 × 40 v 51.3 × 40.3; v 0.25
+/// 25 × 19 v 25.1 × 19.2), every 1.3 one the cos^(e − 1) profile (37 ×
+/// 29, 57 × 45, 25 × 20 v 36.6 × 28.3, 56.3 × 44.5, 25.5 × 19.5). The
+/// legacy lobe's lost energy is its own matter (`LEGACY_METAL_RIM`); the
+/// transmitting lobes keep `phong_pin`, the measured tables
+/// (`RESIN_LOBE`, `mdl_layer`'s `LEGACY_LOBE`) were fitted on it.
+fn legacy_phong_pin(r: f32) -> f32 {
+    let r = r.max(0.0);
+    (r / (1.0 + r * r).sqrt()).min(1.0).sqrt()
+}
+
 /// The largest Beckmann α (`phong_pin`²) Octane renders a *dielectric*
 /// Beckmann lobe faithfully at: Universal's `brdf` 1 at a black albedo,
 /// specular 1, IOR 1.5, lit by Calib-Glossy's HDRI, against the analytic
@@ -6554,7 +6588,13 @@ const BRDF_STD: &str = "7";
 /// the variant's `rough` model at the same pin (`RoughLobe`, #162). Plain
 /// GGX lost light on rough dielectric lobes (#56).
 fn phong_brdf(dielectric: &[f32], rough: RoughLobe) -> &'static str {
-    if dielectric.iter().any(|r| phong_pin(*r).powi(2) > BECKMANN_DIELECTRIC_MAX_ALPHA + 1e-6) {
+    lobe_brdf(dielectric.iter().map(|r| phong_pin(*r)).fold(0.0, f32::max), rough)
+}
+
+/// `phong_brdf` for a dielectric lobe whose largest pin is `pin` (an
+/// NVIDIA preset's, `legacy_phong_pin`).
+fn lobe_brdf(pin: f32, rough: RoughLobe) -> &'static str {
+    if pin.powi(2) > BECKMANN_DIELECTRIC_MAX_ALPHA + 1e-6 {
         rough.brdf()
     } else {
         BRDF_BECKMANN
@@ -8499,9 +8539,9 @@ mod tests {
         let (x, _) = material_inputs(&[("Concrete".into(), concrete, 1.0)], &dirs, HashMap::new(), 9300, SkinShader::None);
         let specular = &x[x.find("<pin name='specular'>").unwrap()..];
         assert!(specular[..specular.find("<pin name='roughness'>").unwrap()].contains("concrete_plain_bump"), "{x}");
-        // The Phong lobe's pin; α 0.40, past Octane's dielectric Beckmann:
-        // energy-preserving GGX.
-        assert!(x.contains("0.141") && x.contains("1.46") && x.contains(&format!(">{}<", num(phong_pin(0.4356)))) && x.contains("<pin name='bump'>"), "{x}");
+        // The legacy Phong lobe's pin (#184); α 0.40, past Octane's
+        // dielectric Beckmann: energy-preserving GGX.
+        assert!(x.contains("0.141") && x.contains("1.46") && x.contains(&format!(">{}<", num(legacy_phong_pin(0.4356)))) && x.contains("<pin name='bump'>"), "{x}");
         assert!(x.contains("<pin name='brdf'>") && x.contains("type='2'>6<"), "{x}");
         // Porcelain: its colour, a full gloss; resin: its colour let through.
         let porcelain = nvidia("porcelain", json!([{"channel": {"id": "diffuse", "current_value": [1, 1, 1]}}]));
@@ -8592,11 +8632,11 @@ mod tests {
         ]));
         let (y, _) = material_inputs(&[("Aniso".into(), aniso, 1.0)], &[], HashMap::new(), 9700, SkinShader::None);
         // mia's anisotropy as Iray renders it (u r · √2, v r / √2: a^¼
-        // per axis, #114), each axis at its Phong pin. Octane's
-        // anisotropy of the two pins (`octane_anisotropy`: negative, u the
-        // long axis) 1 − short / long.
+        // per axis, #114), each axis at its legacy Phong pin (#184).
+        // Octane's anisotropy of the two pins (`octane_anisotropy`:
+        // negative, u the long axis) 1 − short / long.
         let r = architectural_gloss_to_rough(0.3);
-        let (pu, pv) = (phong_pin(r * 2f32.sqrt()), phong_pin(r / 2f32.sqrt()));
+        let (pu, pv) = (legacy_phong_pin(r * 2f32.sqrt()), legacy_phong_pin(r / 2f32.sqrt()));
         assert_eq!(pin(&y, "roughness"), num(pu), "{y}");
         assert_eq!(pin(&y, "brdf"), BRDF_BECKMANN, "{y}");
         let a: f32 = pin(&y, "anisotropyTexture").parse().unwrap();
@@ -8611,11 +8651,27 @@ mod tests {
         assert!((architectural_gloss_to_rough(0.0) - 0.125f32.sqrt()).abs() < 1e-6);
         assert!((architectural_gloss_to_rough(0.5) - (2.0f32 * 2f32.powi(-11)).sqrt()).abs() < 1e-6);
         // Iray renders the reflection at that roughness as a Phong lobe
-        // (#156): Calib-NVIDIA3's glossiness 0.15 / 0.3 / 0.5 / 0.7 pins.
-        // (#162's α moved g 0.15's 0.410 to 0.412, the rest < 0.001.)
-        for (g, want) in [(0.15f32, 0.412), (0.3, 0.287), (0.5, 0.177), (0.7, 0.109)] {
-            assert!((phong_pin(architectural_gloss_to_rough(g)) - want).abs() < 1e-3, "{g}");
+        // (#156): Calib-NVIDIA3's glossiness 0.15 / 0.3 / 0.5 / 0.7 pins,
+        // the module's `mdl 1.0` lobe (#184; #162's `phong_pin` had moved
+        // g 0.15's 0.410 to 0.412, the rest < 0.001).
+        for (g, want) in [(0.15f32, 0.410), (0.3, 0.287), (0.5, 0.177), (0.7, 0.109)] {
+            assert!((legacy_phong_pin(architectural_gloss_to_rough(g)) - want).abs() < 1e-3, "{g}");
         }
+    }
+
+    /// Iray's `mdl 1.0` lobe is a Phong of exponent e = 2 / r² (#184):
+    /// Beckmann α² = 2 / (e + 2), one exponent sharper than `phong_pin`'s
+    /// 2 / (e + 1), and at most 1.
+    #[test]
+    fn legacy_pin_is_phong_of_exponent_e() {
+        for r in [0.1f32, 0.25, 0.354, 0.5, 0.7] {
+            let e = 2.0 / (r * r);
+            assert!((legacy_phong_pin(r).powi(4) - 2.0 / (e + 2.0)).abs() < 1e-5, "{r}");
+            assert!((phong_pin(r).powi(4) - 2.0 / (e + 1.0)).abs() < 1e-5, "{r}");
+            assert!(legacy_phong_pin(r) < phong_pin(r));
+        }
+        assert_eq!(legacy_phong_pin(0.0), 0.0);
+        assert_eq!(legacy_phong_pin(1e4), 1.0);
     }
 
     #[test]
@@ -11297,9 +11353,10 @@ mod tests {
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.02, 0.4), rough_v: (String::new(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;
-        // u 0.22, v 0.5125 at mid-grey: roughness √α of v (Beckmann α =
-        // r √(2 / (2 + r²)), #162), anisotropy 1 − √α_u / √α_v, Beckmann.
-        let al = |r: f32| r * (2.0 / (2.0 + r * r)).sqrt();
+        // u 0.22, v 0.5125 at mid-grey: roughness √α of v (the `mdl 1.0`
+        // lobe, Beckmann α = r / √(1 + r²), #184), anisotropy 1 − √α_u /
+        // √α_v, Beckmann.
+        let al = |r: f32| r / (1.0 + r * r).sqrt();
         let (u, v) = (al(0.22), al(0.5125));
         let rough = &x[x.find("<pin name='roughness'>").unwrap()..];
         assert!(rough.contains(&format!("type='6'>{}<", num(v.sqrt()))), "{x}");

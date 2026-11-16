@@ -113,11 +113,7 @@ Leaf, Hair; `scripts/dev/calib-variants.sh all`), Octane / Iray:
   1.09 – 1.24, Calib-NVIDIA2 0.94 – 1.09; Calib-Skin-Victoria-front's face
   unchanged (0.904 → 0.901 × Iray's p99.5: the skin's lobes are #175;
   on Specular Layers since, its face 0.93, Skin).
-  Calib-Point-ArchAniso: isotropic P1 38 × 36 against Iray's 38 × 35, the
-  anisotropic P2 / P7 / P8 ~10 % long on both axes at half the peak (45
-  × 20 against 40 × 18) — Octane's STD keeps the anisotropy law
-  (Anisotropy), so the excess is the anisotropic lobe's on Iray's side,
-  0.9 × as wide as its isotropic lobes at the axis roughness (#184).
+  Calib-Point-ArchAniso: see Gloss (#184, the `mdl 1.0` lobe's pin).
   Enhanced is unchanged.
 - Shared misses, not variant-bound: Calib-Glass sphere 4 2.4 × in all
   four (the 2.8 read through the split boxes, #146); Preview's Glass sphere 7 0.81 and Mixing sphere 8 0.76 (Final
@@ -1451,13 +1447,33 @@ leaves out, #15):
 - **BSDF model and roughness.** Every Uber lobe is `simple_glossy_bsdf`
   (`choose_bsdf` at `dfm_glossy`; DAZ never sets `df_mode`): the gloss,
   the dual lobe's two, the Top Coat, the refraction — and the NVIDIA
-  dielectrics' gloss. Phong of exponent e = 2 / r² (r = Iray's roughness
+  presets' lobes (their `mdl 1.0`: the legacy lobe below). Phong of exponent e = 2 / r² (r = Iray's roughness
   after its squaring), after Ashikhmin & Shirley: `libbsdf` samples the
   half vector at cos θ = (1 − u)^(1 / (e + 1)), so D (n · h) = (e + 1) / 2π
   cosᵉ — D is Walter's normalised Phong of exponent e − 1, D(0) = (e + 1)
   / 2π — = Beckmann at **α = √(2 / (e + 1)) = r √(2 / (2 + r²))**, at
   most 1 (reached at r √2, e = 1, where D is flat); Octane's roughness
-  pin is √α (`phong_pin`; derived, no constant). The earlier r / √(1 +
+  pin is √α (`phong_pin`; derived, no constant). **Modules below MDL
+  1.3** (all of NVIDIA's presets DAZ ships are `mdl 1.0`) get Iray's
+  legacy lobe instead: a Phong of exponent **e** itself, D ∝ cosᵉ, so
+  their reflect-only lobes (the metals, the dielectrics' gloss,
+  architectural's reflection, per axis when anisotropic) take Walter's
+  **α = r / √(1 + r²)** (`legacy_phong_pin`, #184). Head-on
+  (Calib-Point-MdlAniso: our own module at 1.0 / 1.3 through the same
+  `base::anisotropy_conversion`; Calib-Point-ArchAniso: NVIDIA's
+  architectural; point light at the camera, Iray 2000) every 1.0 lobe is
+  the cosᵉ profile at 0.3 / 0.5 of the peak to a pixel and every 1.3 one
+  the cos^(e − 1) profile: r 0.354 35 × 27 v 37 × 29 (model 35.5 × 27.4 v
+  36.6 × 28.3), u 0.5 51 × 40 v 57 × 45 (51.3 × 40.3 v 56.3 × 44.5), v
+  0.25 25 × 19 v 25 × 20 — isotropic or along either axis alike, so the
+  anisotropy and the conversion (u = r · a^¼) stand. The transmitting
+  1.0 lobes (resin's base, architectural's glass and the coat over them)
+  keep `phong_pin`: their measured loss tables were fitted on it. Octane
+  Faithful (STD) at the legacy pin, Calib-Point-ArchAniso v Iray: P2 (a 4)
+  51 × 24 / 40 × 18 v 52 × 25 / 40 × 18 (was 57 × 26 / 45 × 20), P7 (a
+  0.25) 25 × 49 / 19 × 38 v 25 × 48 / 19 × 38, P8 27 × 50 / 20 × 40 v 27
+  × 48 / 21 × 38, the isotropic spheres unchanged; Calib-NVIDIA / -2 / -3
+  sphere means within 0.01 of before in both Looks. The earlier r / √(1 +
   r²) (Walter's √(2 / (e + 2)), a Phong of exponent e) had Octane's
   head-on peak (e + 2) / (e + 1) × Iray's (#162): Calib-Point-UberGloss
   (Uber dielectric gloss over black, point light at the camera, Iray
@@ -2647,10 +2663,10 @@ leaves out, #15):
     albedo and edge tint = Metal Color (`diffuse`) × (offset + scale ·
     reflection map) clamped to 0 – 1 (`weighted_layer` clamps its weight;
     Cast Iron's 0.5 + 3 · map is mostly 1; the tinted `simple_glossy_bsdf`
-    has no Fresnel). The lobe is `simple_glossy_bsdf`, Phong of exponent
-    2 / r² per axis = Beckmann at α = r √(2 / (2 + r²)) (#162), Octane's
-    pin √α: the rough-glass rule, **Beckmann** (`brdf` 1) at `phong_pin`
-    — no constant. Octane's roughness = the longer
+    has no Fresnel). The lobe is `simple_glossy_bsdf` in an `mdl 1.0`
+    module, Iray's legacy Phong of exponent 2 / r² per axis = Beckmann at
+    α = r / √(1 + r²) (#184, Gloss above), Octane's pin √α,
+    **Beckmann** (`brdf` 1) at `legacy_phong_pin` — no constant. Octane's roughness = the longer
     axis per texel, anisotropy = **1 − pin_u / pin_v** of the two axes'
     pins **per texel** (Octane's semantics, Anisotropy above) (a derived map when one map drives both axes, as
     in both presets; else at a mid-grey texel), the bump baked into a
@@ -2811,10 +2827,11 @@ leaves out, #15):
     with that F0 (0.2 → 2.62), metal, transparency and cutout opacity;
     glossiness g → MDL roughness r by `base::architectural_gloss_to_rough`
     (MDL SDK `base.mdl`: √(2 · 2^(−4 − 14 g)), a mirror at g = 1, 0.35 at
-    0) — what DAZ's .mi hands Iray. **The reflection is the Phong lobe at
-    that r** (`phong_pin` under `phong_brdf`, as every `simple_glossy_bsdf`,
-    Gloss above; the module's reflection is that df straight from the
-    conversion). Derived, nothing fitted (#156). Why: Calib-NVIDIA3's
+    0) — what DAZ's .mi hands Iray. **The reflection is the legacy Phong
+    lobe at that r** (`legacy_phong_pin` under the Look's `brdf` past α
+    0.25, the `mdl 1.0` lobe of Gloss above; the module's reflection is
+    that df straight from the conversion). Derived, nothing fitted (#156,
+    #184). Why: Calib-NVIDIA3's
     glossiness sweep (#21) had found Octane pins 0.4 / 0.25 / 0.15 / 0.05 –
     0.1 at g 0.15 / 0.3 / 0.5 / 0.7 on correctly placed discs; read back
     through the Uber's former GGX curve (min(r + 1.85 r², √r), #56) they
