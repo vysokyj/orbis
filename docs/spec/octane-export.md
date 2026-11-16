@@ -1349,8 +1349,15 @@ leaves out, #15):
   / 1.52 × Iray's, K1 1.12) is the lobes' shape: PBRSkin's lobes are
   GGX (`microfacet_ggx_smith_bsdf`), the export draws them at the Phong
   pin; Universal's GGX (`brdf` 2) brings K1 / K7 / K8 to 1.00 / 1.15 /
-  1.16 but Calib-PBRSkin's dual lobes' rim 1.19 -> 1.27 and P6's
-  spread 1.08 -> 1.39 - #175's / #162's open choice, not taken here.
+  1.16 (#186). Calib-PBRSkin's dual lobes, whose rim / P6's spread rose
+  1.19 -> 1.27 / 1.08 -> 1.39 under it, were already GGX EP (lobe 1 at
+  α 0.36, past `BECKMANN_DIELECTRIC_MAX_ALPHA`): against Beckmann GGX
+  lowers them too (P2 1.47 -> 1.26). Checked against Iray on
+  Calib-PBRSkin-Metal (enhanced-final 400, rim, frame N1 1.27): metal
+  0.5 / 1 1.23 / 1.18, grey metal 1.07, lobe 2 off 1.25, Dual Lobe
+  Specular Weight 0.5 1.26 - the metal at or under the frame; what
+  stays on every dual lobe (rim B 1.30 - 1.45 in each lobe model) is
+  the dielectric's grazing level, #188.
 - **PBRSkin metal without its dual lobe is black** (#178, from
   `pbr_skin.mdl`, no fit): with Dual Lobe Specular Enable off
   `dual_specular_bsdf` is `bsdf()`, so the metal's `directional_factor`
@@ -1364,6 +1371,8 @@ leaves out, #15):
   as the coat lies over the whole stack) and the base at metal 0; the
   makeup's metal side likewise. Dual Lobe Specular Weight 0 with the
   lobe enabled is not this: the weight is the dielectric curve's alone.
+  Iray agrees: Calib-PBRSkin-Metal N7 1.09 core / 1.09 rim × Iray (N2's
+  core 1.10), no highlight in either.
   One Universal at Metallic Weight w held a metal at lobe 1's roughness.
 - **Glossy layer over a dual lobe** (#106): DAZ's MDL has both in the
   stack at once — the dual lobe over the diffuse (`dl_diffuse_bsdf`), the
