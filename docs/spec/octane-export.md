@@ -3568,8 +3568,17 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   the diffuse 1 − F0 flat at every angle and roughness, as `libbsdf`'s
   `custom_curve_layer` (the diffuse its layer, weighted c(k1 · h))
   predicts for Iray, Beckmann 1 − F0 head-on falling to 0.75 – 0.87 at
-  0.9 – 0.93 R; in a white furnace every model falls at the rim. Iray's
-  share per angle: #193. With a
+  0.9 – 0.93 R; in a white furnace every model falls at the rim. Iray
+  (#193, twins Calib-{Point,Furnace}-DualLobe{Base,Curve}-*) keeps the
+  diffuse a flat 1 − R W at every ring, pin and light, furnace included
+  (0.954 – 0.962 at W 1, F0 0.04): `libbsdf`'s curve layer. So STD is
+  Iray's base under a light near the view, and every Octane model loses
+  10 – 15 % too much at the rim under an environment (BRDF-intrinsic, not
+  a pin; there the lobe's Fresnel rim, #188, takes it back: grey net
+  1.00 – 1.07 × Iray in the furnace with the dome's 1.037). STD's sharp
+  lobe is Beckmann's (lobe over black 1.01 × Iray point, 1.3 furnace);
+  sharp non-skin lobes at STD in Faithful are #196, Iray's grazing lobe
+  at Reflectivity 0 (the export draws none) #197. With a
   Top Coat or glossy layer on the coating, one layer at the blended
   roughness, lying over the coating where Iray has it under. PBRSkin
   keeps OpenPBR's lobes in both Looks (its MDL lobes are GGX, #186).

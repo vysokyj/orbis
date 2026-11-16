@@ -117,16 +117,67 @@ twin's C4 shows how much. The second lobe's
 roughness / ratio (C7 / C8) moves only C8's rim (lobe 2 at pin 0.8 is
 STD in Faithful: flat 0.962).
 
+## 6. Iray (resume, references bbf7014)
+
+The ten twins on the home Iray Server (2000 samples point, 5000 furnace,
+denoised). (Grey − Black) / Off per ring:
+
+| set | sphere | 0 – 0.3 | 0.5 – 0.6 | 0.7 – 0.8 | 0.85 – 0.9 | 0.9 – 0.93 | disc |
+|---|---|---|---|---|---|---|---|
+| Point Base | P1 – P8 (pin 0.3 – 0.9) | 0.956 – 0.961 | 0.961 | 0.961 – 0.963 | 0.961 – 0.965 | 0.960 – 0.965 | 0.960 – 0.962 |
+| Furnace Base | P1 – P8 | 0.942 – 0.966 | 0.949 – 0.960 | 0.954 – 0.961 | 0.952 – 0.960 | 0.948 – 0.959 | 0.954 – 0.962 |
+| Point Curve | C2 (F0 0.08) | 0.911 | 0.921 | 0.923 | 0.927 | 0.927 | 0.921 |
+| Point Curve | C3 / C4 / C5 / C6 | 0.980 / 1.000 / 0.979 / 0.991 | | | | | 0.981 / 1.000 / 0.981 / 0.991 |
+| Furnace Curve | C2 | 0.924 | 0.925 | 0.931 | 0.925 | 0.918 | 0.925 |
+| Furnace Curve | C4 (R 0) | 1.000 | 1.000 | 0.997 | 0.996 | 0.992 | 0.998 |
+
+**Iray is `libbsdf`'s curve layer**: the diffuse keeps a flat 1 − R W
+at every ring, pin, second-lobe setting and light (the furnace's
+0.94 – 0.97 head-on is noise on a 5000-sample render; the predicted
+0.960 → 0.953 rim fall is within it). Answer to the issue: neither
+Beckmann nor STD everywhere. STD is Iray's base under a light near the
+view; Beckmann loses 13 – 16 % too much at the rim there. In the furnace
+every Octane model loses 10 – 15 % at the rim where Iray loses nothing.
+That loss belongs to the BRDF model, and no pin removes it.
+
+The export as shipped against these (shares as in section 5):
+
+- Point: pins ≤ 0.448 (Beckmann, both Looks) 0.84 – 0.87 at the rim, disc
+  0.944 – 0.948 vs Iray's 0.961; pins ≥ 0.5 (STD / GGX EP) 0.962 = Iray.
+- Furnace: disc 0.886 – 0.937 (Faithful), 0.921 – 0.937 (Enhanced) vs
+  0.954 – 0.962; rim 0.81 – 0.87 (Enhanced's GGX EP 0.87 – 0.92).
+
+The lobe alone (-Black twins, export / Iray, disc): point Faithful
+0.986 – 1.012, Enhanced 0.89 – 1.06 (GGX EP's rough pins); furnace
+Faithful 1.22 – 1.35, Enhanced 0.96 – 1.34, per ring 1.09 head-on to
+1.4 – 1.6 at 0.85 – 0.9 R at the sharp pins - with the grey alone at
+1.037 × Iray in the furnace (the dome's level, as Calib-Env-DomeMode1's
+1.03 – 1.04; 1.007 – 1.019 under the point light), head-on ~1.05 and the
+rim the curve's Fresnel shape (#188, kept). Under an environment Octane
+moves energy from the base into the lobe at grazing; Iray does not.
+Grey net (export / Iray, disc): point 0.99 – 1.01, furnace 1.00 – 1.07.
+
+Per model (the c193 Universal variants' lobes over black, disc / Iray),
+sharp pins 0.3 – 0.448: Beckmann point 1.015 – 1.018, furnace 1.29 –
+1.36; **STD point 1.013 – 1.015, furnace 1.29 – 1.33**. STD draws the
+same sharp lobe as Beckmann and keeps the base under a light near the
+view. Faithful at STD for sharp dielectric lobes too is #196 (contested,
+to judge on real scenes). C4 (Reflectivity 0): Iray's lobe alone 0.000
+under the point light, 0.028 × the base in the furnace (W (1 − cos)^5 at
+grazing); the export draws none (#197).
+
 ## Where it stands
 
-- Iray batch parked in #193 (10 scenes); the resume compares Iray's
-  share per ring with `libbsdf`'s prediction and the Octane models.
-- No export change yet: the skin's dual-lobe layers already sit at STD
-  (#175), the model whose base share matches the prediction.
-- dlflat − gloss0 on a face mixes the lobe and the diffuse's loss; with
-  STD's base right, the face's remaining difference to Iray would be the
-  lobe (its curve at the macro normal, #188's rim) - which the resume
-  can tell from the -Black twins alone.
+- #193 answered: Iray's diffuse share is flat 1 − R W (`libbsdf`), no
+  Octane model is that everywhere; STD is it under a light near the view.
+- No export change here: the Uber skin's Faithful dual lobe already sits
+  at STD (#175); sharp dielectric lobes elsewhere at STD in Faithful is
+  #196; the R 0 grazing lobe #197.
+- dlflat − gloss0 stays #175's metric: it is the dual lobe's net effect
+  (lobe minus the base it takes), compared with Iray's same net; under a
+  light near the view the Faithful skin's base part is Iray's (STD), so
+  the difference there is the lobe's. Under an environment it mixes in
+  the rim trade above; split it with -Black twins when that matters.
 
 ## Process
 
