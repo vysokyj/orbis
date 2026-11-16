@@ -3558,7 +3558,13 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   `phong_pin`; lobe 1 on the base's normal, lobe 2 smooth) and **`brdf`
   STD** (7) for both - the sharp ones too: at Beckmann (what
   `phong_brdf` gives a lobe under α 0.25) Nishi's lobes (α 0.20) kept
-  0.77 × Iray's energy over the face, STD 1.05, GGX 1.03 (#190). With a
+  0.77 × Iray's energy over the face, STD 1.05, GGX 1.03. Not the lobe
+  (#190): a Specular Layer draws Universal's lobe at every model (black
+  base, small light / HDRI / furnace, ±0.3 %), Beckmann's lobe is STD's
+  (+0.01 on the face's peak pixels); the base under a Beckmann
+  dielectric lobe keeps less (head-on 0.963 against STD's 0.982, F0
+  0.04, on Universal too; Nishi's face base 0.975 ×), and dlflat −
+  gloss0 counts that loss. Which share is Iray's curve: #193. With a
   Top Coat or glossy layer on the coating, one layer at the blended
   roughness, lying over the coating where Iray has it under. PBRSkin
   keeps OpenPBR's lobes in both Looks (its MDL lobes are GGX, #186).

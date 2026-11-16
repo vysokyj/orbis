@@ -2,14 +2,22 @@
 """Octane's glossy lobes against the analytic microfacet lobe under the
 scene's own HDRI or a white dome (#186; #95's lost `hdrint3.py`).
 
-  hdri-lobe.py variants <Calib-Glossy.orbx> <out dir> <label>:<brdf>:<d|m>:<h|w>...
+  hdri-lobe.py variants <Calib-Glossy.orbx|Calib-Point-UberGloss.orbx> <out dir> <label>:<brdf>:<d|m|l|p>:<h|w>[:<r,g,b>]...
       Variants of a Calib-Glossy export with every sphere replaced: G1 a
       Lambert of albedo 0.2 (the normaliser), G2 - G8 black dielectrics
       (specular 1, IOR 1.5; `d`) or white metals (metallic 1; `m`) at the
-      pins in PINS, Universal `brdf` <brdf>; floor hidden; the HDRI kept
+      pins in PINS, Universal `brdf` <brdf>; or the dielectric lobe as a
+      Specular Layer (139) over a black base, in a Layered material (143,
+      `l`) or on OpenPBR's `layer` pin (505, `p`), or two of specular 0.5
+      in a Material Layer Group there (`g`; #190); <r,g,b> a
+      constant normal-map colour on the lobe; floor hidden; the HDRI kept
       (`h`) or the dome a uniform white (`w`). Writes
       <out dir>/Calib-Glossy__<label>.orbx; render with octane-render.sh
-      (the raw pass serves: disc and ring means).
+      (the raw pass serves: disc and ring means). From a
+      Calib-Point-UberGloss export: its eight spheres at POINT_PINS under
+      its one small light (no Lambert, no floor; compare with `ratio`).
+  hdri-lobe.py ratio <scene> <a.png> <b.png>
+      Per sphere disc (< 0.93 R, linear), render a over render b.
   hdri-lobe.py measure <render.png> <hdr> ggx|beckmann diel|metal [--white] [--corr]
       Per sphere and ring of r / R: (Octane / Octane's Lambert G1) over
       (analytic / analytic Lambert). The analytic lobe at alpha = pin^2:
@@ -40,6 +48,11 @@ sys.path.insert(0, HERE)
 PINS = {'G2_refl_0_5': 0.05, 'G3_refl_0_25': 0.4, 'G4_refl_1': 0.5, 'G5_refl_0': 0.6,
         'G6_rough_0_1': 0.7, 'G7_rough_0_6': 0.8, 'G8_dual_lobe': 1.0}
 PIN_ORDER = [None, 0.05, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0]  # discs left to right
+# Calib-Point-UberGloss (one small light, no floor): every sphere replaced,
+# U1 - U8 left to right; 0.448 is Calib-Skin-Nishi's dual lobe (#190).
+POINT_PINS = {'U1_dielectric_r_0_25': 0.3, 'U2_dielectric_r_0_354': 0.4, 'U3_dielectric_r_0_5': 0.448,
+              'U4_dielectric_r_0_7': 0.5, 'U5_dielectric_r_1_0': 0.6, 'U6_metal_r_0_354': 0.7,
+              'U7_metal_r_0_5': 0.8, 'U8_metal_r_0_7': 1.0}
 EDGES = [0, 0.3, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.93]
 
 
@@ -76,21 +89,64 @@ def variants(src, out, specs):
         start = ocs.index("<node", ocs.index("<pin name='input'>", m.end()))
         return ocs[:start] + xml + ocs[block_end(ocs, start):]
 
+    scene = os.path.basename(src).split('.')[0]
+    point = 'Point' in scene
     for spec in specs:
-        label, brdf, kind, env = spec.split(':')
-        ocs = replace_mat(ocs0, 'Plane', uni('Plane_Default', {'opacity': val(31, 6, 0)}))
-        ocs = replace_mat(ocs, 'G1_matte', uni('G1_matte_Default', {'albedo': val(33, 8, '0.2 0.2 0.2'), 'specular': val(33, 8, '0 0 0')}))
-        for mat, pin in PINS.items():
-            p = {'albedo': val(33, 8, '1 1 1' if kind == 'm' else '0 0 0'), 'specular': val(33, 8, '1 1 1'),
+        label, brdf, kind, env, *nrm = spec.split(':')
+        # Upper case: the base a grey diffuse of albedo 0.5 instead of black
+        # (what the layer's transmission leaves of it; #190), `B` that base
+        # alone (OpenPBR, specular 0, no layer).
+        grey, kind = ('0.5 0.5 0.5', kind.lower()) if kind.isupper() else ('0 0 0', kind)
+        # An optional constant normal-map colour on the lobe (#190).
+        npin = lambda: f"<pin name='normal'>{val(33, 8, nrm[0].replace(',', ' '))}</pin>" if nrm else ''
+        if point:
+            ocs = ocs0
+        else:
+            ocs = replace_mat(ocs0, 'Plane', uni('Plane_Default', {'opacity': val(31, 6, 0)}))
+            ocs = replace_mat(ocs, 'G1_matte', uni('G1_matte_Default', {'albedo': val(33, 8, '0.2 0.2 0.2'), 'specular': val(33, 8, '0 0 0')}))
+        for mat, pin in (POINT_PINS if point else PINS).items():
+            if kind == 'b':
+                ocs = replace_mat(ocs, mat, f"<node id='{n()}' type='505' name='{mat}_Default'><attr name='compatibilityVersion' type='2'>15050000</attr>"
+                                  f"<pin name='base'>{val(31, 6, 1)}</pin><pin name='baseColor'>{val(33, 8, grey)}</pin><pin name='specular'>{val(31, 6, 0)}</pin></node>")
+                continue
+            if kind in ('l', 'p', 'g'):
+                # The same dielectric lobe as a Specular Layer (139) over a
+                # black base: a Layered material (143, `layered_coat_node`)
+                # or OpenPBR's `layer` pin (505, `skin_dual_lobe_layers`);
+                # `g` two layers of specular 0.5 in a Material Layer Group
+                # (144) there, the normal on Layer 1 only (the skin's lobe 1).
+                def layer(spec, normal):
+                    return (f"<node id='{n()}' type='139' name='{mat} layer'><attr name='compatibilityVersion' type='2'>15050000</attr>"
+                            f"<pin name='specular'>{val(33, 8, spec)}</pin><pin name='brdf'>{val(57, 2, brdf)}</pin>"
+                            f"<pin name='roughness'>{val(31, 6, pin)}</pin><pin name='ior'>{val(31, 6, 1.5)}</pin>{npin() if normal else ''}</node>")
+                if kind == 'l':
+                    base = uni(mat + '_base', {'albedo': val(33, 8, grey), 'specular': val(33, 8, '0 0 0')})
+                    xml = (f"<node id='{n()}' type='143' name='{mat}_Default'><attr name='pin_count' type='2'>1</attr>"
+                           f"<attr name='compatibilityVersion' type='2'>15050000</attr><pin name='material1'>{base}</pin>"
+                           f"<pin name='Layer 1' dynamicType='33'>{layer('1 1 1', True)}</pin></node>")
+                else:
+                    top = layer('1 1 1', True) if kind == 'p' else (
+                        f"<node id='{n()}' type='144' name='{mat} group'><attr name='pin_count' type='2'>2</attr>"
+                        f"<attr name='compatibilityVersion' type='2'>15050000</attr>"
+                        f"<pin name='Layer 1' dynamicType='33'>{layer('0.5 0.5 0.5', True)}</pin>"
+                        f"<pin name='Layer 2' dynamicType='33'>{layer('0.5 0.5 0.5', False)}</pin></node>")
+                    xml = (f"<node id='{n()}' type='505' name='{mat}_Default'><attr name='compatibilityVersion' type='2'>15050000</attr>"
+                           f"<pin name='base'>{val(31, 6, 1)}</pin><pin name='baseColor'>{val(33, 8, grey)}</pin>"
+                           f"<pin name='specular'>{val(31, 6, 0)}</pin><pin name='layer'>{top}</pin></node>")
+                ocs = replace_mat(ocs, mat, xml)
+                continue
+            p = {'albedo': val(33, 8, '1 1 1' if kind == 'm' else grey), 'specular': val(33, 8, '1 1 1'),
                  'brdf': val(57, 2, brdf), 'roughness': val(31, 6, pin)}
             p['metallic' if kind == 'm' else 'ior'] = val(31, 6, 1 if kind == 'm' else 1.5)
+            if nrm:
+                p['normal'] = val(33, 8, nrm[0].replace(',', ' '))
             ocs = replace_mat(ocs, mat, uni(mat + '_Default', p))
-        if env == 'w':
+        if env == 'w' and not point:
             m = re.search(r"<node id='(\d+)' type='34'>\s*<attr name='filename' type='11'>[^<]*\.hdr</attr>", ocs)
             ocs = ocs[:m.start()] + f"<node id='{m.group(1)}' type='33'><attr name='value' type='8'>1 1 1</attr></node>" + ocs[block_end(ocs, m.start()):]
         p = os.path.join(out, f'v_{label}.ocs')
         open(p, 'w').write(ocs)
-        subprocess.run([tool, 'set', src, p, os.path.join(out, f'Calib-Glossy__{label}.orbx')], check=True)
+        subprocess.run([tool, 'set', src, p, os.path.join(out, f'{scene}__{label}.orbx')], check=True)
 
 
 # --- measure --------------------------------------------------------------
@@ -281,7 +337,27 @@ def measure(png, hdr, model, kind, white, corr):
         print(f'{PIN_ORDER[k]:<5} ' + ' '.join(f'{x:9.3f}' for x in row) + f'   {o.mean() / an.mean():.3f}')
 
 
-if sys.argv[1] == 'variants':
+def ratio(scene, a, b):
+    """Disc means of render a over render b (same scene, linear)."""
+    from PIL import Image
+    import octane_pass
+    import sphere_discs as sd
+    ims = []
+    for png in (a, b):
+        path, _ = octane_pass.pick(png)
+        ims.append((np.asarray(Image.open(path).convert('RGB'), float) / 255.0) ** 2.2 @ np.array([0.2126, 0.7152, 0.0722]))
+    ds, _ = sd.discs(scene, shape=ims[0].shape)
+    out = []
+    for d in ds:
+        ys, xs = np.mgrid[0:ims[0].shape[0], 0:ims[0].shape[1]]
+        m = ((xs - d.cx) / d.rx) ** 2 + ((ys - d.cy) / d.ry) ** 2 < 0.93 ** 2
+        out.append(ims[0][m].sum() / max(ims[1][m].sum(), 1e-9))
+    print(f'{os.path.basename(a)} / {os.path.basename(b)}: ' + ' '.join(f'{x:.3f}' for x in out))
+
+
+if sys.argv[1] == 'ratio':
+    ratio(sys.argv[2], sys.argv[3], sys.argv[4])
+elif sys.argv[1] == 'variants':
     variants(sys.argv[2], sys.argv[3], sys.argv[4:])
 elif sys.argv[1] == 'measure':
     a = [x for x in sys.argv[2:] if not x.startswith('--')]
