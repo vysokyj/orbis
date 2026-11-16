@@ -10,7 +10,7 @@
 //! hair) is shared and fitted on Enhanced + Final — see the spec's
 //! "Variants" table (docs/spec/octane-export.md).
 
-use crate::material::{SkinShader, StrandHair};
+use crate::material::{RoughLobe, SkinShader, StrandHair};
 use crate::usd::SUN_SKY_POWER;
 
 /// Where Iray and Octane differ in a way the export can choose: stay with
@@ -58,6 +58,17 @@ const FINAL_SAMPLES: u32 = 500;
 /// a lower default would make Preview faster - a judgment call left for
 /// when Preview is judged on real scenes.
 const PREVIEW_SAMPLES: u32 = 500;
+
+/// Rough dielectric Phong lobes (α past Octane's Beckmann limit) per Look
+/// (`RoughLobe`, #162, the user's call 2026-11-16). A contested choice:
+/// neither model has Iray's lobe in both shape and level. Enhanced keeps
+/// GGX energy preserving - Iray's level under an environment (rough gloss
+/// 1.02 - 1.08 x Iray), a highlight ~0.8 x as wide under a small light.
+/// Faithful takes STD - Iray's highlight shape head-on (widths 1.00 - 1.02
+/// x), paying rough gloss 1.2 - 1.5 x Iray under an HDRI. Revisit if a
+/// model in Octane gets both.
+const ENHANCED_ROUGH_LOBE: RoughLobe = RoughLobe::GgxEnergyPreserving;
+const FAITHFUL_ROUGH_LOBE: RoughLobe = RoughLobe::Std;
 
 /// One of the four exports.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -116,6 +127,10 @@ pub struct Tuning {
     /// DAZ's Blended Dual Lobe Hair on strands (dForce hair): Octane's Hair
     /// material, or the shader's own layers as DAZ's MDL stacks them.
     pub strand_hair: StrandHair,
+    /// Octane's model for a rough dielectric Phong lobe (Look): GGX energy
+    /// preserving (Iray's level under an environment) or STD (Iray's
+    /// highlight shape under a small light). Metals keep their own rule.
+    pub rough_lobe: RoughLobe,
 }
 
 impl Variant {
@@ -143,6 +158,7 @@ impl Variant {
                 daylight_extinction: 0.0,
                 max_transmission: 1.0,
                 strand_hair: StrandHair::HairPile,
+                rough_lobe: ENHANCED_ROUGH_LOBE,
             },
             (Faithful, Final) => Tuning {
                 kernel: Kernel::PathTracing,
@@ -156,6 +172,7 @@ impl Variant {
                 daylight_extinction: FAITHFUL_DAYLIGHT_EXTINCTION,
                 max_transmission: 1.0,
                 strand_hair: StrandHair::MdlLayers,
+                rough_lobe: FAITHFUL_ROUGH_LOBE,
             },
             (Enhanced, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -169,6 +186,7 @@ impl Variant {
                 daylight_extinction: 0.0,
                 max_transmission: 0.75,
                 strand_hair: StrandHair::HairPile,
+                rough_lobe: ENHANCED_ROUGH_LOBE,
             },
             (Faithful, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -182,6 +200,7 @@ impl Variant {
                 daylight_extinction: FAITHFUL_DAYLIGHT_EXTINCTION,
                 max_transmission: 0.75,
                 strand_hair: StrandHair::HairPile,
+                rough_lobe: FAITHFUL_ROUGH_LOBE,
             },
         }
     }
@@ -210,6 +229,15 @@ mod tests {
                 // Everywhere else Octane's Hair, its albedo the pile's colour.
                 assert_eq!(t.strand_hair == StrandHair::HairPile, !layers, "{look:?} {mode:?}");
             }
+        }
+    }
+
+    #[test]
+    fn rough_lobes_follow_the_look() {
+        // Preview rows follow their Look (#162).
+        for mode in [OctaneMode::Final, OctaneMode::Preview] {
+            assert_eq!(Variant::new(Look::Enhanced, mode).tuning().rough_lobe, RoughLobe::GgxEnergyPreserving);
+            assert_eq!(Variant::new(Look::Faithful, mode).tuning().rough_lobe, RoughLobe::Std);
         }
     }
 

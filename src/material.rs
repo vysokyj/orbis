@@ -841,7 +841,8 @@ fn mdl_anisotropy(u: f32, v: f32) -> f32 {
 /// with an anisotropic Beckmann / GGX lobe per axis (k = 1.00 ± 0.02
 /// against a Lambert sphere): at pin 0.6 the short α / long α 0.571 /
 /// 0.259 / 0.064 at a 0.25 / 0.5 / 0.75 ((1 − a)² 0.5625 / 0.25 / 0.0625),
-/// the same at pins 0.2 – 1 and under GGX; the long axis stays p². The
+/// the same at pins 0.2 – 1, under GGX and under STD (#162: each axis at
+/// isotropic STD's width at its pin); the long axis stays p². The
 /// rules before were (α_v − α_u) / (α_v + α_u) (#92) and (v − u) / (v + u)
 /// of the pins (#23), both narrower across than Iray's lobe.
 fn octane_anisotropy(u: f32, v: f32) -> f32 {
@@ -1446,6 +1447,8 @@ struct Ocs<'a> {
     max_transmission: f32,
     /// `Tuning::strand_hair`.
     strand_hair: StrandHair,
+    /// `Tuning::rough_lobe` (`phong_brdf`).
+    rough_lobe: RoughLobe,
     /// The current material's Iray thin films (`Film::of`): `pin_open`
     /// multiplies its colour pins by their tint.
     film: Option<Film>,
@@ -1570,7 +1573,7 @@ impl Ocs<'_> {
     /// Iray, the weighted coat K4 1.32 → 1.05 (the scene's other spheres
     /// 1.09 – 1.12); analytically under the scene's HDRI Beckmann / GGX
     /// 1.37, Octane's two renders 1.34 (#96). A dielectric node stays on
-    /// GGX energy preserving (`phong_brdf`: its long axis is past
+    /// the Look's rough model (`phong_brdf`: its long axis is past
     /// `BECKMANN_DIELECTRIC_MAX_ALPHA`).
     fn aniso_brdf_pin(&mut self, i: usize, saturated: bool) {
         if let Some(b) = self.gloss_brdf {
@@ -1750,7 +1753,7 @@ impl Ocs<'_> {
         self.rgb_pin(j + 1, "edgeTint", gloss_color);
         self.float_pin(j + 1, "metallic", 1.0);
         // A metal (`phong_brdf`), with the Top Coat's dielectric lobe.
-        self.gloss_brdf = Some(phong_brdf(&self.node_coat_roughness(mat).into_iter().collect::<Vec<_>>()));
+        self.gloss_brdf = Some(phong_brdf(&self.node_coat_roughness(mat).into_iter().collect::<Vec<_>>(), self.rough_lobe));
         // The glossy layer's roughness, a dual lobe's aside (#106).
         let (rough_ch, rough, _) = glossy_layer_roughness(mat);
         let aniso = Anisotropy::glossy(mat);
@@ -2285,7 +2288,7 @@ impl Ocs<'_> {
             self.rgb_pin(j + 1, "specular", colour.map(|c| c * coat));
         }
         let (rough, aniso) = (top_coat_roughness(mat), Anisotropy::top_coat(mat));
-        self.gloss_brdf = Some(phong_brdf(&[(rough * aniso.stretch()).min(1.0)]));
+        self.gloss_brdf = Some(phong_brdf(&[(rough * aniso.stretch()).min(1.0)], self.rough_lobe));
         self.aniso_brdf_pin(j + 1, aniso.saturates(rough));
         self.gloss_brdf = None;
         self.gloss_roughness_pins(j + 1, mat, None, rough, RoughCurve::Phong, aniso);
@@ -2337,7 +2340,7 @@ impl Ocs<'_> {
         self.rgb_pin(j + 1, "edgeTint", colour);
         self.float_pin(j + 1, "metallic", 1.0);
         // A metal: Beckmann (`phong_brdf`).
-        self.gloss_brdf = Some(phong_brdf(&[]));
+        self.gloss_brdf = Some(phong_brdf(&[], self.rough_lobe));
         let (rough, aniso) = (top_coat_roughness(mat), Anisotropy::top_coat(mat));
         self.aniso_brdf_pin(j + 1, aniso.saturates(rough));
         self.gloss_brdf = None;
@@ -2469,8 +2472,8 @@ impl Ocs<'_> {
             }
         }
         // The MDL's `simple_glossy_bsdf` is the Uber's Phong lobe: the
-        // derived pin (`phong_pin`) under `phong_brdf` (Beckmann, GGX energy
-        // preserving past Octane's dielectric limit). A lobe that transmits
+        // derived pin (`phong_pin`) under `phong_brdf` (Beckmann, the
+        // Look's `RoughLobe` past Octane's dielectric limit). A lobe that transmits
         // (resin's base, architectural's glass) and the reflection on the
         // coating over it take the rough-glass rule (`GLASS_BRDF`, Beckmann
         // at any roughness). Resin's level isn't the BSDF (every one tried
@@ -2486,7 +2489,7 @@ impl Ocs<'_> {
             // (`mdl_anisotropy`, as the metals'): each axis at its Phong
             // pin, architectural's too (#114: Iray's lobe reads u / v per
             // axis at MDL 1.0 as at 1.3).
-            let brdf = phong_brdf(&[u.max(v)]);
+            let brdf = phong_brdf(&[u.max(v)], self.rough_lobe);
             self.value_pin(i, "brdf", 57, 2, brdf);
             let (pu, pv) = (pin(u), pin(v));
             self.float_pin(i, roughness_pin, pu.max(pv));
@@ -2501,7 +2504,7 @@ impl Ocs<'_> {
             let brdf = if m.transmission.is_some() {
                 GLASS_BRDF
             } else {
-                phong_brdf(&[m.roughness])
+                phong_brdf(&[m.roughness], self.rough_lobe)
             };
             self.value_pin(i, "brdf", 57, 2, brdf);
             self.float_pin(i, roughness_pin, pin(m.roughness));
@@ -4500,7 +4503,7 @@ impl Ocs<'_> {
         // A mostly refractive body (not thin-walled: Octane's thin wall
         // transmits unblurred whatever the lobe) refracts through Beckmann (`GLASS_BRDF`), shared
         // roughness or its own; other glosses by `phong_brdf` — Beckmann,
-        // or GGX energy preserving when a dielectric lobe on the node (the
+        // or the Look's rough model (`RoughLobe`) when a dielectric lobe on the node (the
         // gloss unless the surface is all metal, lobe 2 of a dual lobe, a
         // Top Coat) is past Octane's limit —, all at `phong_pin`.
         let glass = !thin && refraction >= 0.5 && weighted.is_none();
@@ -4524,7 +4527,7 @@ impl Ocs<'_> {
         self.gloss_brdf = if glass {
             Some(GLASS_BRDF)
         } else {
-            (!refraction_rough).then(|| if all_metal && aniso.amount <= 0.0 { metal_brdf(&dielectric, rough) } else { phong_brdf(&dielectric) })
+            (!refraction_rough).then(|| if all_metal && aniso.amount <= 0.0 { metal_brdf(&dielectric, rough, self.rough_lobe) } else { phong_brdf(&dielectric, self.rough_lobe) })
         };
         let curve = if glass {
             self.value_pin(i, "brdf", 57, 2, GLASS_BRDF);
@@ -6355,14 +6358,52 @@ const BRDF_STD: &str = "7";
 /// Phong's own distribution — the sharp lobes' tails and detail (see
 /// `phong_pin`), a metal at any roughness (Cast Iron's detail 1.30 → 1.04 ×
 /// Iray, #92). A dielectric lobe past `BECKMANN_DIELECTRIC_MAX_ALPHA` takes
-/// GGX energy preserving at the same pin (its gloss 1.03 – 1.10 × Iray from
-/// r 0.09 to 1 on Calib-DualLobe2; Calib-Glossy's r 0.36 sphere 1.09, the
-/// matte one 1.08). Plain GGX lost light on rough dielectric lobes (#56).
-fn phong_brdf(dielectric: &[f32]) -> &'static str {
+/// the variant's `rough` model at the same pin (`RoughLobe`, #162). Plain
+/// GGX lost light on rough dielectric lobes (#56).
+fn phong_brdf(dielectric: &[f32], rough: RoughLobe) -> &'static str {
     if dielectric.iter().any(|r| phong_pin(*r).powi(2) > BECKMANN_DIELECTRIC_MAX_ALPHA + 1e-6) {
-        BRDF_GGX_EP
+        rough.brdf()
     } else {
         BRDF_BECKMANN
+    }
+}
+
+/// Octane's model for a rough dielectric Phong lobe, one past
+/// `BECKMANN_DIELECTRIC_MAX_ALPHA` where Octane's Beckmann is off
+/// (`Tuning::rough_lobe`, the spec's Look). Neither draws Iray's lobe in
+/// both shape and level, so it's the Look's call (#162, decided
+/// 2026-11-16). Measured at `phong_pin`'s derived α, Calib-Point-UberGloss
+/// (a point light at the camera: Fresnel F0 everywhere, so peak = D(0) and
+/// width = D's shape) and the HDRI scenes:
+///
+/// | | GGX EP | STD |
+/// |---|---|---|
+/// | head-on width at half the peak, r 0.354 / 0.5 / 0.7 | 0.79 / 0.79 / 0.84 × Iray | 1.00 / 1.02 / 1.02 |
+/// | head-on sphere means U2 – U4 | 0.91 / 0.87 / 0.89 | 1.01 / 1.02 / 1.07 |
+/// | HDRI rough gloss alone, core / rim | 1.02 – 1.08 / 1.02 – 1.22 | 1.22 – 1.47 / 1.25 – 1.45 |
+///
+/// STD's rim is the sharp (Beckmann) lobes' rim, the physical Fresnel kept
+/// in #137; GGX EP reaches Iray's level under an environment through its
+/// multiple-scattering compensation, with GGX's narrow core. Metals don't
+/// follow it (`metal_brdf`, #172). The skin's dual lobe is the same split
+/// (#175).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum RoughLobe {
+    /// `brdf` 6: Iray's level under the environment, a highlight ~0.8 × as
+    /// wide head-on (Enhanced).
+    #[default]
+    GgxEnergyPreserving,
+    /// `brdf` 7: Iray's highlight shape under small lights, rough gloss 1.2
+    /// – 1.5 × Iray under an HDRI (Faithful).
+    Std,
+}
+
+impl RoughLobe {
+    fn brdf(self) -> &'static str {
+        match self {
+            RoughLobe::GgxEnergyPreserving => BRDF_GGX_EP,
+            RoughLobe::Std => BRDF_STD,
+        }
     }
 }
 
@@ -6396,7 +6437,8 @@ impl RoughCurve {
 /// Weight 1) of Iray roughness `metal`, with the node's `dielectric` lobes
 /// (a Top Coat, a dual lobe's second): as `phong_brdf`, but STD (7) at the
 /// same pin when the metal's α is past `BECKMANN_DIELECTRIC_MAX_ALPHA` and
-/// no dielectric lobe asks for GGX energy preserving. Octane's Beckmann
+/// no dielectric lobe asks for the rough model (`RoughLobe`; in either
+/// Look, #172). Octane's Beckmann
 /// past that α is not Beckmann under a small light (#172,
 /// Calib-Point-UberGloss, a point light at the camera, so h = v = l and
 /// every Fresnel is F0): its dark metal at r 0.5 / 0.7 rose towards the
@@ -6413,8 +6455,8 @@ impl RoughCurve {
 /// against 1.08 / 1.11 / 1.19 / 1.27 (GGX energy preserving 1.11 – 1.88).
 /// Sharp metals keep Beckmann (Cast Iron's detail, #92); anisotropic ones
 /// keep their own rule (`aniso_brdf_pin`).
-fn metal_brdf(dielectric: &[f32], metal: f32) -> &'static str {
-    let b = phong_brdf(dielectric);
+fn metal_brdf(dielectric: &[f32], metal: f32, rough: RoughLobe) -> &'static str {
+    let b = phong_brdf(dielectric, rough);
     if b == BRDF_BECKMANN && phong_pin(metal).powi(2) > BECKMANN_DIELECTRIC_MAX_ALPHA + 1e-6 {
         BRDF_STD
     } else {
@@ -6749,7 +6791,7 @@ fn ies_projection_rotation(frame: &[[f64; 3]; 3]) -> [f64; 3] {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -6843,6 +6885,7 @@ pub struct Shading {
     pub thin_glass_ior_one: bool,
     pub max_transmission: f32,
     pub strand_hair: StrandHair,
+    pub rough_lobe: RoughLobe,
 }
 
 impl Default for Shading {
@@ -6853,13 +6896,13 @@ impl Default for Shading {
 
 impl From<SkinShader> for Shading {
     fn from(skin: SkinShader) -> Self {
-        Shading { skin, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile }
+        Shading { skin, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default() }
     }
 }
 
 impl From<&crate::tuning::Tuning> for Shading {
     fn from(t: &crate::tuning::Tuning) -> Self {
-        Shading { skin: t.skin, thin_glass_ior_one: t.thin_glass_ior_one, max_transmission: t.max_transmission, strand_hair: t.strand_hair }
+        Shading { skin: t.skin, thin_glass_ior_one: t.thin_glass_ior_one, max_transmission: t.max_transmission, strand_hair: t.strand_hair, rough_lobe: t.rough_lobe }
     }
 }
 
@@ -6987,7 +7030,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, dome_groun
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -7211,7 +7254,7 @@ fn environment_texture_at(
     first_id: u32,
     origin: Option<[f64; 3]>,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -7398,12 +7441,12 @@ pub fn material_inputs_scaled(
     first_id: u32,
     shading: impl Into<Shading>,
 ) -> (String, Textures) {
-    let Shading { skin, thin_glass_ior_one, max_transmission, strand_hair } = shading.into();
+    let Shading { skin, thin_glass_ior_one, max_transmission, strand_hair, rough_lobe } = shading.into();
     // DAZ has one gamma per image file (`scene_image_gammas`): the
     // materials' channels give each its own, "auto" ones aren't listed.
     let own_gammas = materials.iter().flat_map(|(_, m, _)| m.channels.values()).filter_map(|c| Some((c.image.clone()?, c.gamma?))).collect();
     let mut textures = Textures { layered, own_gammas, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one, max_transmission, strand_hair, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one, max_transmission, strand_hair, rough_lobe, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -10271,15 +10314,24 @@ mod tests {
         }
         assert!((phong_pin(2f32.sqrt()) - 1.0).abs() < 1e-6 && phong_pin(10.0) == 1.0);
         // A metal at any roughness, dielectric lobes up to α 0.25 (r ≈ 0.252).
-        assert_eq!(phong_brdf(&[]), BRDF_BECKMANN);
-        assert_eq!(phong_brdf(&[0.09, 0.25]), BRDF_BECKMANN);
-        assert_eq!(phong_brdf(&[0.09, 0.27]), BRDF_GGX_EP);
-        assert_eq!(phong_brdf(&[1.0]), BRDF_GGX_EP);
-        // An all-metal node: STD past the limit, unless a dielectric lobe asks for GGX EP (#172).
-        assert_eq!(metal_brdf(&[], 0.25), BRDF_BECKMANN);
-        assert_eq!(metal_brdf(&[], 0.5), BRDF_STD);
-        assert_eq!(metal_brdf(&[0.09], 0.7), BRDF_STD);
-        assert_eq!(metal_brdf(&[0.5], 0.7), BRDF_GGX_EP);
+        // Past it the variant's rough model (#162).
+        let (ep, std) = (RoughLobe::GgxEnergyPreserving, RoughLobe::Std);
+        for rough in [ep, std] {
+            assert_eq!(phong_brdf(&[], rough), BRDF_BECKMANN);
+            assert_eq!(phong_brdf(&[0.09, 0.25], rough), BRDF_BECKMANN);
+        }
+        assert_eq!(phong_brdf(&[0.09, 0.27], ep), BRDF_GGX_EP);
+        assert_eq!(phong_brdf(&[1.0], ep), BRDF_GGX_EP);
+        assert_eq!(phong_brdf(&[0.09, 0.27], std), BRDF_STD);
+        assert_eq!(phong_brdf(&[1.0], std), BRDF_STD);
+        // An all-metal node: STD past the limit, unless a dielectric lobe asks for the rough model (#172).
+        for rough in [ep, std] {
+            assert_eq!(metal_brdf(&[], 0.25, rough), BRDF_BECKMANN);
+            assert_eq!(metal_brdf(&[], 0.5, rough), BRDF_STD);
+            assert_eq!(metal_brdf(&[0.09], 0.7, rough), BRDF_STD);
+        }
+        assert_eq!(metal_brdf(&[0.5], 0.7, ep), BRDF_GGX_EP);
+        assert_eq!(metal_brdf(&[0.5], 0.7, std), BRDF_STD);
     }
 
     #[test]
@@ -10971,7 +11023,7 @@ mod tests {
     #[test]
     fn mdl_metal_roughness_is_the_long_axis() {
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.02, 0.4), rough_v: (String::new(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;
@@ -10996,7 +11048,7 @@ mod tests {
         image::GrayImage::from_fn(16, 16, |x, _| image::Luma([(x * 8) as u8])).save(dir.path().join("b.png")).unwrap();
         let dirs = [dir.path().to_path_buf()];
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.06, 0.4), rough_v: (String::new(), 0.06, 0.4), bump: ("b.png".into(), 1.5), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         assert!(w.out.contains("<pin name='normal'>") && !w.out.contains("<pin name='bump'>"), "{}", w.out);

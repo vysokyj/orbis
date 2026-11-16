@@ -41,10 +41,14 @@ cost of realism.
 Iray and Octane differ in a way the export can choose. *Enhanced* (the
 default) keeps Octane's take: skin on **OpenPBR Surface** (OTOY's material
 for skin), the Hosek-Wilkie daylight that warms a low sun, thin-walled
-glass with its Fresnel reflection. *Faithful* stays with Iray's: skin on
+glass with its Fresnel reflection, rough dielectric gloss on GGX energy
+preserving (Iray's level under an environment, a highlight ~0.8 × as wide
+under a small light). *Faithful* stays with Iray's: skin on
 OpenPBR without subsurface, in the colour Iray's skin shows, Octane's daylight model with a white
 sunset colour, dimmed by the sun's air mass as Iray dims it (Variants),
-thin-walled glass at IOR 1 (Iray's showed none of its own reflection).
+thin-walled glass at IOR 1 (Iray's showed none of its own reflection),
+rough dielectric gloss on STD (Iray's highlight shape under a small light,
+rough gloss 1.2 – 1.5 × Iray under an HDRI; `rough_lobe`, #162).
 **Denoise** (`--no-denoise` off; the dialog's Denoise) is separate: Octane's
 AI denoiser on the Final render — it changes no light or colour, it may
 soften fine detail. So is the sample count (`--samples N`, Render modes).
@@ -70,6 +74,7 @@ field of `Tuning`, set per variant in one table (`Variant::tuning`,
 | `daylight_extinction` | 0 | 0.200 | 0 | 0.200 |
 | `max_transmission` | 1 | 1 | 0.75 | 0.75 |
 | `strand_hair` | Hair material, pile albedo | the MDL's layers | Hair material, pile albedo | Hair material, pile albedo |
+| `rough_lobe` | GGX energy preserving | STD | GGX energy preserving | STD |
 
 Calibrated on the same 17 scenes in each variant (lights, Sun-Sky at
 18:00, noon and steered, HDRI, tone, PBRSkin, Glossy, SSS, Glass, Mixing,
@@ -96,6 +101,18 @@ Leaf, Hair; `scripts/dev/calib-variants.sh all`), Octane / Iray:
 - **Skin** in Preview (Universal): Calib-PBRSkin 0.86 – 1.16, Final's
   OpenPBR 1.06 – 1.29 (before #19's rule). Faithful's skin: Calib-Skin
   under the front lamp 0.80 – 1.04 in red (see Skin). **Hair** 1.04 (Final) / 1.06 (Preview).
+- **`rough_lobe`** (#162; Faithful + Final, 1024 samples, denoised):
+  Calib-Point-UberGloss's dielectric spheres r 0.25 – 0.7 at Iray's
+  highlight (widths ± 1 px, means 1.01 – 1.07; r 1 1.15, lopsided), the
+  metals 1.00 – 1.07; Calib-Glossy's rough G7 1.08 → 1.20, Calib-DualLobe2
+  1.09 – 1.24, Calib-NVIDIA2 0.94 – 1.09; Calib-Skin-Victoria-front's face
+  unchanged (0.904 → 0.901 × Iray's p99.5: the skin's lobes are #175).
+  Calib-Point-ArchAniso: isotropic P1 38 × 36 against Iray's 38 × 35, the
+  anisotropic P2 / P7 / P8 ~10 % long on both axes at half the peak (45
+  × 20 against 40 × 18) — Octane's STD keeps the anisotropy law
+  (Anisotropy), so the excess is the anisotropic lobe's on Iray's side,
+  0.9 × as wide as its isotropic lobes at the axis roughness (#184).
+  Enhanced is unchanged.
 - Shared misses, not variant-bound: Calib-Glass sphere 4 2.4 × in all
   four (the 2.8 read through the split boxes, #146); Preview's Glass sphere 7 0.81 and Mixing sphere 8 0.76 (Final
   0.95 / 1.04).
@@ -1416,13 +1433,15 @@ leaves out, #15):
   43, 71 × 63; peaks 1.01 – 1.03 × Iray) — on Universal's roughness and coating, the
   Layered material's Specular Layer, the weighted gloss and coat, the
   skins' OpenPBR. Universal's **`brdf`** (one per node, `phong_brdf`):
-  **Beckmann** (1), Phong's own distribution; **GGX energy preserving**
-  (6) at the same pin when a dielectric lobe on the node (the gloss unless
+  **Beckmann** (1), Phong's own distribution; the Look's **`rough_lobe`**
+  at the same pin when a dielectric lobe on the node (the gloss unless
   the surface is all metal, lobe 2 of a dual lobe, a Top Coat) has α >
-  **0.25** — Octane's limit for a dielectric Beckmann (below). An
+  **0.25** — Octane's limit for a dielectric Beckmann (below): **GGX
+  energy preserving** (6) in Enhanced, **STD** (7) in Faithful (Variants;
+  the trade below, decided 2026-11-16, #162). An
   isotropic all-metal node (Metallic Weight 1) past the same α takes
-  **STD** (7, default spread) unless a dielectric lobe on it asks for GGX
-  energy preserving (`metal_brdf`, #172); sharp metals take Beckmann,
+  **STD** (7, default spread) in both Looks unless a dielectric lobe on it
+  asks for the rough model (`metal_brdf`, #172); sharp metals take Beckmann,
   rough glass at any roughness (Refraction). Exceptions:
   architectural's glass keeps the pins its rule was swept on and its
   anisotropy has its own α ratio (NVIDIA MDL examples), a saturated anisotropic metal lobe plain GGX (Anisotropy), the flakes
@@ -1471,8 +1490,10 @@ leaves out, #15):
   but under the HDRI its rough gloss (core / rim) 1.22 / 1.25 at r 0.36 on
   Calib-Glossy, 1.23 – 1.47 / 1.36 – 1.45 on Calib-DualLobe2's rough
   lobes (whole spheres 1.15 – 1.24, Calib-Glossy G7 1.20, Calib-NVIDIA2 A4
-  1.09) where GGX energy preserving keeps 1.02 – 1.08 / 1.02 – 1.22. The
-  choice between them is open (#162).
+  1.09) where GGX energy preserving keeps 1.02 – 1.08 / 1.02 – 1.22.
+  Neither has Iray's lobe in both, so it is the Look's: Enhanced keeps
+  the level under the environment, Faithful the highlight's shape
+  (`Tuning::rough_lobe`; #175 asks the same of the skin's dual lobe).
   Rough metals (#172): Octane's Beckmann past α 0.25 is not Beckmann
   under a small light. Calib-Point-UberGloss's dark metal (base 0.1, Fresnel
   F0 everywhere head-on, Iray's custom curve taken at k · h: its profile
@@ -1507,7 +1528,12 @@ leaves out, #15):
   0.98 – 1.00 on every resolved lobe): isotropic α = p² (0.361 at p 0.6,
   1.00 at 1); short / long α at a 0.25 / 0.5 / 0.75 = 0.571 / 0.259 /
   0.064 ((1 − a)² 0.5625 / 0.25 / 0.0625), the same at p 0.3 – 1 and
-  under GGX, the long axis staying p². The rules before — (α_v − α_u) /
+  under GGX, the long axis staying p². STD (Faithful's `rough_lobe`)
+  too (#162, Calib-Point-ArchAniso's white lobes head-on, each axis
+  against isotropic STD at its pin): at p 0.6866 the long axis 44 – 41
+  px at half the peak for |a| 0.1 – 0.5 (isotropic 43), the short axis 31
+  / 24 / 19 / 15 at a 0.1 / 0.2 / 0.277 / 0.35 — the isotropic widths at
+  p (1 − a) (0.6 → 29, 0.5 → 19). The rules before — (α_v − α_u) /
   (α_v + α_u) (#92), (v − u) / (v + u) of the pins (#23) — made the short
   axis narrower than Iray's (Metal Brushed's mid texel α_u 0.066 for
   Iray's 0.10).
