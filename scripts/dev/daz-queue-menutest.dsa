@@ -47,6 +47,7 @@
         write(sOut + "/phase", "outer", false);
         check("action manager (needs HEADLESS=0)", oActions !== null, true);
         if (oActions) {
+            var nBefore = oActions.getNumCustomActions();
             oActions.addCustomAction(sText, "ORBIS #170 test", getScriptFileName(), true, "", "");
             var oAction = findOwn();
             check("test action registered", oAction !== null, true);
@@ -58,8 +59,15 @@
                 check("not re-entered", sLines.indexOf("RE-ENTERED") < 0, true);
                 check("enabled again after the run", oAction.enabled, true);
             }
+            // removeCustomAction takes the INDEX: given the GUID it took
+            // index 0, and this loop then emptied the whole list, which
+            // DAZ saved to customactions.dsx on quit (#181).
             for (var r = oActions.getNumCustomActions() - 1; r >= 0; r--)
-                if (oActions.getCustomActionText(r) == sText) oActions.removeCustomAction(oActions.getCustomActionName(r));
+                if (oActions.getCustomActionText(r) == sText) oActions.removeCustomAction(r);
+            var nOwn = 0;
+            for (var c = 0; c < oActions.getNumCustomActions(); c++)
+                if (oActions.getCustomActionText(c) == sText) nOwn++;
+            check("test action removed, the others kept", nOwn == 0 && oActions.getNumCustomActions() == nBefore, true);
         }
         new DzFile(sNote).remove();
         new DzFile(sOut + "/phase").remove();

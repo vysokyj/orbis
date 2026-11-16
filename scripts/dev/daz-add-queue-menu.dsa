@@ -1,6 +1,14 @@
 // ORBIS calibration: add Render > ORBIS Iray Queue (daz-render-queue.dsa)
 // to DAZ Studio's menus, once; run in the DAZ Studio instance that should
 // have it, which saves it on quit. Argument: the queue script's path.
+// The user's instance, so not through daz-script.sh: its -instanceName has
+// menus of its own (the item would land there) and it puts the shared
+// customactions.dsx back after the run. With DAZ Studio quit:
+//   "/Applications/DAZ 3D/DAZStudio6 64-bit/DAZStudio.app/Contents/MacOS/DAZStudio" \
+//     -noPrompt -scriptArg $PWD/scripts/dev/daz-render-queue.dsa $PWD/scripts/dev/daz-add-queue-menu.dsa
+// The action lost but its place still in Studio6/menus.dsx (<CustomAction
+// Name="<guid>"/> under Render, #181)? Writing the action back into
+// customactions.dsx under that GUID restores the item without a new one.
 // ECMAScript 3, ASCII only.
 (function () {
     var sScript = App.scriptArgs[0];

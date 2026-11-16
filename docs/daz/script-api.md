@@ -120,9 +120,15 @@ nodes without geometry).
   `getCustomActionText(i)`, `getCustomActionFile(i)`,
   `addCustomAction(text, desc, scriptPath, isFile, shortcut, iconPath)` →
   GUID, `setCustomActionScript(i, path, isFile)`, `setCustomActionIcon(i,
-  path)`, `getCustomActionName(i)` → its GUID. Custom actions persist in
+  path)`, `getCustomActionName(i)` → its GUID, `removeCustomAction(i)` —
+  the **index**: given a GUID it removes index 0 (the string becomes 0), and
+  a loop over the list then empties it (#181). Custom actions persist in
   `customactions.dsx`, the menus that show them in `menus.dsx` — apart: a
   menu reset or edit drops the item and keeps the action (#46).
+  `customactions.dsx` is one file for all instances: an `-instanceName X`
+  instance keeps `menus.dsx`, `actions.dsx`, `layout.dsx` in
+  `Studio6 [X]/`, but loads and (quitting with a window; `-headless` doesn't)
+  saves `Studio6/customactions.dsx` (#181).
 - `getMenu().findSubMenu("&File")` → `DzActionMenu`: `getNumItems()`,
   `getItem(i).label` (e.g. `"&Export..."`), `getItem(i).action` (the class,
   e.g. `DzExportAction`, or a custom action's GUID), `insertCustomAction(guid,

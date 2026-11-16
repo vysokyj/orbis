@@ -62,6 +62,11 @@ if [ -n "$menu" ] && [ "$menu" != "$own" ]; then
     echo "DAZ's ORBIS Iray Queue menu runs $menu, not $own: quit DAZ Studio, then run daz-add-queue-menu.dsa with that path" >&2
     exit 1
 fi
+# No item at all (#181: a test emptied customactions.dsx) is only a warning:
+# the scenes may still wait in the queue, but the user can't start it.
+if [ -z "$menu" ]; then
+    echo "warning: DAZ has no Render > ORBIS Iray Queue item (customactions.dsx): quit DAZ Studio, then run daz-add-queue-menu.dsa (its header says how)" >&2
+fi
 # The batch goes in before the user starts the queue (the user's rule), so no
 # running DAZ or queue is fine here - the scenes wait for the queue script's
 # start. The "idle queue" freeze (#170) was a second click on the menu item

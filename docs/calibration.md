@@ -167,7 +167,9 @@ where a script maps that folder as an MDL directory (`daz-export-mi.dsa`,
    session, Secure off, Connect, Rendering Enabled — then Render > ORBIS
    Iray Queue (`scripts/dev/daz-render-queue.dsa`; it replaces the open
    scene). The menu item is added once by `daz-add-queue-menu.dsa` (run
-   in a DAZ Studio instance with the queue script's path as argument).
+   in the user's DAZ Studio, not through `daz-script.sh`: its header has
+   the command). `daz-script.sh` puts `customactions.dsx`, shared by every
+   instance, back after each run (#181).
    `scripts/dev/iray-queue.sh [-n] [-s samples] [-o out dir] <scene.duf>…`
    queues capped copies (Max Time 0, as Boost asks) and collects the
    renders into the Iray references (`-n` returns at once, `--collect`
