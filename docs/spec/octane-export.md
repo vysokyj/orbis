@@ -2685,7 +2685,9 @@ leaves out, #15):
     and transmission its colour, which Octane, like Iray, applies at every
     crossing — that keeps the hue — under the rough-glass rule (Beckmann at
     the Phong pin; the clear gloss as the coating at its Phong pin), both ×
-    **k per channel** (`resin_lobe_albedo`, `mdl_layer::tint_factor_measured`):
+    **k per channel** (`resin_lobe_albedo`, `mdl_layer::transmission_falloff`;
+    the transmission falls to the rim by a Falloff Mix, see "The legacy
+    lobe's angle" below):
     the factor that makes a closed sphere of the material, entered over its
     whole silhouette in a white furnace, keep in Octane (Beckmann α = pin²,
     Smith masking, coat w · F(k·h) over the base's 1 − w · F(k·h)) what it
@@ -2733,7 +2735,8 @@ leaves out, #15):
     Calib-NVIDIA's red resin 0.95 (centre 0.83), g/r 0.24 v 0.19. Left
     (#117): the whole sphere matches, its spread doesn't — Iray darkens a
     rough coated resin's centre and rim differently from Octane, the
-    uncoated r ≥ 0.75 stays 1.15 ×; a constant tint can't draw it. The
+    uncoated r ≥ 0.75 stays 1.15 ×; a constant tint couldn't draw it — the
+    Falloff Mix does (#117, "The legacy lobe's angle" below). The
     former fit 1 − 0.64 r (`RESIN_LOSS`, on a mis-framed reference, #97)
     gave nearly the same k for the coated resin but darkened the uncoated
     one to 0.80 ×.
@@ -2784,7 +2787,8 @@ leaves out, #15):
     before: at small r the pins are the former g · (u / v)^⅛ ones).
     Transparency t (`weighted_layer(t, transmit lobe, diffuse)`): diffuse
     × (1 − t), `transmission` = refr_color × t × **k per channel**
-    (`arch_glass_albedo`, `mdl_layer::tint_factor_measured`, as resin's)
+    (`arch_glass_albedo`, `mdl_layer::transmission_falloff`, as resin's;
+    closed, the Falloff Mix of "The legacy lobe's angle" below)
     through a transmit-only lobe — `specular` 0 (Octane still refracts) —
     at **r_t = Iray's transmit roughness by refr_gloss: 0.72 / 0.60 /
     0.21 at 0 / 0.2 / 0.4 (linear between), 4.13 × architectural_gloss_to
@@ -2812,8 +2816,8 @@ leaves out, #15):
     splits into Octane over its Smith model (1.03 / 1.04 / 1.04, flat in
     the IOR) and Iray under `libbsdf` × τ (0.98 / 1.02 / 1.06): the
     legacy lobe's per-event loss met on `libbsdf`'s longer bent paths, not
-    an IOR term (Calib-Furnace-MdlTir, #117) — τ as one constant per event
-    holds the disk, its angular spread is still open; Octane = the coating at its IOR, the lobe Beckmann at
+    an IOR term (Calib-Furnace-MdlTir, #117) — now drawn per event with
+    its angle (`LEGACY_LOBE`, below; τ ≈ 1 on top); Octane = the coating at its IOR, the lobe Beckmann at
     α r_t, Smith, physical layering. Reflectivity 0, refr_gloss 0.6 / 0.4
     / 0.2 / 0: k 0.98 / 0.97 / 0.85 / 0.93 (Octane caps α at 1 too); 0.2
     under reflectivity 0.6 0.85, with the Fresnel term 0.73. Why: the
@@ -2835,7 +2839,9 @@ leaves out, #15):
     -MdlTransmit: thin walls predict the closed spheres at IOR 1.2 / 1.5 /
     2 to 1 – 3 %; not total internal reflection — a thin wall loses too);
     above r 0.3 the thin walls' g over-predicts the closed spheres' loss
-    (r 1: 0.24 v Iray 0.34, Calib-Furnace-MdlLegacy, open in #117);
+    (r 1: 0.24 v Iray 0.34, Calib-Furnace-MdlLegacy): a thin wall loses
+    about g_closed² per wall, the closed g is its own table
+    (Calib-Furnace-MdlLegacy2, below);
     architectural's lobe is that legacy lobe at r_t (A1 – A3 = G3 – G5). The legacy behaviour isn't documented, so the
     lobe alone stays measured; with it `libbsdf`'s layer weights
     predict the coated spheres — refr_gloss 0.2 under reflectivity 0.6
@@ -2864,6 +2870,42 @@ leaves out, #15):
     1.06, with the Fresnel term 1.75 → 1.40 (furnace 1.45 → 1.17: the
     spread, #117); Calib-NVIDIA3 refr_gloss 0.6 1.02, 0.2 1.10, 0.2 under
     reflectivity 0.6 1.10; Calib-NVIDIA2's glass 1.05.
+    **The legacy lobe's angle** (resin, closed architectural glass;
+    `mdl_layer::transmission_falloff`, #117): Octane's `transmission` is
+    a Mix (38) by a Falloff Map (50, normal vs. eye ray, (θ / 90°)^skew)
+    of the colour × k head-on and × k · q at 90° (`transmission_pin`);
+    Octane takes the falloff per hit at that hit's incoming ray (inside a
+    solid the refracted ray's), so it is a factor on every transmission
+    event. Iray's model: `libbsdf` × **g(r, θ) on every base event**
+    (`LEGACY_LOBE`, `legacy_loss`): per MDL roughness head + (grazing −
+    head)(θ / 90°)^skew at the event's incoming angle, linear in r between
+    rows — head 0.986 / 0.957 / 0.922 / 0.840 at r 0.2 / 0.4 / 0.6 / 1,
+    grazing 0.967 / 0.860 / 0.753 / 0.609 — then τ so the lobe alone keeps
+    the measured disk (`RESIN_LOBE` / `ARCH_GLASS_LOBE`, τ ≈ 1). Octane's
+    Smith paths keep each transmission event's cosine; (k, q, skew) is
+    solved (Nelder – Mead) so the white sphere's rings (tenths of the
+    radius to 0.9, by their share of the silhouette) meet Iray's, then k
+    per channel for the whole sphere at the tint; no falloff when q is
+    within 0.02 of 1. Thin walls keep one flat k (Octane's Thin Wall is
+    flat). **g is measured, not derived** (the release notes only name a
+    "legacy behavior"): each row fitted to our own `mdl 1.0` modules'
+    rings (Calib-Furnace-MdlTransmit, -MdlTir, -MdlLegacy, -MdlLegacy2,
+    -MdlArch A2, Calib-Furnace-Resin2 U3 – U6); one row holds IOR 1.05 –
+    2 and both scatter modes within 1 – 5 % per ring, so the loss is the
+    lobe's per event, not the bending's, and it is not the thin wall's
+    (head-on about √ of the thin wall's per-wall g; `libbsdf`'s thin wall
+    is itself 4 – 5 % above Iray's 1.3 one at r ≥ 0.6,
+    Calib-Furnace-MdlLegacy2 L5 / L6). Why: one k matched the disk and
+    left the rim 1.13 / 1.25 / 1.32 × Iray at r 0.5 / 0.75 / 1 (uncoated
+    resin U4 – U6) and 1.17 × at refr_gloss 0.2; with the falloff the
+    models' rings agree within 1 – 5 %. Octane renders, rings centre → 0.8 – 0.9 v Iray (before → after):
+    Calib-Furnace-ArchGlass G4 0.735 → 0.514 / 0.764 → 0.457 v 0.717 →
+    0.431, G5 0.583 → 0.424 / 0.634 → 0.345 v 0.609 → 0.345; coated resin
+    (Calib-Furnace-Resin, white r 0.25) 0.672 → 0.622 / 0.818 → 0.523 v
+    0.834 → 0.508; disks barely move (G8, the Fresnel term, 1.11 → 0.96).
+    Left: Octane over its Smith model at α ≥ 0.5 (uncoated resin r 0.75 /
+    1 rims 1.22 / 1.41 ×, centres 1.04 – 1.09 ×), not folded in
+    (note 2026-11-16-legacy-lobe-falloff).
     **Enable Absorption** (`refr_falloff_on`, with transparency) → an
     absorption medium on the glass, σa = −ln(c) / d per metre
     (`arch_absorption`), as `nvidia/architectural.mdl` computes its

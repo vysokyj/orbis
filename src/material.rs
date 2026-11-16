@@ -970,6 +970,10 @@ struct MdlDielectric {
     /// Resin's base: a tinted glossy reflect + transmit (rough coloured
     /// glass) under the clear coat.
     transmission: Option<[f32; 3]>,
+    /// The transmission's Falloff (grazing / head-on, skew) on a closed
+    /// solid of an `mdl 1.0` lobe (`mdl_layer::transmission_falloff`, #117):
+    /// `transmission` head-on, × grazing at 90°.
+    transmission_falloff: Option<(f32, f32)>,
     /// Architectural's transmission instead: a transmit-only lobe of its
     /// own roughness and IOR (`refr_gloss`, `refr_ior`) under the
     /// reflection (no tinted reflection of its own, unlike resin's).
@@ -1023,12 +1027,17 @@ fn arch_absorption(mat: &Material) -> Option<[f32; 3]> {
 /// with Iray's own lobe loss on top (`RESIN_LOBE`, #115). Grey 0.79, coat
 /// 0.95: 0.98 at r 0.02, 0.92 at 0.1, 0.81 at 0.25, 0.59 at 0.5; uncoated
 /// white 0.99 / 0.98 / 0.97 / 0.89.
-fn resin_lobe_albedo(r: f32, weight: f32, ior: f32, tint: [f32; 3]) -> [f32; 3] {
+fn resin_lobe_albedo(r: f32, weight: f32, ior: f32, tint: [f32; 3]) -> crate::mdl_layer::Falloff {
     use crate::mdl_layer::{Curve, Scatter, Stack};
     let (r, weight, ior) = (r.max(0.0) as f64, weight.clamp(0.0, 1.0) as f64, (ior as f64).max(1.0001));
     let pin = phong_pin(r as f32) as f64;
     let stack = |rough: f64| Stack { weight, curve: Curve::Fresnel(ior), coat_rough: rough, base: Scatter::ReflectTransmit, base_rough: rough, ior, thin: false };
-    crate::mdl_layer::tint_factor_measured(&stack(r), &stack(pin * pin), crate::mdl_layer::interp(&RESIN_LOBE, r), RESIN_LOBE_IOR, tint)
+    crate::mdl_layer::transmission_falloff(&stack(r), &stack(pin * pin), crate::mdl_layer::interp(&RESIN_LOBE, r), RESIN_LOBE_IOR, tint)
+}
+
+/// The transmission's Falloff pins, None when it is flat.
+fn falloff_pins(f: &crate::mdl_layer::Falloff) -> Option<(f32, f32)> {
+    ((f.grazing - 1.0).abs() > 1e-6).then_some((f.grazing, f.skew))
 }
 
 /// What Iray's resin base lobe alone keeps (`simple_glossy_bsdf`,
@@ -1085,6 +1094,7 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
         bump_file_texture: true,
         tiles,
         transmission: None,
+        transmission_falloff: None,
         refraction: None,
         aniso: None,
         absorption: None,
@@ -1112,8 +1122,9 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
             // the hue; Iray's layer weights set the level
             // (`resin_lobe_albedo`).
             let tint = mat.color("diffuse").unwrap_or([0.8, 0.104, 0.144]);
-            let k = resin_lobe_albedo(d.roughness, weight, d.ior, tint);
-            d.transmission = Some([0, 1, 2].map(|i| tint[i] * k[i]));
+            let f = resin_lobe_albedo(d.roughness, weight, d.ior, tint);
+            d.transmission = Some([0, 1, 2].map(|i| tint[i] * f.k[i]));
+            d.transmission_falloff = falloff_pins(&f);
         }
         _ => {
             // mental ray's mia_material: diffuse × weight; a reflection of
@@ -1170,8 +1181,9 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
                 // bending, no volume (so no absorption), the IOR still the
                 // layer's Fresnel (#147).
                 d.thin = mat.float("thin_walled").unwrap_or(0.0) > 0.0;
-                let k = arch_glass_albedo(refr, refr_gloss, refr_ior, weight, d.roughness, d.ior, curve, d.thin, colour);
-                d.transmission = Some([0, 1, 2].map(|i| colour[i] * transparency * k[i]));
+                let f = arch_glass_albedo(refr, refr_gloss, refr_ior, weight, d.roughness, d.ior, curve, d.thin, colour);
+                d.transmission = Some([0, 1, 2].map(|i| colour[i] * transparency * f.k[i]));
+                d.transmission_falloff = falloff_pins(&f);
                 d.albedo = MdlAlbedo::Colour(diffuse.map(|c| c * (1.0 - transparency)));
                 d.refraction = Some((refr, refr_ior));
                 d.absorption = arch_absorption(mat);
@@ -1229,7 +1241,7 @@ const ARCH_GLASS_ROUGH: f32 = 4.13;
 /// reflectivity 0.6 0.85, with the Fresnel term 0.73 (the critical angle in
 /// `fresnel_layer`'s weights).
 #[allow(clippy::too_many_arguments)]
-fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, refl_rough: f32, coat_ior: f32, curve: Option<(f64, f64, f64)>, thin: bool, colour: [f32; 3]) -> [f32; 3] {
+fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, refl_rough: f32, coat_ior: f32, curve: Option<(f64, f64, f64)>, thin: bool, colour: [f32; 3]) -> crate::mdl_layer::Falloff {
     use crate::mdl_layer::{Curve, Scatter, Stack};
     let ior = (refr_ior as f64).max(1.0001);
     let iray = Stack {
@@ -1243,7 +1255,7 @@ fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, ref
     };
     let octane = Stack { curve: Curve::Fresnel((coat_ior as f64).max(1.0001)), ..iray };
     let lobe = if thin { &ARCH_GLASS_THIN_LOBE[..] } else { &ARCH_GLASS_LOBE[..] };
-    crate::mdl_layer::tint_factor_measured(&iray, &octane, crate::mdl_layer::interp(lobe, refr_gloss as f64), ARCH_GLASS_LOBE_IOR, colour)
+    crate::mdl_layer::transmission_falloff(&iray, &octane, crate::mdl_layer::interp(lobe, refr_gloss as f64), ARCH_GLASS_LOBE_IOR, colour)
 }
 
 /// Rough Uber glass's transmission colour × this (per channel): a closed
@@ -1607,6 +1619,33 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:j$}</node>", "");
         self.pin_close(i + 1);
         let _ = writeln!(self.out, "{:i$} <pin name='texture2'>", "");
+    }
+
+    /// An `mdl 1.0` glass's transmission (#117): the colour, or under a
+    /// falloff (grazing / head-on, skew) a Mix (38) of it head-on and × the
+    /// grazing ratio at 90° by a Falloff Map (50, normal vs. eye ray,
+    /// (θ / 90°)^skew), as the film tint's (`film_tint_open`).
+    fn transmission_pin(&mut self, i: usize, t: [f32; 3], falloff: Option<(f32, f32)>) {
+        let Some((grazing, skew)) = falloff else {
+            return self.rgb_pin(i, "transmission", t);
+        };
+        self.pin_open(i, "transmission");
+        let mid = self.id();
+        let j = i + 1;
+        let _ = writeln!(self.out, "{:j$}<node id='{mid}' type='38'>", "");
+        self.pin_open(j + 1, "amount");
+        let fid = self.id();
+        let k = j + 2;
+        let _ = writeln!(self.out, "{:k$}<node id='{fid}' type='50'>", "");
+        self.value_pin(k + 1, "normal", 6, 8, "0 0 0");
+        self.value_pin(k + 1, "grazing", 6, 8, "1 0 0");
+        self.value_pin(k + 1, "falloff index", 6, 8, &format!("{} 0 0", num(skew)));
+        let _ = writeln!(self.out, "{:k$}</node>", "");
+        self.pin_close(j + 1);
+        self.rgb_pin(j + 1, "texture1", t);
+        self.rgb_pin(j + 1, "texture2", t.map(|c| (c * grazing).min(1.0)));
+        let _ = writeln!(self.out, "{:j$}</node>", "");
+        self.pin_close(i);
     }
 
     /// `<pin name><node type><attr name='value' type>value</attr></node></pin>`
@@ -2513,7 +2552,7 @@ impl Ocs<'_> {
             // A transmit-only lobe: no reflection of its own.
             self.rgb_pin(i, "specular", [0.0; 3]);
             self.float_pin(i, "roughness", pin(refr_rough));
-            self.rgb_pin(i, "transmission", t);
+            self.transmission_pin(i, t, m.transmission_falloff);
             self.float_pin(i, "coatingIor", m.ior);
             self.float_pin(i, "ior", refr_ior);
             if m.thin {
@@ -2529,7 +2568,7 @@ impl Ocs<'_> {
             let rough = pin(m.roughness);
             self.rgb_pin(i, "specular", t);
             self.float_pin(i, "roughness", rough);
-            self.rgb_pin(i, "transmission", t);
+            self.transmission_pin(i, t, m.transmission_falloff);
             self.float_pin(i, "coatingIor", m.ior);
             self.float_pin(i, "ior", m.ior);
         } else {
@@ -8252,9 +8291,13 @@ mod tests {
         assert!(z.contains("<pin name='transmission'>") && z.contains("<pin name='coating'>"), "{z}");
         // Resin's base: the rough-glass rule (Beckmann at the Phong pin of
         // 0.25), its white tint × what Iray's layer weights keep
-        // (`resin_lobe_albedo`, ~0.80; the test material has no IOR channel: 1.5).
-        let k = resin_lobe_albedo(0.25, 0.95, 1.5, [1.0; 3]);
-        assert!((0.78..0.88).contains(&k[0]), "{k:?}");
+        // (`resin_lobe_albedo`, ~0.89 head-on, flat it was ~0.80; the test
+        // material has no IOR channel: 1.5).
+        let f = resin_lobe_albedo(0.25, 0.95, 1.5, [1.0; 3]);
+        let k = f.k;
+        assert!((0.82..0.95).contains(&k[0]), "{k:?}");
+        // Head-on k, falling to the rim by the Falloff Mix (#117).
+        assert!(f.grazing < 1.0 && z.contains("<node id=") && z.contains("type='50'>") && z.contains("<pin name='falloff index'>"), "{f:?} {z}");
         assert!(z.contains(&format!("type='2'>{GLASS_BRDF}<")) && z.contains(&format!(">{}<", num(phong_pin(0.25)))) && z.contains(&format!(">{} {} {}<", num(k[0]), num(k[1]), num(k[2]))), "{z}");
     }
 
@@ -8288,15 +8331,18 @@ mod tests {
         let rr = arch_glass_rough(0.2);
         assert!((rr - 0.60).abs() < 1e-6 && (arch_glass_rough(0.0) - 0.72).abs() < 1e-6 && (arch_glass_rough(0.4) - 0.21).abs() < 2e-3, "{rr}");
         assert_eq!(pin(&x, "roughness"), num(rr.sqrt()), "{x}");
-        let k = arch_glass_albedo(rr, 0.2, 1.5, 0.6, 0.0, (1.0 + 0.2f32.sqrt()) / (1.0 - 0.2f32.sqrt()), Some((0.2, 1.0, 5.0)), false, [1.0; 3]);
-        assert!((0.8..0.92).contains(&k[0]), "{k:?}");
+        let f = arch_glass_albedo(rr, 0.2, 1.5, 0.6, 0.0, (1.0 + 0.2f32.sqrt()) / (1.0 - 0.2f32.sqrt()), Some((0.2, 1.0, 5.0)), false, [1.0; 3]);
+        let k = f.k;
+        assert!((0.8..0.95).contains(&k[0]) && f.grazing < 0.9, "{f:?}");
         // The lobe's τ is solved at the IOR it was measured at (#148): both
         // models lose alike with the IOR, so the factor barely moves (solved
         // at the material's IOR it went 0.81 / 0.85 / 0.93 at IOR 1.2 / 1.5 /
         // 2, Calib-Furnace-ArchGlass2 H6 / H2 / H7 0.89 / 1.05 / 1.32 × Iray).
-        let at = |ior: f32| arch_glass_albedo(rr, 0.2, ior, 0.0, 0.0, 1.5, None, false, [1.0; 3])[0];
+        let at = |ior: f32| arch_glass_albedo(rr, 0.2, ior, 0.0, 0.0, 1.5, None, false, [1.0; 3]).k[0];
         assert!(at(1.2) >= at(1.5) && at(1.5) >= at(2.0) && at(1.2) - at(2.0) < 0.03, "{} {} {}", at(1.2), at(1.5), at(2.0));
-        assert_eq!(pin(&x, "transmission"), format!("{} {} {}", num(k[0]), num(k[1]), num(k[2])), "{x}");
+        // Head-on k (texture1), × the grazing ratio at 90° (texture2).
+        assert_eq!(pin(&x, "texture1"), format!("{} {} {}", num(k[0]), num(k[1]), num(k[2])), "{x}");
+        assert_eq!(pin(&x, "texture2"), format!("{} {} {}", num(k[0] * f.grazing), num(k[1] * f.grazing), num(k[2] * f.grazing)), "{x}");
         assert_eq!(pin(&x, "ior"), num(1.5), "{x}");
         assert!(x.contains("<pin name='coating'>") && x.contains("<pin name='transmission'>"), "{x}");
         assert!(!x.contains("<pin name='transmissionType'>"), "{x}");
@@ -11121,7 +11167,7 @@ mod tests {
                     (_, _, Some(b)) if d.transmission.is_some() => {
                         let w = if let MdlGloss::Weight(w) = d.gloss { w } else { 1.0 };
                         let f = resin_lobe_albedo(d.roughness, w, d.ior, [0, 1, 2].map(|k| b[k] as f32));
-                        check("resin colour", d.transmission.is_some_and(|t| (0..3).all(|k| near(t[k] / f[k], b[k]))))
+                        check("resin colour", d.transmission.is_some_and(|t| (0..3).all(|k| near(t[k] / f.k[k], b[k]))))
                     }
                     (MdlAlbedo::Colour(c), _, Some(b)) => check("base colour", (0..3).all(|k| near(c[k], b[k]))),
                     _ => {
