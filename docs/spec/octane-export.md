@@ -48,7 +48,9 @@ OpenPBR without subsurface, in the colour Iray's skin shows, Octane's daylight m
 sunset colour, dimmed by the sun's air mass as Iray dims it (Variants),
 thin-walled glass at IOR 1 (Iray's showed none of its own reflection),
 rough dielectric gloss on STD (Iray's highlight shape under a small light,
-rough gloss 1.2 – 1.5 × Iray under an HDRI; `rough_lobe`, #162).
+rough gloss 1.2 – 1.5 × Iray under an HDRI; `rough_lobe`, #162),
+NVIDIA's textured metals falling to the rim as Iray's legacy lobe makes
+them (Enhanced keeps them flat; `legacy_metal_rim`, #112).
 **Denoise** (`--no-denoise` off; the dialog's Denoise) is separate: Octane's
 AI denoiser on the Final render — it changes no light or colour, it may
 soften fine detail. So is the sample count (`--samples N`, Render modes).
@@ -75,6 +77,7 @@ field of `Tuning`, set per variant in one table (`Variant::tuning`,
 | `max_transmission` | 1 | 1 | 0.75 | 0.75 |
 | `strand_hair` | Hair material, pile albedo | the MDL's layers | Hair material, pile albedo | Hair material, pile albedo |
 | `rough_lobe` | GGX energy preserving | STD | GGX energy preserving | STD |
+| `legacy_metal_rim` | no (flat) | yes (Falloff Mix) | no | yes |
 
 Calibrated on the same 17 scenes in each variant (lights, Sun-Sky at
 18:00, noon and steered, HDRI, tone, PBRSkin, Glossy, SSS, Glass, Mixing,
@@ -2669,11 +2672,33 @@ leaves out, #15):
     the weight through a texture changes nothing, and NVIDIA's
     `metal_brushed` through our brick = B6. No constant roughness gives
     that shape (the 1.0 lobe's rim / centre stays ≥ 0.88 at r 0.05 – 1).
-    Still left as Octane over Iray until it is known whether any
-    non-constant roughness, the 1.3 lobe and the Uber with a Glossy
-    Roughness map do it too (Calib-Furnace-MdlRoughTex,
-    -UberRoughMap, #112); the Uber spheres measured so far all had
-    constant roughness.
+    **Its scope** (Calib-Furnace-MdlRoughTex, -UberRoughMap, #112): it
+    is Iray's legacy `simple_glossy_bsdf` (modules below MDL 1.3) with a
+    **non-constant roughness** — `base::file_texture`, a plain
+    `tex::lookup_float` and a roughness varying by 1e-4 over the UV
+    square without any texture give the same rings; the same lobe at 1.3
+    with a textured or varying roughness is the constant 1.3 lobe
+    (0.98 – 1.00 per ring), a textured tint at a constant roughness
+    changes nothing, and **the Uber (1.7) with a Glossy Roughness map is
+    its constant twin** (metal r 0.1 / 0.4 / 0.7, dielectric gloss r 0.4,
+    0.97 – 1.00 per ring) — store materials are untouched. Of the NVIDIA
+    modules the export maps, only `metal_examples` reads its roughness
+    through a texture (the dielectrics' roughness is a parameter). Per
+    ring against the 1.3 lobe (θ_v 3° → 64°): r 0.1 1.04 → 0.69, r 0.4
+    0.88 → 0.67, r 0.7 0.83 → 0.66 (`LEGACY_METAL_RIM`); the constant-
+    roughness 1.0 lobe above is a different, milder path. A texture
+    lookup changing the BSDF isn't physical, so it is a Look split
+    (`legacy_metal_rim`): Enhanced keeps Octane's flat metal; Faithful
+    puts albedo and edge tint under a Falloff Mix (Falloff Map normal
+    vs. eye ray, (θ / 90°)^skew; k head-on, k · grazing at 90°) fitted
+    per measured roughness to those rings (each within 1 %), linear in
+    between and held at the ends, at the mid-grey texel's mean of the
+    two axes (Metal Brushed 0.37, Cast Iron 0.26); only when a roughness
+    map is set (an empty one, which Iray reads as 0, is unmeasured).
+    Calib-Furnace-Brushed rings Octane / Iray: Enhanced disks 1.17 –
+    1.18, Faithful 0.98 – 1.03 in every ring (the former 1.056 "lobe
+    energy" was this lobe's head-on loss); Calib-NVIDIA-Brushed's metal
+    cubes 1.24 / 1.80 / 1.22 → 1.02 / 1.08 / 0.98.
   - Dielectrics (concrete, concrete polished, asphalt, ceramic tiles small,
     granite black, porcelain, resin polyurethane matte, architectural):
     `df::fresnel_layer(ior, weight, glossy, diffuse)` → Universal albedo,

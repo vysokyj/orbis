@@ -70,6 +70,19 @@ const PREVIEW_SAMPLES: u32 = 500;
 const ENHANCED_ROUGH_LOBE: RoughLobe = RoughLobe::GgxEnergyPreserving;
 const FAITHFUL_ROUGH_LOBE: RoughLobe = RoughLobe::Std;
 
+/// Iray's legacy rim on NVIDIA's textured `mdl 1.0` metals per Look
+/// (`legacy_metal_rim`, #112). Iray's `simple_glossy_bsdf` in a module below
+/// MDL 1.3 with a non-constant roughness (any texture lookup, any varying
+/// expression) loses 0.65 - 0.69 x its 1.3 twin at the rim (θ_v 64°) and
+/// gains or loses head-on (1.04 / 0.88 / 0.83 at r 0.1 / 0.4 / 0.7) - the
+/// same lobe with a constant roughness, the 1.3 lobe and the Uber with a
+/// Glossy Roughness map stay flat (Calib-Furnace-MdlRoughTex,
+/// -UberRoughMap). A texture lookup changing the BSDF isn't physical, so
+/// Enhanced keeps Octane's flat metal; Faithful draws Iray's rim with a
+/// Falloff Mix on the metal's albedo (`legacy_metal_falloff`).
+const ENHANCED_LEGACY_METAL_RIM: bool = false;
+const FAITHFUL_LEGACY_METAL_RIM: bool = true;
+
 /// One of the four exports.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Variant {
@@ -131,6 +144,10 @@ pub struct Tuning {
     /// preserving (Iray's level under an environment) or STD (Iray's
     /// highlight shape under a small light). Metals keep their own rule.
     pub rough_lobe: RoughLobe,
+    /// NVIDIA's textured `mdl 1.0` metals (Metal Brushed, Cast Iron) fall
+    /// towards the rim as Iray's legacy lobe makes them (Look): Octane's
+    /// flat metal, or Iray's rim as a Falloff Mix on the albedo.
+    pub legacy_metal_rim: bool,
 }
 
 impl Variant {
@@ -159,6 +176,7 @@ impl Variant {
                 max_transmission: 1.0,
                 strand_hair: StrandHair::HairPile,
                 rough_lobe: ENHANCED_ROUGH_LOBE,
+                legacy_metal_rim: ENHANCED_LEGACY_METAL_RIM,
             },
             (Faithful, Final) => Tuning {
                 kernel: Kernel::PathTracing,
@@ -173,6 +191,7 @@ impl Variant {
                 max_transmission: 1.0,
                 strand_hair: StrandHair::MdlLayers,
                 rough_lobe: FAITHFUL_ROUGH_LOBE,
+                legacy_metal_rim: FAITHFUL_LEGACY_METAL_RIM,
             },
             (Enhanced, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -187,6 +206,7 @@ impl Variant {
                 max_transmission: 0.75,
                 strand_hair: StrandHair::HairPile,
                 rough_lobe: ENHANCED_ROUGH_LOBE,
+                legacy_metal_rim: ENHANCED_LEGACY_METAL_RIM,
             },
             (Faithful, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -201,6 +221,7 @@ impl Variant {
                 max_transmission: 0.75,
                 strand_hair: StrandHair::HairPile,
                 rough_lobe: FAITHFUL_ROUGH_LOBE,
+                legacy_metal_rim: FAITHFUL_LEGACY_METAL_RIM,
             },
         }
     }
@@ -238,6 +259,15 @@ mod tests {
         for mode in [OctaneMode::Final, OctaneMode::Preview] {
             assert_eq!(Variant::new(Look::Enhanced, mode).tuning().rough_lobe, RoughLobe::GgxEnergyPreserving);
             assert_eq!(Variant::new(Look::Faithful, mode).tuning().rough_lobe, RoughLobe::Std);
+        }
+    }
+
+    #[test]
+    fn only_faithful_draws_the_legacy_metal_rim() {
+        // #112: Preview rows follow their Look.
+        for mode in [OctaneMode::Final, OctaneMode::Preview] {
+            assert!(!Variant::new(Look::Enhanced, mode).tuning().legacy_metal_rim);
+            assert!(Variant::new(Look::Faithful, mode).tuning().legacy_metal_rim);
         }
     }
 
