@@ -95,19 +95,19 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   probes start without the question above (the render lock, "hands off
   when the user works in an app" and "leave a failed Octane open" still
   hold). Each issue is worked by the `issue-worker` agent (Opus), one at
-  a time. An issue that needs Iray is not a call to the user: prepare its
-  scenes, write the batch into the issue (`## Iray batch`), label it
-  `needs-iray` and take the next issue. The orchestrating session queues
-  each parked batch right away (`iray-queue.sh -n`).
-- **Iray only on the Iray Server, in big batches** (skill `iray-queue`):
-  prepare the whole batch, **queue it before the user starts anything**
-  (the user's rule, 2026-11-15: a scene dropped into a running, idle queue
-  froze DAZ until a restart, #170), then tell the user it waits; they start
-  DAZ, the server and the queue script whenever they like. Never reorder;
-  scenes that need a queue-side DAZ restart before them (#94) are held back
-  and queued once the user says the restart is coming. Octane may render
-  alongside it. Stalled queue / "session handler rejected the session" =
-  tell the user.
+  a time. An issue that needs Iray is not a call to the user: the worker
+  queues its generic scenes and waits for them while the queue runs;
+  otherwise it writes the batch into the issue (`## Iray batch`), labels it
+  `needs-iray` and the orchestrating session queues it right away.
+- **Iray only on the home Iray Server** (skill `iray-queue`; the user's
+  rule, 2026-11-16, until they say otherwise): free, but **4 GB VRAM**.
+  Generic scenes (`calib/scenes`, generated `Calib-*`) go there on Claude's
+  judgment without asking, in batches of any size; `Demo-*` and private
+  scenes only after asking (they may not fit). The queue-side DAZ and the
+  queue script are the user's to start. Never reorder; scenes that need a
+  queue-side DAZ restart before them (#94) are held back and queued once
+  the user says the restart is coming. Octane may render alongside it.
+  Stalled queue / "session handler rejected the session" = tell the user.
 - **A failed Octane render/probe: leave Octane X open** so the user can read
   its error dialog (#50). Big scenes (the teens scene, 1.2 M faces) in a
   series of full renders froze the Mac — experiment on small Calib-* scenes
@@ -204,11 +204,12 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   else ad hoc; never put the identity's name or team in the repo. The release
   zip isn't notarized until CI does it (#3), so a downloaded copy is still
   quarantined.
-- Automation: never run a DAZ render and an Octane probe at once (Iray takes
-  the whole CPU). DAZ Studio and Octane X may both stay open; `daz-render.sh`,
-  `daz-script.sh` and `octane-run.sh` take turns through one lock
-  (`scripts/dev/render-lock.sh`, `~/Library/Caches/orbis/render.lock`) and
-  wait for it — don't wait on `pgrep` for Octane X or DAZ to quit, call the
+- Automation: DAZ and Octane may run at once (the user's rule, 2026-11-16):
+  headless DAZ (`daz-script.sh`, `daz` lock: one instance at a time) beside
+  Octane renders / probes. Only local CPU Iray (`daz-render.sh`) and Octane
+  (`octane-run.sh`) take turns, through the `render` lock
+  (`scripts/dev/render-lock.sh`, `~/Library/Caches/orbis/<name>.lock`); the
+  scripts wait for their lock — don't wait on `pgrep` for Octane X or DAZ to quit, call the
   scripts (or `render_lock` from them). `octane-run.sh` needs an unlocked
   screen — behind a lock Octane X never leaves its simple mode (no Script
   menu). DAZ renders fine headless; App Nap is off for DAZ

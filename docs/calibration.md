@@ -248,8 +248,9 @@ where a script maps that folder as an MDL directory (`daz-export-mi.dsa`,
   `.duf` and run the script without `--force`; restore from `calib/scenes`
   if it happened.
 
-- **Never a DAZ render and an Octane render at once** — Iray takes the
-  whole CPU; the scripts refuse.
+- **Never a local CPU Iray render and an Octane render at once** — Iray
+  takes the whole CPU; both take the `render` lock. Headless DAZ scripts
+  (`daz-script.sh`, `daz` lock) may run beside Octane.
 - **Octane X needs an unlocked screen**: behind a lock it never leaves its
   simple mode and has no Script menu. Keep the Mac awake (`caffeinate`).
 - Octane X now and then crashes on its own at start-up: `octane-run.sh`

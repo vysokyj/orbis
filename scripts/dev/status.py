@@ -52,14 +52,15 @@ ci = run("gh", "run", "list", "-L", "1", "--json", "status,conclusion,displayTit
          "-q", '.[0] | "\\(.status) \\(.conclusion) \\(.displayTitle) (\\(.createdAt))"', cwd=ROOT)
 print("CI:", ci or "unknown (gh)")
 
-section("Render lock")
-owner = f"{CACHE}/render.lock/owner"
-if os.path.exists(owner):
-    pid, _, what = open(owner).read().strip().partition(" ")
-    alive = subprocess.run(["kill", "-0", pid], capture_output=True).returncode == 0
-    print(f"held by {pid} ({what}), {'alive' if alive else 'DEAD - taken over by the next script'}, since {ago(owner)}")
-else:
-    print("free")
+section("Render locks")
+for name in ("render", "daz"):
+    owner = f"{CACHE}/{name}.lock/owner"
+    if os.path.exists(owner):
+        pid, _, what = open(owner).read().strip().partition(" ")
+        alive = subprocess.run(["kill", "-0", pid], capture_output=True).returncode == 0
+        print(f"{name}: held by {pid} ({what}), {'alive' if alive else 'DEAD - taken over by the next script'}, since {ago(owner)}")
+    else:
+        print(f"{name}: free")
 
 section("Apps")
 for label, pat in (("DAZ Studio", "DAZStudio"), ("Octane X", "Octane")):

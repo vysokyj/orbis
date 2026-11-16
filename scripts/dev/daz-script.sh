@@ -5,7 +5,7 @@
 # directories, in App.scriptArgs; it should end with App.delayedExit().
 # With DONE_FILE the instance is killed as soon as that file appears:
 # quitting a big scene took DAZ 2 minutes of cleanup (intake.duf).
-# Never alongside an Octane render (Iray / DAZ take the whole CPU).
+# Octane may render beside it; one headless DAZ instance at a time.
 # The user's custom actions (customactions.dsx) are put back after the run;
 # KEEP_ACTIONS=0 keeps what the script changed there.
 case ${1:-} in -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
@@ -13,7 +13,8 @@ set -eu
 # Absolute: DAZ Studio starts through `open`, in another directory.
 script=$(cd "$(dirname "$1")" && pwd)/$(basename "$1"); shift
 app="/Applications/DAZ 3D/DAZStudio6 64-bit/DAZStudio.app/Contents/MacOS/DAZStudio"
-# One DAZ instance or render at a time (Octane X may stay open).
+# One headless DAZ instance at a time; Octane may render beside it (2026-11-16).
+ORBIS_LOCK_NAME=daz
 . "$(dirname "$0")/render-lock.sh"
 render_lock "daz-script.sh $(basename "$script")"
 for a in "$@"; do set -- "$@" -scriptArg "$a"; shift; done

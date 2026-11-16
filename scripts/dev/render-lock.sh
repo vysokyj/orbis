@@ -1,12 +1,13 @@
-# One renderer at a time (sourced by daz-render.sh, daz-script.sh and
-# octane-run.sh): Iray takes the whole CPU, and a DAZ instance or Octane X
-# rendering beside it crawls or fails. DAZ Studio and Octane X may both stay
-# running; only the scripts that make them render take turns.
-#   . "$here/render-lock.sh"; render_lock "<what>"
+# Take turns through a named lock (sourced by daz-render.sh, daz-script.sh
+# and octane-run.sh). The "render" lock: local CPU Iray (daz-render.sh) takes
+# the whole CPU, so Octane (octane-run.sh) never renders beside it. The "daz"
+# lock (ORBIS_LOCK_NAME=daz, daz-script.sh): one headless DAZ instance at a
+# time. Headless DAZ and Octane may run at once (the user's rule, 2026-11-16).
+#   [ORBIS_LOCK_NAME=daz] . "$here/render-lock.sh"; render_lock "<what>"
 # waits for the lock (a directory, with "<pid> <what>" in it) and frees it
 # when the script exits. A lock whose process is gone is taken over. A script
 # run by the holder (ORBIS_RENDER_LOCK=<its pid>) shares its lock.
-render_lock_dir="$HOME/Library/Caches/orbis/render.lock"
+render_lock_dir="$HOME/Library/Caches/orbis/${ORBIS_LOCK_NAME:-render}.lock"
 
 render_lock() {
     if [ -n "${ORBIS_RENDER_LOCK:-}" ] && [ "$(cut -d' ' -f1 "$render_lock_dir/owner" 2>/dev/null)" = "$ORBIS_RENDER_LOCK" ]; then

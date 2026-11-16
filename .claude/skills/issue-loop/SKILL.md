@@ -1,16 +1,17 @@
 ---
 name: issue-loop
-description: Work through open ORBIS issues unattended, one per iteration - when an issue needs Iray renders, prepare the DAZ scenes, write the batch into the issue, label it needs-iray and move on instead of asking. Use with /loop ("/loop /issue-loop", optionally with issue numbers), when asked to "work through the issues", or when the user says the Iray Server runs and parked batches should be queued.
+description: Work through open ORBIS issues unattended, one per iteration - generic Iray scenes go to the home Iray Server and are waited for; when the queue does not run, prepare the DAZ scenes, write the batch into the issue, label it needs-iray and move on instead of asking. Use with /loop ("/loop /issue-loop", optionally with issue numbers), when asked to "work through the issues", or when the user says the Iray Server runs and parked batches should be queued.
 ---
 
-# Issue loop (one issue per iteration, Iray parked in the issue)
+# Issue loop (one issue per iteration)
 
-The user's rule (2026-11-11): don't call them for an Iray run per task. Work goes on without them; what needs the Iray Server waits in the issues and is rendered in one go when they choose to start the server.
+The user's rule (2026-11-11): don't call them for an Iray run per task. Since 2026-11-16 the Iray Server is a free home machine (4 GB VRAM, skill `iray-queue`): a worker queues its generic scenes itself and waits for them while the queue runs; only when it doesn't run, or a scene needs the user (Demo-* / private, a #94 restart), the issue is parked in the issue and the batch waits in the queue.
 
 **Standing permission inside this loop** (2026-11-11): headless DAZ (`daz-script.sh`, `daz-dump.sh`, `daz-build-*.dsa`, `make-*`) and Octane X renders / probes (`octane-render.sh`, `octane-run.sh`, `calib-variants.sh`) start **without a question**. Still:
 - `python3 scripts/dev/status.py` before the first render of an iteration; the scripts take turns through the render lock, call them and let them wait.
 - The user said they work in an app -> hands off that app until they say otherwise.
-- **Never** local CPU Iray (`daz-render.sh`), never start the queue-side DAZ. Parked batches are queued up front by the orchestrating session (below); a worker never queues.
+- **Never** local CPU Iray (`daz-render.sh`), never start the queue-side DAZ. A worker queues only generic scenes (`calib/scenes`, fresh `Calib-*`) and only into a running queue; parked batches are queued by the orchestrating session (below).
+- Headless DAZ and Octane may run at once (2026-11-16): `daz-script.sh` takes the `daz` lock, `octane-run.sh` / `daz-render.sh` the `render` lock.
 - Octane failed -> leave Octane X open (#50), don't retry; park the issue (below, `question`) and go on with issues that need no Octane. Small `Calib-*` scenes or half resolution only.
 
 ## One iteration
@@ -25,7 +26,7 @@ The session that runs the loop only orchestrates; the work on an issue is done b
 3. **Start the worker**: Agent tool, `subagent_type: issue-worker`, prompt = the issue number and title, "resume" if it is one, and what earlier workers reported that concerns it. Wait for its report; don't work on anything that touches the sources or renders meanwhile.
 4. **Check its end state** - the report is not proof. It must be exactly one of:
    - **Done**: the issue is closed, the commit is on `origin/master`, `cargo test` passes, `scripts/install.sh` ran if the export changed.
-   - **Needs Iray**: parked as in the next section (scenes in git, the comment, the label), and the report ends with its scene list - checked against the issue's `## Iray batch` table (same scenes, same samples).
+   - **Needs Iray**: only when the queue does not run or a scene needs the user; parked as in the next section (scenes in git, the comment, the label), and the report ends with its scene list - checked against the issue's `## Iray batch` table (same scenes, same samples).
    - **Needs the user** (a decision, missing knowledge, a failed Octane, content we may not use): a comment with what was found and the one question, label `question`; what is worth keeping committed (`refs #N`).
    In every end state: **each scene the worker generated is in `calib/scenes` and committed with its generator** (`git status` clean, the report's scene list against `git log --stat`). The generators write into "My Library/Scenes"; not all of them copy the scene into the repo, and a scene that lives only there is lost for the next compare. Exception: a scene with store or private content stays out of git - then the generator alone is committed and the issue says so.
    None of them (the worker died, left a dirty tree or failing tests): repair it here or park the issue with `question`; never start the next worker on a broken tree.
@@ -36,10 +37,10 @@ What the worker does in between: the usual skills - `docs-first` and `mi-fixture
 
 **Stop the loop** when nothing is left to pick. Final message (and the `notify` skill, if present): the `issue-status` table, and for the parked Iray batch the ETA from `status.py`'s s/scene and the DAZ restarts needed.
 
-## Parking an issue that needs Iray
-The worker's job. Do everything that doesn't need the server first, so the resume is only a compare:
+## Iray inside an issue
+The worker's job. With the queue running (`status.py`: queue script started, log fresh, connection fine) and generic scenes only: steps 1 - 4 below, then `iray-queue.sh -s <samples> <scenes>` as a background command, `wait-for.sh` on it, store the references (`iray-refs`) and go on with the compare in the same run. Otherwise park it - everything that doesn't need the server first, so the resume is only a compare:
 
-1. Generate the scenes (`make-*.py`, `daz-build-*.dsa`; DAZ built-ins / primitives / free DAZ add-ons only for `calib/scenes`). Include the variants the decomposition will ask for (w0, tcwhite, dwhite, gloss off...) and what will probably be needed next - a second round costs the user another server start.
+1. Generate the scenes (`make-*.py`, `daz-build-*.dsa`; DAZ built-ins / primitives / free DAZ add-ons only for `calib/scenes`). Include the variants the decomposition will ask for (w0, tcwhite, dwhite, gloss off...); keep each scene small (4 GB VRAM).
 2. Check each scene: it opens, `python3 scripts/dev/duf_camera.py --fix` (a scene without `current_camera` is refused, #97), list the NVIDIA presets it uses (#94).
 3. Dump (`daz-dump.sh`), `.mi` fixture if the conversion is in question, and render the **Octane side now**.
 4. Copy the scenes into `calib/scenes` (some generators do it, `make-calib-scenes.py` / `make-light-scenes.py` and the `daz-build-*.dsa` don't), commit and push them with the generator (`refs #N`); the batch must be reproducible from git.
@@ -61,13 +62,13 @@ The worker's job. Do everything that doesn't need the server first, so the resum
 
    Paths relative to the repo; a private scene by its name only (never its content). A newer `## Iray batch` comment replaces an older one.
 
-## Queue parked batches up front (the user's rule, 2026-11-15)
-The orchestrating session's job, never a worker's. Waiting for "server runs" and queueing afterwards made the user start an empty queue, and a scene dropped into a running, idle queue froze DAZ until a restart (#170). So the batch is in the queue **before** the user starts anything; they start DAZ, the Iray Server and the queue script whenever they like.
+## Queue parked batches at once
+The orchestrating session's job. A parked batch goes into the queue right away, whether the queue runs or not (without it the scenes wait); the user starts DAZ, the Iray Server and the queue script whenever they like.
 
 1. After a worker parks an issue (step 4 checked), queue its batch at once: `scripts/dev/iray-queue.sh -n -s <samples> <scene.duf>...` per sample count, in the batch's order (a private scene by its My Library path). DAZ / the queue script need not run.
 2. Before queueing, check NVIDIA preset / module repeats (`pbr_skin`, `dual_lobe_hair`, NVIDIA presets: one import per DAZ session, #94) against what is already queued and what the running queue DAZ rendered. A repeat is **held back**: list it in `issue-status`'s note and tell the user it needs a queue-side DAZ restart; queue it only after they say DAZ is down, and always with `iray-queue.sh -n --held ...` - it refuses while the queue-side DAZ still runs (a running queue grabs a new scene at once, in the old session; #183: one rendered on the CPU because the server was already stopped). A refusal means wait, never queue it without `--held`.
    `iray-queue.sh` also refuses any batch while a running queue's DAZ has lost its server connection (#183); then tell the user and queue after their restart.
-3. Don't queue into a running queue that is idle; if one is running and idle, queue anyway only when the user is about to restart it.
+3. Demo-* or private scenes in a batch: ask the user before queueing them (4 GB VRAM).
 4. Meanwhile keep looping (Octane may render beside the server queue); `progress` instead of polling. `iray-queue.sh --collect` moves finished renders to their out dir.
 5. Renders done -> `iray-refs` (`keep-refs.py`, commit as they come). Per issue: comment `Iray references in: <commit>` and `gh issue edit N --remove-label needs-iray`. The next iteration resumes it.
 

@@ -1,25 +1,31 @@
 ---
 name: iray-queue
-description: Prepare and run Iray Server renders through the ORBIS render queue - big batch first, one call to the user to start the server. Use when Iray references are needed, or the queue seems stalled.
+description: Queue Iray renders on the home Iray Server (free, 4 GB VRAM) through the ORBIS render queue - generic Calib scenes at Claude's discretion, Demo/private scenes only after asking. Use when Iray references are needed, or the queue seems stalled.
 ---
 
 # Iray Server queue (`scripts/dev/iray-queue.sh`)
 
-**The queue and the server are the user's** (paid time; another session may own a running batch). Iray renders go **only** to the Iray Server, never local CPU Iray (`daz-render.sh`) without asking. The server's time is the scarce resource, ours is cheap: the user starts the server once, so one call must cover as much work as possible.
+## Home Iray Server (the user's rule, 2026-11-16, until they say otherwise)
+The Iray Server is now a home machine: **free, but its GPU has only 4 GB of VRAM**. The old rules for a paid server (one big batch, one call, parked until the user starts it) are gone.
+- **Generic scenes go there on Claude's own judgment, no question**: everything in `calib/scenes` and freshly generated `Calib-*` scenes (DAZ built-ins, primitives, free DAZ add-ons). Send what the work needs when it needs it; small batches are fine.
+- **Ask first** for `Demo-*` and private scenes (store content, the teens scene, big figures with 4K maps): they are what 4 GB may not hold.
+- **4 GB VRAM**: keep scenes small (primitives, few and small textures). A render that takes far longer than its siblings, a black / tiny PNG, or an out-of-memory / fallback line in DAZ's log (`~/Library/Application Support/DAZ 3D/Studio6/log.txt`) = the scene did not fit: don't resend it, tell the user, make it smaller.
+- Still never local CPU Iray (`daz-render.sh`) without asking.
+- The queue-side DAZ and its queue script are the user's to start; we never start them. Without them the scenes simply wait in the queue folder.
 
-## Agreement (2026-11-02)
-1. **Prepare the whole batch first.** Before asking, have everything ready: generated scenes (`make-*.py`, `daz-build-*.dsa`; DAZ built-ins/primitives or free DAZ add-ons only for calib/scenes), checked that they open and that their dumps/references exist. Add what will probably be needed next, not only what is needed now. Write the ordered list (scene, samples, why) and an ETA from `python3 scripts/dev/status.py` (avg s/scene).
-2. **Queue it first, then one call** (the user's rule, 2026-11-15): `scripts/dev/iray-queue.sh -n [-s samples] [-o out dir] <scene.duf>...` (default 400; references use 5000), one call per sample count, in the batch's order. DAZ, the server and the queue script need not run: the scenes wait in the queue folder. Then: "Batch queued: N scenes, ~X min. Start DAZ, the Iray Server and the queue script." A scene dropped into a running, idle queue froze DAZ until a restart (#170) - never queue into an idle running queue and then ask the user to wait; queue before they start, or while the queue is still rendering.
-3. A scene that needs a queue-side DAZ restart before it (#94, below) is **held back**: say so in the call, and queue it when the user says they restart (before the new queue script starts) with `iray-queue.sh -n --held ...`: it refuses (nothing queued) while the queue-side DAZ still runs (`pgrep -x DAZStudio`, the `orbis-render` helper excluded) - a running queue would grab it at once, in the old session, and on 2026-11-16 one rendered it on the CPU (#183). Refused: wait for the user to quit DAZ, never work around it. `iray-queue.sh --collect` moves the finished renders to their out dir (`-n` doesn't wait for them).
-4. **While it runs, work on Octane** (Octane may render beside the Iray Server queue; never beside a local CPU Iray render) and on anything else; check `progress` instead of polling.
-5. Never reorder (no backdated mtimes). The next batch goes after the running one, or ask. `--stop` only on request.
+## Queueing
+1. Prepared scenes: generated (`make-*.py`, `daz-build-*.dsa`; DAZ built-ins/primitives or free DAZ add-ons only for calib/scenes), checked that they open, camera set (below), NVIDIA presets listed (below).
+2. `scripts/dev/iray-queue.sh [-n] [-s samples] [-o out dir] <scene.duf>...` (default 400; references use 5000), one call per sample count. Without `-n` it waits for the renders and moves them to the out dir - run it as a background command and block with `scripts/dev/wait-for.sh` if you must; `-n` returns at once and `--collect` moves finished renders later. Queueing into a running, idle queue froze DAZ once (#170, fixed); if DAZ hangs on a new scene, tell the user.
+3. A scene that needs a queue-side DAZ restart before it (#94, below) is **held back**: tell the user, and queue it when they say they restart (before the new queue script starts) with `iray-queue.sh -n --held ...`: it refuses (nothing queued) while the queue-side DAZ still runs (`pgrep -x DAZStudio`, the `orbis-render` helper excluded) - a running queue would grab it at once, in the old session, and on 2026-11-16 one rendered it on the CPU (#183). Refused: wait for the user to quit DAZ, never work around it.
+4. **While it runs, work on Octane** (Octane and DAZ may run at once; never beside a local CPU Iray render) and on anything else; check `progress` instead of polling.
+5. Never reorder (no backdated mtimes); another session's scenes go first. `--stop` only on request.
 6. Finished renders -> `iray-refs` skill.
 
-## Parked batches (2026-11-11)
-In the `issue-loop` skill step 2 is not a call: the batch is written into the issue as a `## Iray batch` comment under the label `needs-iray`, and work goes on with the next issue. The user's "server runs" then covers every batch parked at that moment; collecting and queueing them is described there.
+## Inside the issue loop
+A worker queues its own generic scenes and waits for them when the queue runs (`status.py`: queue script started, log fresh, no lost connection); without a running queue it parks the issue (`needs-iray`) as described in the `issue-loop` skill and the orchestrating session queues the batch.
 
 ## One NVIDIA preset per DAZ session
-DAZ imports an MDL module into Iray once per session. A later scene in the same queue session using the same NVIDIA preset (concrete, porcelain, granite, ...) logs `MDL Import Error (4004)` and Iray renders that material as an untextured fallback (#94). Before a batch: list the presets each scene uses; a repeat (within the batch, or of a scene the running queue DAZ already rendered) needs the user to restart the queue-side DAZ in between - ask for it in the one call. `keep-refs.py` refuses such renders, `status.py` flags them (`scripts/dev/daz_log.py`).
+DAZ imports an MDL module into Iray once per session. A later scene in the same queue session using the same NVIDIA preset (concrete, porcelain, granite, ...) logs `MDL Import Error (4004)` and Iray renders that material as an untextured fallback (#94). Before a batch: list the presets each scene uses; a repeat (within the batch, or of a scene the running queue DAZ already rendered) needs the user to restart the queue-side DAZ in between - hold it back and tell them. `keep-refs.py` refuses such renders, `status.py` flags them (`scripts/dev/daz_log.py`).
 
 ## The scene's camera
 DAZ renders through the viewport's camera. A scene saved through the Perspective View has no `current_camera`, and the queue then renders DAZ's own view, not the camera `orbis` exports (#97: four references were unusable). `iray-queue.sh` refuses such a batch, `keep-refs.py` such a render; `python3 scripts/dev/duf_camera.py --fix <scene.duf>` (or `duf_camera.ensure` in a generator) sets it.
