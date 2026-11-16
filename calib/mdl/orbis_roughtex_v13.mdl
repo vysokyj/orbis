@@ -1,0 +1,21 @@
+// ORBIS calibration module (#112), written for ORBIS (GPL-3.0-or-later).
+// The "mdl 1.3" twins of orbis_roughtex_v10.mdl's J1 (file_r04) and J4
+// (varying_r04): does the rim a textured / varying roughness brings need
+// the legacy simple_glossy_bsdf, or does the 1.3 lobe (the Uber's) get it
+// too? Constant twin: Calib-Furnace-MdlVersion M4.
+mdl 1.3;
+
+import df::*;
+import base::*;
+import state::*;
+
+material lobe(float r = 0.4) = material(
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: color(1.0), roughness_u: r, roughness_v: r)));
+
+// J2: M4 with its roughness 0.4 from base::file_texture on the white map.
+export material file_r04() = lobe(r: base::file_texture(texture: texture_2d("/orbis/calib-disp-white.png"),
+    color_scale: color(0.4), color_offset: color(0.0), mono_source: base::mono_luminance).mono);
+
+// J5: a roughness that varies (by 1e-4 over the UV square) without a texture.
+export material varying_r04() = lobe(r: 0.4 + 0.0001 * state::texture_coordinate(0).x);

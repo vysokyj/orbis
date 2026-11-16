@@ -2655,10 +2655,19 @@ leaves out, #15):
     = isotropic 0.4), a varying roughness, or `metal_generic`'s whole
     structure at Brushed B6's constants: rim / centre 0.89 = the bare
     1.0 lobe's, B6 0.65 (Calib-Furnace-MdlGeneric, #112; B6 / that
-    structure ≈ 0.94 · √cos θ_v per ring). Left: what B6 has on top -
-    `base::file_texture` lookups and a valid bump texture (Iray's
-    builtin bump path) - and NVIDIA's own call through our brick
-    (Calib-Furnace-MdlTextured, #112).
+    structure ≈ 0.94 · √cos θ_v per ring). **It is the textured
+    roughness** (Calib-Furnace-MdlTextured, #112): that structure with
+    its roughness u / v read through `base::file_texture` on flat maps
+    (the same values) is B6 ring for ring, 0.93 (± 0.01) · √cos θ_v ×
+    the constant-roughness twin; a valid bump texture at any factor or
+    the weight through a texture changes nothing, and NVIDIA's
+    `metal_brushed` through our brick = B6. No constant roughness gives
+    that shape (the 1.0 lobe's rim / centre stays ≥ 0.88 at r 0.05 – 1).
+    Still left as Octane over Iray until it is known whether any
+    non-constant roughness, the 1.3 lobe and the Uber with a Glossy
+    Roughness map do it too (Calib-Furnace-MdlRoughTex,
+    -UberRoughMap, #112); the Uber spheres measured so far all had
+    constant roughness.
   - Dielectrics (concrete, concrete polished, asphalt, ceramic tiles small,
     granite black, porcelain, resin polyurethane matte, architectural):
     `df::fresnel_layer(ior, weight, glossy, diffuse)` → Universal albedo,

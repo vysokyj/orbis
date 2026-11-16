@@ -1,0 +1,48 @@
+// ORBIS calibration module (#112), written for ORBIS (GPL-3.0-or-later).
+// metal_generic's rim, fourth round. Calib-Furnace-MdlTextured named the
+// piece: G7 with its roughness u / v read through base::file_texture (H4)
+// falls to Metal Brushed B6's rim (H4 / G7 = 0.93 sqrt(cos theta_v) in
+// every ring, H6 = NVIDIA's metal_brushed = B6), while a valid bump at any
+// factor (H1, H2) and the weight through a texture (H3) change nothing.
+// Which property of that roughness does it: base::file_texture, any
+// texture lookup, or any roughness that isn't a compile-time constant
+// (G5's `0.4 + 0.0 * u` was foldable)? Does it need the legacy lobe
+// (orbis_roughtex_v13.mdl), the roughness, or the roughness alone (a
+// textured tint)? The bare white lobe (Calib-Furnace-MdlVersion M3) with
+// one change each. Flat maps as orbis_textured_v10's (calib-disp-white,
+// installed next to this module by make-mdl-scenes.py).
+mdl 1.0;
+
+import df::*;
+import base::*;
+import tex::*;
+import state::*;
+
+// The bare white reflect lobe, isotropic roughness r.
+material lobe(float r = 0.4, color tint = color(1.0)) = material(
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect, tint: tint, roughness_u: r, roughness_v: r)));
+
+// base::file_texture on the white map, scaled to `r` (metal_brushed's path).
+float file_r(float r) {
+    return base::file_texture(texture: texture_2d("/orbis/calib-disp-white.png"),
+        color_scale: color(r), color_offset: color(0.0), mono_source: base::mono_luminance).mono;
+}
+
+// J1: M3 with its roughness 0.4 from base::file_texture.
+export material file_r04() = lobe(r: file_r(0.4));
+
+// J3: the roughness from a plain tex::lookup_float (no base::).
+export material lookup_r04() = lobe(r: 0.4 * tex::lookup_float(texture_2d("/orbis/calib-disp-white.png"),
+    float2(state::texture_coordinate(0).x, state::texture_coordinate(0).y)));
+
+// J4: a roughness that varies (by 1e-4 over the UV square) without a texture.
+export material varying_r04() = lobe(r: 0.4 + 0.0001 * state::texture_coordinate(0).x);
+
+// J6: the roughness a constant 0.4, the tint (white) through base::file_texture.
+export material file_tint() = lobe(tint: base::file_texture(texture: texture_2d("/orbis/calib-disp-white.png"),
+    mono_source: base::mono_luminance).tint);
+
+// J7, J8: J1 at r 0.1 and 0.7 (MdlLobe L2 / L7 are their constant twins).
+export material file_r01() = lobe(r: file_r(0.1));
+export material file_r07() = lobe(r: file_r(0.7));

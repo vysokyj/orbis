@@ -48,6 +48,8 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-Furnace-Metal / -Brushed (#98), -MetalBump / -CoatTint (#111): white
   Uber metals, Metal Brushed, flat-bumped metals, tinted Weighted coats
   under a uniform dome, the floor hidden - each lobe's directional albedo.
+  -UberRoughMap (#112): the Uber gloss's roughness as a constant and through
+  a flat white map, side by side.
 - Calib-Resin / Calib-Furnace-Resin (#113): NVIDIA's resin on Calib-NVIDIA2's
   spheres, tint / roughness / coat one at a time, under the HDRI and the dome.
 - Calib-ArchGlass / Calib-Furnace-ArchGlass (#115): architectural glass on
@@ -2227,23 +2229,34 @@ if not os.path.exists(p):
     os.makedirs(os.path.dirname(p), exist_ok=True)
     # Radiance RGBE, flat scanlines: every texel (128, 128, 128, 128) = 0.5.
     open(p, 'wb').write(b'#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 32 +X 64\n' + bytes([128] * 4 * 64 * 32))
-uber_spheres('Calib-Furnace-Metal', [1.0, 1.0, 1.0], {'Metallic Weight': 1.0}, [
-    (f'F{k + 1} metal r {r}', {'Glossy Roughness': round(r ** 0.5, 4)}) for k, r in enumerate((0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 1.0))])
-if made[-1][0]:
-    d = load(made[-1][0])
+
+
+def furnace_dome(d):
+    """The uniform dome (FURNACE), the floor hidden."""
     for n in d['scene']['nodes']:
         if n.get('label') == 'Plane':
-            n.setdefault('extra', [{'type': 'studio_node_channels', 'version': 5}])
-            ext = next(e for e in n['extra'] if e.get('type') == 'studio_node_channels')
+            ext = next(e for e in n.setdefault('extra', [{'type': 'studio_node_channels', 'version': 5}]) if e.get('type') == 'studio_node_channels')
             ext.setdefault('channels', []).append({'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}})
         for e in n.get('extra', []):
             for c in e.get('channels') or []:
                 if c['channel']['id'] == 'Environment Map':
                     c['channel']['image_file'] = FURNACE
                     c['channel']['current_value'] = 1
-    d['image_library'] = [i for i in d['image_library'] if 'RuinsB' not in i['map'][0]['url']] + [
+    d['image_library'] = [i for i in d.get('image_library', []) if 'RuinsB' not in i['map'][0]['url'] and i['id'] != 'calib-furnace.hdr'] + [
         {'id': 'calib-furnace.hdr', 'name': 'calib-furnace.hdr', 'map_gamma': 1, 'map_type': 'LatLong', 'map': [{'url': FURNACE, 'label': 'calib-furnace.hdr'}]}]
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+
+
+def dome_file(p):
+    """The scene just written at `p` (None: kept) under `furnace_dome`."""
+    if p:
+        d = load(p)
+        furnace_dome(d)
+        open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+
+
+uber_spheres('Calib-Furnace-Metal', [1.0, 1.0, 1.0], {'Metallic Weight': 1.0}, [
+    (f'F{k + 1} metal r {r}', {'Glossy Roughness': round(r ** 0.5, 4)}) for k, r in enumerate((0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 1.0))])
+dome_file(made[-1][0])
 # Calib-Furnace-Brushed: Calib-NVIDIA-Brushed under the same dome, the floor
 # hidden - NVIDIA's `metal_generic` against the Uber's lobe, ring by ring.
 nvb = os.path.join(out_dir, 'Calib-NVIDIA-Brushed.duf')
@@ -2279,21 +2292,22 @@ uber_spheres('Calib-Furnace-MetalBump', [1.0, 1.0, 1.0], {'Metallic Weight': 1.0
     (f'F{k + 1} metal r {r}{" flat bump" if bump else ""}', {'Glossy Roughness': round(r ** 0.5, 4),
      **({('Bump Strength', 'image'): G, 'Bump Strength': 1.0} if bump else {})})
     for k, (bump, r) in enumerate([(b, r) for b in (False, True) for r in (0.05, 0.1, 0.2, 0.4)])])
-if made[-1][0]:
-    d = load(made[-1][0])
-    for n in d['scene']['nodes']:
-        if n.get('label') == 'Plane':
-            n.setdefault('extra', [{'type': 'studio_node_channels', 'version': 5}])
-            ext = next(e for e in n['extra'] if e.get('type') == 'studio_node_channels')
-            ext.setdefault('channels', []).append({'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}})
-        for e in n.get('extra', []):
-            for c in e.get('channels') or []:
-                if c['channel']['id'] == 'Environment Map':
-                    c['channel']['image_file'] = FURNACE
-                    c['channel']['current_value'] = 1
-    d['image_library'] = [i for i in d['image_library'] if 'RuinsB' not in i['map'][0]['url']] + [
-        {'id': 'calib-furnace.hdr', 'name': 'calib-furnace.hdr', 'map_gamma': 1, 'map_type': 'LatLong', 'map': [{'url': FURNACE, 'label': 'calib-furnace.hdr'}]}]
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+dome_file(made[-1][0])
+# Calib-Furnace-UberRoughMap (#112): NVIDIA's 1.0 metal_brushed darkens
+# towards the rim (0.93 sqrt(cos theta_v)) because its roughness is read
+# through base::file_texture (Calib-Furnace-MdlTextured H4; the constant
+# roughness doesn't). Does the Uber (1.7) do it with a roughness map? The
+# white Uber metal at Iray r 0.1 / 0.4 / 0.7 and the dielectric gloss
+# (Glossy Layered Weight 1, Reflectivity 0.5) over a black base at r 0.4,
+# each as a constant and as the same value times the flat white map.
+uber_spheres('Calib-Furnace-UberRoughMap', [1.0, 1.0, 1.0], {'Metallic Weight': 1.0}, [
+    (f'U{2 * k + m + 1} {what} r {r}{" map" if m else ""}', {**over, 'Glossy Roughness': round(r ** 0.5, 4),
+     **({('Glossy Roughness', 'image'): MAPS + 'calib-disp-white.png'} if m else {})})
+    for k, (what, r, over) in enumerate([('metal', 0.1, {}), ('metal', 0.4, {}), ('metal', 0.7, {}),
+                                         ('dielectric', 0.4, {'Metallic Weight': 0.0, 'Glossy Layered Weight': 1.0,
+                                                              'Glossy Reflectivity': 0.5, '_base': [0.0, 0.0, 0.0]})])
+    for m in (0, 1)])
+dome_file(made[-1][0])
 # Calib-Furnace-CoatTint (#111): the same lobe's tint against its weight -
 # NVIDIA's metals tint `simple_glossy_bsdf` (0.65, 0.543), the Uber metals
 # don't (white lobe, colour through the curve). The Uber's Weighted top coat
@@ -2304,21 +2318,7 @@ uber_spheres('Calib-Furnace-CoatTint', [0.0, 0.0, 0.0],
              {'Glossy Layered Weight': 0.0, 'Top Coat Layering Mode': 1, 'Top Coat Color Effect': 0}, [
     (f'C{k + 1} coat {c} w {w} r {r}', {'Top Coat Weight': w, 'Top Coat Color': [c, c, c], 'Top Coat Roughness': round(r ** 0.5, 4)})
     for k, (r, (c, w)) in enumerate([(r, cw) for r in (0.1, 0.4) for cw in ((1.0, 1.0), (0.65, 1.0), (1.0, 0.65), (0.4, 1.0))])])
-if made[-1][0]:
-    d = load(made[-1][0])
-    for n in d['scene']['nodes']:
-        if n.get('label') == 'Plane':
-            n.setdefault('extra', [{'type': 'studio_node_channels', 'version': 5}])
-            ext = next(e for e in n['extra'] if e.get('type') == 'studio_node_channels')
-            ext.setdefault('channels', []).append({'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}})
-        for e in n.get('extra', []):
-            for c in e.get('channels') or []:
-                if c['channel']['id'] == 'Environment Map':
-                    c['channel']['image_file'] = FURNACE
-                    c['channel']['current_value'] = 1
-    d['image_library'] = [i for i in d['image_library'] if 'RuinsB' not in i['map'][0]['url']] + [
-        {'id': 'calib-furnace.hdr', 'name': 'calib-furnace.hdr', 'map_gamma': 1, 'map_type': 'LatLong', 'map': [{'url': FURNACE, 'label': 'calib-furnace.hdr'}]}]
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+dome_file(made[-1][0])
 # Resin's level (#113): NVIDIA's Resin Polyurethane Matte on all eight of
 # Calib-NVIDIA2's spheres (one MDL module: one DAZ session, #94), one part
 # at a time - the base tint (grey 0.9 sRGB = A7, white), the roughness
@@ -2427,21 +2427,6 @@ for name, furnace in (('Calib-ArchGlass', False), ('Calib-Furnace-ArchGlass', Tr
         d['image_library'] = [i for i in d['image_library'] if 'RuinsB' not in i['map'][0]['url']] + [
             {'id': 'calib-furnace.hdr', 'name': 'calib-furnace.hdr', 'map_gamma': 1, 'map_type': 'LatLong', 'map': [{'url': FURNACE, 'label': 'calib-furnace.hdr'}]}]
     made.append((save(d, name), None))
-
-
-def furnace_dome(d):
-    """The uniform dome (FURNACE), the floor hidden."""
-    for n in d['scene']['nodes']:
-        if n.get('label') == 'Plane':
-            ext = next(e for e in n.setdefault('extra', [{'type': 'studio_node_channels', 'version': 5}]) if e.get('type') == 'studio_node_channels')
-            ext.setdefault('channels', []).append({'channel': {'id': 'Visible', 'type': 'bool', 'current_value': False}})
-        for e in n.get('extra', []):
-            for c in e.get('channels') or []:
-                if c['channel']['id'] == 'Environment Map':
-                    c['channel']['image_file'] = FURNACE
-                    c['channel']['current_value'] = 1
-    d['image_library'] = [i for i in d.get('image_library', []) if 'RuinsB' not in i['map'][0]['url'] and i['id'] != 'calib-furnace.hdr'] + [
-        {'id': 'calib-furnace.hdr', 'name': 'calib-furnace.hdr', 'map_gamma': 1, 'map_type': 'LatLong', 'map': [{'url': FURNACE, 'label': 'calib-furnace.hdr'}]}]
 
 
 def render_option(d, cid, value):

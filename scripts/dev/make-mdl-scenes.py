@@ -67,6 +67,13 @@ material file with one Shader Mixer brick material per module material
   that bump. The flat maps (calib-disp-grey / -white / -black from
   `<library>/Runtime/Textures/ORBIS`, make-calib-scenes.py's) are copied
   next to the modules.
+- Calib-Furnace-MdlRoughTex (#112, fourth round): MdlTextured's H4 - G7
+  with its roughness through base::file_texture - is B6's rim (0.93
+  sqrt(cos theta_v) x G7). On the bare white lobe (MdlVersion M3 / M4):
+  the roughness 0.4 through base::file_texture at 1.0 / 1.3, through a
+  plain tex::lookup_float, a roughness varying by 1e-4 without a texture
+  at 1.0 / 1.3, the tint through base::file_texture at a constant
+  roughness, and the file_texture roughness at r 0.1 / 0.7.
 - Calib-Point-ArchAniso (#114): that light on NVIDIA's Architectural
   preset (its reflection only) at glossiness 0 / 0.15 / 0.3, isotropic
   and anisotropic - the scene the export maps (Octane side).
@@ -228,6 +235,14 @@ TEXTURED = [(f'H{k + 1} v{v} {what}', f'v{v.replace(".", "")}_textured_{mat}', f
                                                 ('weight map', 'weight_map', '1.0'), ('rough map', 'rough_map', '1.0'),
                                                 ('all maps', 'all_maps', '1.0'), ('nvidia B6', 'nvidia_b6', '1.0'),
                                                 ('bump 0', 'bump0', '1.3'), ('white r 0.4 bump 0', 'white_bump0', '1.0')])]
+# #112 fourth round: H4 (G7's roughness through base::file_texture) is
+# B6's rim; which property of that roughness, at which version, on the
+# bare white lobe (orbis_roughtex_v10 / _v13, see the module).
+ROUGHTEX = [(f'J{k + 1} v{v} {what}', f'v{v.replace(".", "")}_roughtex_{mat}', f'orbis/orbis_roughtex_v{v.replace(".", "")}.mdl#{mat}')
+            for k, (what, mat, v) in enumerate([('file r 0.4', 'file_r04', '1.0'), ('file r 0.4', 'file_r04', '1.3'),
+                                                ('lookup r 0.4', 'lookup_r04', '1.0'), ('varying r 0.4', 'varying_r04', '1.0'),
+                                                ('varying r 0.4', 'varying_r04', '1.3'), ('file tint r 0.4', 'file_tint', '1.0'),
+                                                ('file r 0.1', 'file_r01', '1.0'), ('file r 0.7', 'file_r07', '1.0')])]
 # NVIDIA's architectural preset itself under the same light, its lobe alone
 # (diffuse black, reflectivity 1, Schlick 1 / 1: a white constant lobe): the
 # scene the export maps, so it has an Octane side. (label, channels).
@@ -248,7 +263,7 @@ os.makedirs(dst, exist_ok=True)
 for f in sorted(os.listdir(src)):
     if f.endswith('.mdl') and not f.startswith('orbis_path'):
         shutil.copyfile(os.path.join(src, f), os.path.join(dst, f))
-# The flat maps orbis_textured_* reads as /orbis/calib-disp-*.png: B6's own.
+# The flat maps orbis_textured_* / orbis_roughtex_* read as /orbis/calib-disp-*.png: B6's own.
 for c in ('grey', 'white', 'black'):
     shutil.copyfile(os.path.join(LIB, 'Runtime/Textures/ORBIS', f'calib-disp-{c}.png'), os.path.join(dst, f'calib-disp-{c}.png'))
 probe = open(os.path.join(src, 'orbis_path.mdl')).read()
@@ -258,7 +273,7 @@ for _, _, c, root in PATH_PROBE:
     open(os.path.join(d, c.split('/')[1].split('#')[0]), 'w').write(probe)
 
 os.makedirs(os.path.dirname(DSF), exist_ok=True)
-lib_mats = [brick_material(mid, c) for _, mid, c, *_ in PATH_PROBE + VERSION + LOBE + TRANSMIT + ANISO + TIR + RESIN + GENERIC + ARCH_MDL + LEGACY + TEXTURED + LEGACY2]
+lib_mats = [brick_material(mid, c) for _, mid, c, *_ in PATH_PROBE + VERSION + LOBE + TRANSMIT + ANISO + TIR + RESIN + GENERIC + ARCH_MDL + LEGACY + TEXTURED + LEGACY2 + ROUGHTEX]
 dsf = {'file_version': '0.6.0.0',
        'asset_info': {'id': DSF_URL, 'type': 'material', 'contributor': {'author': 'ORBIS', 'email': '', 'website': ''}, 'revision': '1.0'},
        'material_library': lib_mats}
@@ -435,3 +450,4 @@ furnace_scene('Calib-Furnace-MdlArch', ARCH_MDL)
 furnace_scene('Calib-Furnace-MdlLegacy', LEGACY)
 furnace_scene('Calib-Furnace-MdlTextured', TEXTURED)
 furnace_scene('Calib-Furnace-MdlLegacy2', LEGACY2)
+furnace_scene('Calib-Furnace-MdlRoughTex', ROUGHTEX)
