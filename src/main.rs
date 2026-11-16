@@ -1,7 +1,7 @@
 //! `orbis` — export a saved DAZ Studio scene to Octane X.
 //!
 //! `orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz|out.usda | --out-dir DIR] [--preview]
-//! [--no-ground] [--content-dir DIR]…`
+//! [--no-ground] [--look enhanced|faithful] [--no-denoise] [--samples N] [--content-dir DIR]…`
 //! `orbis install [--library DIR]`
 //!
 //! The DAZ Studio script dumps the evaluated scene, runs `export` with the
@@ -60,6 +60,11 @@ enum Command {
         /// Leave Octane's AI denoiser off.
         #[arg(long)]
         no_denoise: bool,
+        /// Octane's maximum samples per pixel. More renders cleaner and
+        /// sharper (the denoiser softens less), and longer. Default: the
+        /// render mode's (500).
+        #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+        samples: Option<u32>,
         /// DAZ content directory, in DAZ Studio's order (repeatable). Default:
         /// the dump's, else read from DAZ Studio's preferences.
         #[arg(long = "content-dir")]
@@ -95,7 +100,7 @@ fn main() -> Result<()> {
             );
             Ok(())
         }
-        Command::Export { scene, dump, out, out_dir, preview, no_ground, look, no_denoise, content_dirs, progress } => {
+        Command::Export { scene, dump, out, out_dir, preview, no_ground, look, no_denoise, samples, content_dirs, progress } => {
             if !scene.is_file() {
                 bail!("scene not found: {}", scene.display());
             }
@@ -124,6 +129,7 @@ fn main() -> Result<()> {
                     LookArg::Enhanced => usd::Look::Enhanced,
                 },
                 no_denoise,
+                samples,
                 progress: if progress {
                     usd::Progress::new(|percent, what| println!("progress: {percent} {}", script_safe(what)))
                 } else {

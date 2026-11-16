@@ -45,6 +45,20 @@ pub enum OctaneMode {
 const FAITHFUL_DAYLIGHT_POWER: f64 = 2.864;
 const FAITHFUL_DAYLIGHT_EXTINCTION: f64 = 0.2001;
 
+/// Octane's maximum samples per pixel for a Final render (Render modes,
+/// #180). A judgment call, not a calibration: 500 is what every export had
+/// before the option; it trades detail for time. #47 measured Victoria's
+/// random-walk skin pores (denoised) 15 - 25 % crisper at 2000, but 91 s ->
+/// 428 s at 960 x 720; the user picks more per export (`--samples`, the
+/// dialog). Revisit on real scenes: raise it if most Final renders look
+/// soft at 500.
+const FINAL_SAMPLES: u32 = 500;
+/// Preview's (direct lighting): kept at the former 500 too, so an unchanged
+/// export renders as before (#180). Direct lighting converges much sooner;
+/// a lower default would make Preview faster - a judgment call left for
+/// when Preview is judged on real scenes.
+const PREVIEW_SAMPLES: u32 = 500;
+
 /// One of the four exports.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Variant {
@@ -67,6 +81,9 @@ pub enum Kernel {
 pub struct Tuning {
     /// Render modes.
     pub kernel: Kernel,
+    /// The kernel's maximum samples per pixel (Render modes); an export's
+    /// `--samples` replaces it (`ExportOptions::tuning`).
+    pub samples: u32,
     /// Imager exposure at DAZ's default EV 13 (Render modes): 1.4 under
     /// path tracing (Octane2's Iray render, HDRI only) and under direct
     /// lighting too — at the old 1 every Preview floor came out 0.71 –
@@ -116,6 +133,7 @@ impl Variant {
         match (self.look, self.mode) {
             (Enhanced, Final) => Tuning {
                 kernel: Kernel::PathTracing,
+                samples: FINAL_SAMPLES,
                 base_exposure: 1.4,
                 denoiser: true,
                 skin: SkinShader::OpenPbr,
@@ -128,6 +146,7 @@ impl Variant {
             },
             (Faithful, Final) => Tuning {
                 kernel: Kernel::PathTracing,
+                samples: FINAL_SAMPLES,
                 base_exposure: 1.4,
                 denoiser: true,
                 skin: SkinShader::IrayAlbedo,
@@ -140,6 +159,7 @@ impl Variant {
             },
             (Enhanced, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
+                samples: PREVIEW_SAMPLES,
                 base_exposure: 1.4,
                 denoiser: false,
                 skin: SkinShader::None,
@@ -152,6 +172,7 @@ impl Variant {
             },
             (Faithful, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
+                samples: PREVIEW_SAMPLES,
                 base_exposure: 1.4,
                 denoiser: false,
                 skin: SkinShader::None,

@@ -74,6 +74,9 @@ pub struct ExportOptions {
     pub look: Look,
     /// Leave Octane's AI denoiser off (Final turns it on).
     pub no_denoise: bool,
+    /// The kernel's maximum samples per pixel; `None` keeps the render
+    /// mode's default (`Tuning::samples`).
+    pub samples: Option<u32>,
     /// Told how far the export got.
     pub progress: Progress,
 }
@@ -82,6 +85,16 @@ impl ExportOptions {
     /// Which of the four variants this export is (`crate::tuning`).
     pub fn variant(&self) -> Variant {
         Variant::new(self.look, self.octane_mode)
+    }
+
+    /// The variant's tuning with this export's own choices in it
+    /// (`samples`).
+    pub fn tuning(&self) -> crate::tuning::Tuning {
+        let mut t = self.variant().tuning();
+        if let Some(n) = self.samples {
+            t.samples = n.max(1);
+        }
+        t
     }
 }
 
@@ -194,7 +207,7 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
         usdc.finish()?;
         progress.report(60, "translating the materials");
         let layered = crate::daz_material::layered_images(&lib.duf);
-        let tuning = opts.variant().tuning();
+        let tuning = opts.tuning();
         let (inputs, mut textures) = crate::material::material_inputs_scaled(&materials, &uv, &uv_covers, &lib.dirs, layered, 200_000, &tuning);
         if let Some(s) = environment.as_mut().and_then(|e| e.sun_sky.as_mut()) {
             s.tune(&tuning);

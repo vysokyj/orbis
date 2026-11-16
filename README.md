@@ -79,7 +79,7 @@ Each rule is calibrated against Iray — see the
 
 ```sh
 orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz|out.usda | --out-dir DIR]
-             [--preview] [--no-ground] [--look enhanced|faithful] [--no-denoise]
+             [--preview] [--no-ground] [--look enhanced|faithful] [--no-denoise] [--samples N]
              [--content-dir DIR]… [--progress]
 orbis install [--library DIR]
 ```

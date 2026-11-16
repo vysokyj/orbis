@@ -13,7 +13,7 @@ cargo test                 # unit tests (no DAZ content needed)
 cargo build --release      # target/release/orbis
 scripts/install.sh         # build + `orbis install` into "My Library"
 scripts/package.sh         # plugin zip -> dist/ (git-ignored)
-cargo run --release -- export <scene.duf> -o <out.orbx|out.usdz|out.usda> [--preview] [--no-ground] [--look enhanced|faithful] [--no-denoise]   # needs a cached dump
+cargo run --release -- export <scene.duf> -o <out.orbx|out.usdz|out.usda> [--preview] [--no-ground] [--look enhanced|faithful] [--no-denoise] [--samples N]   # needs a cached dump
 ```
 Everything else (calibration, DAZ/Octane runs, Iray queue, `.mi` fixtures,
 references, lab notes) is a **project skill** in `.claude/skills/` - use it

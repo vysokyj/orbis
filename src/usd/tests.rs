@@ -823,6 +823,21 @@ fn exports_an_orbx_with_the_scene_and_project() {
     let names: Vec<&str> = files.iter().map(|(p, _)| p.as_str()).collect();
     assert_eq!(names, ["assets/scene.usdc", TONE_LUT_ASSET, "project.ocs"]);
     assert!(String::from_utf8_lossy(&files[2].1).contains(TONE_LUT_ASSET));
+    // The mode's sample count, or the export's own (#180).
+    let max_samples = |ocs: &str| ocs.contains("<pin name='maxsamples'>\n        <node id='100061' type='9'>\n         <attr name='value' type='5'>2000 0 0 0</attr>");
+    assert!(!max_samples(&String::from_utf8_lossy(&files[2].1)));
+    export_scene_orbx(&scene_path, &dump_path, &out, &ExportOptions { samples: Some(2000), ..Default::default() }).unwrap();
+    let (_, files) = crate::orbx::read_orbx(&std::fs::read(&out).unwrap()).unwrap();
+    assert!(max_samples(&String::from_utf8_lossy(&files[2].1)));
+}
+
+#[test]
+fn samples_default_per_mode_and_override() {
+    for mode in [OctaneMode::Final, OctaneMode::Preview] {
+        let o = ExportOptions { octane_mode: mode, ..Default::default() };
+        assert_eq!(o.tuning().samples, 500, "{mode:?}: an unchanged export renders as before #180");
+        assert_eq!(ExportOptions { samples: Some(4000), ..o.clone() }.tuning().samples, 4000);
+    }
 }
 
 #[test]

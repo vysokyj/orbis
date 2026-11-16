@@ -47,7 +47,7 @@ sunset colour, dimmed by the sun's air mass as Iray dims it (Variants),
 thin-walled glass at IOR 1 (Iray's showed none of its own reflection).
 **Denoise** (`--no-denoise` off; the dialog's Denoise) is separate: Octane's
 AI denoiser on the Final render — it changes no light or colour, it may
-soften fine detail.
+soften fine detail. So is the sample count (`--samples N`, Render modes).
 
 ### Variants
 
@@ -213,7 +213,9 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   and missing textures go in a scrolling box below (left out when none).
 - Options dialog, remembered in `DzAppSettings("ORBIS")`: where the `.orbx`
   goes (beside the scene, or a folder — default `~/Documents/ORBIS`), fast
-  preview, shadow-catching ground.
+  preview, shadow-catching ground, denoise, Look, **Max. samples** (a text
+  field: empty = the render mode's default, else `--samples N`; DAZ Studio
+  6's `DzSpinBox` exposes no value to a script, #180).
 
 ## Geometry
 
@@ -559,6 +561,19 @@ focus on the plane at the focus distance (perspective models) or the sphere
 | vignetting | Iray's cos(θ)^v fitted as Octane's frame-space cone per camera (below) | same |
 | white balance / saturation | white (the White Point is in the tone LUT, below) / Saturation | same |
 | denoiser | off | **on**, during the render (`denoiserOnce` off, `maxDenoiserInterval` 20) |
+| max samples | **500** | **500** — `--samples N` (`ExportOptions::samples`, the dialog's Max. samples) replaces it |
+
+**Max samples 500** in both modes (`Tuning::samples`, #180): a judgment
+call, not a calibration — it is what every export rendered before the
+option, so an unchanged export renders as before. It trades detail for
+time: #47 measured Victoria's random-walk skin pores (denoised) 15 – 25 %
+crisper at 2000 than at 500, at 91 s → 428 s (960 × 720). Rather than raise
+everyone's render time, the user picks more per export. Revisit on real
+scenes: raise Final's if most of them look soft at 500; Preview (direct
+lighting converges sooner) could go lower. The calibration scripts set
+their own count in Octane (`octane-render.sh`, `calib-variants.sh`, 400 by
+default), over the exported one. The project settings' own Preview Render
+Target (Octane's material preview, `project.ocs`) keeps its 500.
 
 **Diffuse depth 64**, not Octane's 8: OpenPBR's random-walk subsurface spends
 the diffuse depth on its scattering events (maxScatterDepth does not bound
@@ -754,7 +769,7 @@ without trouble (the crash in #37 was with its post-volume fog).
   Octane always renders spectrally; Calib-RS-Spectral equals Calib-Glass
   (|Δ| 0.0004).
 - **Min / Max Samples, Max Time, Rendering Quality, Converged Ratio**:
-  Iray's samples aren't Octane's; the export keeps its own sample count.
+  Iray's samples aren't Octane's; the export keeps its own sample count (Render modes, `--samples`).
 - **Post Denoiser** (Iray's): Octane's denoiser follows the render mode
   (Render modes) and `--no-denoise`, not DAZ's switch — Iray's denoiser is
   off in most scenes, which would turn Octane's off in Final.

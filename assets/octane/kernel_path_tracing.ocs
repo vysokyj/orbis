@@ -3,7 +3,7 @@
        <attr name='compatibilityVersion' type='2'>15050000</attr>
        <pin name='maxsamples'>
         <node id='100061' type='9'>
-         <attr name='value' type='5'>500 0 0 0</attr>
+         <attr name='value' type='5'>@MAX_SAMPLES@ 0 0 0</attr>
         </node>
        </pin>
        <pin name='maxDiffuseDepth'>

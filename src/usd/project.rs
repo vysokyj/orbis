@@ -51,7 +51,7 @@ pub(super) fn project_ocs(
     // Kernel, exposure and denoiser per variant (`Tuning`); the imager
     // follows DAZ's Iray tone mapping.
     // Iray's render settings (#43): bounces, GI clamp, pixel filter, bloom.
-    let kernel = render_settings::kernel_xml(tuning.kernel, render);
+    let kernel = render_settings::kernel_xml(tuning.kernel, tuning.samples, render);
     let base_exposure = tuning.base_exposure;
     // Iray's curve beyond the calibrated defaults (burn, crush, gamma) as a
     // custom LUT after the Gamma 2.2 response, the exposure lowered by its

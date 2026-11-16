@@ -53,12 +53,13 @@ fn bounces(o: &RenderOptions) -> u32 {
 }
 
 /// The kernel's XML (`assets/octane/kernel_*.ocs`) with the render
-/// settings filled in.
-pub(super) fn kernel_xml(kernel: Kernel, o: &RenderOptions) -> String {
+/// settings filled in; `samples` is its `maxsamples` (`Tuning::samples`,
+/// or `--samples`).
+pub(super) fn kernel_xml(kernel: Kernel, samples: u32, o: &RenderOptions) -> String {
     let b = bounces(o);
     let int = |n: u32| n.to_string();
     let filter = format!("{:.6}", octane_filter_size(o));
-    match kernel {
+    let xml = match kernel {
         Kernel::PathTracing => include_str!("../../assets/octane/kernel_path_tracing.ocs")
             .replace("@DIFFUSE_DEPTH@", &int(PT_DIFFUSE_DEPTH.min(b)))
             .replace("@GLOSSY_DEPTH@", &int(PT_GLOSSY_DEPTH.min(b)))
@@ -70,7 +71,8 @@ pub(super) fn kernel_xml(kernel: Kernel, o: &RenderOptions) -> String {
             .replace("@GLOSSY_DEPTH@", &int(DL_GLOSSY_DEPTH.min(b)))
             .replace("@SPECULAR_DEPTH@", &int(DL_SPECULAR_DEPTH.min(b)))
             .replace("@FILTER_SIZE@", &filter),
-    }
+    };
+    xml.replace("@MAX_SAMPLES@", &int(samples.max(1)))
 }
 
 /// Octane's post processing (the render target's `postproc`) for Iray's
@@ -137,13 +139,22 @@ mod tests {
     #[test]
     fn defaults_keep_the_calibrated_kernels() {
         let d = RenderOptions::default();
-        let pt = kernel_xml(Kernel::PathTracing, &d);
+        let pt = kernel_xml(Kernel::PathTracing, 500, &d);
         assert_eq!([pin(&pt, "maxDiffuseDepth"), pin(&pt, "maxGlossyDepth"), pin(&pt, "maxScatterDepth"), pin(&pt, "giClamp")], ["64", "24", "128", "20"]);
         assert_eq!(pin(&pt, "filtersize"), "1.200000");
-        let dl = kernel_xml(Kernel::DirectLighting, &d);
+        let dl = kernel_xml(Kernel::DirectLighting, 500, &d);
         assert_eq!([pin(&dl, "diffusedepth"), pin(&dl, "glossydepth"), pin(&dl, "speculardepth"), pin(&dl, "filtersize")], ["2", "2", "5", "1.200000"]);
         assert!(!pt.contains('@') && !dl.contains('@'));
         assert!(!post_processing(d.bloom.as_ref(), 1.4).on);
+    }
+
+    #[test]
+    fn samples_set_both_kernels_maxsamples() {
+        let d = RenderOptions::default();
+        assert_eq!(pin(&kernel_xml(Kernel::PathTracing, 2000, &d), "maxsamples"), "2000");
+        assert_eq!(pin(&kernel_xml(Kernel::DirectLighting, 64, &d), "maxsamples"), "64");
+        // 0 would never render: at least one sample.
+        assert_eq!(pin(&kernel_xml(Kernel::PathTracing, 0, &d), "maxsamples"), "1");
     }
 
     #[test]
@@ -151,21 +162,21 @@ mod tests {
         // 2 segments = direct light: Octane's depth 2.
         let o = options(&[("Max Path Length", json!(2))]);
         assert_eq!(o.max_path_length, Some(2));
-        let pt = kernel_xml(Kernel::PathTracing, &o);
+        let pt = kernel_xml(Kernel::PathTracing, 500, &o);
         assert_eq!([pin(&pt, "maxDiffuseDepth"), pin(&pt, "maxGlossyDepth")], ["2", "2"]);
-        let pt = kernel_xml(Kernel::PathTracing, &options(&[("Max Path Length", json!(4))]));
+        let pt = kernel_xml(Kernel::PathTracing, 500, &options(&[("Max Path Length", json!(4))]));
         assert_eq!([pin(&pt, "maxDiffuseDepth"), pin(&pt, "maxGlossyDepth")], ["4", "4"]);
-        let dl = kernel_xml(Kernel::DirectLighting, &options(&[("Max Path Length", json!(4))]));
+        let dl = kernel_xml(Kernel::DirectLighting, 500, &options(&[("Max Path Length", json!(4))]));
         assert_eq!([pin(&dl, "diffusedepth"), pin(&dl, "glossydepth"), pin(&dl, "speculardepth")], ["2", "2", "4"]);
         // −1: unbounded.
         assert_eq!(options(&[("Max Path Length", json!(-1))]).max_path_length, None);
-        let pt = kernel_xml(Kernel::PathTracing, &options(&[("Max SSS Path Length", json!(16))]));
+        let pt = kernel_xml(Kernel::PathTracing, 500, &options(&[("Max SSS Path Length", json!(16))]));
         assert_eq!(pin(&pt, "maxScatterDepth"), "16");
     }
 
     #[test]
     fn firefly_filter_off_unclamps_gi() {
-        let pt = kernel_xml(Kernel::PathTracing, &options(&[("Firefly Filter Enable", json!(false))]));
+        let pt = kernel_xml(Kernel::PathTracing, 500, &options(&[("Firefly Filter Enable", json!(false))]));
         assert_eq!(pin(&pt, "giClamp"), "1000000");
     }
 

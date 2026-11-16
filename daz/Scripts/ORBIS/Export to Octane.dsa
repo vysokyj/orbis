@@ -103,17 +103,28 @@
         preview: oSettings.getBoolValue("preview", false),
         ground: oSettings.getBoolValue("ground", true),
         faithful: oSettings.getBoolValue("faithful", false),
-        denoise: oSettings.getBoolValue("denoise", true)
+        denoise: oSettings.getBoolValue("denoise", true),
+        // Octane's max samples as typed; empty = the render mode's default
+        // (orbis decides it, so a raised default reaches this dialog too).
+        samples: oSettings.getStringValue("samples", "")
     };
-    if (!bBatch && !optionsDialog(oOptions)) {
-        return;
+    // A DzLineEdit, not a spin box: DzSpinBox in DAZ Studio 6 has no
+    // min / max / value properties a script can reach (probed, #180).
+    while (!bBatch) {
+        if (!optionsDialog(oOptions)) {
+            return;
+        }
+        if (samplesArg(oOptions.samples) !== null) break;
+        tell("Samples must be a whole number of at least 1, or empty for the default.", true);
     }
+    if (samplesArg(oOptions.samples) === null) oOptions.samples = "";
     oSettings.setBoolValue("besideScene", oOptions.besideScene);
     oSettings.setStringValue("outputDir", oOptions.outputDir);
     oSettings.setBoolValue("preview", oOptions.preview);
     oSettings.setBoolValue("ground", oOptions.ground);
     oSettings.setBoolValue("faithful", oOptions.faithful);
     oSettings.setBoolValue("denoise", oOptions.denoise);
+    oSettings.setStringValue("samples", samplesArg(oOptions.samples));
 
     // ── The scene ─────────────────────────────────────────────────────────
     // The export reads the saved .duf (materials, cameras, lights), so save
@@ -160,6 +171,10 @@
     aArgs.push("--look");
     aArgs.push(oOptions.faithful ? "faithful" : "enhanced");
     if (!oOptions.denoise) aArgs.push("--no-denoise");
+    if (samplesArg(oOptions.samples)) {
+        aArgs.push("--samples");
+        aArgs.push(samplesArg(oOptions.samples));
+    }
 
     aArgs.push("--progress");
 
@@ -293,6 +308,20 @@
         var wPreview = check(oOctane, "Fast preview (direct lighting, no subsurface)", oOpt.preview);
         var wGround = check(oOctane, "Shadow-catching ground (when Iray draws one)", oOpt.ground);
         var wDenoise = check(oOctane, "Denoise (Octane's AI denoiser)", oOpt.denoise);
+        var wSamplesRow = new DzWidget(oOctane.widget);
+        var lSamplesRow = new DzHBoxLayout(wSamplesRow);
+        lSamplesRow.margin = 0;
+        lSamplesRow.spacing = 6;
+        var wSamplesLabel = new DzLabel(wSamplesRow);
+        wSamplesLabel.text = "Max. samples:";
+        lSamplesRow.addWidget(wSamplesLabel);
+        var wSamples = new DzLineEdit(wSamplesRow);
+        wSamples.text = oOpt.samples;
+        wSamples.minWidth = 80;
+        lSamplesRow.addWidget(wSamples);
+        lSamplesRow.addWidget(new DzWidget(wSamplesRow), 1);
+        oOctane.layout.addWidget(wSamplesRow);
+        hint(oOctane, "Empty: the default (500). More is cleaner and sharper, and slower: 2000 took 4-5x as long as 500");
 
         lPage.addSpacing(12);
         var oLook = section(wPage, lPage, "Look");
@@ -317,7 +346,18 @@
         oOpt.ground = wGround.checked;
         oOpt.faithful = wFaithful.checked;
         oOpt.denoise = wDenoise.checked;
+        oOpt.samples = wSamples.text;
         return true;
+    }
+
+    // The --samples value for what the dialog holds: "" for the default
+    // (empty), the number as digits, or null when it is not one (>= 1).
+    function samplesArg(sText) {
+        var s = String(sText).replace(/^\s+|\s+$/g, "");
+        if (s == "") return "";
+        if (!/^[0-9]+$/.test(s)) return null;
+        var n = parseInt(s, 10);
+        return n >= 1 ? String(n) : null;
     }
 
     // A section of the options page: a heading, then a widget for its
