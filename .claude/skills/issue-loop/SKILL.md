@@ -10,7 +10,7 @@ The user's rule (2026-11-11): don't call them for an Iray run per task. Since 20
 **Standing permission inside this loop** (2026-11-11): headless DAZ (`daz-script.sh`, `daz-dump.sh`, `daz-build-*.dsa`, `make-*`) and Octane X renders / probes (`octane-render.sh`, `octane-run.sh`, `calib-variants.sh`) start **without a question**. Still:
 - `python3 scripts/dev/status.py` before the first render of an iteration; the scripts take turns through the render lock, call them and let them wait.
 - The user said they work in an app -> hands off that app until they say otherwise.
-- **Never** local CPU Iray (`daz-render.sh`), never start the queue-side DAZ. A worker queues only generic scenes (`calib/scenes`, fresh `Calib-*`) and only into a running queue; parked batches are queued by the orchestrating session (below).
+- **Never** local CPU Iray (`daz-render.sh`). A worker never starts the queue-side DAZ (the orchestrating session may, skill `iray-queue`). A worker queues only generic scenes (`calib/scenes`, fresh `Calib-*`) and only into a running queue; parked batches are queued by the orchestrating session (below).
 - Headless DAZ and Octane may run at once (2026-11-16): `daz-script.sh` takes the `daz` lock, `octane-run.sh` / `daz-render.sh` the `render` lock.
 - Octane failed -> leave Octane X open (#50), don't retry; park the issue (below, `question`) and go on with issues that need no Octane. Small `Calib-*` scenes or half resolution only.
 
@@ -63,10 +63,10 @@ The worker's job. With the queue running (`status.py`: queue script started, log
    Paths relative to the repo; a private scene by its name only (never its content). A newer `## Iray batch` comment replaces an older one.
 
 ## Queue parked batches at once
-The orchestrating session's job. A parked batch goes into the queue right away, whether the queue runs or not (without it the scenes wait); the user starts DAZ, the Iray Server and the queue script whenever they like.
+The orchestrating session's job. A parked batch goes into the queue right away; if the queue does not run, start the queue-side DAZ and its queue script (skill `iray-queue`) - the Iray Server itself is the user's.
 
 1. After a worker parks an issue (step 4 checked), queue its batch at once: `scripts/dev/iray-queue.sh -n -s <samples> <scene.duf>...` per sample count, in the batch's order (a private scene by its My Library path). DAZ / the queue script need not run.
-2. Before queueing, check NVIDIA preset / module repeats (`pbr_skin`, `dual_lobe_hair`, NVIDIA presets: one import per DAZ session, #94) against what is already queued and what the running queue DAZ rendered. A repeat is **held back**: list it in `issue-status`'s note and tell the user it needs a queue-side DAZ restart; queue it only after they say DAZ is down, and always with `iray-queue.sh -n --held ...` - it refuses while the queue-side DAZ still runs (a running queue grabs a new scene at once, in the old session; #183: one rendered on the CPU because the server was already stopped). A refusal means wait, never queue it without `--held`.
+2. Before queueing, check NVIDIA preset / module repeats (`pbr_skin`, `dual_lobe_hair`, NVIDIA presets: one import per DAZ session, #94) against what is already queued and what the running queue DAZ rendered. A repeat is **held back**: list it in `issue-status`'s note; when the queue has rendered what is before it, quit the queue-side DAZ, queue it with `iray-queue.sh -n --held ...` - it refuses while the queue-side DAZ still runs (a running queue grabs a new scene at once, in the old session; #183: one rendered on the CPU because the server was already stopped). then start DAZ and the queue again. A refusal means DAZ still runs: never queue it without `--held`.
    `iray-queue.sh` also refuses any batch while a running queue's DAZ has lost its server connection (#183); then tell the user and queue after their restart.
 3. Demo-* or private scenes in a batch: ask the user before queueing them (4 GB VRAM).
 4. Meanwhile keep looping (Octane may render beside the server queue); `progress` instead of polling. `iray-queue.sh --collect` moves finished renders to their out dir.

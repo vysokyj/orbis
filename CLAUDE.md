@@ -103,10 +103,11 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   rule, 2026-11-16, until they say otherwise): free, but **4 GB VRAM**.
   Generic scenes (`calib/scenes`, generated `Calib-*`) go there on Claude's
   judgment without asking, in batches of any size; `Demo-*` and private
-  scenes only after asking (they may not fit). The queue-side DAZ and the
-  queue script are the user's to start. Never reorder; scenes that need a
-  queue-side DAZ restart before them (#94) are held back and queued once
-  the user says the restart is coming. Octane may render alongside it.
+  scenes only after asking (they may not fit). Claude may start, quit and
+  restart the queue-side DAZ and its queue script (2026-11-16; the Iray
+  Server itself and its password stay the user's). Never reorder; scenes
+  that need a queue-side DAZ restart before them (#94) are held back and
+  queued with `--held` once DAZ is down. Octane may render alongside it.
   Stalled queue / "session handler rejected the session" = tell the user.
 - **A failed Octane render/probe: leave Octane X open** so the user can read
   its error dialog (#50). Big scenes (the teens scene, 1.2 M faces) in a
