@@ -1459,6 +1459,9 @@ struct Ocs<'a> {
     /// Metallic Weight taken as this (1 its metal, 0 its base), its map
     /// left to the Mix.
     metal_override: Option<f32>,
+    /// Writing one lobe of a PBRSkin metal (`pbr_metal_lobe2`): 1 or 2,
+    /// the metal at that lobe's roughness without the dual lobe's coating.
+    metal_lobe: Option<u8>,
     /// Writing one part of `refractive_metal_material`: the material's
     /// Refraction Weight taken as this (1 its refraction, 0 the opaque
     /// metal and base under it), its map left to the Mix.
@@ -2155,9 +2158,42 @@ impl Ocs<'_> {
 
     /// `universal` at Metallic Weight `w` (`metal_override`).
     fn metal_part(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader, w: f32) {
+        if w >= 1.0 && self.metal_lobe.is_none() {
+            if let Some(lobe2) = pbr_metal_lobe2(mat) {
+                return self.pbr_metal_lobes(indent, name, mat, area_m2, skin, lobe2);
+            }
+        }
         self.metal_override = Some(w);
         self.universal(indent, name, mat, area_m2, skin);
         self.metal_override = None;
+    }
+
+    /// PBRSkin's metal: `directional_factor` (the base colour to white)
+    /// over the whole `dual_specular_bsdf` (`pbr_skin.mdl`), i.e. both
+    /// lobes are metal, lobe 2 at Dual Lobe Specular Ratio, and no
+    /// dielectric lies over it (the dual lobe's `custom_curve_layer` is the
+    /// metal's base, beside it in the `weighted_layer`). As a Mix material
+    /// (19) at lobe 2's share of the metal at lobe 2's roughness and the
+    /// metal at lobe 1's, neither with the coating that holds lobe 2 on
+    /// the dielectric. One Universal at Metallic Weight w held the metal at
+    /// lobe 1 alone, under lobe 2's dielectric coating (#167).
+    fn pbr_metal_lobes(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader, lobe2: f32) {
+        let id = self.id();
+        let _ = writeln!(self.out, "{:indent$}<node id='{id}' type='19' name='{}'>", "", esc(name));
+        let i = indent + 1;
+        let outer = self.open_sub_materials();
+        self.float_pin(i, "amount", lobe2);
+        self.metal_override = Some(1.0);
+        for (pin, lobe) in [("material1", 2), ("material2", 1)] {
+            self.pin_open(i, pin);
+            self.metal_lobe = Some(lobe);
+            self.universal(i + 1, &format!("{name} lobe {lobe}"), mat, area_m2, skin);
+            self.metal_lobe = None;
+            self.pin_close(i);
+        }
+        self.metal_override = None;
+        self.close_sub_materials(i, mat, outer);
+        let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
     /// The shading normal turned toward the viewer, so that the mirror
@@ -3994,7 +4030,15 @@ impl Ocs<'_> {
         if self.refraction_override.is_none() && self.metal_override.is_none() && !self.in_backscatter_mix && (metal || partial_over_translucency) && refractive && base_mixing_0 && !crate::iray::is_pbrskin(mat) {
             return self.refractive_metal_material(indent, name, mat, area_m2, skin);
         }
-        if self.metal_override.is_none() && metal && translucency > 0.0 && !refractive && !(is_eye(name) && crate::iray::is_pbrskin(mat)) && mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0 {
+        // A PBRSkin metal with a free lobe 2 too: its metal holds both lobes
+        // and its base the dielectric ones (`pbr_metal_lobes`, #167); all
+        // metal, the lobes alone.
+        if self.metal_override.is_none() && translucency <= 0.0 && !refractive && metallic(mat) >= 1.0 && !metallic_map(mat) && !(is_eye(name) && crate::iray::is_pbrskin(mat)) {
+            if let Some(lobe2) = pbr_metal_lobe2(mat) {
+                return self.pbr_metal_lobes(indent, name, mat, area_m2, skin, lobe2);
+            }
+        }
+        if self.metal_override.is_none() && metal && (translucency > 0.0 || pbr_metal_lobe2(mat).is_some()) && !refractive && !(is_eye(name) && crate::iray::is_pbrskin(mat)) && mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0 {
             return self.translucent_metal_material(indent, name, mat, area_m2, skin);
         }
         let id = self.id();
@@ -4429,6 +4473,16 @@ impl Ocs<'_> {
         if let Some(dl) = active_dual_lobe.filter(|_| !lobe2_free && rough_ch.and_then(|c| mat.image(c)).is_none()) {
             rough = dl.blended_roughness(rough);
         }
+        // One lobe of a PBRSkin metal (`pbr_metal_lobes`): lobe 2 at its
+        // own roughness, and no dual lobe left for the coating.
+        let rough_ch = match (self.metal_lobe, active_dual_lobe) {
+            (Some(2), Some(dl)) => {
+                rough = dl.lobe2_roughness;
+                None
+            }
+            _ => rough_ch,
+        };
+        let active_dual_lobe = active_dual_lobe.filter(|_| self.metal_lobe.is_none());
         // A mostly refractive body (not thin-walled: Octane's thin wall
         // transmits unblurred whatever the lobe) refracts through Beckmann (`GLASS_BRDF`), shared
         // roughness or its own; other glosses by `phong_brdf` — Beckmann,
@@ -6191,6 +6245,22 @@ fn has_metal(mat: &Material) -> bool {
     metallic(mat) >= NEGLIGIBLE_METALLIC || metallic_map(mat)
 }
 
+/// Lobe 2's share of a PBRSkin metal (`pbr_metal_lobes`): Some when the
+/// material is a PBRSkin metal whose dual lobe has a lobe 2 the coating
+/// would hold (no Top Coat, no refraction), its ratio and lobe 1's
+/// roughness unmapped (the Mix's amount and lobe 2's roughness are values).
+fn pbr_metal_lobe2(mat: &Material) -> Option<f32> {
+    if !crate::iray::is_pbrskin(mat) || !has_metal(mat) || mat.float("Top Coat Weight").unwrap_or(0.0) > 0.0 || refraction_weight(mat) > 0.0 {
+        return None;
+    }
+    if ["Dual Lobe Specular Ratio", "Specular Lobe 1 Roughness", "Specular Lobe 2 Roughness Mult"].iter().any(|c| mat.image(c).is_some()) {
+        return None;
+    }
+    let dl = DualLobe::of(mat)?;
+    let lobe2 = 1.0 - dl.lobe1;
+    (lobe2 > 0.0).then_some(lobe2)
+}
+
 /// Octane's roughness pin for Iray's (MDL, squared) roughness `r` of a
 /// `simple_glossy_bsdf` — every Uber lobe (gloss, dual lobe, Top Coat,
 /// refraction; DAZ never sets `choose_bsdf`'s `df_mode`, no `.mi` has it)
@@ -6651,7 +6721,7 @@ fn ies_projection_rotation(frame: &[[f64; 3]; 3]) -> [f64; 3] {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -6889,7 +6959,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, dome_groun
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -7113,7 +7183,7 @@ fn environment_texture_at(
     first_id: u32,
     origin: Option<[f64; 3]>,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -7305,7 +7375,7 @@ pub fn material_inputs_scaled(
     // materials' channels give each its own, "auto" ones aren't listed.
     let own_gammas = materials.iter().flat_map(|(_, m, _)| m.channels.values()).filter_map(|c| Some((c.image.clone()?, c.gamma?))).collect();
     let mut textures = Textures { layered, own_gammas, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one, max_transmission, strand_hair, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one, max_transmission, strand_hair, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -7798,7 +7868,7 @@ mod tests {
         // Enable), else that side a Mix of the metal in the base colour and
         // the makeup's diffuse.
         let (x, _) = material_inputs(&[("Skin".into(), skin(true, 0.5, 1.0, Some(true)), 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
-        assert!(!x.contains("name='Skin makeup metal'"), "{x}");
+        assert!(!x.contains("name='Skin makeup diffuse'"), "{x}");
         let (x, _) = material_inputs(&[("Skin".into(), skin(true, 0.5, 1.0, Some(false)), 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
         let (a, b) = (x.find("name='Skin makeup metal'").expect(&x), x.find("name='Skin makeup diffuse'").expect(&x));
         assert!(!x[a..b].contains(&rgb(blue)) && x[b..].contains(&rgb(blue)), "{x}");
@@ -7807,6 +7877,51 @@ mod tests {
         mapped.channels.get_mut("Makeup Weight").unwrap().image = Some("/w.png".into());
         let mk = makeup(&mapped).unwrap();
         assert_eq!((mk.mapped, mk.roughness(true), mk.roughness(false)), (true, 0.25, 1.0));
+    }
+
+    /// PBRSkin's metal holds both dual lobes (`pbr_skin.mdl`: the
+    /// `directional_factor` over `dual_specular_bsdf`), lobe 2 at the
+    /// ratio, without the dielectric coating; the base keeps it (#167).
+    #[test]
+    fn pbrskin_metal_holds_both_lobes() {
+        let skin = |metal: f32, top_coat: f32| {
+            mat(json!([
+                {"channel": {"id": "diffuse", "current_value": [0.45, 0.05, 0.04]}},
+                {"channel": {"id": "Dual Lobe Specular Enable", "current_value": true}},
+                {"channel": {"id": "Dual Lobe Specular Weight", "current_value": 1}},
+                {"channel": {"id": "Specular Lobe 1 Roughness", "current_value": 0.4}},
+                {"channel": {"id": "Specular Lobe 2 Roughness Mult", "current_value": 0.4}},
+                {"channel": {"id": "Dual Lobe Specular Ratio", "current_value": 0.15}},
+                {"channel": {"id": "Metallicity Enable", "current_value": true}},
+                {"channel": {"id": "Metallic Weight", "current_value": metal}},
+                {"channel": {"id": "Top Coat Weight", "current_value": top_coat}},
+            ]))
+        };
+        let node = |x: &str, name: &str| {
+            let a = x.find(&format!("name='{name}'")).unwrap_or_else(|| panic!("{name}: {x}"));
+            let rest = &x[a..];
+            rest[..rest[1..].find("name='Skin").map_or(rest.len(), |k| k + 1)].to_string()
+        };
+        let m = skin(0.5, 0.0);
+        assert!(crate::iray::is_pbrskin(&m));
+        assert!((pbr_metal_lobe2(&m).unwrap() - 0.15).abs() < 1e-6);
+        let (x, _) = material_inputs(&[("Skin".into(), m, 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
+        assert!(node(&x, "Skin").contains("type='6'>0.5</attr>"), "Mix by the metal: {x}");
+        assert!(node(&x, "Skin metal").contains("type='6'>0.15</attr>"), "lobe 2 at the ratio: {x}");
+        let (l2, l1, base) = (node(&x, "Skin metal lobe 2"), node(&x, "Skin metal lobe 1"), node(&x, "Skin base"));
+        for l in [&l2, &l1] {
+            assert!(!l.contains("<pin name='coating'>") && l.contains("<pin name='metallic'>"), "{l}");
+        }
+        // Lobe 2's roughness (0.4 · 0.4)² at the pin, lobe 1's 0.4².
+        assert!(l2.contains(&format!(">{}<", num(phong_pin(0.0256)))), "{l2}");
+        assert!(l1.contains(&format!(">{}<", num(phong_pin(0.16)))), "{l1}");
+        assert!(base.contains("<pin name='coating'>"), "{base}");
+        // All metal: the lobes alone; under a Top Coat one node as before.
+        let (x, _) = material_inputs(&[("Skin".into(), skin(1.0, 0.0), 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
+        assert!(x.contains("name='Skin lobe 2'") && !x.contains("name='Skin base'"), "{x}");
+        assert!(pbr_metal_lobe2(&skin(0.5, 0.5)).is_none());
+        let (x, _) = material_inputs(&[("Skin".into(), skin(0.5, 0.5), 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
+        assert!(!x.contains("type='19'"), "{x}");
     }
 
     #[test]
@@ -10507,8 +10622,9 @@ mod tests {
             ("skin under an anisotropic coat", [aniso_coat(), vec![skin_map(), ch("Translucency Weight", json!(0.5))]].concat(), SkinShader::OpenPbr, "19", 2),
             ("skin", vec![skin_map(), ch("Translucency Weight", json!(0.5))], SkinShader::OpenPbr, "505", 0),
             ("makeup", makeup(0.5, None), SkinShader::None, "19", 1),
-            ("makeup over a metal in the base colour", makeup(0.5, Some(false)), SkinShader::None, "19", 2),
-            ("full makeup over a metal in the base colour", makeup(1.0, Some(false)), SkinShader::None, "19", 1),
+            // (Each metal side a Mix of its two lobes, #167.)
+            ("makeup over a metal in the base colour", makeup(0.5, Some(false)), SkinShader::None, "19", 5),
+            ("full makeup over a metal in the base colour", makeup(1.0, Some(false)), SkinShader::None, "19", 2),
         ];
         for (label, extra, skin, outer, mixes) in cases {
             let m = mat(json!([base(), disp.to_vec(), extra].concat()));
@@ -10789,7 +10905,7 @@ mod tests {
     #[test]
     fn mdl_metal_roughness_is_the_long_axis() {
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.02, 0.4), rough_v: (String::new(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;
@@ -10814,7 +10930,7 @@ mod tests {
         image::GrayImage::from_fn(16, 16, |x, _| image::Luma([(x * 8) as u8])).save(dir.path().join("b.png")).unwrap();
         let dirs = [dir.path().to_path_buf()];
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.06, 0.4), rough_v: (String::new(), 0.06, 0.4), bump: ("b.png".into(), 1.5), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         assert!(w.out.contains("<pin name='normal'>") && !w.out.contains("<pin name='bump'>"), "{}", w.out);

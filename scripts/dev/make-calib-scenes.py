@@ -19,6 +19,8 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-PBRSkin-Makeup, -Makeup-TL: PBRSkin's Makeup layer (weight, a
   weight map, roughness mult, the metal's tint; over translucency, a top
   coat and the subsurface skin path), one change per sphere (#142).
+- Calib-PBRSkin-Metal: the PBRSkin metal alone on the Makeup row's base
+  (weight, lobe 2, colour, the dual lobe's weight / switch, roughness; #167).
 - Calib-PBRSkin-Colour8: off-grid values on PBRSkin's `color` channels
   (Top Coat, Metallic Flakes, SSS, Makeup Base) and its `float_color`
   ones, for the .mi: which DAZ keeps in 8 bits (#152).
@@ -2735,6 +2737,24 @@ pbr_spheres('Calib-PBRSkin-Makeup', [
     ('K6 makeup w1 rough 2', MK_RED, {**MK_DL, **MK, 'Makeup Roughness Mult': 2.0}),
     ('K7 metal 0.5 makeup tint w0.5', MK_RED, {**MK_DL, **MK, **MK_METAL, 'Makeup Weight': 0.5, 'Makeup Metallicity Enable': True}),
     ('K8 metal 0.5 makeup w0.5', MK_RED, {**MK_DL, **MK, **MK_METAL, 'Makeup Weight': 0.5}),
+])
+# --- PBRSkin metal without makeup (#167): `pbr_skin.mdl` lays the metal
+# as `directional_factor(base colour -> white)` over the whole
+# `dual_specular_bsdf` (lobe 2 at the ratio), beside the dual lobe's
+# custom curve at Metallicity. Calib-PBRSkin-Makeup's red base, one change
+# per sphere: the metal at 0.5 / 1, lobe 2 off (ratio 0), a grey base (the
+# edge to white), the dual lobe's weight 0.5 (not on the metal in the MDL)
+# and off (the metal's lobes gone), lobe 1 at 0.6 (alpha 0.36).
+MT = {**MK_DL, **MK_METAL}
+pbr_spheres('Calib-PBRSkin-Metal', [
+    ('N1 dual lobe', MK_RED, MK_DL),
+    ('N2 metal 0.5', MK_RED, MT),
+    ('N3 metal 1', MK_RED, {**MT, 'Metallic Weight': 1.0}),
+    ('N4 metal 0.5 ratio 0', MK_RED, {**MT, 'Dual Lobe Specular Ratio': 0.0}),
+    ('N5 grey metal 0.5', [0.6, 0.6, 0.6], MT),
+    ('N6 metal 0.5 lobe weight 0.5', MK_RED, {**MT, 'Dual Lobe Specular Weight': 0.5}),
+    ('N7 metal 0.5 dual lobe off', MK_RED, {**MT, 'Dual Lobe Specular Enable': False}),
+    ('N8 metal 0.5 rough 0.6', MK_RED, {**MT, 'Specular Lobe 1 Roughness': 0.6}),
 ])
 MK_TL = {'Translucency Enable': True, 'Translucency Weight': 0.8, 'Translucency Color': [0.6, 0.6, 0.6]}
 MK_TC = {'Top Coat Enable': True, 'Top Coat Weight': 0.5, 'Top Coat Reflectivity': 0.5, 'Top Coat Roughness': 0.2}

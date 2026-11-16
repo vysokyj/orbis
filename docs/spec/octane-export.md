@@ -1268,8 +1268,33 @@ leaves out, #15):
   1.27, as the Mix must); the weight map's bands (8-bit, gamma 2.2 = Iray's
   "auto") in place and at the frame's ratio; the roughness mult's spread
   ratio 1.63 vs 1.62 (× 0.25) and 0.73 vs 0.77 (× 2); the metal tint split
-  per channel 0.77 / 1.90 vs 0.77 / 2.02. The PBRSkin metal's rim is
-  #167's.
+  per channel 0.77 / 1.90 vs 0.77 / 2.02. The PBRSkin metal's rim:
+  below.
+- **PBRSkin metal holds both lobes** (#167, from `pbr_skin.mdl`, no
+  fit): the metal is `directional_factor` (base colour to white) over
+  the whole `dual_specular_bsdf` - lobe 2 at Dual Lobe Specular Ratio
+  over lobe 1 - in a `weighted_layer` at Metallicity beside the dual
+  lobe's `custom_curve_layer`, so no dielectric lies over it and it
+  ignores Dual Lobe Specular Weight. When lobe 2 is on the coating (no
+  Top Coat, no refraction; ratio and lobe 1 / mult roughness unmapped:
+  `pbr_metal_lobe2`) the metal goes in as a Mix by the Metallic Weight
+  (`translucent_metal_material`, opaque too) of its metal side and its
+  base (metal 0, lobe 2 on the coating), the metal side a Mix at the
+  ratio of the metal at lobe 2's roughness and at lobe 1's, neither
+  with a coating (`pbr_metal_lobes`); all metal (1, unmapped, not
+  translucent) the lobes' Mix alone. One Universal at the weight held
+  the metal at lobe 1 alone under lobe 2's dielectric coating. Why
+  (enhanced-final 400, Octane / Iray, rim 0.8 - 0.93 R): Calib-PBRSkin-
+  Makeup K7 / K8 1.31 / 1.44 -> 1.24 / 1.36 (core 1.05 / 1.10 -> 1.02 /
+  1.06), Calib-PBRSkin-MetalTL M1 1.08 -> 1.07, Calib-PBRSkin P7 / P8
+  1.12 / 1.15 -> 1.09 / 1.12; the non-metals unchanged. The coating
+  over the metal alone (coating 0 on the metal parts) is 0.09 of K7 /
+  K8's rim. What is left of the "sharper highlight" (p99 / median 1.39
+  / 1.52 × Iray's, K1 1.12) is the lobes' shape: PBRSkin's lobes are
+  GGX (`microfacet_ggx_smith_bsdf`), the export draws them at the Phong
+  pin; Universal's GGX (`brdf` 2) brings K1 / K7 / K8 to 1.00 / 1.15 /
+  1.16 but Calib-PBRSkin's dual lobes' rim 1.19 -> 1.27 and P6's
+  spread 1.08 -> 1.39 - #175's / #162's open choice, not taken here.
 - **Glossy layer over a dual lobe** (#106): DAZ's MDL has both in the
   stack at once — the dual lobe over the diffuse (`dl_diffuse_bsdf`), the
   glossy layer's custom curve over that (`metallic_layered_base`), each
