@@ -3310,8 +3310,7 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   over the denoised pass (2000 samples: 1 – 4 %); the denoised pass at
   400 samples equals the one at 2000 within 1 %, so it is the number to
   quote. Iray's 400-sample references hold their p99.5 to 0.1 % between
-  two independent renders (whatever #171 finds about the server's
-  denoiser). The full faces (p99.5 over the face box, denoised): Angel
+  two independent renders (the server's renders are denoised, #171). The full faces (p99.5 over the face box, denoised): Angel
   1.02, Victoria 0.88, Kayo 0.92, Gabriela 0.94, Nishi 0.92, Twosret 0.85,
   Monique 0.83, Zurie 0.94 (raw 400 on 2026-11-09: 1.11, 0.96, 1.01,
   1.00, 0.95, 0.91, 0.95, 1.01 - grain, plus 0 – 5 % the export moved

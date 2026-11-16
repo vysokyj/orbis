@@ -6,7 +6,7 @@ description: Keep Iray reference renders of generated calibration scenes in git 
 # Iray references into git
 
 `python3 scripts/dev/keep-refs.py [--renderer NAME] [--queue-log LOG] <render.png>...`
-copies renders into `calib/references/iray/` and records samples/renderer/time in `renders.tsv`.
+copies renders into `calib/references/iray/` and records samples/renderer/time/denoiser in `renders.tsv`. The renderer comes from the capped copy (queue `done/` = Iray Server, else local CPU; `--renderer` only to override); a CPU render is recorded denoiser `off` - the Iray Server applies DAZ's Post Denoiser, the CPU Iray can't (#171).
 
 Rules:
 - **Only scenes that exist in `calib/scenes`** (generated, DAZ built-ins, primitives and free DAZ add-ons). The script skips everything else - never work around it.

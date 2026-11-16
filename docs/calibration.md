@@ -195,9 +195,11 @@ where a script maps that folder as an MDL directory (`daz-export-mi.dsa`,
    <scene.orbx>…` renders each export as exported, unattended (Octane X is
    driven through its Script menu). `<scene>.png` is the raw beauty; a
    Final export (denoiser on) also gets `denoised/<scene>.png`. Iray's
-   references are denoised (renders.tsv's `denoiser`, DAZ's Post Denoiser
-   from iteration 8 in every one): judge texture, grain or highlight peaks
-   on the denoised pass (2026-11-12 skin texture contrast, #47).
+   references are denoised (renders.tsv's `denoiser`: DAZ's Post Denoiser
+   from iteration 8, applied by the Iray Server; the local CPU Iray can't
+   run it, so its one reference, Calib-Tone-Gladiator, is `off`, #171):
+   judge texture, grain or highlight peaks on the denoised pass
+   (2026-11-12 skin texture contrast, #47).
 5. **Compare** — `scripts/dev/calib-compare-all.py <octane dir>`: Octane /
    Iray in linear luminance per sphere, light region or frame, plus side-by-
    side images. 1.00 = equal. Every compare script reads the export's own

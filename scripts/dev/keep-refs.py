@@ -7,8 +7,14 @@
 
 Copies each render into calib/references/iray/ and records how it was made in
 calib/references/iray/renders.tsv (samples, time cap, renderer, date, render
-time, and `denoiser`: DAZ's Post Denoiser as the copy had it, `on@<start
-iteration>` or `off` - the compare scripts read Octane's matching pass, #139). Only scenes that are in calib/scenes are taken (generated from scratch,
+time, and `denoiser`: DAZ's Post Denoiser as the image had it, `on@<start
+iteration>` or `off` - the compare scripts read Octane's matching pass, #139).
+The renderer is told by the copy the render was made from: one in the
+queue's done/ folder went through the Iray Server (iray-queue.sh), any other
+through the local CPU Iray (daz-render.sh); --renderer overrides it. The Iray
+Server applies the Post Denoiser; the local CPU Iray never does (NVIDIA's
+deep-learning denoiser runs on GPUs only), whatever the scene says, so a CPU
+render is recorded `off` (#171). Only scenes that are in calib/scenes are taken (generated from scratch,
 DAZ built-ins and primitives only); every other render is skipped, so a
 user's own scene or DAZ Store content never gets into the repo. A render with
 fewer samples than the one already kept is skipped too.
@@ -44,7 +50,9 @@ if demo:
     FIELDS = FIELDS + ['scene_sha256']
     import demo as demo_lib
 tsv = os.path.join(refs, 'renders.tsv')
-renderer = 'DAZ Studio Iray (CPU)'
+SERVER = 'Iray Server (Boost for Daz)'
+CPU = 'DAZ Studio Iray (CPU)'
+renderer = None
 logs = []
 pngs = []
 while args:
@@ -75,8 +83,12 @@ def caps(p):
     return found
 
 
-def denoiser(c):
-    # Iray's Post Denoiser, as the render's copy had it (#139).
+def denoiser(c, how):
+    # Iray's Post Denoiser, as the render's copy had it (#139). The CPU Iray
+    # can't run it (deep-learning denoiser, GPU only; #171 measured a CPU
+    # 400-sample render's white grain at 3 - 5 x the server's): `off`.
+    if how == CPU:
+        return 'off'
     if 'Post Denoiser Enable' not in c:
         return '?'
     return f"on@{c.get('Post Denoiser Start Iteration', '?')}" if c['Post Denoiser Enable'] else 'off'
@@ -129,6 +141,7 @@ for png in pngs:
               'not the scene\'s camera (#97). Fix the scene (duf_camera.py --fix) and re-render it.')
         continue
     c = caps(copy)
+    how = renderer or (SERVER if os.path.dirname(copy) == os.path.join(calib, 'queue', 'done') else CPU)
     samples = int(c.get('Max Samples', 0))
     old = rows.get(name)
     dst = os.path.join(refs, name + '.png')
@@ -138,13 +151,13 @@ for png in pngs:
     if os.path.exists(dst) and filecmp.cmp(png, dst, shallow=False) and old:
         continue
     shutil.copyfile(png, dst)
-    rows[name] = {'scene': name, 'samples': samples, 'max_time': c.get('Max Time', ''), 'renderer': renderer,
+    rows[name] = {'scene': name, 'samples': samples, 'max_time': c.get('Max Time', ''), 'renderer': how,
                   'rendered': datetime.datetime.fromtimestamp(os.path.getmtime(png)).strftime('%Y-%m-%d %H:%M'),
-                  'seconds': seconds(name, png), 'denoiser': denoiser(c)}
+                  'seconds': seconds(name, png), 'denoiser': denoiser(c, how)}
     if demo:
         rows[name]['scene_sha256'] = demo_lib.sha256(demo_lib.copy_path(name))
     changed += 1
-    print(f'kept {name}: {samples} samples, {renderer}')
+    print(f'kept {name}: {samples} samples, {how}')
 with open(tsv, 'w', newline='') as f:
     w = csv.DictWriter(f, FIELDS, delimiter='\t', lineterminator='\n')
     w.writeheader()

@@ -12,8 +12,9 @@ refr-volume-mc.py --measure):
 
 octane-render.sh saves the raw beauty as <out>/<scene>.png and, for an
 export with the denoiser on, Octane's denoised pass as
-<out>/denoised/<scene>.png. Iray's references are rendered with DAZ's Post
-Denoiser on (renders.tsv's `denoiser` column, per reference), so the
+<out>/denoised/<scene>.png. Iray's references are denoised: the Iray Server
+applies DAZ's Post Denoiser, the local CPU Iray can't (renders.tsv's
+`denoiser` column, per reference, describes the image, #171), so the
 export's own product is what is compared:
 
 - the render directory is a variant (enhanced-final, faithful-preview...):
