@@ -5,11 +5,11 @@
 #   scripts/dev/calib-variants.sh [-s samples] <variant>... -- <scene>...
 # <variant>: enhanced-final, faithful-final, enhanced-preview,
 # faithful-preview, or "all". <scene>: a name in My Library/Scenes
-# (Calib-Glossy) or a .duf path; the scene needs a cached dump
-# (scripts/dev/daz-dump.sh). Writes ~/Library/Caches/orbis/calib/
+# (Calib-Glossy) or any .duf path (calib/scenes copies too); the scene
+# needs a cached dump (scripts/dev/daz-dump.sh). Writes ~/Library/Caches/orbis/calib/
 # orbx/<variant>/, octane/<variant>/ and octane/<variant>/report.md.
 # Needs an unlocked screen; never during a DAZ render.
-case ${1:-} in -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
+case ${1:-} in -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 root="$here/../.."
@@ -27,7 +27,7 @@ while [ $# -gt 0 ] && [ "$1" != -- ]; do
     shift
 done
 [ "${1:-}" = -- ] && shift
-[ -n "$variants" ] && [ $# -gt 0 ] || { sed -n '2,11p' "$0" >&2; exit 2; }
+[ -n "$variants" ] && [ $# -gt 0 ] || { sed -n '2,12p' "$0" >&2; exit 2; }
 for v in $variants; do
     look=${v%-*}
     mode=$([ "${v#*-}" = preview ] && echo --preview || true)

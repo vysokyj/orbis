@@ -102,10 +102,9 @@ fn main() -> Result<()> {
             let dump = match dump {
                 Some(d) => usd::store_dump(&scene, &d)?,
                 None => {
-                    let d = usd::dump_cache_path(&scene);
-                    if !d.is_file() {
+                    let Some(d) = usd::find_dump(&scene) else {
                         bail!("no scene dump for {} — export it once from DAZ Studio (Scripts → ORBIS → Export to Octane)", scene.display());
-                    }
+                    };
                     d
                 }
             };

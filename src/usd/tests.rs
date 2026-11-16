@@ -863,6 +863,46 @@ fn dump_cache_path_is_per_scene() {
 }
 
 #[test]
+fn find_dump_takes_any_path_to_the_scene() {
+    // #159: the dump is keyed by the path DAZ Studio saw; a relative path, or
+    // a byte-identical copy elsewhere (calib/scenes), must find it too.
+    let tmp = tempfile::tempdir().unwrap();
+    let dumps = tmp.path().join("dumps");
+    let lib = tmp.path().join("lib/Scenes");
+    let repo = tmp.path().join("repo");
+    for d in [&dumps, &lib, &repo] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let daz_path = lib.join("Calib-X.duf");
+    std::fs::write(&daz_path, "scene").unwrap();
+    let dump = dumps.join(super::dump::dump_file_name(&daz_path));
+    std::fs::write(&dump, json!({"format": "orbis-scene-dump", "format_version": 3, "scene": daz_path, "nodes": []}).to_string()).unwrap();
+    // A dump of a longer stem (Calib-X-w0) must not be taken for Calib-X.
+    std::fs::write(dumps.join("Calib-X-w0-0000abcd.json"), json!({"scene": daz_path}).to_string()).unwrap();
+    let find = |p: &Path| super::dump::find_dump_in(&dumps, p);
+    assert_eq!(find(&daz_path), Some(dump.clone()));
+    let copy = repo.join("Calib-X.duf");
+    std::fs::write(&copy, "scene").unwrap();
+    assert_eq!(find(&copy), Some(dump.clone()));
+    let rel = pathdiff(&copy, &std::env::current_dir().unwrap());
+    assert_eq!(find(&rel), Some(dump.clone()));
+    std::fs::write(&copy, "edited").unwrap();
+    assert_eq!(find(&copy), None, "a copy that differs is not the scene the dump was made from");
+}
+
+/// `path` relative to `base` (both absolute), through `..`.
+fn pathdiff(path: &Path, base: &Path) -> PathBuf {
+    let (p, b): (Vec<_>, Vec<_>) = (path.components().collect(), base.components().collect());
+    let common = p.iter().zip(&b).take_while(|(x, y)| x == y).count();
+    let mut out = PathBuf::new();
+    for _ in common..b.len() {
+        out.push("..");
+    }
+    out.extend(&p[common..]);
+    out
+}
+
+#[test]
 fn shell_surfaces_are_cut_after_refining() {
     // A creased strip of 3 quads (A B C); the shell shows only B. Cut after
     // refining, B's border lies on the refined whole — cut first, the

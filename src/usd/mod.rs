@@ -44,7 +44,7 @@ mod tests;
 pub use camera::*;
 pub use volume::Volume;
 use dump::*;
-pub use dump::{dump_cache_path, store_dump, DUMP_FORMAT_VERSION};
+pub use dump::{dump_cache_path, find_dump, store_dump, DUMP_FORMAT_VERSION};
 pub use environment::*;
 use instance::*;
 use library::*;

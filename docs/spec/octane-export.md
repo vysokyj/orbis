@@ -179,6 +179,12 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   scene path>.json`; `orbis export <scene.duf>` without `--dump` re-runs on
   it without DAZ Studio (calibration loop). The scene must still be saved:
   materials, cameras, lights and render settings come from the `.duf`.
+  The lookup takes any path to the scene (#159): the key of the path as
+  given, absolute and canonical, else the newest dump of the same stem whose
+  `scene` field names a byte-identical file - so `calib/scenes/X.duf` (a
+  copy of `My Library/Scenes/X.duf`) or a relative path finds the dump DAZ
+  wrote; a copy that differs finds none. `--dump` stores under the absolute
+  path.
 
 ## Plugin
 

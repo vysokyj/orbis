@@ -129,19 +129,72 @@ impl SceneDump {
 /// Where `orbis` keeps the last dump of a scene, so an export re-runs without
 /// DAZ Studio: `<cache>/orbis/dumps/<scene stem>-<hash of its path>.json`.
 pub fn dump_cache_path(scene: &Path) -> PathBuf {
+    dumps_dir().join(dump_file_name(scene))
+}
+
+fn dumps_dir() -> PathBuf {
+    dirs::cache_dir().unwrap_or_else(std::env::temp_dir).join("orbis/dumps")
+}
+
+/// `<scene stem>-<FNV-1a of its path>.json`.
+pub(super) fn dump_file_name(scene: &Path) -> String {
     let stem = scene.file_stem().and_then(|s| s.to_str()).unwrap_or("scene");
     // FNV-1a: stable across Rust versions, unlike `DefaultHasher`.
     let hash = scene.to_string_lossy().bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ b as u64).wrapping_mul(0x100_0000_01b3));
-    dirs::cache_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("orbis/dumps")
-        .join(format!("{stem}-{:08x}.json", hash as u32))
+    format!("{stem}-{:08x}.json", hash as u32)
+}
+
+/// The cached dump for a scene given by any path (#159): its own key as
+/// given, as an absolute and as a canonical path, else a dump of the same
+/// stem whose `scene` (the path DAZ Studio saw) is a byte-identical file —
+/// a copy such as `calib/scenes/X.duf` of `My Library/Scenes/X.duf`. The
+/// newest such dump wins.
+pub fn find_dump(scene: &Path) -> Option<PathBuf> {
+    find_dump_in(&dumps_dir(), scene)
+}
+
+pub(super) fn find_dump_in(dir: &Path, scene: &Path) -> Option<PathBuf> {
+    let mut keys = vec![scene.to_path_buf()];
+    keys.extend(std::path::absolute(scene).ok());
+    keys.extend(std::fs::canonicalize(scene).ok());
+    if let Some(d) = keys.iter().map(|k| dir.join(dump_file_name(k))).find(|d| d.is_file()) {
+        return Some(d);
+    }
+    let stem = scene.file_stem()?.to_str()?;
+    let wanted = std::fs::read(scene).ok()?;
+    let same_key = |name: &str| {
+        name.strip_prefix(stem)
+            .and_then(|r| r.strip_prefix('-'))
+            .and_then(|r| r.strip_suffix(".json"))
+            .is_some_and(|h| h.len() == 8 && h.bytes().all(|b| b.is_ascii_hexdigit()))
+    };
+    std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter(|e| e.file_name().to_str().is_some_and(same_key))
+        .filter(|e| dump_scene(&e.path()).is_some_and(|s| std::fs::read(s).is_ok_and(|b| b == wanted)))
+        .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())
+        .map(|e| e.path())
+}
+
+/// The `scene` field of a dump (the `.duf` path DAZ Studio saw), read from
+/// the head of the file: the script writes it before the nodes.
+fn dump_scene(dump: &Path) -> Option<PathBuf> {
+    use std::io::Read;
+    let mut head = Vec::new();
+    std::fs::File::open(dump).ok()?.take(64 * 1024).read_to_end(&mut head).ok()?;
+    let head = String::from_utf8_lossy(&head);
+    let at = head.find("\"scene\"")? + "\"scene\"".len();
+    let rest = head[at..].trim_start().strip_prefix(':')?.trim_start();
+    let mut de = serde_json::Deserializer::from_str(rest);
+    String::deserialize(&mut de).ok().map(PathBuf::from)
 }
 
 /// Keep a fresh dump (written by the DAZ Studio script) as the scene's cached
-/// one and return its new place.
+/// one and return its new place. Keyed by the absolute path, so a relative
+/// one finds it again from anywhere.
 pub fn store_dump(scene: &Path, dump: &Path) -> Result<PathBuf> {
-    let cached = dump_cache_path(scene);
+    let cached = dump_cache_path(&std::path::absolute(scene).unwrap_or_else(|_| scene.to_path_buf()));
     if cached == dump {
         return Ok(cached);
     }
