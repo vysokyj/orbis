@@ -2388,7 +2388,7 @@ impl Ocs<'_> {
             self.rgb_pin(j + 1, "specular", colour.map(|c| c * coat));
         }
         let (rough, aniso) = (top_coat_roughness(mat), Anisotropy::top_coat(mat));
-        self.gloss_brdf = Some(phong_brdf(&[(rough * aniso.stretch()).min(1.0)], self.rough_lobe));
+        self.gloss_brdf = Some(dielectric_brdf(&[(rough * aniso.stretch()).min(1.0)], self.rough_lobe));
         self.aniso_brdf_pin(j + 1, aniso.saturates(rough));
         self.gloss_brdf = None;
         self.gloss_roughness_pins(j + 1, mat, None, rough, RoughCurve::Phong, aniso);
@@ -2611,7 +2611,7 @@ impl Ocs<'_> {
             // pin, architectural's too (#114: Iray's lobe reads u / v per
             // axis; #184: along an axis it is the isotropic lobe of that
             // axis's roughness, at 1.0 as at 1.3).
-            let brdf = lobe_brdf(pin(u.max(v)), self.rough_lobe);
+            let brdf = if m.metallic { lobe_brdf(pin(u.max(v)), self.rough_lobe) } else { dielectric_lobe_brdf(pin(u.max(v)), self.rough_lobe) };
             self.value_pin(i, "brdf", 57, 2, brdf);
             let (pu, pv) = (pin(u), pin(v));
             self.float_pin(i, roughness_pin, pu.max(pv));
@@ -2625,8 +2625,10 @@ impl Ocs<'_> {
         } else {
             let brdf = if m.transmission.is_some() {
                 GLASS_BRDF
-            } else {
+            } else if m.metallic {
                 lobe_brdf(pin(m.roughness), self.rough_lobe)
+            } else {
+                dielectric_lobe_brdf(pin(m.roughness), self.rough_lobe)
             };
             self.value_pin(i, "brdf", 57, 2, brdf);
             self.float_pin(i, roughness_pin, pin(m.roughness));
@@ -4738,7 +4740,10 @@ impl Ocs<'_> {
             Some(GLASS_BRDF)
         } else {
             // PBRSkin's lobes are GGX (`ggx_brdf`, #186).
-            (!refraction_rough).then(|| if lobe_curve(mat) == RoughCurve::Ggx { ggx_brdf(&dielectric) } else if all_metal && aniso.amount <= 0.0 { metal_brdf(&dielectric, rough, self.rough_lobe) } else { phong_brdf(&dielectric, self.rough_lobe) })
+            // A node with no metal part takes the Look's sharp model too
+            // (`dielectric_brdf`, #196); one with a metal keeps Beckmann
+            // for sharp lobes (`phong_brdf`).
+            (!refraction_rough).then(|| if lobe_curve(mat) == RoughCurve::Ggx { ggx_brdf(&dielectric) } else if all_metal && aniso.amount <= 0.0 { metal_brdf(&dielectric, rough, self.rough_lobe) } else if specular_mode || !metal { dielectric_brdf(&dielectric, self.rough_lobe) } else { phong_brdf(&dielectric, self.rough_lobe) })
         };
         let curve = if glass {
             self.value_pin(i, "brdf", 57, 2, GLASS_BRDF);
@@ -6606,6 +6611,20 @@ fn lobe_brdf(pin: f32, rough: RoughLobe) -> &'static str {
     }
 }
 
+/// `phong_brdf` for a node whose every lobe is dielectric (no metal part):
+/// its sharp lobes at the Look's `RoughLobe::sharp_brdf` too (#196).
+fn dielectric_brdf(dielectric: &[f32], rough: RoughLobe) -> &'static str {
+    dielectric_lobe_brdf(dielectric.iter().map(|r| phong_pin(*r)).fold(0.0, f32::max), rough)
+}
+
+/// `dielectric_brdf` for a lobe whose largest pin is `pin`.
+fn dielectric_lobe_brdf(pin: f32, rough: RoughLobe) -> &'static str {
+    match lobe_brdf(pin, rough) {
+        BRDF_BECKMANN => rough.sharp_brdf(),
+        b => b,
+    }
+}
+
 /// Octane's model for a rough dielectric Phong lobe, one past
 /// `BECKMANN_DIELECTRIC_MAX_ALPHA` where Octane's Beckmann is off
 /// (`Tuning::rough_lobe`, the spec's Look). Neither draws Iray's lobe in
@@ -6640,6 +6659,30 @@ impl RoughLobe {
     fn brdf(self) -> &'static str {
         match self {
             RoughLobe::GgxEnergyPreserving => BRDF_GGX_EP,
+            RoughLobe::Std => BRDF_STD,
+        }
+    }
+
+    /// Octane's model for a *sharp* dielectric lobe (pin² up to
+    /// `BECKMANN_DIELECTRIC_MAX_ALPHA`) on a node with no metal part
+    /// (`dielectric_brdf`, #196). A contested choice, split with the rough
+    /// one: Iray keeps the diffuse under Uber's dual lobe at a flat
+    /// 1 − R W (`libbsdf`'s curve layer, #193); under a light near the view
+    /// STD leaves Octane's base that flat 1 − F0, Beckmann dims it to
+    /// 0.84 – 0.87 at 0.9 R, and both draw the same sharp lobe (point
+    /// 1.013 – 1.018 × Iray, furnace alike). Faithful (STD) takes Iray's
+    /// base; on the scenes (faithful-final, denoised) every sphere moved
+    /// toward Iray or stayed - Calib-DualLobeGlossy 1.12 – 1.35 → 1.12 –
+    /// 1.25 × Iray (Octane's sharp lobe at the HDRI's grazing sun), its
+    /// -gloss twin 1.08 – 1.35 → 1.08 – 1.22, Calib-Glossy and
+    /// Calib-Point-UberGloss ± 0.02 - and the Calib-Skin faces' eyes, lips
+    /// and teeth did not move past the noise. Enhanced keeps Beckmann,
+    /// Phong's own distribution and every sharp lobe as calibrated before
+    /// (the issue's call: revisit if Enhanced should follow). Metals keep
+    /// Beckmann (`phong_brdf`, Cast Iron's detail, #92).
+    fn sharp_brdf(self) -> &'static str {
+        match self {
+            RoughLobe::GgxEnergyPreserving => BRDF_BECKMANN,
             RoughLobe::Std => BRDF_STD,
         }
     }
@@ -10741,6 +10784,12 @@ mod tests {
         }
         assert_eq!(metal_brdf(&[0.5], 0.7, ep), BRDF_GGX_EP);
         assert_eq!(metal_brdf(&[0.5], 0.7, std), BRDF_STD);
+        // A node with no metal part: its sharp lobes at the Look's sharp
+        // model, Beckmann in Enhanced, STD in Faithful (#196).
+        assert_eq!(dielectric_brdf(&[0.09, 0.25], ep), BRDF_BECKMANN);
+        assert_eq!(dielectric_brdf(&[0.09, 0.25], std), BRDF_STD);
+        assert_eq!(dielectric_brdf(&[0.09, 0.27], ep), BRDF_GGX_EP);
+        assert_eq!(dielectric_brdf(&[0.0], std), BRDF_STD);
     }
 
     #[test]

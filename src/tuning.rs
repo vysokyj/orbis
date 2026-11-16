@@ -70,8 +70,11 @@ const PREVIEW_SAMPLES: u32 = 500;
 /// split (#175, the user's call 2026-11-16; `RoughLobe::skin_dual_lobe_layers`):
 /// Enhanced keeps OpenPBR's GGX lobes (Iray's energy, a narrower core, the
 /// faces' dual lobe p99.5 ~0.8 x Iray), Faithful puts them on Specular
-/// Layers at this model - Iray's Phong shape. PBRSkin's lobes are GGX,
-/// so neither split applies to them (`material::ggx_brdf`, #186).
+/// Layers at this model - Iray's Phong shape. The sharp dielectric lobes
+/// (α up to 0.25) follow too (#196): Faithful's STD keeps the diffuse under
+/// them at Iray's flat 1 - R W where Beckmann dims it at the rim, Enhanced
+/// keeps Beckmann (`RoughLobe::sharp_brdf`). PBRSkin's lobes are GGX,
+/// so none of these splits applies to them (`material::ggx_brdf`, #186).
 const ENHANCED_ROUGH_LOBE: RoughLobe = RoughLobe::GgxEnergyPreserving;
 const FAITHFUL_ROUGH_LOBE: RoughLobe = RoughLobe::Std;
 
@@ -149,7 +152,8 @@ pub struct Tuning {
     /// preserving (Iray's level under an environment) or STD (Iray's
     /// highlight shape under a small light). Metals keep their own rule.
     /// STD also moves an Uber skin's dual lobe off OpenPBR's GGX onto
-    /// Specular Layers (Look, Skin; #175).
+    /// Specular Layers (Look, Skin; #175), and a metal-free node's sharp
+    /// dielectric lobes off Beckmann (Look, Gloss; #196).
     pub rough_lobe: RoughLobe,
     /// NVIDIA's textured `mdl 1.0` metals (Metal Brushed, Cast Iron) fall
     /// towards the rim as Iray's legacy lobe makes them (Look): Octane's

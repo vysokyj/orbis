@@ -48,7 +48,9 @@ OpenPBR without subsurface, in the colour Iray's skin shows, Octane's daylight m
 sunset colour, dimmed by the sun's air mass as Iray dims it (Variants),
 thin-walled glass at IOR 1 (Iray's showed none of its own reflection),
 rough dielectric gloss on STD (Iray's highlight shape under a small light,
-rough gloss 1.2 – 1.5 × Iray under an HDRI; `rough_lobe`, #162), the
+rough gloss 1.2 – 1.5 × Iray under an HDRI; `rough_lobe`, #162) and on
+a metal-free surface its sharp lobes too (the diffuse under them at
+Iray's flat 1 − R W; Enhanced keeps Beckmann; same field, #196), the
 Uber skin's dual lobe on Specular Layers at Iray's Phong shape instead of
 OpenPBR's GGX lobes (Enhanced keeps those; same field, #175),
 NVIDIA's textured metals falling to the rim as Iray's legacy lobe makes
@@ -114,6 +116,13 @@ Leaf, Hair; `scripts/dev/calib-variants.sh all`), Octane / Iray:
   unchanged (0.904 → 0.901 × Iray's p99.5: the skin's lobes are #175;
   on Specular Layers since, its face 0.93, Skin).
   Calib-Point-ArchAniso: see Gloss (#184, the `mdl 1.0` lobe's pin).
+  Sharp dielectric lobes at STD too (#196; Faithful + Final, 400 samples,
+  denoised, before → after × Iray over the 0.9 disc): Calib-DualLobeGlossy
+  1.12 – 1.35 → 1.12 – 1.25, its -gloss twin 1.08 – 1.35 → 1.08 – 1.22
+  (the sharp lobe at the HDRI's grazing sun; highlight spreads to Iray's
+  ± 1 – 3), Calib-Glossy 1.08 – 1.23 → 1.08 – 1.22, Calib-Point-UberGloss's
+  U1 1.03 → 1.01; Calib-Skin-*-front's eyes, lips and teeth within the
+  noise (eye box p99 0.93 – 0.96 × Iray either way).
   Enhanced is unchanged.
 - Shared misses, not variant-bound: Calib-Glass sphere 4 2.4 × in all
   four (the 2.8 read through the split boxes, #146); Preview's Glass sphere 7 0.81 and Mixing sphere 8 0.76 (Final
@@ -1532,7 +1541,15 @@ leaves out, #15):
   isotropic all-metal node (Metallic Weight 1) past the same α takes
   **STD** (7, default spread) in both Looks unless a dielectric lobe on it
   asks for the rough model (`metal_brdf`, #172); sharp metals take Beckmann,
-  rough glass at any roughness (Refraction). Exceptions:
+  rough glass at any roughness (Refraction). In Faithful a node with
+  no metal part (Metallic Weight 0 or specular mode; the Top Coat's
+  Specular Layer; an NVIDIA dielectric preset) takes **STD** for its sharp
+  lobes too (`dielectric_brdf`, `RoughLobe::sharp_brdf`, #196): Iray keeps
+  the diffuse under a dual lobe at a flat 1 − R W (`libbsdf`'s curve
+  layer, #193); under a light near the view STD leaves Octane's base that
+  flat, Beckmann dims it to 0.84 – 0.87 at 0.9 R, and both draw the same
+  sharp lobe (1.013 – 1.018 × Iray head-on, furnace alike). Nodes with a
+  metal part keep Beckmann for sharp lobes. Exceptions:
   architectural's glass keeps the pins its rule was swept on and its
   anisotropy has its own α ratio (NVIDIA MDL examples), a saturated anisotropic metal lobe plain GGX (Anisotropy), the flakes
   GGX energy preserving (their roughness stands for the flakes' normals).
