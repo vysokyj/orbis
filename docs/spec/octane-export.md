@@ -2141,7 +2141,7 @@ leaves out, #15):
   the export had left it out ("not calibrated there", K7 0.34 × Iray).
   Confirmed: K7 1.10, Calib-WeightedBack B7 (mode 1) = B8 (mode 0) 1.10
   channel by channel; their red 1.32 – 1.36 is the lobe's hue under a
-  saturated unshared colour (#169), not the mixing. **Under a partial refraction**
+  saturated unshared colour, not the mixing: Octane's spectral rendering (#169). The lobe alone is linear in a grey tint (any grey / white 1.000), but the green 0.07 / 0.79 / 0.13 returns 1.31 – 1.89 × its grey twin in red, 0.83 – 0.97 in blue, growing with the warm light behind the camera; a dielectric specular in that tint does the same and a diffuse in it loses its red (0.1 ×) under the blue sky, so it is the spectrum, not the metal. With the grey twins in its place B7 / B8 are 1.13 – 1.14 / 1.09 / 0.91, the lobe's own level; kept, as no constant undoes a light-dependent tint. **Under a partial refraction**
   (0 < Refraction Weight < 1, #157) the refraction's Mix (refractive
   metal, above: the refraction part at Refraction Weight, no metal, no
   backscattering) lies outside, and this Mix is its base part (at
@@ -2156,7 +2156,7 @@ leaves out, #15):
   Base Mixing 1 1.06, thin-walled 1.06 / 1.05, metal 0.6 1.05 (the lobe
   hidden in both); the lobe's share under the glass relative to the lobe
   alone 0.38 vs Iray 0.40, so (1 − refraction) b holds; ties without
-  lobe 1.03, without refraction 1.11 (its red is #169).
+  lobe 1.03, without refraction 1.11 (its red is Octane's spectral tint, #169).
 
   Why (metal): DAZ's MDL lays the metal (`bsdf_w_metal`) over
   `bsdf_w_backscattering`, so a metal hides the backscattering as it
