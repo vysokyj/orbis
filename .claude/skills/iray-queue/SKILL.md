@@ -16,6 +16,8 @@ The Iray Server is now a home machine: **free, but its GPU has only 4 GB of VRAM
 ## Headless first (#195)
 `python3 scripts/dev/iray-server.py submit [-s samples] [-o out dir] <scene.duf>...` renders generic scenes on the server with **no DAZ window and no Bridge**: a headless DAZ uploads each capped scene into the Iray Server's own job queue (login from the git-ignored `.env`, never printed), the script starts the server queue, waits, downloads each PNG to `~/Library/Caches/orbis/calib/iray/<scene>.png` (capped copy and `.run.txt` beside it for `keep-refs.py`) and removes the job from the server. It waits for all jobs: run it as a background command and block with `scripts/dev/wait-for.sh` if you must. It never renders on this Mac's CPU. Same images as the Bridge queue (Calib-Point-DualLobeBase-Off: mean difference 0.008 / 255, same 55 s). Scenes sharing an NVIDIA preset (#94) go into separate `submit` calls: one call = one DAZ session. `iray-server.py queue` / `results` show the server's side.
 
+**Issues first** (the user's rule, 2026-11-17): work an open issue needs goes ahead of everything else. A batch that serves no open issue (filling missing references) submits one scene at a time and calls `iray-server.py idle` before each, so an issue's job waits at most for the scene already rendering. Don't render what no comparison will read (e.g. the `.mi` fixture scenes `Calib-Mi-*`).
+
 The Bridge queue below (the GUI DAZ, `iray-queue.sh`) stays for what `submit` can't do; prefer `submit`.
 
 ## Queueing (Bridge queue)

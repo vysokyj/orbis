@@ -6,8 +6,12 @@ git-ignored .env (IRAY_SERVER_HOST, _PORT, _USER, _PASSWORD; see
   python3 scripts/dev/iray-server.py submit [-s samples] [-o out dir] <scene.duf>...
   python3 scripts/dev/iray-server.py info              # server info, queue state
   python3 scripts/dev/iray-server.py queue             # jobs in the queue
+  python3 scripts/dev/iray-server.py idle              # block until no job waits or renders
   python3 scripts/dev/iray-server.py results [search]  # finished results
   python3 scripts/dev/iray-server.py get <path>        # raw GET, JSON printed
+idle: a low-priority batch calls it before each scene, so jobs an issue
+submits go first (one scene per submit; the issue's job waits at most for
+the batch scene already rendering).
 submit: renders scenes on the Iray Server with no DAZ window (#195). Each
 scene is capped like iray-queue.sh does (Max Samples, default 400; Max Time
 0; no quality stop), a headless DAZ (daz-script.sh, daz-server-submit.dsa)
@@ -159,6 +163,9 @@ def main(argv):
     cmd = argv[0]
     if cmd == 'info':
         print(json.dumps({'info': s.call('GET', 'info'), 'queue': s.call('GET', 'queue')}, indent=1)[:4000])
+    elif cmd == 'idle':
+        while any(j['status'] in ('waiting', 'active') for j in s.call('GET', 'queue').get('jobs', [])):
+            time.sleep(15)
     elif cmd == 'queue':
         print(json.dumps(s.call('GET', 'queue'), indent=1)[:8000])
     elif cmd == 'results':
