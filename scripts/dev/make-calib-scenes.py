@@ -109,6 +109,9 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-WeightedTL, -Thin (#131): weighted mixing with translucency on a
   diffuse map - Diffuse / Translucency / Glossy Weight combinations, plain
   colours and a dark diffuse map under lighter translucency / glossy maps.
+- Calib-RefrTL-BM1, -Solid (#165): a partial refraction over translucency
+  in Base Mixing 1 (refraction 0.3 / 0.7 / 0.106 / 0.45, each part alone,
+  Morgan Hair's weights), thin-walled and closed - for Iray.
 - Thin walls (#134): Calib-Materials's sphere material is thin-walled, and
   so is every generated sphere that doesn't set `Thin Walled` false
   (Calib-WeightedTL is -Thin's twin in fact). The closed twins: Calib-SSS-Solid,
@@ -746,6 +749,28 @@ uber_spheres('Calib-MetalRefr-TL', [0.45, 0.05, 0.04], {**MR, 'Translucency Weig
 uber_spheres('Calib-MetalRefr-Solid', [0.45, 0.05, 0.04], {**MR, 'Thin Walled': False}, MR_SPHERES)
 uber_spheres('Calib-MetalRefr-TL-Solid', [0.45, 0.05, 0.04], {**MR, 'Translucency Weight': 0.5, 'Translucency Color': [0.9, 0.6, 0.4],
                                                               'Thin Walled': False}, MR_SPHERES)
+# The same partial refraction over translucency in Base Mixing 1 (#165):
+# DAZ's MDL builds the same `metallic_layered_base` (iray.rs passes
+# blm_layered; Calib-Mi-RefrBack's Q7), only the gloss reads Glossy
+# Specular (F0 0.04 = reflectivity 0.5) and 1 - Glossiness (0.2). T1 / T2
+# sit where -TL's R1 / R2 do (same background), T3 Morgan Hair's refraction
+# 0.106, T4 just under the one-node rule's 0.5, T5 the translucency alone,
+# T6 / T7 the refraction alone (the decomposition), T8 Morgan's w 0.059
+# under 0.106. -Solid the closed twin.
+RTL1 = {'Base Mixing': 1, 'Glossy Layered Weight': 1.0, 'Glossy Specular': [0.04, 0.04, 0.04], 'Glossiness': 0.8,
+        'Refraction Index': 1.5, 'Translucency Color': [0.9, 0.6, 0.4]}
+RTL1_SPHERES = [
+    ('T1 bm1 r0.3 tl0.5', {'Refraction Weight': 0.3, 'Translucency Weight': 0.5}),
+    ('T2 bm1 r0.7 tl0.5', {'Refraction Weight': 0.7, 'Translucency Weight': 0.5}),
+    ('T3 bm1 r0.106 tl0.5', {'Refraction Weight': 0.106, 'Translucency Weight': 0.5}),
+    ('T4 bm1 r0.45 tl0.5', {'Refraction Weight': 0.45, 'Translucency Weight': 0.5}),
+    ('T5 bm1 tl0.5', {'Translucency Weight': 0.5}),
+    ('T6 bm1 r0.3', {'Refraction Weight': 0.3}),
+    ('T7 bm1 r0.7', {'Refraction Weight': 0.7}),
+    ('T8 bm1 r0.106 tl0.059', {'Refraction Weight': 0.106, 'Translucency Weight': 0.059}),
+]
+uber_spheres('Calib-RefrTL-BM1', [0.45, 0.05, 0.04], RTL1, RTL1_SPHERES)
+uber_spheres('Calib-RefrTL-BM1-Solid', [0.45, 0.05, 0.04], {**RTL1, 'Thin Walled': False}, RTL1_SPHERES)
 # A translucent metal under backscattering (#145): DAZ's metallic_layered_base
 # stacks metal over backscattering over the diffuse and its translucency.
 # K1 / K5 / K6 all three (metal 0.3 / 0.75 / a grey map), K2 - K4 one part
