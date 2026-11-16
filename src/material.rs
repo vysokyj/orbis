@@ -3436,9 +3436,12 @@ impl Ocs<'_> {
                     self.float_pin(i, "coatingRoughness", phong_pin(dl.lobe2_roughness));
                     self.dual_lobe_ior_pin(i, "coatingIor", mat, dl.f0);
                     self.float_pin(i, "coatingDarkening", 0.0);
-                    // Both lobes on the base's normal, as in Iray (see
-                    // `universal`'s lobe 2, #140).
-                    self.base_detail_pins(i, mat, "coatingNormal", "coatingBump");
+                    // Lobe 2 on the base's normal on PBRSkin only, smooth
+                    // on Uber, as in Iray (see `universal`'s lobe 2, #140,
+                    // #174).
+                    if crate::iray::is_pbrskin(mat) {
+                        self.base_detail_pins(i, mat, "coatingNormal", "coatingBump");
+                    }
                     return;
                 }
             }
@@ -4448,15 +4451,23 @@ impl Ocs<'_> {
                 let r2 = self.gloss_roughness(dl.lobe2_roughness);
                 self.float_pin(i, "coatingRoughness", r2);
                 self.dual_lobe_ior_pin(i, "coatingIor", mat, dl.f0);
-                // Iray lays both lobes on the base's normal: Uber's
-                // `add_dual_lobe_specular` one `weighted_layer` on
-                // `combined_bump`, PBRSkin's lobe 2 over lobe 1 at the
-                // default normal inside the `custom_curve_layer` on
-                // `pbr_detail_normal`. Universal's coating takes only its
-                // own pins (else the plain shading normal, manual): lobe 2
-                // stayed smooth, a sharp glint over the dimples Iray
-                // doesn't have (#140, Calib-PBRSkin-Detail).
-                self.base_detail_pins(i, mat, "coatingNormal", "coatingBump");
+                // Lobe 2's normal is where the MDL's layerers put it (a
+                // layerer's `normal` applies to its top layer only, MDL
+                // spec 21.6; DAZ's pbr_skin.mdl: "no way to apply normal
+                // to bottom layer"). PBRSkin: both lobes are the top layer
+                // of the `custom_curve_layer` on `pbr_detail_normal`, so
+                // lobe 2 takes the base's normal; Universal's coating
+                // without its own pins kept the plain shading normal, a
+                // sharp glint over the dimples Iray doesn't have (#140).
+                // Uber: the dual lobe is the *base* of its
+                // `custom_curve_layer`, lobe 2 the base of the
+                // `weighted_layer` on `combined_bump` (lobe 1 its top):
+                // lobe 2 sees the unbumped geometry normal, smooth as the
+                // coating is without pins (#174: bumped, the faces' dual
+                // lobe fell from 0.75 - 0.86 to 0.52 - 0.79 x Iray).
+                if crate::iray::is_pbrskin(mat) {
+                    self.base_detail_pins(i, mat, "coatingNormal", "coatingBump");
+                }
             }
             // The reflectivity as the IOR of its F0 on both lobes, its map
             // per texel (Universal's `ior` and `coatingIor` take a texture,
@@ -7549,10 +7560,9 @@ mod tests {
         assert!(!x.contains("OrbisDetailNormal") && c[..400.min(c.len())].contains("n.png"), "{x}");
     }
 
-    /// A dual lobe's lobe 2 on Universal's coating takes the base's normal
-    /// (#140): Iray lays both lobes on it (Uber's `combined_bump`,
-    /// PBRSkin's `pbr_detail_normal`); without `coatingNormal` the coating
-    /// stays smooth.
+    /// A PBRSkin dual lobe's lobe 2 on Universal's coating takes the base's
+    /// normal (#140: both lobes are the top layer on `pbr_detail_normal`);
+    /// Uber's lobe 2, the base of its layerers, stays smooth (#174).
     #[test]
     fn dual_lobe_coating_takes_the_base_normal() {
         let dir = tempfile::tempdir().unwrap();
@@ -7586,6 +7596,12 @@ mod tests {
             assert_eq!(crate::iray::is_pbrskin(&m), pbr);
             let x = material_inputs(&[("Skin".into(), Rc::new(m), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None).0;
             assert!(x.contains("<pin name='coatingRoughness'>"), "lobe 2 on the coating: {x}");
+            // Uber's lobe 2 is the base of its layerers: smooth (#174).
+            if !pbr {
+                assert!(!x.contains("<pin name='coatingNormal'>") && !x.contains("<pin name='coatingBump'>"), "{x}");
+                assert!(x.contains("<pin name='normal'>") && x.contains("n.png"), "lobe 1 keeps the base normal: {x}");
+                continue;
+            }
             let c = &x[x.find("<pin name='coatingNormal'>").expect(&x)..];
             let c = &c[..c.find("</pin>\n").map_or(c.len(), |k| k)];
             assert!(c.contains("n.png"), "{pbr}: {x}");

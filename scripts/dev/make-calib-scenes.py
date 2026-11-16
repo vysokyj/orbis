@@ -86,6 +86,9 @@ a plane under an HDRI) that each change one thing, written beside it.
   metal; .mi only: refraction 0.3 / 0.7, translucency) - .mi and Iray.
 - Calib-DualLobeGlossy (#106): the glossy layer over the dual lobe, each
   alone and both together (weight, roughness, reflectivity, Top Coat).
+- Calib-DualLobeBump (#174): Uber's dual lobe over a normal map by lobe
+  (lobe 1, lobe 2, both; a height map; the diffuse alone), each beside
+  its no-map twin: which lobe sees the base normal.
 - Calib-DualLobeWeighted (#121): the dual lobe under weighted mixing
   (Base Mixing 2), each part alone and both (shares, weights below 1,
   Top Coat, reflectivity, dual lobe weight).
@@ -1739,6 +1742,34 @@ uber_spheres('Calib-CoatBump', [0.45, 0.05, 0.04], CB, [
     ('B6 base normal', {('Normal Map', 'image'): BUMPS['ridges-n'], 'Normal Map': 1.0}),
     ('B7 coat + base bump', {**COAT_H, ('Bump Strength', 'image'): BUMPS['ridges'], 'Bump Strength': 1.0}),
     ('B8 coat + base normal', {**COAT_H, ('Normal Map', 'image'): BUMPS['ridges-n'], 'Normal Map': 1.0}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for i in d['image_library']:
+        if i['id'] in BUMPS.values():
+            i['map_gamma'] = 1
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+
+# --- Uber dual lobe over a normal map, by lobe (#174): which lobe sees the
+# base normal. DAZ's add_dual_lobe_specular puts lobe 1 as the top layer of
+# a weighted_layer on combined_bump and lobe 2 as its base, the pair as the
+# base of the custom_curve_layer; a layerer's normal applies to its top
+# layer only (MDL spec 21.6). So lobe 2 would be smooth (F4 a plain glint
+# like F3), lobe 1 dimpled (F2). Dimples as the base Normal Map at 1 x 1,
+# no glossy layer; F7 the dimples as a height map (combined_bump's other
+# path), F8 the diffuse alone over the map (the tilt itself).
+DLB = {'Glossy Layered Weight': 0.0, 'Dual Lobe Specular Weight': 1.0, 'Dual Lobe Specular Reflectivity': 0.5,
+       'Specular Lobe 1 Roughness': 0.4, 'Specular Lobe 2 Roughness': 0.15}
+DLB_N = {('Normal Map', 'image'): BUMPS['dimples-n'], 'Normal Map': 1.0}
+uber_spheres('Calib-DualLobeBump', [0.45, 0.05, 0.04], DLB, [
+    ('F1 lobe 1 no map', {'Dual Lobe Specular Ratio': 1.0}),
+    ('F2 lobe 1 normal', {'Dual Lobe Specular Ratio': 1.0, **DLB_N}),
+    ('F3 lobe 2 no map', {'Dual Lobe Specular Ratio': 0.0}),
+    ('F4 lobe 2 normal', {'Dual Lobe Specular Ratio': 0.0, **DLB_N}),
+    ('F5 ratio 0.5 no map', {'Dual Lobe Specular Ratio': 0.5}),
+    ('F6 ratio 0.5 normal', {'Dual Lobe Specular Ratio': 0.5, **DLB_N}),
+    ('F7 lobe 2 bump', {'Dual Lobe Specular Ratio': 0.0, ('Bump Strength', 'image'): BUMPS['dimples'], 'Bump Strength': 1.0}),
+    ('F8 diffuse normal', {'Dual Lobe Specular Weight': 0.0, **DLB_N}),
 ])
 if made[-1][0]:
     d = load(made[-1][0])

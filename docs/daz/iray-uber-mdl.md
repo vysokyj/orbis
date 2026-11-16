@@ -240,7 +240,14 @@ Bottom to top:
   the specular as the base — the diffuse keeps 1 − Reflectivity × Weight
   head-on and 1 − Weight at grazing. The specular is a white
   `weighted_layer` of lobe 1 (ratio) over lobe 2 (1 − ratio), at their
-  own roughnesses.
+  own roughnesses. Both layerers take `combined_bump` as `normal`, which
+  the MDL spec applies to the top layer only (21.6; DAZ's own
+  `pbr_skin.mdl` comments "there is no way to apply normal to bottom
+  layer"): the diffuse and lobe 1 are bumped, lobe 2 — the base of
+  both — sees the material's geometry normal, which DAZ hands
+  unbumped (`geometry_bump` = `state::rounded_corner_normal`). PBRSkin
+  differs: its dual lobe is the *layer* of the `custom_curve_layer` on
+  the detail normal, so both lobes get it.
 - **Glossy** (`add_top_coat` in custom-curve mode, reused): a
   `custom_curve_layer` of a glossy BSDF (Glossy Color, Glossy Roughness)
   over the diffuse, head-on = `glossy_reflectivity`, grazing 1, exponent

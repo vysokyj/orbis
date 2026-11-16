@@ -1116,15 +1116,21 @@ leaves out, #15):
   `specular` at W × its part; lobe 2 the `coating` at the rest, `coatingRoughness` the **Phong pin of r2²**
   (both lobes are `simple_glossy_bsdf`; 2 · r2² until #95, a fit that made
   up for the GGX curve's sharpness — Calib-DualLobe2's lobe-2-only sphere
-  then 0.42 × Iray's detail at the Phong pin). The coating takes the
-  base's normal (`coatingNormal` / `coatingBump` as `normal` / `bump`,
-  PBRSkin's detail included): Iray lays both lobes on it — Uber's
-  `add_dual_lobe_specular` is one `weighted_layer` on `combined_bump`,
-  PBRSkin's lobe 2 sits over lobe 1 at the default normal inside the
-  `custom_curve_layer` on `pbr_detail_normal` — while Universal's coating
+  then 0.42 × Iray's detail at the Phong pin). Lobe 2's normal follows
+  the MDL's layering, where a layerer's `normal` applies to its top layer
+  only (MDL spec 21.6): **on PBRSkin** the coating takes the base's normal
+  (`coatingNormal` / `coatingBump` as `normal` / `bump`, the detail
+  included) — the dual lobe is the layer of the `custom_curve_layer` on
+  `pbr_detail_normal`, so both lobes are bumped, while Universal's coating
   without its own pins keeps the plain shading normal (manual); until
-  #140 lobe 2 stayed smooth, one sharp glint over the dimples where Iray
-  has none (Calib-PBRSkin-Detail). Under a
+  #140 lobe 2 stayed smooth there, one sharp glint over the dimples where
+  Iray has none (Calib-PBRSkin-Detail). **On Uber** lobe 2 stays smooth:
+  `add_dual_lobe_specular` puts lobe 1 as the top of a `weighted_layer`
+  on `combined_bump` and lobe 2 as its base, the pair as the base of the
+  `custom_curve_layer` under the diffuse, so lobe 2 sees the geometry
+  normal DAZ hands unbumped. #140 bumped it too and the Calib-Skin faces'
+  dual lobe lost Iray's smooth forehead glint (0.75 – 0.86 → 0.52 – 0.79 ×
+  Iray, #174). Under a
   Top Coat (which takes the coating) one lobe at the full W and the
   ratio's blend of both roughnesses. The same on OpenPBR skin. Until #81
   Universal took the reflectivity as a share of the specular (W · min(2r,
@@ -3242,7 +3248,13 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   the 2-pass binomial-blurred difference, which grain doesn't move):
   Victoria 0.53, Gabriela 0.79, Nishi 0.71, Kayo 0.52 (2026-11-09's raw
   export, same measure: 0.75, 0.86, 0.76, 0.83); the gloss0 faces' peak
-  now matches Iray's (1.00 – 1.02, was 1.11 – 1.13). Open in #174.
+  matches Iray's (1.00 – 1.02; the 2026-11-09 1.11 – 1.13 was raw-400
+  grain, the export didn't change). The drop was #140 bumping Uber's lobe
+  2 (Dual lobe specular above); smooth again (#174) the dual lobe reads
+  Victoria 0.75, Gabriela 0.84, Nishi 0.74, Kayo 0.80 and the full faces
+  (denoised 400) Angel 1.02, Victoria 0.92, Kayo 0.96, Gabriela 0.94,
+  Nishi 0.92, Twosret 0.89, Monique 0.91, Zurie 0.97. The dual lobe's
+  remaining gap: #175.
 - Dark skins show more pore texture than Iray's.
 - Not a cause: Iray doesn't dim the gloss of translucent skin (highlight
   contrast on the dark foreheads is higher in Iray); the gloss alone ~0
