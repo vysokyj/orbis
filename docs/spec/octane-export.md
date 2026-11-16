@@ -1244,8 +1244,9 @@ leaves out, #15):
   normal as it is; every PBRSkin `.mi`), so the coating's `coatingNormal`
   (or the Layered coat's `normal`) gets the same OSL texture, or the base
   normal map alone without a detail; PBRSkin has no Top Coat Bump of its
-  own. Not rendered: no Iray reference has a coat over a normal map
-  yet. DAZ hands Iray the map at
+  own. Rendered (Calib-PBRSkin-DetailLayers E7 / E8): Iray's coat carries
+  the dimples (contrast 0.80 against the plain coat's 0.55) and so does
+  Octane's (correlation 0.95). DAZ hands Iray the map at
   its definition's `default_image_gamma` 1, its weight and the tiles as
   the transform's scale (Calib-PBRSkin-Occlusion O8's `.mi`), its value
   as the factor (Normal map strength, below). Known
@@ -1257,9 +1258,14 @@ leaves out, #15):
   Dual lobe specular): smooth until #140, it added the plain sphere's
   sun glint over the dimples; with it Calib-PBRSkin-Detail's dimples
   correlate 0.95 - 0.98 with Iray's at every tiling and weight (0.65 -
-  0.95 before; O8 0.87 → 0.98). Their contrast still reads 1.14 - 1.6 × Iray's although
-  the formula is NVIDIA's `base.mdl` to the letter (open: #140,
-  Calib-PBRSkin-DetailLayers splits it by layer). Mode 0
+  0.95 before; O8 0.87 → 0.98). Their contrast reads 1.14 - 1.6 × Iray's;
+  split by layer (Calib-PBRSkin-DetailLayers, the map 1 × 1 at weight 1
+  under one layer at a time) it is not the normal: under the diffuse
+  alone the dimples are 0.95 × Iray's contrast (correlation 0.93), under
+  lobe 2 1.13, under lobe 1 1.37 - and lobe 1 is drawn as Beckmann at
+  the Phong pin where `pbr_skin.mdl` has GGX at α = r²; Universal's GGX
+  takes it to 1.08 (correlation 0.89 → 0.99 without the map). The lobes'
+  model is #186, not the detail normal's. Mode 0
   (the map as a height map) and a map on the weight aren't exported (the
   weight counts by its value).
 - **PBRSkin Makeup** (#142, from `pbr_skin.mdl`'s `pbr_material`, no
