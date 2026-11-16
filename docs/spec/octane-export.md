@@ -1167,7 +1167,16 @@ leaves out, #15):
   0.08 r × the Reflectivity map (`add_dual_lobe_specular`'s
   `custom_curve_layer`): the weight W on the pins, the reflectivity as the
   IOR of F0 on `ior` and `coatingIor`, per texel with a map (n / 2 baked at
-  power 2; Universal's IOR pins take a texture, probe #81). Lobe 1 is
+  power 2; Universal's IOR pins take a texture, probe #81). The curve's
+  shape stays Fresnel's, as the glossy layer's (#137): on a sphere it is
+  the rim, 1.15 – 1.25 × Iray at 0.8 – 0.93 R at F0 0.04 (view angles 53 –
+  68°), the whole of PBRSkin's rim excess (#188: the dual lobe's
+  directional albedo per ring under both curves, `scripts/dev/
+  rim-curve.py`; divided out, Calib-PBRSkin-Metal N1 / -Makeup K1 /
+  -Occlusion O1 – O5 at GGX are flat at 0.96 – 1.03 × Iray over the
+  frame from core to rim, the occlusion's flat and falling curves
+  included). Kept; a rim compare of the lobes' distribution divides it
+  out first. Lobe 1 is
   `specular` at W × its part; lobe 2 the `coating` at the rest, `coatingRoughness` the **Phong pin of r2²**
   (both lobes are `simple_glossy_bsdf`; 2 · r2² until #95, a fit that made
   up for the GGX curve's sharpness — Calib-DualLobe2's lobe-2-only sphere
