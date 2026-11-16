@@ -3,7 +3,8 @@
     "allow": [
       "mcp__dazzle__search_products",
       "mcp__dazzle__get_product",
-      "mcp__dazzle__show_in_dazzle"
+      "mcp__dazzle__show_in_dazzle",
+      "Bash(scripts/dev/wait-for.sh *)"
     ]
   }
 }

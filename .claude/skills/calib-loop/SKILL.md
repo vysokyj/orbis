@@ -31,7 +31,8 @@ All paths below are relative to the repo root; scripts find each other via their
 
 ## Waiting for a render
 - Start the render script itself (`calib-variants.sh`, `octane-render.sh`, `calib-octane-batch.sh`, `octane-run.sh`) as a **background command** (`run_in_background`) and go on when its exit notification arrives; its output is the result. The scripts queue on the render lock by themselves.
-- **Never write a polling loop** (`until [ -f ...png ] && ! pgrep ...; do sleep 5; done`, `while pgrep ...`, a Monitor on such a loop): every one is a new ad hoc command, so it asks the user for permission each time, and `pgrep` on Octane X / the script says nothing about whether the render succeeded.
+- Must block until it ends (a subagent, which gets no exit notification while it is busy, or a render longer than a 600 s foreground call)? `scripts/dev/wait-for.sh <the background task's .output file> 'exited with code'` as a plain foreground command, called again on exit 124 (timeout). Nothing else: it is the only wait the allow rule covers.
+- **Never write a polling loop** (`until grep -q ...; do sleep 10; done`, `until [ -f ...png ] ...`, `while pgrep ...`, a `f=...` variable, a Monitor on any of them): every one is a new ad hoc command, so it asks the user for permission each time (the user has asked for this to stop more than five times), and `pgrep` on Octane X / the script says nothing about whether the render succeeded.
 - Several batches in a row: one background command that chains them (`a.sh ... && b.sh ...`), not one command plus a watcher for the next.
 
 ## Rules that outrank the loop
