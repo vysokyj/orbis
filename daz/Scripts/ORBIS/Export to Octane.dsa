@@ -83,7 +83,11 @@
         if (!bBatch) return;
         var oFile = new DzFile(sBatchOut + "/orbis-batch.txt");
         oFile.open(DzFile.WriteOnly | DzFile.Truncate);
-        oFile.write(aBatch.join("\n") + "\n");
+        // DzFile writes the local 8-bit codec ("?" for orbis's arrow):
+        // anything past ASCII goes out as \uXXXX.
+        oFile.write((aBatch.join("\n") + "\n").replace(/[^\x00-\x7f]/g, function (c) {
+            return "\\u" + ("000" + c.charCodeAt(0).toString(16)).slice(-4);
+        }));
         oFile.close();
         App.delayedExit();
     }
@@ -752,8 +756,11 @@
         var sErr = aErr.join("");
         print(sTitle + ": " + aOut.join("\n"));
         if (sErr) print(sTitle + " (stderr): " + sErr);
+        // DS6: exitCode is the program's code, exitStatus Qt's normal/crash
+        // flag (0 for any normal exit, #187). Older builds: exitStatus.
+        var nCode = oProcess.exitCode !== undefined ? oProcess.exitCode : oProcess.exitStatus;
         return {
-            ok: !bCancelled && oProcess.normalExit && oProcess.exitStatus == 0,
+            ok: !bCancelled && oProcess.normalExit && nCode == 0,
             cancelled: bCancelled,
             out: aOut.join("\n"),
             err: sErr
