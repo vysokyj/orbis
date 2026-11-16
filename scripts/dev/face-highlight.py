@@ -17,7 +17,8 @@ octane_pass.py's rule reads for this directory (#139).
 --sub <minus dir>: the dual lobe's own share as the spec measures it,
 p99.5 of (render - its gloss0 twin), e.g. dlflat - gloss0: each scene
 <X>-dlflat in <octane dir> minus <X>-gloss0 in <minus dir> (the same
-directory is fine), the Iray side alike.
+directory is fine), the Iray side alike; the twins without bump or normal
+map pair the same way (<X>-dlflatnb - <X>-gloss0nb, -dlflatnn - -gloss0nn).
 
 --blur: the p99.5 after a 2-pass 5-tap binomial blur (sigma ~1.4 px) of
 the image (or the difference): the grain-robust number - raw and denoised,
@@ -81,9 +82,10 @@ def main():
         if want and not any(w in scene for w in want):
             continue
         if minus is not None:
-            if not scene.endswith('-dlflat'):
+            head, _, var = scene.rpartition('-')
+            if not var.startswith('dlflat'):
                 continue
-            mscene = scene[:-len('-dlflat')] + '-gloss0'
+            mscene = head + '-gloss0' + var[len('dlflat'):]
             mp = os.path.join(minus, mscene + '.png')
             ir, mir = os.path.join(IRAY, scene + '.png'), os.path.join(IRAY, mscene + '.png')
             if not (os.path.exists(mp) and os.path.exists(ir) and os.path.exists(mir)):

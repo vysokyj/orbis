@@ -89,6 +89,9 @@ a plane under an HDRI) that each change one thing, written beside it.
 - Calib-DualLobeBump (#174): Uber's dual lobe over a normal map by lobe
   (lobe 1, lobe 2, both; a height map; the diffuse alone), each beside
   its no-map twin: which lobe sees the base normal.
+- Calib-DualLobePores (#175): the same lobes over pore-sized noise (about
+  a pixel on screen): heights at two strengths, the same slopes as a
+  normal map at 1 and 0.5, both blended, the diffuse alone, both lobes.
 - Calib-DualLobeWeighted (#121): the dual lobe under weighted mixing
   (Base Mixing 2), each part alone and both (shares, weights below 1,
   Top Coat, reflectivity, dual lobe weight).
@@ -1775,6 +1778,62 @@ if made[-1][0]:
     d = load(made[-1][0])
     for i in d['image_library']:
         if i['id'] in BUMPS.values():
+            i['map_gamma'] = 1
+    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+
+# --- Uber dual lobe over pore-sized detail (#175): the skin faces' dual
+# lobe sits at 0.74 - 0.84 x Iray where the plain Calib-DualLobe spheres
+# are 1.06 - 1.12, and in Iray the faces' bump map spreads the lobe (its
+# peak +3 - 45 % without it) where the normal map hardly does. Calib-
+# DualLobeBump's dimples are 8 periods a sphere (tens of pixels); a face's
+# pores are a texel or two at ~10 texels a pixel. So the same lobes over
+# blurred white noise at 2048^2 (features ~1 px on screen; 8-bit, map_gamma
+# 1): P1 lobe 1 smooth, P2 / P3 lobe 1 over the noise as a height map at
+# Bump Strength 2 / 6, P4 the same slopes as a normal map (baked from the
+# heights at factor 2 by MDL's central difference: in Iray P4 = P2), P5
+# that normal map at Normal Map 0.5 (the factor's effect), P6 the normal
+# map with the height map at 2 blended on (add_detail_normal), P7 the
+# diffuse alone over heights at 6 (the tilt without a lobe), P8 both lobes
+# at ratio 0.5 over heights at 6 (lobe 2 smooth at pore scale too, #174).
+PORES = {name: f'/Runtime/Textures/ORBIS/calib-pores-{name}.png' for name in ('h', 'n2')}
+if not all(os.path.exists(os.path.join(os.path.dirname(out_dir), p.lstrip('/'))) for p in PORES.values()):
+    from PIL import Image
+    import numpy as np
+    n = 2048
+    rng = np.random.default_rng(175)
+    h = rng.standard_normal((n, n))
+    # Periodic Gaussian blur (sigma 1.5 texels) by FFT, then 0 .. 1.
+    f = np.fft.fftfreq(n)
+    g = np.exp(-2 * (np.pi * 1.5) ** 2 * (f[:, None] ** 2 + f[None, :] ** 2))
+    h = np.real(np.fft.ifft2(np.fft.fft2(h) * g))
+    h = (h - h.min()) / (h.max() - h.min())
+    h8 = (h * 255).round().astype(np.uint8)
+    Image.fromarray(h8).save(os.path.join(os.path.dirname(out_dir), PORES['h'].lstrip('/')))
+    # MDL file_bump_texture at factor 2 on the 8-bit heights: du = h[x+1] -
+    # h[x-1], dv the texel above minus the one below (v up the image).
+    q = h8.astype(float) / 255
+    du = np.roll(q, -1, 1) - np.roll(q, 1, 1)
+    dv = np.roll(q, 1, 0) - np.roll(q, -1, 0)
+    nx, ny, nz = -2 * du, -2 * dv, np.ones_like(q)
+    ln = np.sqrt(nx * nx + ny * ny + nz * nz)
+    rgb = np.stack([nx / ln, ny / ln, nz / ln], -1) * 0.5 + 0.5
+    Image.fromarray((rgb * 255).round().astype(np.uint8)).save(os.path.join(os.path.dirname(out_dir), PORES['n2'].lstrip('/')))
+PH = lambda s: {('Bump Strength', 'image'): PORES['h'], 'Bump Strength': s}
+PN = lambda s: {('Normal Map', 'image'): PORES['n2'], 'Normal Map': s}
+uber_spheres('Calib-DualLobePores', [0.45, 0.05, 0.04], DLB, [
+    ('P1 lobe 1 smooth', {'Dual Lobe Specular Ratio': 1.0}),
+    ('P2 lobe 1 height 2', {'Dual Lobe Specular Ratio': 1.0, **PH(2.0)}),
+    ('P3 lobe 1 height 6', {'Dual Lobe Specular Ratio': 1.0, **PH(6.0)}),
+    ('P4 lobe 1 normal', {'Dual Lobe Specular Ratio': 1.0, **PN(1.0)}),
+    ('P5 lobe 1 normal 0.5', {'Dual Lobe Specular Ratio': 1.0, **PN(0.5)}),
+    ('P6 lobe 1 normal + height 2', {'Dual Lobe Specular Ratio': 1.0, **PN(1.0), **PH(2.0)}),
+    ('P7 diffuse height 6', {'Dual Lobe Specular Weight': 0.0, **PH(6.0)}),
+    ('P8 ratio 0.5 height 6', {'Dual Lobe Specular Ratio': 0.5, **PH(6.0)}),
+])
+if made[-1][0]:
+    d = load(made[-1][0])
+    for i in d['image_library']:
+        if i['id'] in PORES.values():
             i['map_gamma'] = 1
     open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
 

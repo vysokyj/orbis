@@ -3254,7 +3254,16 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   Victoria 0.75, Gabriela 0.84, Nishi 0.74, Kayo 0.80 and the full faces
   (denoised 400) Angel 1.02, Victoria 0.92, Kayo 0.96, Gabriela 0.94,
   Nishi 0.92, Twosret 0.89, Monique 0.91, Zurie 0.97. The dual lobe's
-  remaining gap: #175.
+  remaining gap is the distribution's shape, not the bump (#175): without
+  the bump Octane / Iray reads 0.80 / 0.85 / 0.84 / 0.78 (Octane's baked
+  bump spreads the lobe as Iray's does), and on the scenes' smooth skin
+  sphere the dual lobe's energy matches (1.02 - 1.05) while its quantiles
+  run core 0.95, shoulders 0.76 - 0.90, skirt above - the curve of GGX
+  (OpenPBR's only specular model) against Iray's Phong at the same
+  `phong_pin` peak (an analytic model of the exported pins draws it).
+  The faces' p99.5 sits in their glints' shoulder. Kept GGX for now; the
+  alternative (the skin's lobes on Beckmann / STD Specular Layers) is
+  #175's question, tied to #162's.
 - Dark skins show more pore texture than Iray's.
 - Not a cause: Iray doesn't dim the gloss of translucent skin (highlight
   contrast on the dark foreheads is higher in Iray); the gloss alone ~0
