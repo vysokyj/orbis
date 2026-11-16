@@ -1076,7 +1076,7 @@ leaves out, #15):
   A **partial refraction** keeps the translucency: Iray's refraction is a
   weighted layer over diffuse and translucency (`metallic_layered_base`),
   so both keep 1 − Refraction Weight and both transmissions stay. In Base
-  Mixing 0 (not PBRSkin) a translucent material with 0 < Refraction Weight
+  Mixing 0 and 1 (not PBRSkin) a translucent material with 0 < Refraction Weight
   < 1 is the same Mix as a refractive metal's (**Refraction on a
   metal**): the refraction (its own transmission, IOR and gloss) at
   Refraction Weight over the material without it (the translucency at its full share). Why: as one node
@@ -1087,11 +1087,26 @@ leaves out, #15):
   spheres without translucency (1.01 / 1.04) and its metal spheres (1.10 –
   1.13, unchanged) (#135). On closed solids (-TL-Solid) the same Mix
   renders R1 / R2 1.05 / 1.04, beside the solids without translucency
-  (Calib-MetalRefr-Solid 1.05 / 1.03): the split holds (#134). Where the material stays one node (Base Mixing 1,
-  PBRSkin, inside another Mix) a refraction below 0.5 leaves Universal's
+  (Calib-MetalRefr-Solid 1.05 / 1.03): the split holds (#134). Base
+  Mixing 1 builds the same `metallic_layered_base` (only the gloss inputs
+  differ: Glossy Specular as F0, 1 − Glossiness; Calib-Mi-RefrBack's Q3 /
+  Q4 / Q7 show DAZ handing Iray the same `refraction_weight` and
+  translucency as in mode 0). Why (#165): Calib-RefrTL-BM1 (thin-walled,
+  red base, white refraction, translucency 0.5; enhanced-final, denoised,
+  linear mean within 0.6 R, R G B) as one node T1 (refraction 0.3) 0.50
+  0.17 0.10 × Iray, T2 (0.7) 0.86 1.01 1.19, T3 (0.106) 0.80 0.47 0.25,
+  T4 (0.45) 0.27 0.06 0.03, T8 (Morgan's w 0.059, r 0.106) 1.04 0.28 0.47;
+  as the Mix 1.11 1.06 1.04 / 1.09 1.12 1.23 / 1.11 1.15 1.17 / 1.16 1.16
+  1.23 / 1.20 1.08 1.28, beside the one-node controls T5 (translucency
+  alone) 1.10 1.25 1.18, T6 / T7 (refraction 0.3 / 0.7 alone) 1.09 1.14
+  1.17 / 1.11 1.25 1.30. Closed (-Solid) alike: T1 – T4 1.14 1.10 1.08 /
+  1.08 1.04 1.04 / 1.13 1.18 1.15 / 1.14 1.08 1.07 against one node's
+  0.51 0.16 0.08 – 0.28 0.05 0.02. Where the material stays one node
+  (Weighted, PBRSkin, inside another Mix) a refraction below 0.5 leaves Universal's
   transmission to the translucency (the refraction's own goes; its IOR
   and gloss stay). Morgan Hair (Base Mixing 1, w 0.059, effect 2,
-  refraction 0.106): transmission 0 → 0.30 × Tc. The Genesis EyeSocket's
+  refraction 0.106) is the Mix since #165: its strands gain the
+  refraction's 0.106 transmission beside the translucency's. The Genesis EyeSocket's
   caruncle rendered 4.6 × Iray, now 1.00 (Calib-Eye, #20; the Mix leaves
   its export unchanged). Found by
   switching the EyeSocket's other channels off one at a time in Iray on the
@@ -1994,8 +2009,8 @@ leaves out, #15):
   Universal's `transmission` belongs to its dielectric, which the
   metallic blend scales away: as one node the metal swallowed the
   refraction. A translucent non-metal under a partial refraction takes
-  the same Mix (the layer is the same; one node kept only one of the two
-  transmissions, #135: see translucency).
+  the same Mix, in Base Mixing 0 and 1 (the layer is the same; one node
+  kept only one of the two transmissions, #135, #165: see translucency).
 
   Why (#129): Calib-MetalRefr (enhanced-final, Y over each sphere's disc,
   red metal base, white refraction): metal 0.75 / 0.3 at refraction 0.3
@@ -2340,7 +2355,9 @@ leaves out, #15):
   thin wall keeps its Fresnel reflection, kept as the more plausible
   (Enhanced; Faithful writes IOR 1, `thin_glass_ior_one`). The IOR 1 takes
   the refraction's reflection only: under a partial refraction (< 0.5) in
-  Base Mixing 1 the IOR is the glossy layer's F0 and stays. Why: Morgan
+  Base Mixing 1 the IOR is the glossy layer's F0 and stays (over a
+  translucency that is the Mix's base part since #165; its refraction
+  part takes the Refraction Index as a whole refraction does). Why: Morgan
   Hair's strands (thin-walled, refraction 0.106) lost their whole gloss in
   Faithful - Calib-Strand-T2-Dome's C5 / D5 0.36 / 0.44 x Iray, with the
   gloss 0.62 / 0.56 as Enhanced (#79). Nor where Iray's refraction
