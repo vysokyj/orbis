@@ -146,6 +146,14 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   fitted hue, dark gain, (1 - w)^1.3 and 0.55 share each hid a missing
   component (the volume's albedo, a bounce limit, the diffuse layer, an
   unmapped gloss lobe).
+- **Contested choices are commented in the code** (the user's rule,
+  2026-11-16): a judgment call - a Look split, a default, a look-not-match
+  constant (#47's s, #179) - gets a comment at the value saying what it
+  trades and which issue holds the decision, not only a spec line. Judge such
+  tuning on real scenes (Calib-Skin fronts, Demo-*), not only on spheres; any
+  decision may be revisited. A question the user answers "both, by
+  parameter" becomes a `Tuning` field split by Look (Enhanced = Octane's more
+  plausible take, Faithful = Iray's), not a new switch.
 - **Language**: the user writes Czech (informal); everything in the repo is
   English.
 
