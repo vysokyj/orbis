@@ -166,7 +166,8 @@ where a script maps that folder as an MDL directory (`daz-export-mi.dsa`,
    Settings > Advanced > Bridge — server, username, password from the
    session, Secure off, Connect, Rendering Enabled — then Render > ORBIS
    Iray Queue (`scripts/dev/daz-render-queue.dsa`; it replaces the open
-   scene). The menu item is added once by `daz-add-queue-menu.dsa` (run
+   scene). `scripts/dev/iray-queue-start.sh` does all of it through System
+   Events (and `--quit` stops the queue and quits DAZ, #194). The menu item is added once by `daz-add-queue-menu.dsa` (run
    in the user's DAZ Studio, not through `daz-script.sh`: its header has
    the command). `daz-script.sh` puts `customactions.dsx`, shared by every
    instance, back after each run (#181).
