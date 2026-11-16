@@ -1,7 +1,7 @@
 #!/bin/sh
 # Render scenes through the render queue of DAZ Studio (daz-render-queue.dsa,
 # there connected to an Iray Server), capped by samples:
-#   scripts/dev/iray-queue.sh [-n] [-s samples] [-o out dir] <scene.duf>...
+#   scripts/dev/iray-queue.sh [-n] [--held] [-s samples] [-o out dir] <scene.duf>...
 #   scripts/dev/iray-queue.sh --collect
 #   scripts/dev/iray-queue.sh --stop
 # Each scene goes into ~/Library/Caches/orbis/calib/queue as a copy with Max
@@ -11,7 +11,10 @@
 # Queue a batch BEFORE the user starts the queue script; without DAZ or a
 # started queue the scenes wait; -n returns at once, --collect moves finished
 # renders. A running queue picks a new scene up within a second.
-case ${1:-} in -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
+# --held: a held-back scene (#94, needs a fresh queue-side DAZ session):
+# refused while that DAZ runs. Any batch is refused while a running queue's
+# DAZ has lost its Iray Server connection (#183: it would render on the CPU).
+case ${1:-} in -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 set -eu
 queue="$HOME/Library/Caches/orbis/calib/queue"
 out="$HOME/Library/Caches/orbis/calib/iray"
@@ -45,9 +48,11 @@ if [ "${1:-}" = --collect ]; then
     exit 0
 fi
 wait=1
+held=0
 while [ $# -gt 0 ]; do
     case $1 in
         -n) wait=0; shift ;;
+        --held) held=1; shift ;;
         -s) samples=$2; shift 2 ;;
         -o) out=$2; shift 2 ;;
         *) break ;;
@@ -71,8 +76,32 @@ fi
 # running DAZ or queue is fine here - the scenes wait for the queue script's
 # start. The "idle queue" freeze (#170) was a second click on the menu item
 # while the script ran: DAZ deadlocks re-running a running custom action.
-# The headless helper instance (orbis-render) is not the connected DAZ.
-if pgrep -fl "DAZStudio" | grep -qv "instanceName orbis-render"; then
+# The headless helper instance (orbis-render) is not the connected DAZ; by
+# process name, not path (its QtWebEngine helpers live in DAZStudio.app too).
+queue_daz=
+for pid in $(pgrep -x DAZStudio); do
+    ps -o args= -p "$pid" | grep -q "instanceName orbis-render" || queue_daz="$queue_daz $pid"
+done
+# Held-back scenes (#94: an NVIDIA preset / MDL module the running queue DAZ
+# already imported) must wait for a fresh DAZ session; a running queue grabs
+# a new scene within a second, in the old one. So --held queues only while
+# the queue-side DAZ is down (the user said they restart it), else nothing.
+if [ "$held" = 1 ] && [ -n "$queue_daz" ]; then
+    echo "refused (--held): the queue-side DAZ Studio runs (pid$queue_daz); a held-back scene would render in its old session (#94). Queue it once the user has quit DAZ, before they start it again" >&2
+    exit 1
+fi
+# A queue script that runs in a DAZ that lost its Iray Server connection
+# renders the next scene on this Mac's CPU (#183: 2026-11-16, the server
+# stopped, DAZ still open, a held-back scene went in). The queue script now
+# checks that itself, but one started before that fix doesn't: refuse while
+# its log says it runs and DAZ's log says the connection is gone.
+if [ -n "$queue_daz" ] && [ "$(grep -E 'started, watching|  stopped' "$queue/queue.log" 2>/dev/null | tail -1 | grep -c 'started, watching')" = 1 ]; then
+    if ! bridge=$(python3 "$(dirname "$0")/daz_log.py" --bridge); then
+        echo "refused: the queue-side DAZ Studio runs its queue but lost its Iray Server connection (DAZ log: $(printf '%s' "$bridge" | cut -f2 | cut -c1-24)...); a scene queued now would render on this Mac's CPU. The user quits DAZ (or stops the queue: iray-queue.sh --stop), then queue" >&2
+        exit 1
+    fi
+fi
+if [ -n "$queue_daz" ]; then
     busy=$(ls "$queue"/*.duf "$queue"/active/*.duf 2>/dev/null | head -1)
     if [ -z "$busy" ] && grep -q started "$queue/queue.log" 2>/dev/null; then
         echo "note: DAZ runs and its queue may be idle; it should pick the scenes up within a second. If nothing starts, the user must NOT click ORBIS Iray Queue again while it runs (DAZ deadlocks, #170): check queue.log, restart DAZ if needed" >&2

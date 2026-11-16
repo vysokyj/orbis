@@ -2,7 +2,9 @@
 // #160) inside DAZ Studio, without a server: evaluates the queue script's
 // "server verdict" block and runs it on synthetic log excerpts - a rejected
 // session, a 13 s render that succeeded, a log that says neither - read
-// from an offset as the queue reads DAZ's log. Headless:
+// from an offset as the queue reads DAZ's log; and the lost-connection
+// check (#183: a cluster manager error, a local CPU render) and the
+// "server reach" block (address, nc through DzProcess). Headless:
 //   DONE_FILE=<out>/done scripts/dev/daz-script.sh $PWD/scripts/dev/daz-queue-selftest.dsa <out> --
 // Results in <out>/selftest.txt ("PASS"/"FAIL" lines, last line the total).
 // ECMAScript 3, ASCII only.
@@ -78,6 +80,56 @@
         check("DAZ log size known", nDaz > 0, true);
         var sTail = readFrom(sDaz, nDaz - 4096);
         check("DAZ log tail read", sTail !== null && sTail.length > 0 && sTail.length <= 4096, true);
+        // A lost Iray Server connection (#183), in the lines DAZ wrote on
+        // 2026-11-15/16 (host and paths shortened).
+        var sCluster = "2026-11-16 13:12:56.899 [WARNING] :: /src/pluginsource/DzIrayRender/dzneuraymgr.cpp(418): Iray [ERROR] - API:MISC ::   1.1   API    misc error: Received error from server on cluster manager connection: Command not supported\n";
+        var sPassword = "2026-11-15 18:37:59.450 [WARNING] :: /src/pluginsource/DzIrayRender/dzneuraymgr.cpp(418): Iray [ERROR] - API:MISC ::   1.1   API    misc error: Received error from server on cluster manager connection: The username or password is incorrect\n";
+        var sLocal = "2026-11-16 13:14:36.268 [INFO] :: Rendering image...\n" +
+            "2026-11-16 13:14:36.436 Iray [INFO] - IRAY:RENDER ::   1.0   IRAY   rend info : Initializing local rendering.\n" +
+            "2026-11-16 13:14:36.438 Iray [INFO] - IRAY:RENDER ::   1.0   IRAY   rend info : Creating new CPU device controller (10 cores).\n";
+        var sStarted = "2026-11-16 14:20:51.022 [INFO] :: DAZ Studio started\n";
+        var sStopped = "2026-11-16 15:00:00.000 [DEBUG] :: ORBIS queue: stopped: DAZ lost its Iray Server connection\n";
+        check("verdict local render", serverVerdict(sLocal), "local");
+        check("verdict local after a rejected session", serverVerdict(sRejected + sLocal), "local");
+        check("bridge: good session", bridgeState(sOld + sFast), "ok");
+        check("bridge: cluster error after a good session", bridgeState(sOld + sCluster), sCluster.replace(/\n$/, ""));
+        check("bridge: good session after a cluster error", bridgeState(sCluster + sFast), "ok");
+        check("bridge: a failed Connect (password) is not lost", bridgeState(sPassword), "");
+        check("bridge: local render", bridgeState(sOld + sLocal) != "ok" && bridgeState(sOld + sLocal) != "", true);
+        check("bridge: nothing said", bridgeState(sSilent), "");
+        check("bridge: unreadable", bridgeState(null), "");
+        check("session: since DAZ started", bridgeState(thisSession(sCluster + sStarted + sSilent)), "");
+        check("session: error after the start", bridgeState(thisSession(sStarted + sFast + sCluster)) != "", true);
+        check("session: since the queue stopped", bridgeState(thisSession(sStarted + sCluster + sStopped)), "");
+        check("session: no start line, whole log", bridgeState(thisSession(sCluster)) != "", true);
+        // The real DAZ log as the queue reads it at its start (not a check:
+        // it says how the user's DAZ stands right now).
+        var sNow = bridgeState(thisSession(readFrom(sDaz, 0)));
+        put("INFO user's DAZ session now: " + (sNow == "ok" ? "bridge session, no loss since" : sNow ? "LOST: " + sNow.substring(0, 140) : "no bridge event"));
+        // The reach check: the address as DAZ keeps it, nc through DzProcess.
+        var k0 = sSrc.indexOf("// --- server reach");
+        var k1 = sSrc.indexOf("// --- end server reach ---");
+        check("reach block found", k0 >= 0 && k1 > k0, true);
+        eval(sSrc.substring(k0, k1));
+        var oA = splitAddress("abc-1.example.cloud:9090", 9090);
+        check("address host:port", oA && oA.host + "|" + oA.port, "abc-1.example.cloud|9090");
+        oA = splitAddress("ws://abc-1.example.cloud:9094/bridge", "");
+        check("address ws url", oA && oA.host + "|" + oA.port, "abc-1.example.cloud|9094");
+        oA = splitAddress("abc-1.example.cloud", 9090);
+        check("address without port", oA && oA.host + "|" + oA.port, "abc-1.example.cloud|9090");
+        check("address empty", splitAddress("", 9090), null);
+        var oDaz = serverAddress();
+        put("INFO DAZ's server address: " + (oDaz ? "set (port " + oDaz.port + ")" : "none"));
+        // Nothing listens on port 1: false proves nc ran (true = couldn't).
+        check("reach: closed port", reachable({ host: "127.0.0.1", port: "1" }), false);
+        var oListen = new DzProcess(["/usr/bin/nc", "-l", "127.0.0.1", "47183"]);
+        if (oListen.start()) {
+            sleep(500);
+            check("reach: listening port", reachable({ host: "127.0.0.1", port: "47183" }), true);
+            try { oListen.kill(); } catch (e) {}
+        } else {
+            put("INFO nc -l would not start: listening-port check skipped");
+        }
         // The menu guard (#170) is a no-op headless; the GUI side is
         // daz-queue-menutest.dsa.
         var j0 = sSrc.indexOf("// --- menu guard");

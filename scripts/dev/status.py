@@ -101,6 +101,13 @@ else:
             print("!! DAZ log: 'session handler rejected the session' = the Iray Server reset its password. Tell the user; they fix it and restart the queue script (retries every 30 s).")
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     import daz_log
+    queue_daz = [l for l in run("pgrep", "-lx", "DAZStudio").splitlines() if l and "instanceName orbis-render" not in run("ps", "-o", "args=", "-p", l.split()[0])]
+    if queue_daz:
+        state, line = daz_log.bridge_state()
+        if state == "lost":
+            print(f"!! queue-side DAZ lost its Iray Server connection ({line[:23]}): a scene it renders now runs on this Mac's CPU (#183). Queue nothing until the user restarts DAZ / reconnects; the queue script ends itself on this (if it runs the #183 version).")
+        else:
+            print(f"queue-side DAZ: {'bridge session, no loss since' if state == 'ok' else 'no bridge session yet this DAZ session'}")
     recent = [f for f in daz_log.failed_loads([DAZ_LOG]) if f[0] and time.time() - f[0].timestamp() < 3 * 86400]
     for when, _, scene, mods in recent:
         print(f"!! {when} {scene}: MDL import failed ({', '.join(mods)}) - a module already imported in that DAZ session; its material renders as a fallback, no reference (#94). Restart the queue-side DAZ before re-rendering it.")

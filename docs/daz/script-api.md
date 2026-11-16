@@ -87,13 +87,31 @@ nodes without geometry).
 - `DzFileInfo(path)`: `path()` (directory), `exists()`.
 - `DzProcess(args)`: `communication = DzProcess.Stdout | DzProcess.Stderr`,
   `start()`, `running` (property; older builds `isRunning()`), `canReadLineStdout()` /
-  `readLineStdout()`, `readStderr()`, `normalExit`, `exitStatus`;
-  `writeToStdin(str)` / `closeStdin()` (#2).
+  `readLineStdout()`, `readStderr()`, `normalExit`, `exitCode`;
+  `writeToStdin(str)` / `closeStdin()` (#2). In DAZ Studio 6 `exitStatus`
+  is Qt's normal/crash flag (0 for every normal exit, `/usr/bin/false`
+  included) and `exitCode` the program's code (probed 2026-11-16, #183).
 - DzProcess reads the child's output in the local 8-bit codec: UTF-8 past
   ASCII arrives as "?" (unrecoverable), so `orbis --progress` writes it as
   `\uXXXX` and the script decodes. `readLineStdout()` keeps the newline.
   Drain `readStderr()` while the process runs too — a full pipe stalls the
   child. `DzFile.write` writes in the same 8-bit codec.
+
+## Renderer
+
+- `App.getRenderMgr().getActiveRenderer()` → `DzIrayRenderer` (the only
+  one in DS6). Nothing a script sees tells whether the Iray Server
+  connection is up (probed 2026-11-16, #183): no getter for Connect or
+  Rendering Enabled, `getPropertyHolder()` holds only the render
+  settings, `getRendererMode()` the mode's features;
+  `getAllowCPUFallback()` is about GPUs failing, not the bridge. DAZ's
+  log tells it: "Successfully opened a session to Bridge Server" per
+  server render, "Received error from server on cluster manager
+  connection" when the server goes away (DAZ then renders locally,
+  "Initializing local rendering"), nothing on a successful Connect.
+- The server's address: `new DzAppSettings("NVIDIA Iray/Cloud")`,
+  `getStringValue("server_address")` (`host:port`, the port Connect
+  uses; the renders go to `ws://host:<other port>/bridge`).
 
 ## Dialogs and settings
 

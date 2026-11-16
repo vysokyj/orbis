@@ -190,6 +190,15 @@ where a script maps that folder as an MDL directory (`daz-export-mi.dsa`,
    started, not by the time (a small scene at 400 samples takes 13 s, #160),
    and retries the rejected ones every 30 s. `daz-queue-selftest.dsa`
    checks that rule in a headless DAZ, no server needed.
+   It never renders on this Mac's CPU (#183): a server that stops while
+   DAZ stays open makes DAZ log "error from server on cluster manager
+   connection" and drop the connection silently, and the next render ran
+   "Initializing local rendering". Before each scene the queue reads DAZ's
+   log for that and then ends (scenes stay queued; reconnect, start it
+   again), waits while the server doesn't answer, and discards a render
+   that ran locally anyway. `iray-queue.sh` refuses a batch while a running
+   queue's DAZ has lost the connection, and `--held` (held-back scenes,
+   #94) refuses while the queue-side DAZ runs at all.
    Worth it for small scenes; a figure's textures take long to upload.
 3. **Dump and export** — `scripts/dev/daz-dump.sh <out dir> <scene.duf>…`
    writes the scene dump (the posed geometry) and the `.orbx`.

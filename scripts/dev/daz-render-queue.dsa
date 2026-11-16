@@ -13,7 +13,11 @@
 //   DAZ Studio that made it: connect there (Render Settings > Advanced >
 //   Bridge: Secure off, Connect, Rendering Enabled), then run this script
 //   without arguments (Render > ORBIS Iray Queue). Queue scenes with
-//   scripts/dev/iray-queue.sh.
+//   scripts/dev/iray-queue.sh. It never renders on this Mac's CPU (#183):
+//   before each scene it checks DAZ's log for a lost server connection
+//   (then it ends, the scenes stay queued) and that the server answers
+//   (else it waits); a render that ran locally anyway is discarded, its
+//   scene requeued, and the queue ends. queue.log's "stopped: ..." says why.
 (function () {
     var aArgs = App.scriptArgs;
     var bLocal = aArgs.length > 0;
@@ -62,13 +66,54 @@
             return s === undefined || s === null ? null : String(s);
         } catch (e) { return null; }
     }
-    // "rejected" (the server refused or dropped the session: retry), "ok"
-    // (a session opened and no error followed), "" (the log said neither).
+    // "local" (Iray rendered on this Mac's CPU: DAZ had no Iray Server
+    // connection, #183), "rejected" (the server refused or dropped the
+    // session: retry), "ok" (a session opened and no error followed), ""
+    // (the log said neither). "local" first: a dropped bridge session can
+    // fall back to the CPU within the same render.
     function serverVerdict(sLog) {
         if (sLog === null) return "";
+        if (/Initializing local rendering/.test(sLog)) return "local";
         if (/session handler rejected the session|Failed to open session to Bridge Server|Unknown render error/.test(sLog)) return "rejected";
         if (/Successfully opened a session to Bridge Server/.test(sLog)) return "ok";
         return "";
+    }
+    // Whether DAZ has lost its Iray Server connection, judged by its log
+    // since a point where it was fine (this DAZ session's start, or the
+    // start of the last render that went through the server). No script
+    // API tells the connection (DzIrayRenderer has no getter for Connect or
+    // Rendering Enabled; probed 2026-11-16, #183), but the log does: when
+    // the server stops, DAZ logs "Received error from server on cluster
+    // manager connection" (2026-11-15 18:32, 2026-11-16 13:12 and 14:55),
+    // drops the connection without a word, and the next render ran
+    // "Initializing local rendering" - the whole CPU (18:33, 13:14). A
+    // successful Connect logs nothing, so only a later bridge session
+    // clears it. "username or password is incorrect" is a failed Connect
+    // the user retries (2026-11-15 18:37, then rendered through the
+    // server), not a lost connection. The last such event decides: "ok"
+    // (a bridge session), the offending line (lost), "" (none in sLog).
+    function bridgeState(sLog) {
+        if (sLog === null) return "";
+        var aLines = sLog.split("\n");
+        for (var i = aLines.length - 1; i >= 0; i--) {
+            var s = aLines[i];
+            if (/Successfully opened a session to Bridge Server/.test(s)) return "ok";
+            if (/Initializing local rendering/.test(s)) return s;
+            if (/on cluster manager connection/.test(s) && !/username or password/.test(s)) return s;
+        }
+        return "";
+    }
+    // The part of a whole DAZ log that tells the connection at the queue's
+    // start: since this DAZ session started (the last "DAZ Studio started"
+    // line; all of it when that rotated out), or since the queue last
+    // stopped in it - a queue that ended over a lost connection told the
+    // user to reconnect, and starting it again says they did (a Connect
+    // leaves no line to go by). If they didn't, the first render's verdict
+    // ("local") ends it again.
+    function thisSession(sLog) {
+        if (sLog === null) return null;
+        var i = Math.max(sLog.lastIndexOf("DAZ Studio started"), sLog.lastIndexOf("ORBIS queue: stopped"));
+        return i < 0 ? sLog : sLog.substring(i);
     }
     // --- end server verdict ---
     // --- menu guard (daz-queue-selftest.dsa, daz-queue-menutest.dsa eval this block) ---
@@ -105,6 +150,47 @@
         return n;
     }
     // --- end menu guard ---
+    // --- server reach (daz-queue-selftest.dsa evals this block) ---
+    // The Iray Server's address as DAZ keeps it (Render Settings > Advanced
+    // > Bridge; "host:port" of the server's cluster manager, which Connect
+    // talks to - the renders go to its bridge, another port on that host).
+    // null when it can't be told.
+    function splitAddress(sAddr, sPort) {
+        sAddr = String(sAddr).replace(/^[a-z]+:\/\//, "").replace(/\/.*$/, "");
+        if (!sAddr) return null;
+        var m = /^(.*):(\d+)$/.exec(sAddr);
+        if (m) return { host: m[1], port: m[2] };
+        return /^\d+$/.test(String(sPort)) ? { host: sAddr, port: String(sPort) } : null;
+    }
+    function serverAddress() {
+        try {
+            var o = new DzAppSettings("NVIDIA Iray/Cloud");
+            return splitAddress(o.getStringValue("server_address", ""), o.getStringValue("server_port", ""));
+        } catch (e) { return null; }
+    }
+    // A TCP connect to it within 5 s (/usr/bin/nc). A stopped Boost server
+    // doesn't answer (checked 2026-11-16 after the 14:55 stop: both ports
+    // time out). true when nc can't run - this check then can't tell, the
+    // log check (bridgeState) still holds.
+    function reachable(oAddr) {
+        var p = new DzProcess(["/usr/bin/nc", "-z", "-G", "5", oAddr.host, oAddr.port]);
+        if (!p.start()) return true;
+        var isRunning = function () { return typeof p.isRunning == "function" ? p.isRunning() : p.running; };
+        var t0 = new Date().getTime();
+        while (isRunning()) {
+            if (new Date().getTime() - t0 > 20000) {
+                try { p.kill(); } catch (e) {}
+                return false;
+            }
+            processEvents();
+            sleep(100);
+        }
+        // DS6: exitCode is the code, exitStatus Qt's normal/crash flag (0
+        // for any normal exit; probed 2026-11-16). Older builds: exitStatus.
+        var nCode = p.exitCode !== undefined ? p.exitCode : p.exitStatus;
+        return p.normalExit && nCode == 0;
+    }
+    // --- end server reach ---
     var sDazLog = sHome + "/Library/Application Support/DAZ 3D/Studio6/log.txt";
     // Before anything pumps events: a second click may already be queued.
     var nGuarded = guardMenu(true);
@@ -133,6 +219,18 @@
     }
     log("started, watching " + sQueue + (nGuarded ? " (menu item disabled while it runs)" : ""));
     append(sQueue + "/ready", "started");
+    // Iray Server mode: never render on this Mac's CPU (#183). Before each
+    // scene the queue checks that DAZ still holds its server connection
+    // (bridgeState over DAZ's log since a known-good point: sBridge is this
+    // DAZ session's state at the start, nWatch the log offset after which
+    // newer lines decide) and that the server answers.
+    var sBridge = bLocal ? "ok" : bridgeState(thisSession(readFrom(sDazLog, 0)));
+    var nWatch = bLocal ? -1 : fileSize(sDazLog);
+    var oAddr = bLocal ? null : serverAddress();
+    if (!bLocal) log("Iray Server " + (oAddr ? oAddr.host + ":" + oAddr.port : "address unknown (no reach check)") + "; connection at start: " + (sBridge == "ok" ? "a bridge session this DAZ session" : sBridge ? "LOST" : "no bridge session yet this DAZ session"));
+    // Why the queue ended on its own; "" = asked to stop.
+    var sHalt = "";
+    var bUnreachable = false;
     try {
         while (!exists(sQueue + "/stop")) {
             guardMenu(true);
@@ -141,6 +239,40 @@
                 processEvents();
                 sleep(1000);
                 continue;
+            }
+            if (!bLocal) {
+                var oRenderer = oMgr.getActiveRenderer();
+                if (!oRenderer || oRenderer.className() != "DzIrayRenderer") {
+                    sHalt = "the active renderer is " + (oRenderer ? oRenderer.className() : "none") + ", not NVIDIA Iray (Render Settings > Engine)";
+                    break;
+                }
+                var sState = bridgeState(nWatch < 0 ? null : readFrom(sDazLog, nWatch));
+                if (sState == "") sState = sBridge;
+                // Lost: end instead of waiting (the contested choice, #183).
+                // Nothing a script sees tells when the user has reconnected
+                // (Connect logs nothing), so a waiting queue could only
+                // guess when to go on - and a wrong guess renders on the
+                // CPU. Ending leaves the scenes queued and the menu item
+                // enabled: reconnecting and starting Render > ORBIS Iray
+                // Queue again is the "go on".
+                if (sState != "ok" && sState != "") {
+                    sHalt = "DAZ lost its Iray Server connection (DAZ log: " + sState.substring(0, 160) + "); a render now would run on this Mac's CPU. Reconnect (Render Settings > Advanced > Bridge: Connect, Rendering Enabled), then start Render > ORBIS Iray Queue again";
+                    break;
+                }
+                // Unreachable: wait, nothing renders (DAZ may not have
+                // noticed yet; it logs the lost connection when it does,
+                // and the check above then ends the queue).
+                if (oAddr && !reachable(oAddr)) {
+                    if (!bUnreachable) log("Iray Server " + oAddr.host + ":" + oAddr.port + " does not answer: waiting, nothing renders (rechecked every 30 s)");
+                    bUnreachable = true;
+                    for (var iIdle = 0; iIdle < 30 && !exists(sQueue + "/stop"); iIdle++) {
+                        processEvents();
+                        sleep(1000);
+                    }
+                    continue;
+                }
+                if (bUnreachable) log("Iray Server answers again");
+                bUnreachable = false;
             }
             // Rendering in active/, then done/: DAZ goes by the .duf extension.
             var sName = aJobs[0];
@@ -162,7 +294,7 @@
             // fails within seconds and leaves a black image. Wait and retry.
             // DAZ's log since the render started tells (serverVerdict); only
             // when it can't be read, the old guess: under 15 s = rejected.
-            var t, secs, bOk, nLog, sVerdict;
+            var t, secs, bOk, nLog, sVerdict = "";
             for (var iTry = 0; iTry < 10; iTry++) {
                 nLog = bLocal ? -1 : fileSize(sDazLog);
                 t = new Date().getTime();
@@ -175,7 +307,15 @@
                 } else {
                     processEvents();
                     sVerdict = nLog < 0 ? "" : serverVerdict(readFrom(sDazLog, nLog));
-                    if (sVerdict == "ok") break;
+                    if (sVerdict == "ok") {
+                        // A good point: newer log lines decide from here.
+                        nWatch = nLog;
+                        sBridge = "ok";
+                        break;
+                    }
+                    // On the CPU after all (no connection the checks saw):
+                    // no retry, no image; the scene goes back, the queue ends.
+                    if (sVerdict == "local") break;
                     if (sVerdict == "") {
                         log("DAZ log unreadable for " + sName + ", judging by time");
                         if (secs >= 15) break;
@@ -188,6 +328,20 @@
                     processEvents();
                     sleep(1000);
                 }
+                // The connection may have gone meanwhile: no retry then.
+                var sLostNow = bLocal || nLog < 0 ? "" : bridgeState(readFrom(sDazLog, nLog));
+                if (sLostNow != "ok" && sLostNow != "") {
+                    sVerdict = "lost";
+                    break;
+                }
+            }
+            if (sVerdict == "local" || sVerdict == "lost") {
+                new DzFile(sPng).remove();
+                append(sJobLog, sVerdict == "local" ? "rendered on this Mac's CPU in " + secs + " s - discarded, back in the queue" : "connection lost before a retry - back in the queue");
+                // Its time kept by the rename: it is next after a restart.
+                new DzFile(sActive).rename(sQueue + "/" + sName);
+                sHalt = (sVerdict == "local" ? "Iray rendered " + sName + " on this Mac's CPU (" + secs + " s, image discarded, scene back in the queue): DAZ had no Iray Server connection" : "DAZ lost its Iray Server connection while " + sName + " waited for a retry (scene back in the queue)") + ". Connect (Render Settings > Advanced > Bridge: Connect, Rendering Enabled), then start Render > ORBIS Iray Queue again";
+                break;
             }
             log("rendered " + sName + " in " + secs + " s" + (exists(sPng) ? "" : " - NO IMAGE"));
             append(sJobLog, "rendered in " + secs + " s");
@@ -199,6 +353,8 @@
     }
     new DzFile(sQueue + "/stop").remove();
     new DzFile(sQueue + "/ready").remove();
-    log("stopped");
+    // "stopped" starts the line: thisSession() and iray-queue.sh go by it.
+    log("stopped" + (sHalt ? ": " + sHalt : ""));
+    if (sHalt) MessageBox.information("ORBIS Iray Queue stopped: " + sHalt + ".", "ORBIS Iray Queue", "&OK");
     if (bLocal) App.delayedExit();
 })();

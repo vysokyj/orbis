@@ -2,6 +2,7 @@
 """ORBIS: MDL import failures in DAZ Studio's logs, per scene load.
 
   python3 scripts/dev/daz_log.py [<scene name>...]
+  python3 scripts/dev/daz_log.py --bridge   # the queue DAZ's server connection (#183)
 
 DAZ Studio imports an MDL module into Iray's database once per session. A
 later scene that uses the same NVIDIA preset (concrete, porcelain, ...)
@@ -77,10 +78,44 @@ def errors_before(name, when):
     return max(hits, key=lambda l: l[0])[1] if hits else []
 
 
+MAIN_LOG = os.path.expanduser('~/Library/Application Support/DAZ 3D/Studio6/log.txt')
+BRIDGE_OK = 'Successfully opened a session to Bridge Server'
+LOCAL = 'Initializing local rendering'
+CLUSTER = 'on cluster manager connection'
+
+
+def bridge_state(log=MAIN_LOG):
+    """Whether the user's (queue-side) DAZ still holds its Iray Server
+    connection, as daz-render-queue.dsa's bridgeState() reads it (#183):
+    over this DAZ session (since the last "DAZ Studio started" or the
+    queue's last "ORBIS queue: stopped"), the last of a bridge session
+    ('ok'), a cluster manager error other than a mistyped password, or a
+    local render ('lost', with that line). ('', None) when the log says
+    neither or can't be read."""
+    try:
+        lines = open(log, errors='replace').read().splitlines()
+    except OSError:
+        return '', None
+    start = 0
+    for i, l in enumerate(lines):
+        if 'DAZ Studio started' in l or 'ORBIS queue: stopped' in l:
+            start = i
+    for l in reversed(lines[start:]):
+        if BRIDGE_OK in l:
+            return 'ok', l
+        if LOCAL in l or (CLUSTER in l and 'username or password' not in l):
+            return 'lost', l
+    return '', None
+
+
 if __name__ == '__main__':
     if any(a in ('-h', '--help') for a in sys.argv[1:]):
         print(__doc__)
         sys.exit(0)
+    if sys.argv[1:] == ['--bridge']:
+        state, line = bridge_state()
+        print(state or 'unknown', line or '', sep='\t')
+        sys.exit(1 if state == 'lost' else 0)
     want = set(sys.argv[1:])
     for when, log, scene, mods in failed_loads():
         if not want or scene in want:
