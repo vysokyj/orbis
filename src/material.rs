@@ -1981,18 +1981,7 @@ impl Ocs<'_> {
             self.metal_part(j + 2, &format!("{name} metal"), mat, area_m2, skin, 1.0);
             self.pin_close(j + 1);
             self.pin_open(j + 1, "material2");
-            let bid = self.id();
-            let k = j + 2;
-            let _ = writeln!(self.out, "{:k$}<node id='{bid}' type='130' name='{} black'>", "", esc(name));
-            let _ = writeln!(self.out, "{:k$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
-            self.rgb_pin(k + 1, "albedo", [0.0; 3]);
-            self.rgb_pin(k + 1, "specular", [0.0; 3]);
-            self.top_coat(k + 1, mat);
-            let opacity = mat.opacity().clamp(0.0, 1.0);
-            if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
-                self.float_or_map(k + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
-            }
-            let _ = writeln!(self.out, "{:k$}</node>", "");
+            self.black_part(j + 2, &format!("{name} black"), mat);
             self.pin_close(j + 1);
             let _ = writeln!(self.out, "{:j$}</node>", "");
         } else {
@@ -2156,8 +2145,31 @@ impl Ocs<'_> {
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
 
-    /// `universal` at Metallic Weight `w` (`metal_override`).
+    /// A share of a metal Mix that reflects nothing: a black Universal
+    /// (albedo and specular 0) under the material's Top Coat, at its
+    /// opacity - Uber's metal coat over black (`metal_shares`), PBRSkin's
+    /// metal without its dual lobe (`pbr_metal_unlobed`).
+    fn black_part(&mut self, indent: usize, name: &str, mat: &Material) {
+        let bid = self.id();
+        let k = indent;
+        let _ = writeln!(self.out, "{:k$}<node id='{bid}' type='130' name='{}'>", "", esc(name));
+        let _ = writeln!(self.out, "{:k$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
+        self.rgb_pin(k + 1, "albedo", [0.0; 3]);
+        self.rgb_pin(k + 1, "specular", [0.0; 3]);
+        self.top_coat(k + 1, mat);
+        let opacity = mat.opacity().clamp(0.0, 1.0);
+        if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
+            self.float_or_map(k + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
+        }
+        let _ = writeln!(self.out, "{:k$}</node>", "");
+    }
+
+    /// `universal` at Metallic Weight `w` (`metal_override`); a PBRSkin
+    /// metal without its dual lobe (`pbr_metal_unlobed`) at 1 is black.
     fn metal_part(&mut self, indent: usize, name: &str, mat: &Material, area_m2: f64, skin: SkinShader, w: f32) {
+        if w >= 1.0 && pbr_metal_unlobed(mat) {
+            return self.black_part(indent, name, mat);
+        }
         if w >= 1.0 && self.metal_lobe.is_none() {
             if let Some(lobe2) = pbr_metal_lobe2(mat) {
                 return self.pbr_metal_lobes(indent, name, mat, area_m2, skin, lobe2);
@@ -4038,7 +4050,9 @@ impl Ocs<'_> {
                 return self.pbr_metal_lobes(indent, name, mat, area_m2, skin, lobe2);
             }
         }
-        if self.metal_override.is_none() && metal && (translucency > 0.0 || pbr_metal_lobe2(mat).is_some()) && !refractive && !(is_eye(name) && crate::iray::is_pbrskin(mat)) && mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0 {
+        // A PBRSkin metal without its dual lobe reflects nothing at its
+        // share (`pbr_metal_unlobed`, #178): the Mix with a black part.
+        if self.metal_override.is_none() && metal && (translucency > 0.0 || pbr_metal_lobe2(mat).is_some() || pbr_metal_unlobed(mat)) && !refractive && !(is_eye(name) && crate::iray::is_pbrskin(mat)) && mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0 {
             return self.translucent_metal_material(indent, name, mat, area_m2, skin);
         }
         let id = self.id();
@@ -6245,6 +6259,20 @@ fn has_metal(mat: &Material) -> bool {
     metallic(mat) >= NEGLIGIBLE_METALLIC || metallic_map(mat)
 }
 
+/// Whether the material is a PBRSkin metal with Dual Lobe Specular Enable
+/// off. `pbr_skin.mdl`'s metal is `directional_factor` over
+/// `dual_specular_bsdf`, and that is `bsdf()` (black) without the dual
+/// lobe, so the `weighted_layer` at Metallicity leaves (1 - w) of the
+/// diffuse stack and nothing else: the metal's share reflects nothing
+/// (`.mi` Calib-PBRSkin-Metal N7: metallic 0.5, `metallic_enable` at its
+/// default true, `dual_lobe_specular_enable` false). One Universal at
+/// Metallic Weight w held a metal at lobe 1's roughness (#178). Dual Lobe
+/// Specular Weight 0 doesn't do it: the weight is the dielectric curve's
+/// alone, the metal keeps its lobes.
+fn pbr_metal_unlobed(mat: &Material) -> bool {
+    crate::iray::is_pbrskin(mat) && has_metal(mat) && mat.float("Dual Lobe Specular Enable").is_some_and(|v| v <= 0.0)
+}
+
 /// Lobe 2's share of a PBRSkin metal (`pbr_metal_lobes`): Some when the
 /// material is a PBRSkin metal whose dual lobe has a lobe 2 the coating
 /// would hold (no Top Coat, no refraction), its ratio and lobe 1's
@@ -7922,6 +7950,44 @@ mod tests {
         assert!(pbr_metal_lobe2(&skin(0.5, 0.5)).is_none());
         let (x, _) = material_inputs(&[("Skin".into(), skin(0.5, 0.5), 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
         assert!(!x.contains("type='19'"), "{x}");
+    }
+
+    /// PBRSkin's metal without its dual lobe reflects nothing
+    /// (`dual_specular_bsdf` is `bsdf()`): a Mix at Metallicity of a black
+    /// part (under the Top Coat) and the base at metal 0 (#178). Weight 0
+    /// with the lobe enabled keeps the metal's lobes.
+    #[test]
+    fn pbrskin_metal_without_dual_lobe_is_black() {
+        let skin = |enable: bool, weight: f32, metal: f32, top_coat: f32| {
+            mat(json!([
+                {"channel": {"id": "diffuse", "current_value": [0.45, 0.05, 0.04]}},
+                {"channel": {"id": "Dual Lobe Specular Enable", "current_value": enable}},
+                {"channel": {"id": "Dual Lobe Specular Weight", "current_value": weight}},
+                {"channel": {"id": "Specular Lobe 1 Roughness", "current_value": 0.4}},
+                {"channel": {"id": "Specular Lobe 2 Roughness Mult", "current_value": 0.4}},
+                {"channel": {"id": "Metallicity Enable", "current_value": true}},
+                {"channel": {"id": "Metallic Weight", "current_value": metal}},
+                {"channel": {"id": "Top Coat Enable", "current_value": top_coat > 0.0}},
+                {"channel": {"id": "Top Coat Weight", "current_value": top_coat}},
+            ]))
+        };
+        let node = |x: &str, name: &str| {
+            let a = x.find(&format!("name='{name}'")).unwrap_or_else(|| panic!("{name}: {x}"));
+            let rest = &x[a..];
+            rest[..rest[1..].find("name='Skin").map_or(rest.len(), |k| k + 1)].to_string()
+        };
+        let m = skin(false, 1.0, 0.5, 0.0);
+        assert!(pbr_metal_unlobed(&m) && pbr_metal_lobe2(&m).is_none());
+        assert!(!pbr_metal_unlobed(&skin(true, 0.0, 0.5, 0.0)) && !pbr_metal_unlobed(&skin(false, 1.0, 0.0, 0.0)));
+        let (x, _) = material_inputs(&[("Skin".into(), m, 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
+        assert!(x.contains("type='19' name='Skin'") && node(&x, "Skin").contains("type='6'>0.5</attr>"), "Mix by the metal: {x}");
+        let (black, base) = (node(&x, "Skin metal"), node(&x, "Skin base"));
+        assert!(black.contains("<pin name='albedo'>") && !black.contains("<pin name='metallic'>") && !black.contains("<pin name='coating'>"), "{black}");
+        assert!(!base.contains("<pin name='metallic'>"), "{base}");
+        // Under a Top Coat the black part carries it too (the coat lies
+        // over the whole stack, `pbr_add_clearcoat`).
+        let (x, _) = material_inputs(&[("Skin".into(), skin(false, 1.0, 0.5, 0.5), 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
+        assert!(node(&x, "Skin metal").contains("<pin name='coating'>") && node(&x, "Skin base").contains("<pin name='coating'>"), "{x}");
     }
 
     #[test]

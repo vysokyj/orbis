@@ -1295,6 +1295,20 @@ leaves out, #15):
   pin; Universal's GGX (`brdf` 2) brings K1 / K7 / K8 to 1.00 / 1.15 /
   1.16 but Calib-PBRSkin's dual lobes' rim 1.19 -> 1.27 and P6's
   spread 1.08 -> 1.39 - #175's / #162's open choice, not taken here.
+- **PBRSkin metal without its dual lobe is black** (#178, from
+  `pbr_skin.mdl`, no fit): with Dual Lobe Specular Enable off
+  `dual_specular_bsdf` is `bsdf()`, so the metal's `directional_factor`
+  reflects nothing and the `weighted_layer` at Metallicity leaves
+  (1 - w) of the diffuse stack. DAZ hands exactly that (`.mi`
+  Calib-PBRSkin-Metal N7: `metallic` 0.5, `metallic_enable` at its
+  default, `dual_lobe_specular_enable` false). Such a metal
+  (`pbr_metal_unlobed`; eyes aside) goes in as the Mix by the Metallic
+  Weight (`translucent_metal_material`, its map as the amount) of a black
+  part (albedo and specular 0, under the Top Coat and at the opacity,
+  as the coat lies over the whole stack) and the base at metal 0; the
+  makeup's metal side likewise. Dual Lobe Specular Weight 0 with the
+  lobe enabled is not this: the weight is the dielectric curve's alone.
+  One Universal at Metallic Weight w held a metal at lobe 1's roughness.
 - **Glossy layer over a dual lobe** (#106): DAZ's MDL has both in the
   stack at once — the dual lobe over the diffuse (`dl_diffuse_bsdf`), the
   glossy layer's custom curve over that (`metallic_layered_base`), each
