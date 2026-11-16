@@ -6569,6 +6569,11 @@ impl RoughCurve {
 /// white furnace (Calib-Furnace-Metal, F5 – F8, r 0.4 – 1) STD loses less
 /// of Beckmann's excess over Iray's v-cavities: 1.06 / 1.08 / 1.13 / 1.20
 /// against 1.08 / 1.11 / 1.19 / 1.27 (GGX energy preserving 1.11 – 1.88).
+/// Under the HDRI (Calib-Metal-Rough, Iray 2000) STD holds as well, so
+/// no Look split: dark (0.1) / light (0.8) / gold metals at r 0.354 – 1
+/// 1.05 – 1.18 × Iray with flat rings, where Beckmann's dark ones were
+/// 1.28 – 4.89 with a rim 1.7 – 8.8 ×; what STD keeps over Iray is the
+/// furnace excess above (#189).
 /// Sharp metals keep Beckmann (Cast Iron's detail, #92); anisotropic ones
 /// keep their own rule (`aniso_brdf_pin`).
 fn metal_brdf(dielectric: &[f32], metal: f32, rough: RoughLobe) -> &'static str {

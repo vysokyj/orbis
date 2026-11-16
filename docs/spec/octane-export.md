@@ -1540,9 +1540,14 @@ leaves out, #15):
   ± 2 px, profile 0.98 – 1.10 × Iray to sin θ 0.8. Furnace
   (Calib-Furnace-Metal r 0.3 – 1): 1.04 / 1.06 / 1.08 / 1.13 / 1.20, was
   1.05 / 1.08 / 1.11 / 1.19 / 1.27 (the rest is Iray's v-cavities). Under
-  the HDRI (Calib-Metal-Rough, Octane only so far) STD / Beckmann: dark
-  metal core 0.95 – 0.43, rim 0.68 – 0.13 at r 0.354 – 1; light grey and
-  gold 0.93 – 0.96 / 0.86 – 0.95.
+  the HDRI (Calib-Metal-Rough, Iray Server 2000) STD holds too, in both
+  Looks: sphere means 1.05 / 1.08 / 1.13 / 1.17 × Iray for the dark metal
+  (0.1) at r 0.354 / 0.5 / 0.7 / 1, 1.09 / 1.14 / 1.18 for the light grey
+  (0.8) at r 0.5 / 0.7 / 1, gold r 0.7 1.16 (floor 1.04), where Beckmann's
+  dark metals are 1.28 – 4.89 with a rim (0.7 – 0.85 R) 1.7 – 8.8 × Iray.
+  STD's rings are flat to 0.85 R; its core (ρ < 0.5 R) over the floor,
+  1.01 – 1.17 rising with r, is the furnace excess above (#189), and the
+  dark metal's outer rim (0.85 – 0.95 R) is 0.93 – 0.79 × Iray.
 - **Anisotropy** (Glossy Anisotropy + Glossy Anisotropy Rotations on the
   gloss and the metal, Top Coat Anisotropy + Top Coat Rotations on the top
   coat; #23). Iray (`base::anisotropy_conversion`, MDL SDK's `base.mdl`):
