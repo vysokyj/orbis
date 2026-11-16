@@ -3220,15 +3220,29 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   Victoria 0.87, Kayo 0.84, Gabriela 0.91, Nishi 0.91, Twosret 0.81,
   Monique 0.87, Zurie 0.94 (−12 … +30 % with the roughness as is, −15 …
   +9 % at Universal's curve, which looked closer only where bump happened
-  to make up for it). The bump's share is gone since the height maps
+  to make up for it; raw 400-sample renders before #85). The bump's share
+  is gone since the height maps
   bake into normal maps (#85, above): the dual lobe (dlflat − gloss0,
   p99.5 over the face) with bump / without, Octane / Iray, Victoria 0.76 /
   0.83 → 0.83 / 0.83, Gabriela 0.85 / 0.89 → 0.88 / 0.90, Nishi 0.78 /
   0.82 → 0.79 / 0.84, Kayo 0.88 / 0.94 → 0.97 / 0.94 — the bump now
-  narrows it as Iray's does; the rest (0.83 – 0.94 without bump) is the
-  lobe's own. The full faces (p99.5 over the face box): Angel 1.11,
-  Victoria 0.96, Kayo 1.01, Gabriela 1.00, Nishi 0.95, Twosret 0.91,
-  Monique 0.95, Zurie 1.01.
+  narrows it as Iray's does (with ≈ without; those levels were raw
+  400-sample pixels, see below). Rechecked on Octane's denoised pass
+  (#151, `scripts/dev/face-highlight.py`, export of 2026-11-15): a pixel
+  p99.5 over a raw 400-sample face reads the random walk's grain, 3 – 11 %
+  over the denoised pass (2000 samples: 1 – 4 %); the denoised pass at
+  400 samples equals the one at 2000 within 1 %, so it is the number to
+  quote. Iray's 400-sample references hold their p99.5 to 0.1 % between
+  two independent renders (whatever #171 finds about the server's
+  denoiser). The full faces (p99.5 over the face box, denoised): Angel
+  1.02, Victoria 0.88, Kayo 0.92, Gabriela 0.94, Nishi 0.92, Twosret 0.85,
+  Monique 0.83, Zurie 0.94 (raw 400 on 2026-11-09: 1.11, 0.96, 1.01,
+  1.00, 0.95, 0.91, 0.95, 1.01 - grain, plus 0 – 5 % the export moved
+  since). The dual lobe alone (dlflat − gloss0, denoised 2000, p99.5 of
+  the 2-pass binomial-blurred difference, which grain doesn't move):
+  Victoria 0.53, Gabriela 0.79, Nishi 0.71, Kayo 0.52 (2026-11-09's raw
+  export, same measure: 0.75, 0.86, 0.76, 0.83); the gloss0 faces' peak
+  now matches Iray's (1.00 – 1.02, was 1.11 – 1.13). Open in #174.
 - Dark skins show more pore texture than Iray's.
 - Not a cause: Iray doesn't dim the gloss of translucent skin (highlight
   contrast on the dark foreheads is higher in Iray); the gloss alone ~0

@@ -81,7 +81,7 @@ those renders all predate 4efd231, so they read `raw*`:
   Victoria 0.87, Kayo 0.84 ... the full faces 0.91 - 1.11 x Iray), measured
   on raw renders of private G9 figures at 400 samples - a p99.5 over a
   grainy face is the most exposed number in the spec. Under the #57 / #19
-  hold; issue #151 asks for the recheck when #57 resumes.
+  hold; issue #151 asks for the recheck when #57 resumes (done: 2026-11-16 face highlight denoised).
 - Calib-PBRSkin, Calib-SSS, Calib-Skin-* region medians: medians, so
   little exposure; the texture contrast is already recorded on the denoised
   pass (2026-11-12 skin texture contrast).
