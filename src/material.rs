@@ -5017,6 +5017,15 @@ impl DualLobe {
             lobe1: lobe1.clamp(0.0, 1.0),
             lobe2_roughness: r2_squared.clamp(0.0, 1.0),
             weight,
+            // Left as is at Reflectivity 0 (#197, a judgment call): F0 0 is
+            // IOR 1 and no lobe, where Iray's curve keeps W (1 - cos)^5 -
+            // 0.028 x the base over a furnace disc, 0.19 at 0.9 R, nothing
+            // under a light near the view. No IOR draws that shape (1.15
+            // matches the disc but lights the core Iray leaves black, 1.07
+            // gives a third of the disc), and of 233 682 library materials
+            // with dual lobe channels 5 sit at W > 0, R 0 besides the Calib
+            // scenes (one mouth at W 1, four at W 0.016). Same call as Glossy
+            // Reflectivity 0 (#137); revisit if real content needs it.
             f0: crate::iray::REFLECTIVITY_SCALE * r.unwrap_or(0.5),
         })
     }

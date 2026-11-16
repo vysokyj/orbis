@@ -1185,7 +1185,17 @@ leaves out, #15):
   -Occlusion O1 – O5 at GGX are flat at 0.96 – 1.03 × Iray over the
   frame from core to rim, the occlusion's flat and falling curves
   included). Kept; a rim compare of the lobes' distribution divides it
-  out first. Lobe 1 is
+  out first. **Reflectivity 0 draws no lobe** (IOR 1), where Iray's curve
+  keeps W (1 − cos)^5: Calib-Furnace-DualLobeCurve's C4 (W 1) lobe 0.000
+  × the base head-on, 0.039 / 0.096 / 0.192 at 0.8 / 0.85 / 0.9 R, 0.028
+  over the disc; under Calib-Point's light at the camera 0.000. Left, as
+  Glossy Reflectivity 0 (#197, contested): Fresnel at no IOR has that
+  shape (1.15 matches the disc's mean but reflects 0.5 % head-on where
+  Iray has none and 0.045 of the curve's 0.077 at 0.9 – 0.93 R; the Custom
+  Curve coat's 1.07 a third of the disc, a fifth of the rim), and the
+  installed library has 5 of 233 682 dual-lobe materials at W > 0 with
+  Reflectivity 0 besides the Calib scenes — one mouth at W 1, four mouths
+  / teeth at W 0.016. Lobe 1 is
   `specular` at W × its part; lobe 2 the `coating` at the rest, `coatingRoughness` the **Phong pin of r2²** on Uber, √α on PBRSkin (PBRSkin lobes are GGX, below)
   (Uber's lobes are `simple_glossy_bsdf`; 2 · r2² until #95, a fit that made
   up for the GGX curve's sharpness — Calib-DualLobe2's lobe-2-only sphere
