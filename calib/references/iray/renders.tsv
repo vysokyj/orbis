@@ -57,6 +57,7 @@ Calib-Furnace-MdlLegacy	5000	0	Iray Server (Boost for Daz)	2026-11-15 18:04	65	o
 Calib-Furnace-MdlLegacy2	5000	0	Iray Server (Boost for Daz)	2026-11-16 13:07	62	on@8
 Calib-Furnace-MdlLobe	5000	0	Iray Server (Boost for Daz)	2026-11-13 23:50		on@8
 Calib-Furnace-MdlResin	5000	0	Iray Server (Boost for Daz)	2026-11-13 23:54		on@8
+Calib-Furnace-MdlRoughTex	5000	0	Iray Server (Boost for Daz)	2026-11-16 14:39	55	on@8
 Calib-Furnace-MdlTextured	5000	0	Iray Server (Boost for Daz)	2026-11-16 13:06	70	on@8
 Calib-Furnace-MdlTir	5000	0	Iray Server (Boost for Daz)	2026-11-13 23:53		on@8
 Calib-Furnace-MdlTransmit	5000	0	Iray Server (Boost for Daz)	2026-11-13 23:52		on@8
@@ -68,6 +69,7 @@ Calib-Furnace-Resin2	5000	0	Iray Server (Boost for Daz)	2026-11-11 03:28	72	on@8
 Calib-Furnace-Resin3	5000	0	Iray Server (Boost for Daz)	2026-11-11 09:40	58	on@8
 Calib-Furnace-UberGlass	5000	0	Iray Server (Boost for Daz)	2026-11-11 09:37	86	on@8
 Calib-Furnace-UberGlass-PL3	5000	0	Iray Server (Boost for Daz)	2026-11-11 09:38	55	on@8
+Calib-Furnace-UberRoughMap	5000	0	Iray Server (Boost for Daz)	2026-11-16 14:40	54	on@8
 Calib-G9Eye	5000	0	Iray Server (Boost for Daz)	2026-11-11 17:11	663	on@8
 Calib-G9Eye-bare	1000	0	Iray Server (Boost for Daz)	2026-11-11 17:34	115	on@8
 Calib-G9Eye-nogloss	1000	0	Iray Server (Boost for Daz)	2026-11-11 17:36	113	on@8
@@ -218,6 +220,7 @@ Calib-PBRSkin-Detail-NoDN	5000	0	Iray Server (Boost for Daz)	2026-11-15 18:40	10
 Calib-PBRSkin-DetailLayers	5000	0	Iray Server (Boost for Daz)	2026-11-16 13:09	111	on@8
 Calib-PBRSkin-Makeup	5000	0	Iray Server (Boost for Daz)	2026-11-14 00:00		on@8
 Calib-PBRSkin-Makeup-TL	5000	0	Iray Server (Boost for Daz)	2026-11-14 01:01		on@8
+Calib-PBRSkin-Metal	5000	0	Iray Server (Boost for Daz)	2026-11-16 14:38	118	on@8
 Calib-PBRSkin-MetalTL	5000	0	Iray Server (Boost for Daz)	2026-11-01 02:33	129	on@8
 Calib-PBRSkin-Occlusion	5000	0	Iray Server (Boost for Daz)	2026-11-13 23:33		on@8
 Calib-Point-ArchAniso	2000	0	Iray Server (Boost for Daz)	2026-11-14 00:32		on@8
