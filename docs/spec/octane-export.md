@@ -48,7 +48,9 @@ OpenPBR without subsurface, in the colour Iray's skin shows, Octane's daylight m
 sunset colour, dimmed by the sun's air mass as Iray dims it (Variants),
 thin-walled glass at IOR 1 (Iray's showed none of its own reflection),
 rough dielectric gloss on STD (Iray's highlight shape under a small light,
-rough gloss 1.2 – 1.5 × Iray under an HDRI; `rough_lobe`, #162),
+rough gloss 1.2 – 1.5 × Iray under an HDRI; `rough_lobe`, #162), the
+Uber skin's dual lobe on Specular Layers at Iray's Phong shape instead of
+OpenPBR's GGX lobes (Enhanced keeps those; same field, #175),
 NVIDIA's textured metals falling to the rim as Iray's legacy lobe makes
 them (Enhanced keeps them flat; `legacy_metal_rim`, #112).
 **Denoise** (`--no-denoise` off; the dialog's Denoise) is separate: Octane's
@@ -109,7 +111,8 @@ Leaf, Hair; `scripts/dev/calib-variants.sh all`), Octane / Iray:
   highlight (widths ± 1 px, means 1.01 – 1.07; r 1 1.15, lopsided), the
   metals 1.00 – 1.07; Calib-Glossy's rough G7 1.08 → 1.20, Calib-DualLobe2
   1.09 – 1.24, Calib-NVIDIA2 0.94 – 1.09; Calib-Skin-Victoria-front's face
-  unchanged (0.904 → 0.901 × Iray's p99.5: the skin's lobes are #175).
+  unchanged (0.904 → 0.901 × Iray's p99.5: the skin's lobes are #175;
+  on Specular Layers since, its face 0.93, Skin).
   Calib-Point-ArchAniso: isotropic P1 38 × 36 against Iray's 38 × 35, the
   anisotropic P2 / P7 / P8 ~10 % long on both axes at half the peak (45
   × 20 against 40 × 18) — Octane's STD keeps the anisotropy law
@@ -3485,9 +3488,30 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   run core 0.95, shoulders 0.76 - 0.90, skirt above - the curve of GGX
   (OpenPBR's only specular model) against Iray's Phong at the same
   `phong_pin` peak (an analytic model of the exported pins draws it).
-  The faces' p99.5 sits in their glints' shoulder. Kept GGX for now; the
-  alternative (the skin's lobes on Beckmann / STD Specular Layers) is
-  #175's question, tied to #162's.
+  The faces' p99.5 sits in their glints' shoulder. (The scenes' skin
+  sphere is a prop, so Universal at GGX EP; GGX all the same.)
+  **Split by Look** (#175, the user's call 2026-11-16, with #162's
+  `rough_lobe`): Enhanced keeps OpenPBR's GGX dual lobe (Iray's energy, a
+  narrower core: faces ~0.8 × Iray at p99.5); **Faithful puts the Uber
+  skin's dual lobe on Specular Layers** (139) on OpenPBR's `layer` pin
+  (type 33, "Material layer above this base material"; probe 98) and
+  turns OpenPBR's `specular` to 0: lobe 1 and lobe 2 each a layer in a
+  Material Layer Group (144; `Layer 1` is the bottom one, lobe 2 on top
+  as the coating lies over the specular), each with the pins OpenPBR's
+  specular / coating took (W × its share × the weight map, the IOR of F0,
+  `phong_pin`; lobe 1 on the base's normal, lobe 2 smooth) and **`brdf`
+  STD** (7) for both - the sharp ones too: at Beckmann (what
+  `phong_brdf` gives a lobe under α 0.25) Nishi's lobes (α 0.20) kept
+  0.77 × Iray's energy over the face, STD 1.05, GGX 1.03 (#190). With a
+  Top Coat or glossy layer on the coating, one layer at the blended
+  roughness, lying over the coating where Iray has it under. PBRSkin
+  keeps OpenPBR's lobes in both Looks (its MDL lobes are GGX, #186).
+  Faithful's dual lobe (dlflat − gloss0, blurred p99.5, denoised 400),
+  OpenPBR's GGX → Specular Layers at STD, Victoria / Kayo / Gabriela /
+  Nishi: 0.82 / 0.89 / 0.85 / 0.76 → **0.87 / 0.97 / 0.98 / 0.89**;
+  energy over the face box 1.26 / 1.20 / 1.06 / 1.03 → 1.28 / 1.22 /
+  1.07 / 1.05; full faces 0.91 / 0.93 / 0.91 / 0.89 → 0.93 / 0.95 / 0.98
+  / 0.95 (gloss0 faces 0.94 – 0.99, unchanged).
 - Dark skins show more pore texture than Iray's.
 - Not a cause: Iray doesn't dim the gloss of translucent skin (highlight
   contrast on the dark foreheads is higher in Iray); the gloss alone ~0

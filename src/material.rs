@@ -3577,7 +3577,7 @@ impl Ocs<'_> {
     /// on the dark skins; Twosret 1.31 → 1.16 × Iray, Calib-Skin); the Top Coat as
     /// the coating, without OpenPBR's coat darkening (it took the base to
     /// 0.58 – 0.80 of Universal's on Calib-SSS's spheres, off it is 1.00).
-    fn skin_gloss(&mut self, i: usize, mat: &Material, rough_ch: Option<&str>, rough: f32, inverted: bool) {
+    fn skin_gloss(&mut self, i: usize, name: &str, mat: &Material, rough_ch: Option<&str>, rough: f32, inverted: bool) {
         let glossy = gloss_weight(mat);
         // The Top Coat on the coating, unless the Layered material holds it
         // (`layered_top_coat`: over a gloss over a dual lobe, #138).
@@ -3601,9 +3601,17 @@ impl Ocs<'_> {
         if let Some(dl) = dual_lobe.filter(|_| !lobe2_free && rough_ch.and_then(|c| mat.image(c)).is_none()) {
             rough = dl.blended_roughness(rough);
         }
-        // Iray's lobes are Phong (`simple_glossy_bsdf`), OpenPBR's GGX with
-        // α = roughness²: `phong_pin` (lobe 2 and the Top Coat too).
-        self.roughness_pin(i, mat, rough_ch, RoughCurve::Phong.apply(rough.clamp(0.0, 1.0)), RoughCurve::Phong, 1.0);
+        // Faithful: the Uber's dual lobe on Specular Layers, OpenPBR's own
+        // specular off (`RoughLobe::skin_dual_lobe_layers`, #175).
+        if let Some(dl) = dual_lobe.filter(|_| self.rough_lobe.skin_dual_lobe_layers() && !crate::iray::is_pbrskin(mat)) {
+            self.float_pin(i, "specular", 0.0);
+            self.skin_dual_lobe_layers(i, name, mat, dl, (rough_ch, rough), lobe2_free);
+        } else {
+            // Iray's lobes are Phong (`simple_glossy_bsdf`), OpenPBR's GGX
+            // with α = roughness²: `phong_pin` (lobe 2 and the Top Coat
+            // too).
+            self.roughness_pin(i, mat, rough_ch, RoughCurve::Phong.apply(rough.clamp(0.0, 1.0)), RoughCurve::Phong, 1.0);
+        }
         if glossy_coat {
             self.skin_glossy_layer(i, mat, "coating", "coatingIor");
             let (ch, r, _) = glossy_layer_roughness(mat);
@@ -3612,7 +3620,10 @@ impl Ocs<'_> {
             self.base_detail_pins(i, mat, "coatingNormal", "coatingBump");
         }
         let lobe1 = dual_lobe.filter(|_| lobe2_free).map_or(1.0, |dl| dl.lobe1);
+        let layered = dual_lobe.is_some() && self.rough_lobe.skin_dual_lobe_layers() && !crate::iray::is_pbrskin(mat);
         match dual_lobe {
+            // On the `layer` pin (above).
+            Some(_) if layered => {}
             // Iray's dual lobe (`add_dual_lobe_specular`): both white lobes
             // under 1 − a Schlick curve, W · (F0 + (1 − F0)(1 − cos)^5) with
             // F0 = 0.08 × Reflectivity (× its map) — OpenPBR's dielectric
@@ -3644,6 +3655,72 @@ impl Ocs<'_> {
             self.top_coat_curve(i, mat, Some(RoughCurve::Phong));
             self.float_pin(i, "coatingDarkening", 0.0);
         }
+    }
+
+    /// The Uber skin's dual lobe in Faithful (`RoughLobe::skin_dual_lobe_layers`,
+    /// #175): Specular Layers (139) on OpenPBR's `layer` pin, whose `brdf`
+    /// can draw Iray's Phong lobe shape where OpenPBR's specular and coating
+    /// are GGX only (probe 98: no model pin on 505; its `layer` pin, type
+    /// 33, "Material layer above this base material"). Each lobe its own
+    /// layer, the same weight, IOR and pins OpenPBR's specular / coating
+    /// take (`skin_gloss`): `specular` W × its share (× the weight map),
+    /// `ior` from F0, `roughness` `phong_pin` of Iray's, `brdf` the Look's
+    /// model (STD) for both lobes, the sharp ones too: at Beckmann, which
+    /// `phong_brdf` gives a lobe under α 0.25, Calib-Skin-Nishi-front's
+    /// face kept 0.77 × Iray's dual lobe energy (both lobes α 0.20; STD
+    /// 1.05, OpenPBR's GGX 1.03; its p99.5 0.92 at Beckmann, 0.89 at STD),
+    /// and STD on the lobes 2 of Victoria, Kayo and Gabriela (α 0.09 -
+    /// 0.16) moved their p99.5 by about −0.01. Lobe 1 on the base's bump /
+    /// normal, lobe 2 smooth (#174). Two lobes in a Material Layer Group
+    /// (144), lobe 2 the upper layer as OpenPBR's coating lies over its
+    /// specular: the group's `Layer 1` is the bottom one (an order check
+    /// on Calib-Skin-Kayo-front: strong IOR 10 layers, a rough one in
+    /// Layer 2 over a sharp one in Layer 1 lit the face's 90th percentile
+    /// at 0.61, the other way round 0.17). Without a
+    /// spare lobe (`lobe2_free` false: the coating holds the glossy layer or
+    /// Top Coat) one layer at the blended roughness `rough`; it lies over
+    /// the coating there, where Iray has the dual lobe under it.
+    fn skin_dual_lobe_layers(&mut self, i: usize, name: &str, mat: &Material, dl: DualLobe, (rough_ch, rough): (Option<&str>, f32), lobe2_free: bool) {
+        let two = lobe2_free && dl.lobe1 < 1.0;
+        let lobe1 = if two { dl.lobe1 } else { 1.0 };
+        let name = esc(name);
+        self.pin_open(i, "layer");
+        let mut j = i + 1;
+        if two {
+            let gid = self.id();
+            let _ = writeln!(self.out, "{:j$}<node id='{gid}' type='144' name='{name} dual lobe'>", "");
+            let _ = writeln!(self.out, "{:j$} <attr name='pin_count' type='2'>2</attr>", "");
+            let _ = writeln!(self.out, "{:j$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
+        }
+        // Bottom to top: `Layer 1` lobe 1, `Layer 2` lobe 2.
+        for lobe in if two { 1..=2 } else { 1..=1 } {
+            if two {
+                let _ = writeln!(self.out, "{:j$} <pin name='Layer {lobe}' dynamicType='33'>", "");
+                j += 2;
+            }
+            let lid = self.id();
+            let _ = writeln!(self.out, "{:j$}<node id='{lid}' type='139' name='{name} dual lobe {lobe}'>", "");
+            let _ = writeln!(self.out, "{:j$} <attr name='compatibilityVersion' type='2'>{COMPAT}</attr>", "");
+            let (share, r) = if lobe == 1 { (lobe1, rough) } else { (1.0 - dl.lobe1, dl.lobe2_roughness) };
+            self.dual_lobe_weight_pin(j + 1, mat, "specular", dl.weight * share, true);
+            self.dual_lobe_ior_pin(j + 1, "ior", mat, dl.f0);
+            self.value_pin(j + 1, "brdf", 57, 2, self.rough_lobe.brdf());
+            if lobe == 1 {
+                self.roughness_pin(j + 1, mat, rough_ch, RoughCurve::Phong.apply(r.clamp(0.0, 1.0)), RoughCurve::Phong, 1.0);
+                self.base_detail_pins(j + 1, mat, "normal", "bump");
+            } else {
+                self.float_pin(j + 1, "roughness", phong_pin(r));
+            }
+            let _ = writeln!(self.out, "{:j$}</node>", "");
+            if two {
+                j -= 2;
+                let _ = writeln!(self.out, "{:j$} </pin>", "");
+            }
+        }
+        if two {
+            let _ = writeln!(self.out, "{:j$}</node>", "");
+        }
+        self.pin_close(i);
     }
 
     /// A dual lobe's weight on `pin` (`v` its share there) × the Dual Lobe
@@ -3811,7 +3888,7 @@ impl Ocs<'_> {
         };
         colour_pin(self, "baseColor");
         let (rough_ch, rough, inverted) = mat.roughness_source();
-        self.skin_gloss(i, mat, rough_ch, rough, inverted);
+        self.skin_gloss(i, name, mat, rough_ch, rough, inverted);
         match &baked {
             // Faithful: no random walk (see `skin_albedo`).
             _ if iray => self.float_pin(i, "subsurface", 0.0),
@@ -6521,6 +6598,21 @@ impl RoughLobe {
             RoughLobe::Std => BRDF_STD,
         }
     }
+
+    /// Whether an Uber skin's dual lobe leaves OpenPBR's specular / coating
+    /// (GGX, no model pin) for Specular Layers at its model (STD)
+    /// (`Ocs::skin_dual_lobe_layers`, #175, decided 2026-11-16 with #162's
+    /// split). GGX at `phong_pin`'s α has Phong's peak and energy but a
+    /// core that falls twice as fast and longer tails: the Calib-Skin faces'
+    /// dual lobe p99.5 0.74 - 0.84 × Iray, the scenes' skin spheres (Universal
+    /// at GGX EP) shoulders 0.76 - 0.90, energy 1.02 - 1.05, all drawn by a GGX / Phong model of the
+    /// exported pins (docs/notes/2026-11-16-skin-dual-lobe-shape.md).
+    /// Enhanced keeps OpenPBR's GGX (Iray's energy, a narrower core);
+    /// Faithful (STD) takes Iray's shape. PBRSkin stays on OpenPBR in both:
+    /// its MDL lobes are GGX (#186).
+    fn skin_dual_lobe_layers(self) -> bool {
+        self == RoughLobe::Std
+    }
 }
 
 /// How Iray's (MDL, squared) roughness `r` becomes an Octane roughness pin.
@@ -8008,6 +8100,52 @@ mod tests {
             assert_eq!(c.contains("OrbisDetailNormal"), pbr, "{x}");
             assert_eq!(x.matches("OrbisDetailNormal").count(), if pbr { 2 } else { 0 }, "base and lobe 2: {x}");
         }
+    }
+
+    /// Faithful (`RoughLobe::Std`) takes an Uber skin's dual lobe off
+    /// OpenPBR's GGX specular / coating onto Specular Layers at
+    /// `phong_brdf` (#175); Enhanced keeps OpenPBR's, PBRSkin too (#186).
+    #[test]
+    fn faithful_skin_dual_lobe_on_specular_layers() {
+        let dirs: Vec<std::path::PathBuf> = vec![];
+        let skin = |pbr: bool| {
+            let mut ch = vec![
+                json!({"channel": {"id": "Dual Lobe Specular Weight", "current_value": 0.6}}),
+                json!({"channel": {"id": "Dual Lobe Specular Reflectivity", "current_value": 0.5}}),
+                json!({"channel": {"id": "Specular Lobe 1 Roughness", "current_value": 0.6}}),
+                json!({"channel": {"id": "Dual Lobe Specular Ratio", "current_value": 0.85}}),
+                json!({"channel": {"id": "Translucency Weight", "current_value": 0.5}}),
+                json!({"channel": {"id": "diffuse", "current_value": [1, 1, 1], "image_file": "/Runtime/Textures/skin.jpg"}}),
+            ];
+            if pbr {
+                ch.push(json!({"channel": {"id": "Dual Lobe Specular Enable", "current_value": true}}));
+            }
+            ch.push(if pbr { json!({"channel": {"id": "Specular Lobe 2 Roughness Mult", "current_value": 0.4}}) } else { json!({"channel": {"id": "Specular Lobe 2 Roughness", "current_value": 0.3}}) });
+            mat(json!(ch))
+        };
+        let shading = |rough_lobe| Shading { skin: SkinShader::IrayAlbedo, rough_lobe, ..Shading::default() };
+        let pin = |x: &str, p: &str| x[x.find(&format!("<pin name='{p}'>")).unwrap_or_else(|| panic!("{p}: {x}"))..].split("</pin>").next().unwrap().to_string();
+        let (x, _) = material_inputs(&[("Torso".into(), skin(false), 1.0)], &dirs, HashMap::new(), 9000, shading(RoughLobe::Std));
+        assert!(x.contains("type='505' name='Torso'") && x.contains("type='144' name='Torso dual lobe'"), "{x}");
+        let (head, layers) = x.split_at(x.find("<pin name='layer'>").expect(&x));
+        assert!(pin(head, "specular").contains("type='6'>0</attr>") && !head.contains("<pin name='coating'>"), "OpenPBR's own specular off: {head}");
+        let l1 = &layers[layers.find("<pin name='Layer 1'").unwrap()..layers.find("<pin name='Layer 2'").unwrap()];
+        let l2 = &layers[layers.find("<pin name='Layer 2'").unwrap()..];
+        // Lobe 1 at the bottom (W · ratio, r 0.36), lobe 2 over it (W · (1
+        // − ratio), r 0.09), both STD.
+        assert!(l1.contains("dual lobe 1") && pin(l1, "specular").contains(&format!(">{0} {0} {0}<", num(0.6 * 0.85))), "{l1}");
+        assert!(pin(l1, "roughness").contains(&format!(">{}<", num(phong_pin(0.36)))) && pin(l1, "brdf").contains(&format!(">{BRDF_STD}<")), "{l1}");
+        assert!(l2.contains("dual lobe 2") && pin(l2, "specular").contains(&format!(">{0} {0} {0}<", num(0.6 * (1.0 - 0.85)))), "{l2}");
+        assert!(pin(l2, "roughness").contains(&format!(">{}<", num(phong_pin(0.09)))) && pin(l2, "brdf").contains(&format!(">{BRDF_STD}<")), "{l2}");
+        for l in [l1, l2] {
+            assert!(pin(l, "ior").contains(&format!(">{}<", num(ior_from_f0(0.04)))), "{l}");
+        }
+        // Enhanced keeps OpenPBR's GGX lobes; PBRSkin stays there in both.
+        let (x, _) = material_inputs(&[("Torso".into(), skin(false), 1.0)], &dirs, HashMap::new(), 9000, shading(RoughLobe::GgxEnergyPreserving));
+        assert!(!x.contains("<pin name='layer'>") && pin(&x, "coatingRoughness").contains(&format!(">{}<", num(phong_pin(0.09)))), "{x}");
+        assert!(crate::iray::is_pbrskin(&skin(true)));
+        let (x, _) = material_inputs(&[("Torso".into(), skin(true), 1.0)], &dirs, HashMap::new(), 9000, shading(RoughLobe::Std));
+        assert!(x.contains("type='505'") && !x.contains("<pin name='layer'>"), "{x}");
     }
 
     fn mat(chs: serde_json::Value) -> Rc<Material> {

@@ -66,7 +66,11 @@ const PREVIEW_SAMPLES: u32 = 500;
 /// 1.02 - 1.08 x Iray), a highlight ~0.8 x as wide under a small light.
 /// Faithful takes STD - Iray's highlight shape head-on (widths 1.00 - 1.02
 /// x), paying rough gloss 1.2 - 1.5 x Iray under an HDRI. Revisit if a
-/// model in Octane gets both.
+/// model in Octane gets both. The Uber skin's dual lobe follows the same
+/// split (#175, the user's call 2026-11-16; `RoughLobe::skin_dual_lobe_layers`):
+/// Enhanced keeps OpenPBR's GGX lobes (Iray's energy, a narrower core, the
+/// faces' dual lobe p99.5 ~0.8 x Iray), Faithful puts them on Specular
+/// Layers at this model - Iray's Phong shape.
 const ENHANCED_ROUGH_LOBE: RoughLobe = RoughLobe::GgxEnergyPreserving;
 const FAITHFUL_ROUGH_LOBE: RoughLobe = RoughLobe::Std;
 
@@ -143,6 +147,8 @@ pub struct Tuning {
     /// Octane's model for a rough dielectric Phong lobe (Look): GGX energy
     /// preserving (Iray's level under an environment) or STD (Iray's
     /// highlight shape under a small light). Metals keep their own rule.
+    /// STD also moves an Uber skin's dual lobe off OpenPBR's GGX onto
+    /// Specular Layers (Look, Skin; #175).
     pub rough_lobe: RoughLobe,
     /// NVIDIA's textured `mdl 1.0` metals (Metal Brushed, Cast Iron) fall
     /// towards the rim as Iray's legacy lobe makes them (Look): Octane's
