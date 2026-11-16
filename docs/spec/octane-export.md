@@ -1177,8 +1177,8 @@ leaves out, #15):
   frame from core to rim, the occlusion's flat and falling curves
   included). Kept; a rim compare of the lobes' distribution divides it
   out first. Lobe 1 is
-  `specular` at W × its part; lobe 2 the `coating` at the rest, `coatingRoughness` the **Phong pin of r2²**
-  (both lobes are `simple_glossy_bsdf`; 2 · r2² until #95, a fit that made
+  `specular` at W × its part; lobe 2 the `coating` at the rest, `coatingRoughness` the **Phong pin of r2²** on Uber, √α on PBRSkin (PBRSkin lobes are GGX, below)
+  (Uber's lobes are `simple_glossy_bsdf`; 2 · r2² until #95, a fit that made
   up for the GGX curve's sharpness — Calib-DualLobe2's lobe-2-only sphere
   then 0.42 × Iray's detail at the Phong pin). Lobe 2's normal follows
   the MDL's layering, where a layerer's `normal` applies to its top layer
@@ -1288,10 +1288,11 @@ leaves out, #15):
   split by layer (Calib-PBRSkin-DetailLayers, the map 1 × 1 at weight 1
   under one layer at a time) it is not the normal: under the diffuse
   alone the dimples are 0.95 × Iray's contrast (correlation 0.93), under
-  lobe 2 1.13, under lobe 1 1.37 - and lobe 1 is drawn as Beckmann at
+  lobe 2 1.13, under lobe 1 1.37 - and lobe 1 was drawn as Beckmann at
   the Phong pin where `pbr_skin.mdl` has GGX at α = r²; Universal's GGX
   takes it to 1.08 (correlation 0.89 → 0.99 without the map). The lobes'
-  model is #186, not the detail normal's. Mode 0
+  model, not the detail normal's: GGX since #186 (PBRSkin lobes are GGX,
+  below). Mode 0
   (the map as a height map) and a map on the weight aren't exported (the
   weight counts by its value).
 - **PBRSkin Makeup** (#142, from `pbr_skin.mdl`'s `pbr_material`, no
@@ -1334,6 +1335,33 @@ leaves out, #15):
   ratio 1.63 vs 1.62 (× 0.25) and 0.73 vs 0.77 (× 2); the metal tint split
   per channel 0.77 / 1.90 vs 0.77 / 2.02. The PBRSkin metal's rim:
   below.
+- **PBRSkin lobes are GGX** (#186, from `pbr_skin.mdl`, no fitted
+  constant): every PBRSkin lobe - both dual lobes, the Top Coat, the
+  metal's - is `microfacet_ggx_smith_bsdf` at α = roughness²
+  (`multiscatter_tint` 0), not Uber's Phong `simple_glossy_bsdf`. So on
+  Universal and on the OpenPBR skin the pins are **√α, the roughness
+  itself** (`RoughCurve::Ggx`, `lobe_curve`; `phong_pin` is Uber's), and
+  Universal's `brdf` (`ggx_brdf`, both Looks) **GGX (2)** unless a
+  dielectric lobe on the node is past α 0.25 (`GGX_DIELECTRIC_MAX_ALPHA`),
+  then **GGX energy preserving (6)** at the same pin; an all-metal node
+  (the metal Mix's lobes) GGX at any roughness. Why the split: Octane's
+  plain GGX is the MDL's single-scatter Smith-GGX lobe in a white furnace
+  (metal to 1 %, dielectric to 2.5 %) and for a metal under the HDRI,
+  but its *dielectric* rises over that lobe under directional light as
+  its Beckmann does (`BECKMANN_DIELECTRIC_MAX_ALPHA`), milder: Calib-
+  Glossy's black dielectrics against the analytic lobe integrated over
+  the scene's HDRI (`scripts/dev/hdri-lobe.py`) 1.15 / 1.23 / 1.30 / 1.32
+  at pin 0.4 – 0.7 over their furnace ratio, GGX EP 1.08 – 1.11 at every
+  pin, the rough metals' 1.02 – 1.09 the integration's baseline. Against
+  Iray, Schlick's curve divided out (#188): α 0.16 plain GGX 0.97 – 1.00
+  flat, α 0.36 plain GGX 1.03 – 1.19, GGX EP 1.00 – 1.08 - plain GGX's
+  level there is Octane's environment defect, not the distribution or
+  the pin. The limit is a judgment call inside that bracket, at
+  Beckmann's measured α. Faithful's STD (#162) stood for Phong's shape,
+  which PBRSkin doesn't have. Until #186 the export drew the lobes at
+  Beckmann on `phong_pin(α)`: the Detail Normal's dimples under lobe 1
+  1.37 × Iray's contrast (GGX 1.08), Calib-PBRSkin-Metal / -Makeup's
+  spread 1.13 / 1.14 × Iray's (GGX 1.00).
 - **PBRSkin metal holds both lobes** (#167, from `pbr_skin.mdl`, no
   fit): the metal is `directional_factor` (base colour to white) over
   the whole `dual_specular_bsdf` - lobe 2 at Dual Lobe Specular Ratio
@@ -1354,10 +1382,10 @@ leaves out, #15):
   1.12 / 1.15 -> 1.09 / 1.12; the non-metals unchanged. The coating
   over the metal alone (coating 0 on the metal parts) is 0.09 of K7 /
   K8's rim. What is left of the "sharper highlight" (p99 / median 1.39
-  / 1.52 × Iray's, K1 1.12) is the lobes' shape: PBRSkin's lobes are
-  GGX (`microfacet_ggx_smith_bsdf`), the export draws them at the Phong
+  / 1.52 × Iray's, K1 1.12) was the lobes' shape: PBRSkin's lobes are
+  GGX (`microfacet_ggx_smith_bsdf`), the export drew them at the Phong
   pin; Universal's GGX (`brdf` 2) brings K1 / K7 / K8 to 1.00 / 1.15 /
-  1.16 (#186). Calib-PBRSkin's dual lobes, whose rim / P6's spread rose
+  1.16 (#186, PBRSkin lobes are GGX, above). Calib-PBRSkin's dual lobes, whose rim / P6's spread rose
   1.19 -> 1.27 / 1.08 -> 1.39 under it, were already GGX EP (lobe 1 at
   α 0.36, past `BECKMANN_DIELECTRIC_MAX_ALPHA`): against Beckmann GGX
   lowers them too (P2 1.47 -> 1.26). Checked against Iray on
@@ -1499,7 +1527,8 @@ leaves out, #15):
   the surface is all metal, lobe 2 of a dual lobe, a Top Coat) has α >
   **0.25** — Octane's limit for a dielectric Beckmann (below): **GGX
   energy preserving** (6) in Enhanced, **STD** (7) in Faithful (Variants;
-  the trade below, decided 2026-11-16, #162). An
+  the trade below, decided 2026-11-16, #162; not on PBRSkin, whose lobes
+  are GGX: PBRSkin lobes are GGX, #186). An
   isotropic all-metal node (Metallic Weight 1) past the same α takes
   **STD** (7, default spread) in both Looks unless a dielectric lobe on it
   asks for the rough model (`metal_brdf`, #172); sharp metals take Beckmann,
@@ -3426,8 +3455,9 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   (w · Tc of the texel) — the walk enters at one texel and leaves at
   another, so a varying S passes mean(S_in · S_out) < mean(S²): Monique's
   front 0.97 / 1.00 / 1.08 → 0.89 / 0.83 / 0.93. S stays one per material.
-- **Gloss** (`skin_gloss`): **roughness derived, `phong_pin`** —
-  Iray's lobes (and Top Coat) are `simple_glossy_bsdf`, a Phong microfacet
+- **Gloss** (`skin_gloss`): **roughness derived, `phong_pin`** (PBRSkin:
+  √α, its lobes are GGX, #186) —
+  Iray Uber's lobes (and Top Coat) are `simple_glossy_bsdf`, a Phong microfacet
   lobe of exponent 2 / r² (r the MDL roughness, the slider squared), as
   Beckmann α = r √(2 / (2 + r²)) (#162); GGX has the same peak at that α, and OpenPBR's
   roughness is √α (α = roughness²). Lobe 1, lobe 2 (the coating, from

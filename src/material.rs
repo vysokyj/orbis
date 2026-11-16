@@ -1594,9 +1594,9 @@ impl Ocs<'_> {
     }
 
     /// Iray's (MDL) roughness `r` as the pin of the gloss being written
-    /// (`phong_pin` while `gloss_brdf`, else as is).
-    fn gloss_roughness(&self, r: f32) -> f32 {
-        if self.gloss_brdf.is_some() { phong_pin(r) } else { r }
+    /// (`lobe_curve` while `gloss_brdf`, else as is).
+    fn gloss_roughness(&self, mat: &Material, r: f32) -> f32 {
+        if self.gloss_brdf.is_some() { lobe_curve(mat).apply(r) } else { r }
     }
 
     /// The Top Coat's long-axis roughness when `top_coat` writes it on the
@@ -2721,7 +2721,7 @@ impl Ocs<'_> {
         if !self.layer_colour_pin(i, "coating", mat, "Top Coat Weight", "Top Coat Color", coat, colour, false) {
             self.rgb_pin(i, "coating", colour.map(|c| c * coat));
         }
-        let curve = curve.unwrap_or(if self.gloss_brdf.is_some() { RoughCurve::Phong } else { RoughCurve::Linear });
+        let curve = curve.unwrap_or(if self.gloss_brdf.is_some() { lobe_curve(mat) } else { RoughCurve::Linear });
         let rough = curve.apply(top_coat_roughness(mat));
         // A roughness map (Twosret 8's face: its gloss map at Roughness 1,
         // sharp where it is dark) per texel, as the gloss's (#19). Weighted
@@ -3620,10 +3620,11 @@ impl Ocs<'_> {
             self.float_pin(i, "specular", 0.0);
             self.skin_dual_lobe_layers(i, name, mat, dl, (rough_ch, rough), lobe2_free);
         } else {
-            // Iray's lobes are Phong (`simple_glossy_bsdf`), OpenPBR's GGX
+            // Uber's lobes are Phong (`simple_glossy_bsdf`), OpenPBR's GGX
             // with α = roughness²: `phong_pin` (lobe 2 and the Top Coat
-            // too).
-            self.roughness_pin(i, mat, rough_ch, RoughCurve::Phong.apply(rough.clamp(0.0, 1.0)), RoughCurve::Phong, 1.0);
+            // too); PBRSkin's are GGX, the pin √α (`lobe_curve`, #186).
+            let curve = lobe_curve(mat);
+            self.roughness_pin(i, mat, rough_ch, curve.apply(rough.clamp(0.0, 1.0)), curve, 1.0);
         }
         if glossy_coat {
             self.skin_glossy_layer(i, mat, "coating", "coatingIor");
@@ -3650,7 +3651,7 @@ impl Ocs<'_> {
                 self.dual_lobe_ior_pin(i, "ior", mat, dl.f0);
                 if lobe2_free && dl.lobe1 < 1.0 {
                     self.dual_lobe_weight_pin(i, mat, "coating", dl.weight * (1.0 - dl.lobe1), false);
-                    self.float_pin(i, "coatingRoughness", phong_pin(dl.lobe2_roughness));
+                    self.float_pin(i, "coatingRoughness", lobe_curve(mat).apply(dl.lobe2_roughness));
                     self.dual_lobe_ior_pin(i, "coatingIor", mat, dl.f0);
                     self.float_pin(i, "coatingDarkening", 0.0);
                     // Lobe 2 on the base's normal on PBRSkin only, smooth
@@ -3665,7 +3666,7 @@ impl Ocs<'_> {
             None => self.skin_glossy_layer(i, mat, "specular", "ior"),
         }
         if coat {
-            self.top_coat_curve(i, mat, Some(RoughCurve::Phong));
+            self.top_coat_curve(i, mat, Some(lobe_curve(mat)));
             self.float_pin(i, "coatingDarkening", 0.0);
         }
     }
@@ -4733,14 +4734,15 @@ impl Ocs<'_> {
         self.gloss_brdf = if glass {
             Some(GLASS_BRDF)
         } else {
-            (!refraction_rough).then(|| if all_metal && aniso.amount <= 0.0 { metal_brdf(&dielectric, rough, self.rough_lobe) } else { phong_brdf(&dielectric, self.rough_lobe) })
+            // PBRSkin's lobes are GGX (`ggx_brdf`, #186).
+            (!refraction_rough).then(|| if lobe_curve(mat) == RoughCurve::Ggx { ggx_brdf(&dielectric) } else if all_metal && aniso.amount <= 0.0 { metal_brdf(&dielectric, rough, self.rough_lobe) } else { phong_brdf(&dielectric, self.rough_lobe) })
         };
         let curve = if glass {
             self.value_pin(i, "brdf", 57, 2, GLASS_BRDF);
             RoughCurve::Phong
         } else {
             self.aniso_brdf_pin(i, !oren_nayar && aniso.saturates(rough));
-            if self.gloss_brdf.is_some() { RoughCurve::Phong } else { RoughCurve::Linear }
+            if self.gloss_brdf.is_some() { lobe_curve(mat) } else { RoughCurve::Linear }
         };
         if oren_nayar {
             // No gloss to share it with: the diffuse's σ (see `base_flat`).
@@ -4758,7 +4760,7 @@ impl Ocs<'_> {
             let lobe2 = dl.weight * (1.0 - dl.lobe1);
             if lobe2_free && lobe2 > 0.0 {
                 self.dual_lobe_weight_pin(i, mat, "coating", lobe2, true);
-                let r2 = self.gloss_roughness(dl.lobe2_roughness);
+                let r2 = self.gloss_roughness(mat, dl.lobe2_roughness);
                 self.float_pin(i, "coatingRoughness", r2);
                 self.dual_lobe_ior_pin(i, "coatingIor", mat, dl.f0);
                 // Lobe 2's normal is where the MDL's layerers put it (a
@@ -6662,6 +6664,9 @@ enum RoughCurve {
     Linear,
     /// `phong_pin`: a `simple_glossy_bsdf` lobe.
     Phong,
+    /// √α: a `microfacet_ggx_smith_bsdf` lobe of α = `r` (PBRSkin's,
+    /// `lobe_curve`), Octane's GGX at α = pin² (#95's furnace probe).
+    Ggx,
 }
 
 impl RoughCurve {
@@ -6669,6 +6674,7 @@ impl RoughCurve {
         match self {
             RoughCurve::Linear => r.clamp(0.0, 1.0),
             RoughCurve::Phong => phong_pin(r),
+            RoughCurve::Ggx => r.max(0.0).sqrt().min(1.0),
         }
     }
 
@@ -6677,9 +6683,58 @@ impl RoughCurve {
         match self {
             RoughCurve::Linear => "false",
             RoughCurve::Phong => "phong",
+            RoughCurve::Ggx => "ggx",
         }
     }
 }
+
+/// The pin curve of a material's glossy lobes: GGX on PBRSkin, whose every
+/// lobe (both dual lobes, the Top Coat, the metal's) is
+/// `microfacet_ggx_smith_bsdf` at α = roughness² (`pbr_skin.mdl`), Phong
+/// on Iray Uber (`simple_glossy_bsdf`, `phong_pin`). A direct mapping, no
+/// constant (#186, the #57 rule).
+fn lobe_curve(mat: &Material) -> RoughCurve {
+    if crate::iray::is_pbrskin(mat) { RoughCurve::Ggx } else { RoughCurve::Phong }
+}
+
+/// Universal's `brdf` for a PBRSkin node (`lobe_curve`) whose dielectric
+/// lobes have GGX α `dielectric` (none: an all-metal node): GGX (2), the
+/// MDL's distribution with its single scattering (`multiscatter_tint` 0),
+/// unless a dielectric lobe is past `GGX_DIELECTRIC_MAX_ALPHA`, then GGX
+/// energy preserving (6) at the same pin, in both Looks (GGX is Iray's
+/// shape, so no shape-vs-level trade as for Uber's Phong lobes, #162).
+/// Octane's GGX metal is the analytic single-scatter Smith-GGX lobe under
+/// the HDRI as in a white furnace (Calib-Glossy probe, 1.00 – 1.08 at pin
+/// 0.6 – 1 under the HDRI, 0.99 – 1.00 in the furnace; #186), so metals
+/// stay GGX at any roughness.
+fn ggx_brdf(dielectric: &[f32]) -> &'static str {
+    if dielectric.iter().any(|a| *a > GGX_DIELECTRIC_MAX_ALPHA + 1e-6) {
+        BRDF_GGX_EP
+    } else {
+        BRDF_GGX
+    }
+}
+
+/// The largest GGX α Octane's plain GGX (`brdf` 2) draws a *dielectric*
+/// lobe at faithfully under an environment (#186). Calib-Glossy's black
+/// dielectric spheres (IOR 1.5), against the analytic single-scatter
+/// Smith-GGX · Fresnel(v · h) at α = pin² (`scripts/dev/hdri-lobe.py`:
+/// the scene's own HDRI, normalised by a Lambert sphere): in a white furnace
+/// plain GGX is that lobe at every pin (disc 0.975 – 1.00, the mirror
+/// sphere's 0.976); under the HDRI, over the furnace's ratio, 1.15 / 1.23
+/// / 1.30 / 1.32 at pin 0.4 / 0.5 / 0.6 / 0.7, rising towards the rim
+/// (pin 0.6: 1.15 core, 1.37 at 0.8 R). GGX energy preserving, the same
+/// way, 1.08 – 1.11 at every pin 0.4 – 1 and the rough GGX metals 1.02 –
+/// 1.09 (the integration's own baseline): EP draws the dielectric as in
+/// the furnace (+1 / 3 / 5 / 8 % multiple scattering at pin 0.4 – 0.7),
+/// plain GGX gains 6 / 14 / 19 / 21 % under directional light — the
+/// defect `BECKMANN_DIELECTRIC_MAX_ALPHA` found in Octane's Beckmann,
+/// milder. Against Iray (PBRSkin, Schlick's curve divided out,
+/// `rim-curve.py`): α 0.16 plain GGX 0.97 – 1.00 flat; α 0.36 plain GGX
+/// 1.03 – 1.19, GGX EP 1.00 – 1.08. The limit lies between those two α;
+/// 0.25 (pin 0.5) is Beckmann's measured one, kept for one rule — a
+/// judgment call inside that bracket (#186).
+const GGX_DIELECTRIC_MAX_ALPHA: f32 = 0.25;
 
 /// Universal's `brdf` for an isotropic all-metal node (Uber Metallic
 /// Weight 1) of Iray roughness `metal`, with the node's `dielectric` lobes
@@ -8283,16 +8338,41 @@ mod tests {
         for l in [&l2, &l1] {
             assert!(!l.contains("<pin name='coating'>") && l.contains("<pin name='metallic'>"), "{l}");
         }
-        // Lobe 2's roughness (0.4 · 0.4)² at the pin, lobe 1's 0.4².
-        assert!(l2.contains(&format!(">{}<", num(phong_pin(0.0256)))), "{l2}");
-        assert!(l1.contains(&format!(">{}<", num(phong_pin(0.16)))), "{l1}");
-        assert!(base.contains("<pin name='coating'>"), "{base}");
+        let pin = |x: &str, p: &str| x[x.find(&format!("<pin name='{p}'>")).unwrap_or_else(|| panic!("{p}: {x}"))..].split("</pin>").next().unwrap().to_string();
+        // GGX lobes (#186): lobe 2's α (0.4 · 0.4)² at the pin √α = 0.16,
+        // lobe 1's 0.4², the metal and the sharp dielectric on plain GGX.
+        assert!(pin(&l2, "roughness").contains(">0.16<") && pin(&l2, "brdf").contains(&format!(">{BRDF_GGX}<")), "{l2}");
+        assert!(pin(&l1, "roughness").contains(">0.4<") && pin(&l1, "brdf").contains(&format!(">{BRDF_GGX}<")), "{l1}");
+        assert!(base.contains("<pin name='coating'>") && pin(&base, "roughness").contains(">0.4<") && pin(&base, "coatingRoughness").contains(">0.16<") && pin(&base, "brdf").contains(&format!(">{BRDF_GGX}<")), "{base}");
         // All metal: the lobes alone; under a Top Coat one node as before.
         let (x, _) = material_inputs(&[("Skin".into(), skin(1.0, 0.0), 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
         assert!(x.contains("name='Skin lobe 2'") && !x.contains("name='Skin base'"), "{x}");
         assert!(pbr_metal_lobe2(&skin(0.5, 0.5)).is_none());
         let (x, _) = material_inputs(&[("Skin".into(), skin(0.5, 0.5), 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
         assert!(!x.contains("type='19'"), "{x}");
+    }
+
+    /// PBRSkin's lobes are GGX at the pin √α (#186): plain GGX on a sharp
+    /// dielectric, GGX energy preserving past `GGX_DIELECTRIC_MAX_ALPHA`.
+    #[test]
+    fn pbrskin_lobes_are_ggx() {
+        let skin = |r: f32| {
+            mat(json!([
+                {"channel": {"id": "diffuse", "current_value": [0.45, 0.05, 0.04]}},
+                {"channel": {"id": "Dual Lobe Specular Enable", "current_value": true}},
+                {"channel": {"id": "Dual Lobe Specular Weight", "current_value": 1}},
+                {"channel": {"id": "Specular Lobe 1 Roughness", "current_value": r}},
+                {"channel": {"id": "Specular Lobe 2 Roughness Mult", "current_value": 0.5}},
+                {"channel": {"id": "Dual Lobe Specular Ratio", "current_value": 0.15}},
+            ]))
+        };
+        let pin = |x: &str, p: &str| x[x.find(&format!("<pin name='{p}'>")).unwrap_or_else(|| panic!("{p}: {x}"))..].split("</pin>").next().unwrap().to_string();
+        assert_eq!(lobe_curve(&skin(0.6)), RoughCurve::Ggx);
+        for (r, brdf) in [(0.4, BRDF_GGX), (0.6, BRDF_GGX_EP)] {
+            let (x, _) = material_inputs(&[("Skin".into(), skin(r), 1.0)], &[], HashMap::new(), 9000, SkinShader::None);
+            assert!(pin(&x, "brdf").contains(&format!(">{brdf}<")), "{r}: {x}");
+            assert!(pin(&x, "roughness").contains(&format!(">{}<", num(r))) && pin(&x, "coatingRoughness").contains(&format!(">{}<", num(r * 0.5))), "{r}: {x}");
+        }
     }
 
     /// PBRSkin's metal without its dual lobe reflects nothing

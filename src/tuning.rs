@@ -70,7 +70,8 @@ const PREVIEW_SAMPLES: u32 = 500;
 /// split (#175, the user's call 2026-11-16; `RoughLobe::skin_dual_lobe_layers`):
 /// Enhanced keeps OpenPBR's GGX lobes (Iray's energy, a narrower core, the
 /// faces' dual lobe p99.5 ~0.8 x Iray), Faithful puts them on Specular
-/// Layers at this model - Iray's Phong shape.
+/// Layers at this model - Iray's Phong shape. PBRSkin's lobes are GGX,
+/// so neither split applies to them (`material::ggx_brdf`, #186).
 const ENHANCED_ROUGH_LOBE: RoughLobe = RoughLobe::GgxEnergyPreserving;
 const FAITHFUL_ROUGH_LOBE: RoughLobe = RoughLobe::Std;
 
