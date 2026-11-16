@@ -134,7 +134,8 @@ nodes without geometry).
 
 ## Menu actions
 
-- `MainWindow.getActionMgr()` (null headless): `getNumCustomActions()`,
+- `MainWindow.getActionMgr()` (null without a window; under `-headless`
+  `MainWindow` itself is undefined and a bare reference throws, #182): `getNumCustomActions()`,
   `getCustomActionText(i)`, `getCustomActionFile(i)`,
   `addCustomAction(text, desc, scriptPath, isFile, shortcut, iconPath)` →
   GUID, `setCustomActionScript(i, path, isFile)`, `setCustomActionIcon(i,

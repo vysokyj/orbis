@@ -426,8 +426,12 @@
     // once (a reinstall elsewhere repoints it), the menu item whenever it is
     // missing — a menu reset or edit drops it while the action stays (#46).
     function addMenuAction() {
+        // -headless (daz-script.sh) defines no MainWindow at all - a bare
+        // reference throws (#182); without -headless but windowless the
+        // action manager is null.
+        if (typeof MainWindow == "undefined" || !MainWindow) return;
         var oMgr = MainWindow.getActionMgr();
-        if (!oMgr) return; // headless
+        if (!oMgr) return;
         var sIcon = sPluginDir + "/Export to Octane.png";
         var sGuid = "";
         for (var i = 0; i < oMgr.getNumCustomActions(); i++) {
