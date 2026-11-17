@@ -12,6 +12,9 @@ use std::path::{Path, PathBuf};
 
 use crate::daz_material::{colour_to_linear, ImageMod, Material, Mono};
 
+mod preview;
+pub use preview::{preview_materials, PreviewMap, PreviewMaterial};
+
 /// Octane version written into each node's `compatibilityVersion`.
 const COMPAT: &str = "15050000";
 

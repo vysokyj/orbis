@@ -831,6 +831,84 @@ fn exports_an_orbx_with_the_scene_and_project() {
     assert!(max_samples(&String::from_utf8_lossy(&files[2].1)));
 }
 
+/// A `.usdz`'s stored files: (name, data offset, data).
+fn read_usdz(zip: &[u8]) -> Vec<(String, usize, Vec<u8>)> {
+    let (mut at, mut files) = (0, Vec::new());
+    let u16_at = |i: usize| u16::from_le_bytes([zip[i], zip[i + 1]]) as usize;
+    while zip[at..at + 4] == [0x50, 0x4b, 0x03, 0x04] {
+        assert_eq!(u16_at(at + 8), 0, "stored");
+        let size = u32::from_le_bytes(zip[at + 18..at + 22].try_into().unwrap()) as usize;
+        let (n, e) = (u16_at(at + 26), u16_at(at + 28));
+        let name = String::from_utf8(zip[at + 30..at + 30 + n].to_vec()).unwrap();
+        let data = at + 30 + n + e;
+        files.push((name, data, zip[data..data + size].to_vec()));
+        at = data + size;
+    }
+    files
+}
+
+#[test]
+fn exports_a_textured_usdz_for_viewing() {
+    let dir = tempfile::tempdir().unwrap();
+    let content = dir.path().join("content");
+    std::fs::create_dir_all(content.join("Runtime/Textures")).unwrap();
+    image::RgbImage::from_pixel(16, 8, image::Rgb([200, 100, 50])).save(content.join("Runtime/Textures/skin.png")).unwrap();
+    // A TIFF height map: no USDZ image type, baked into a normal map (PNG).
+    image::GrayImage::from_fn(8, 8, |x, _| image::Luma([(x * 30) as u8])).save(content.join("Runtime/Textures/bump.tif")).unwrap();
+    image::GrayImage::from_pixel(8, 8, image::Luma([255])).save(content.join("Runtime/Textures/Mask.TIF")).unwrap();
+    let mut duf = scene();
+    duf["scene"]["materials"][0]["extra"] = json!([{"type": "studio_material_channels", "channels": [
+        {"channel": {"id": "Bump Strength", "current_value": 1, "image_file": "/Runtime/Textures/bump.tif"}},
+        {"channel": {"id": "Cutout Opacity", "current_value": 1, "image_file": "/Runtime/Textures/Mask.TIF"}},
+    ]}]);
+    duf["scene"]["materials"][0]["diffuse"]["channel"]["image_file"] = json!("/Runtime/Textures/skin.png");
+    let scene_path = dir.path().join("Viewer.duf");
+    std::fs::write(&scene_path, duf.to_string()).unwrap();
+    let d = dump();
+    let nodes: Vec<Value> = d.nodes.iter().map(|f| json!({"name": f.name, "label": f.label, "lod": f.lod, "vertices": f.vertices.concat()})).collect();
+    let dump_path = dir.path().join("dump.json");
+    std::fs::write(&dump_path, json!({"format": "orbis-scene-dump", "format_version": 2, "nodes": nodes}).to_string()).unwrap();
+    let opts = ExportOptions { content_dirs: vec![content], ..Default::default() };
+
+    let out = dir.path().join("Viewer.usdz");
+    // As text, the same layer: the maps named by their package paths.
+    export_scene_usdz(&scene_path, &dump_path, &dir.path().join("Viewer.usda"), &opts).unwrap();
+    let text = std::fs::read_to_string(dir.path().join("Viewer.usda")).unwrap();
+    assert!(text.contains("asset inputs:file = @assets/tex/") && text.contains("float inputs:opacityThreshold = 0.5"), "{text}");
+    let report = export_scene_usdz(&scene_path, &dump_path, &out, &opts).unwrap();
+    let files = read_usdz(&std::fs::read(&out).unwrap());
+    assert!(files.iter().all(|(_, at, _)| at % 64 == 0), "64-byte aligned");
+    let names: Vec<&str> = files.iter().map(|(n, _, _)| n.as_str()).collect();
+    assert_eq!(names[0], LAYER, "the layer first");
+    assert_eq!(report.textures, names.len() - 1);
+    assert!(names[1..].iter().all(|n| n.starts_with("assets/tex/") && (n.ends_with(".png") || n.ends_with(".jpg"))), "{names:?}");
+    assert!(names.iter().any(|n| n.ends_with("_skin.png")) && names.iter().any(|n| n.ends_with("_Mask.png")), "the TIFF mask as PNG: {names:?}");
+    assert!(names.iter().any(|n| n.ends_with("_n.png")), "the baked normal map: {names:?}");
+    assert!(!names.iter().any(|n| n.ends_with(".tif")), "the height map only baked: {names:?}");
+    for (n, _, data) in &files[1..] {
+        assert_eq!(image::guess_format(data).unwrap(), image::ImageFormat::Png, "{n}");
+    }
+
+    let layer = read_usdc(&files[0].2);
+    let m = "/Scene/Materials/Body_Torso";
+    let prims = layer.prims();
+    for (p, ty) in [("Surface", "Shader"), ("TexCoords", "Shader"), ("DiffuseTexture", "Shader"), ("NormalTexture", "Shader"), ("OpacityTexture", "Shader")] {
+        assert!(prims.iter().any(|(q, t)| *q == format!("{m}/{p}") && t == ty), "{p}: {prims:?}");
+    }
+    assert_eq!(layer.token_field(&format!("{m}/DiffuseTexture.info:id"), "default").as_deref(), Some("UsdUVTexture"));
+    // Every texture a material reads is in the package.
+    let assets: HashSet<String> = layer.specs.iter().filter(|s| s.0.ends_with(".inputs:file")).filter_map(|s| layer.token_field(&s.0, "default")).collect();
+    assert!(!assets.is_empty() && assets.iter().all(|a| names.contains(&a.as_str())), "{assets:?} in {names:?}");
+    assert!(assets.iter().any(|a| a.ends_with("_skin.png")));
+
+    // The .orbx keeps its constant preview materials (Octane overrides them).
+    let orbx = dir.path().join("Viewer.orbx");
+    export_scene_orbx(&scene_path, &dump_path, &orbx, &opts).unwrap();
+    let (_, files) = crate::orbx::read_orbx(&std::fs::read(&orbx).unwrap()).unwrap();
+    let layer = read_usdc(&files[0].1);
+    assert!(!layer.prims().iter().any(|(p, _)| p.ends_with("Texture")), "no maps in the .orbx's layer");
+}
+
 #[test]
 fn samples_default_per_mode_and_override() {
     for mode in [OctaneMode::Final, OctaneMode::Preview] {

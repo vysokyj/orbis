@@ -1,6 +1,6 @@
 //! `orbis` — export a saved DAZ Studio scene to Octane X.
 //!
-//! `orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz|out.usda | --out-dir DIR] [--preview]
+//! `orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz|out.usda | --out-dir DIR [--format orbx|usdz]] [--preview]
 //! [--no-ground] [--look enhanced|faithful] [--no-denoise] [--samples N] [--content-dir DIR]…`
 //! `orbis install [--library DIR]`
 //!
@@ -28,6 +28,16 @@ enum LookArg {
     Enhanced,
 }
 
+/// What `--out-dir` writes.
+#[derive(Clone, Copy, PartialEq, clap::ValueEnum)]
+enum FormatArg {
+    /// Octane X's package.
+    Orbx,
+    /// A file for viewing (Quick Look, Reality Composer, Blender):
+    /// `UsdPreviewSurface` materials with their maps.
+    Usdz,
+}
+
 #[derive(Subcommand)]
 enum Command {
     /// Export a saved scene (`.duf` and its scene dump) to `.orbx` or `.usdz`
@@ -46,6 +56,10 @@ enum Command {
         /// Folder for `<scene>.orbx` (created if missing).
         #[arg(long)]
         out_dir: Option<PathBuf>,
+        /// The format `--out-dir` (or the default folder) gets; `-o` picks it
+        /// by its extension.
+        #[arg(long, value_enum, default_value_t = FormatArg::Orbx, conflicts_with = "out")]
+        format: FormatArg,
         /// Octane's fast direct-lighting kernel instead of the path tracer.
         #[arg(long)]
         preview: bool,
@@ -100,7 +114,7 @@ fn main() -> Result<()> {
             );
             Ok(())
         }
-        Command::Export { scene, dump, out, out_dir, preview, no_ground, look, no_denoise, samples, content_dirs, progress } => {
+        Command::Export { scene, dump, out, out_dir, format, preview, no_ground, look, no_denoise, samples, content_dirs, progress } => {
             if !scene.is_file() {
                 bail!("scene not found: {}", scene.display());
             }
@@ -115,7 +129,13 @@ fn main() -> Result<()> {
             };
             let out = match out {
                 Some(o) => o,
-                None => usd::orbx_output_path(&out_dir.unwrap_or_else(usd::default_output_dir), &scene),
+                None => {
+                    let dir = out_dir.unwrap_or_else(usd::default_output_dir);
+                    match format {
+                        FormatArg::Orbx => usd::orbx_output_path(&dir, &scene),
+                        FormatArg::Usdz => usd::usdz_output_path(&dir, &scene),
+                    }
+                }
             };
             if let Some(dir) = out.parent().filter(|d| !d.as_os_str().is_empty()) {
                 std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;

@@ -75,6 +75,52 @@ pub fn downscale(data: &[u8], limit: u32) -> Result<Option<Vec<u8>>> {
     Ok(Some(out))
 }
 
+/// The longest-edge limit (as `choose_limit`'s) that keeps textures of
+/// `items` (bytes as packed, pixel size) within `cap` bytes, assuming a
+/// file shrinks with its pixel count: `None` when they fit as they are.
+/// A `.usdz` is a plain zip, under 4 GiB (#16, #199).
+pub fn choose_limit_for_bytes(items: &[(u64, (u32, u32))], cap: u64) -> Option<u32> {
+    let total = |limit: Option<u32>| -> u64 {
+        items.iter().map(|(bytes, (w, h))| {
+            let s = limit.map_or(1.0, |l| (l as f64 / (*w).max(*h).max(1) as f64).min(1.0));
+            (*bytes as f64 * s * s) as u64
+        }).sum()
+    };
+    if total(None) <= cap {
+        return None;
+    }
+    Some(LIMITS.into_iter().find(|l| total(Some(*l)) <= cap).unwrap_or(LIMITS[LIMITS.len() - 1]))
+}
+
+/// A texture as a `.usdz` packs it: PNG and JPEG as they are (scaled to
+/// `limit` in their own format), anything else (TIFF, BMP, TGA: not a
+/// USDZ image type) decoded and written as a PNG of the same depth,
+/// scaled on the way. Returns the bytes and whether it was scaled.
+pub fn usdz_texture(data: &[u8], limit: Option<u32>, to_png: bool) -> Result<(Vec<u8>, bool)> {
+    if !to_png {
+        return Ok(match limit.map(|l| downscale(data, l)) {
+            Some(Ok(Some(small))) => (small, true),
+            _ => (data.to_vec(), false),
+        });
+    }
+    let mut img = image::load_from_memory(data)?;
+    let (w, h) = (img.width(), img.height());
+    let scaled = limit.is_some_and(|l| w.max(h) > l);
+    if let Some(l) = limit.filter(|_| scaled) {
+        let s = l as f64 / w.max(h) as f64;
+        img = img.resize_exact(((w as f64 * s).round() as u32).max(1), ((h as f64 * s).round() as u32).max(1), FilterType::Triangle);
+    }
+    // PNG takes 8 and 16 bits per channel, not floats.
+    let img = match img {
+        DynamicImage::ImageRgb32F(_) => DynamicImage::ImageRgb16(img.to_rgb16()),
+        DynamicImage::ImageRgba32F(_) => DynamicImage::ImageRgba16(img.to_rgba16()),
+        other => other,
+    };
+    let mut out = Vec::new();
+    img.write_to(&mut Cursor::new(&mut out), ImageFormat::Png)?;
+    Ok((out, scaled))
+}
+
 /// `f` over `items` on a thread each, results in `items`' order.
 pub fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync) -> Vec<R> {
     std::thread::scope(|s| {
@@ -124,6 +170,27 @@ mod tests {
         assert_eq!(choose_limit(&maps, 100 << 20), Some(2048), "4 × 16 MB fits");
         assert_eq!(choose_limit(&maps, 20 << 20), Some(1024), "4 × 4 MB fits");
         assert_eq!(choose_limit(&maps, 1), Some(512), "smallest when nothing fits");
+    }
+
+    #[test]
+    fn usdz_limit_by_packed_bytes() {
+        let maps = vec![(64 << 20, (4096, 4096)); 4];
+        assert_eq!(choose_limit_for_bytes(&maps, 1 << 30), None);
+        assert_eq!(choose_limit_for_bytes(&maps, 64 << 20), Some(2048), "a quarter each");
+    }
+
+    #[test]
+    fn usdz_texture_turns_a_tiff_into_png() {
+        let mut tif = Vec::new();
+        DynamicImage::ImageRgb16(image::ImageBuffer::from_pixel(40, 20, image::Rgb([1000u16, 2000, 65535]))).write_to(&mut Cursor::new(&mut tif), ImageFormat::Tiff).unwrap();
+        let (png, scaled) = usdz_texture(&tif, Some(10), true).unwrap();
+        assert!(scaled);
+        assert_eq!(image::guess_format(&png).unwrap(), ImageFormat::Png);
+        let back = image::load_from_memory(&png).unwrap();
+        assert_eq!((back.width(), back.height()), (10, 5));
+        assert!(matches!(back, DynamicImage::ImageRgb16(_)), "16 bits kept");
+        let (same, scaled) = usdz_texture(&png, None, false).unwrap();
+        assert!(!scaled && same == png);
     }
 
     #[test]

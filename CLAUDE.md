@@ -38,6 +38,7 @@ never wait for CI - the local `cargo test` before a push is the gate.
 | `src/iray.rs` | DAZ channels → what DAZ hands Iray (materials, lights, camera, tone mapping, environment), verified against DAZ's .mi export (`calib/references/mi`) |
 | `src/tuning.rs` | The four export variants (Look × render mode) and every value that differs between them, one table |
 | `src/material.rs` | Iray Uber → Octane material/light/scene nodes in `project.ocs` |
+| `src/material/preview.rs` | DAZ materials → `UsdPreviewSurface` with maps for the `.usdz` viewing export (#199) |
 | `src/daz_material.rs` | DSON materials: merged Iray channels |
 | `src/layered_image.rs` | DAZ Layered Image Editor stacks → flattened images |
 | `src/texture_budget.rs` | Texture memory budget, downscaling |

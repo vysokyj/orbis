@@ -108,6 +108,8 @@
         ground: oSettings.getBoolValue("ground", true),
         faithful: oSettings.getBoolValue("faithful", false),
         denoise: oSettings.getBoolValue("denoise", true),
+        // "orbx" (Octane X) or "usdz" (for viewing: Quick Look, Blender).
+        format: oSettings.getStringValue("format", "orbx") == "usdz" ? "usdz" : "orbx",
         // Octane's max samples as typed; empty = the render mode's default
         // (orbis decides it, so a raised default reaches this dialog too).
         samples: oSettings.getStringValue("samples", "")
@@ -128,6 +130,7 @@
     oSettings.setBoolValue("ground", oOptions.ground);
     oSettings.setBoolValue("faithful", oOptions.faithful);
     oSettings.setBoolValue("denoise", oOptions.denoise);
+    oSettings.setStringValue("format", oOptions.format);
     oSettings.setStringValue("samples", samplesArg(oOptions.samples));
 
     // ── The scene ─────────────────────────────────────────────────────────
@@ -169,7 +172,7 @@
 
     // ── Export ────────────────────────────────────────────────────────────
     var sOutDir = bBatch ? sBatchOut : oOptions.besideScene ? new DzFileInfo(sScene).path() : oOptions.outputDir;
-    var aArgs = [sBin, "export", sScene, "--dump", sDump, "--out-dir", sOutDir];
+    var aArgs = [sBin, "export", sScene, "--dump", sDump, "--out-dir", sOutDir, "--format", oOptions.format];
     if (oOptions.preview) aArgs.push("--preview");
     if (!oOptions.ground) aArgs.push("--no-ground");
     aArgs.push("--look");
@@ -182,7 +185,7 @@
 
     aArgs.push("--progress");
 
-    setProgressInfo(sTitle + ": writing the Octane package...");
+    setProgressInfo(sTitle + (oOptions.format == "usdz" ? ": writing the .usdz..." : ": writing the Octane package..."));
     var oResult = run(aArgs, true);
     finishProgress();
     if (oResult.cancelled) {
@@ -279,7 +282,16 @@
         }
 
         // Radio buttons sharing a parent are exclusive.
-        var oOutput = section(wPage, lPage, "Save the .orbx");
+        var oFormat = section(wPage, lPage, "Format");
+        var wOrbx = radio(oFormat, ".orbx for Octane X");
+        hint(oFormat, "Octane's materials, lights and render settings");
+        var wUsdz = radio(oFormat, ".usdz for viewing");
+        hint(oFormat, "Quick Look, Reality Composer, Blender: simple materials with their maps, no Octane options");
+        wOrbx.checked = oOpt.format != "usdz";
+        wUsdz.checked = oOpt.format == "usdz";
+
+        lPage.addSpacing(12);
+        var oOutput = section(wPage, lPage, "Save in");
         var wBeside = radio(oOutput, "Beside the scene");
         var wInFolder = radio(oOutput, "In this folder:");
         var wRow = new DzWidget(oOutput.widget);
@@ -303,7 +315,7 @@
         syncRow();
         connect(wInFolder, "toggled(bool)", syncRow);
         connect(wChoose, "clicked()", function () {
-            var sDir = FileDialog.doDirectoryDialog("Save the .orbx in", "", wPath.text, wDlg);
+            var sDir = FileDialog.doDirectoryDialog("Save the export in", "", wPath.text, wDlg);
             if (sDir) wPath.text = sDir;
         });
 
@@ -335,6 +347,13 @@
         hint(oLook, "As close to Iray as possible");
         wEnhanced.checked = !oOpt.faithful;
         wFaithful.checked = oOpt.faithful;
+        // The Octane options mean nothing to a .usdz.
+        var syncFormat = function () {
+            oOctane.widget.enabled = wOrbx.checked;
+            oLook.widget.enabled = wOrbx.checked;
+        };
+        syncFormat();
+        connect(wOrbx, "toggled(bool)", syncFormat);
 
         wDlg.addWidget(wPage);
         // Exactly its contents' size: no spare room, no stretching.
@@ -351,6 +370,7 @@
         oOpt.faithful = wFaithful.checked;
         oOpt.denoise = wDenoise.checked;
         oOpt.samples = wSamples.text;
+        oOpt.format = wUsdz.checked ? "usdz" : "orbx";
         return true;
     }
 

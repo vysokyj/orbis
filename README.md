@@ -41,7 +41,8 @@ From a checkout: `scripts/install.sh` builds and installs.
    (after the first run also *File → Export to Octane...*). The script saves
    the scene first (asking for a file if it has none) — the export reads the
    saved `.duf` — then asks for the options, remembered for next time:
-   - **Save the .orbx** beside the scene or in a folder
+   - **Format** — *.orbx for Octane X*, or *.usdz for viewing* (below);
+   - **Save in** — beside the scene or in a folder
      (`~/Documents/ORBIS` by default);
    - **Fast preview** — Octane's direct-lighting kernel instead of the path
      tracer; **Shadow-catching ground** when Iray draws one; **Denoise** —
@@ -53,6 +54,14 @@ From a checkout: `scripts/install.sh` builds and installs.
 2. Open the `.orbx` in Octane X with *File → Open* (Octane X only opens
    files from its own panel) and select the render target named after the
    scene.
+
+**Viewing (`.usdz`).** The second format is a file to look at, not to render
+in Octane: Quick Look / AR Quick Look, Reality Composer, Blender. The posed
+geometry with `UsdPreviewSurface` materials and their maps — diffuse (with
+its colour), roughness, metallic, cutout opacity, one baked normal map,
+emission, occlusion. It can't hold what Iray's materials do beyond that: no
+subsurface skin, top coats, layering or hair shading, no camera or
+environment ([details](docs/spec/octane-export.md#viewing-export-usdz)).
 
 ## What it translates
 
@@ -78,7 +87,7 @@ Each rule is calibrated against Iray — see the
 ## Command line
 
 ```sh
-orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz|out.usda | --out-dir DIR]
+orbis export <scene.duf> [--dump FILE] [-o out.orbx|out.usdz|out.usda | --out-dir DIR [--format orbx|usdz]]
              [--preview] [--no-ground] [--look enhanced|faithful] [--no-denoise] [--samples N]
              [--content-dir DIR]… [--progress]
 orbis install [--library DIR]
@@ -88,7 +97,8 @@ orbis install [--library DIR]
 it uses the last one it kept for the scene, so a scene exported once from
 DAZ Studio re-exports from the command line. The scene's USD layer is
 binary (`.usdc`) in an `.orbx` or `.usdz`; `-o scene.usda` writes it as
-text, to read.
+text, to read. `--format` picks what `--out-dir` (or the default folder)
+gets; `-o` goes by the extension.
 
 ## Build
 

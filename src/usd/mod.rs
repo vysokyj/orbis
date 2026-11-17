@@ -132,7 +132,7 @@ pub struct ExportReport {
     pub instances: usize,
     /// Nodes left out, with the reason (`label: why`).
     pub skipped: Vec<String>,
-    /// Textures packed into an `.orbx`.
+    /// Textures packed into an `.orbx` or `.usdz`.
     pub textures: usize,
     /// Material textures not found in the content directories.
     pub missing_textures: Vec<String>,
@@ -146,24 +146,159 @@ pub struct ExportReport {
 }
 
 /// Convert `scene` (the saved `.duf`) with its `dump` (written by DAZ Studio)
-/// into a `.usdz` at `out` — or, named `.usda`, the scene's layer as text
-/// (to read; an export packs it binary).
+/// into a `.usdz` at `out` for viewing (Quick Look, Reality Composer,
+/// Blender; #199): the scene's layer with `UsdPreviewSurface` materials and
+/// their maps packed beside it — or, named `.usda`, the layer as text (to
+/// read; its maps named by their package paths, not written).
 pub fn export_scene_usdz(scene: &Path, dump: &Path, out: &Path, opts: &ExportOptions) -> Result<ExportReport> {
+    let progress = &opts.progress;
     let (meshes, volumes, mut report, mut lib) = build_scene(scene, dump, opts)?;
     // The .usdz carries meshes only; the volumes go into project.ocs.
     report.skipped.extend(volumes.iter().map(|v| format!("{}: a VDB volume (only in .orbx)", v.label)));
     let lights = lights_iray_uses(&mut lib);
+    progress.report(35, "writing the USD scene");
+    let mut layered = Some(crate::daz_material::layered_images(&lib.duf));
+    let dirs = lib.dirs.clone();
+    let mut packed: Option<UsdzTextures> = None;
+    let mut surfaces = |materials: &[BoundMaterial], strands: &[bool]| {
+        progress.report(60, "translating the materials");
+        let (mut previews, textures) = crate::material::preview_materials(materials, strands, &dirs, layered.take().unwrap_or_default());
+        let t = UsdzTextures::of(textures, &mut previews);
+        packed = Some(t);
+        previews
+    };
     if out.extension().is_some_and(|e| e.eq_ignore_ascii_case("usda")) {
-        let (text, _) = write_usda(&meshes, &lights);
-        write_atomically(out, |f| Ok(f.write_all(text.as_bytes())?))?;
+        let mut w = UsdaWriter::new();
+        write_layer_with(&mut w, &meshes, &lights, Some(&mut surfaces))?;
+        write_atomically(out, |f| Ok(f.write_all(w.text.as_bytes())?))?;
+        if let Some(t) = packed {
+            report.textures = t.items.len();
+            report.missing_textures = t.missing;
+        }
+        progress.report(100, "done");
         return Ok(report);
     }
     let mut layer = std::io::Cursor::new(Vec::new());
     let mut w = UsdcWriter::new(&mut layer)?;
-    write_layer(&mut w, meshes, &lights)?;
+    write_layer_with(&mut w, meshes, &lights, Some(&mut surfaces))?;
     w.finish()?;
-    write_atomically(out, |f| write_usdz(f, &[(LAYER, layer.get_ref())]))?;
+    let tex = packed.unwrap_or_default();
+    report.textures = tex.items.len();
+    report.missing_textures = tex.missing.clone();
+    for t in &tex.missing {
+        tracing::info!(texture = %t, "USDZ export: texture not found");
+    }
+    report.texture_limit = tex.limit(layer.get_ref().len() as u64);
+    if let Some(limit) = report.texture_limit {
+        tracing::info!(limit, "USDZ export: textures scaled down to fit the budget");
+    }
+    progress.report(65, "writing the .usdz");
+    let mut scaled = 0;
+    write_atomically(out, |f| {
+        let mut z = UsdzWriter::new(f);
+        z.add(LAYER, layer.get_ref())?;
+        let limit = report.texture_limit;
+        let batch = std::thread::available_parallelism().map_or(4, |n| n.get()) * 2;
+        let n = tex.items.len().max(1);
+        let mut done = 0;
+        for part in tex.items.chunks(batch) {
+            let loaded = crate::texture_budget::par_map(part, |item| {
+                let data = match &item.source {
+                    UsdzSource::File(file) => std::fs::read(file).with_context(|| format!("reading {}", file.display()))?,
+                    UsdzSource::Made(png) => png.clone(),
+                };
+                crate::texture_budget::usdz_texture(&data, limit, item.to_png).with_context(|| format!("packing {}", item.name))
+            });
+            for (item, r) in part.iter().zip(loaded) {
+                progress.report(65 + (30 * done / n) as u32, &format!("writing textures ({}/{})", done + 1, tex.items.len()));
+                done += 1;
+                let (data, small) = r?;
+                scaled += usize::from(small);
+                z.add(&item.name, &data)?;
+            }
+        }
+        z.finish()
+    })?;
+    report.textures_scaled = scaled;
+    progress.report(100, "done");
     Ok(report)
+}
+
+/// The maps a `.usdz` packs, in first-use order, each under the name its
+/// materials read it by.
+#[derive(Default)]
+struct UsdzTextures {
+    items: Vec<UsdzTexture>,
+    missing: Vec<String>,
+}
+
+struct UsdzTexture {
+    /// Its path in the package (`assets/tex/NNNN_<file>.png|jpg`).
+    name: String,
+    source: UsdzSource,
+    /// Not a USDZ image type: written as a PNG.
+    to_png: bool,
+    /// (bytes, pixels) before any scaling, for the budget.
+    size: (u64, (u32, u32)),
+}
+
+enum UsdzSource {
+    File(PathBuf),
+    Made(Vec<u8>),
+}
+
+/// A `.usdz` stays a plain zip: its textures are scaled down to keep it
+/// under this (4 GiB, less room for the layer's growth and the directory).
+const USDZ_CAP: u64 = (4 << 30) - (64 << 20);
+
+impl UsdzTextures {
+    /// What `previews` read of `textures`: PNG and JPEG under their own
+    /// names (the extension in lower case), other images to become PNGs,
+    /// maps the export can't read (an EXR, HDR or a broken file) dropped
+    /// from their materials.
+    fn of(textures: crate::material::Textures, previews: &mut [crate::material::PreviewMaterial]) -> Self {
+        let used: HashSet<String> = previews.iter().flat_map(|p| p.maps().map(|m| m.asset.clone())).collect();
+        let mut rename: HashMap<String, Option<String>> = HashMap::new();
+        let mut items = Vec::new();
+        for (asset, file) in textures.files.iter().filter(|(a, _)| used.contains(a)) {
+            let ext = Path::new(asset).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+            let native = matches!(ext.as_str(), "png" | "jpg" | "jpeg");
+            let dims = crate::texture_budget::file_dimensions(file);
+            let Some(dims) = dims else {
+                tracing::warn!(file = %file.display(), "USDZ export: map unreadable, left out");
+                rename.insert(asset.clone(), None);
+                continue;
+            };
+            let name = Path::new(asset).with_extension(if native { ext.as_str() } else { "png" }).to_string_lossy().into_owned();
+            let bytes = if native { std::fs::metadata(file).map_or(0, |m| m.len()) } else { u64::from(dims.0) * u64::from(dims.1) * 4 };
+            rename.insert(asset.clone(), Some(name.clone()));
+            items.push(UsdzTexture { name, source: UsdzSource::File(file.clone()), to_png: !native, size: (bytes, dims) });
+        }
+        for (asset, png) in textures.generated.into_iter().filter(|(a, _)| used.contains(a)) {
+            let dims = crate::texture_budget::dimensions(&png).unwrap_or((1, 1));
+            rename.insert(asset.clone(), Some(asset.clone()));
+            items.push(UsdzTexture { name: asset, size: (png.len() as u64, dims), source: UsdzSource::Made(png), to_png: false });
+        }
+        for p in previews.iter_mut() {
+            p.rename_assets(|a| rename.get(a).cloned().flatten());
+        }
+        UsdzTextures { items, missing: textures.missing }
+    }
+
+    /// The longest texture edge (`None`: full size): the Octane budget's
+    /// for decoded textures (`texture_budget::BUDGET_BYTES`), and smaller
+    /// still if the package would pass `USDZ_CAP` beside a layer of
+    /// `layer` bytes.
+    fn limit(&self, layer: u64) -> Option<u32> {
+        let dims: Vec<_> = self.items.iter().map(|t| t.size.1).collect();
+        let sizes: Vec<_> = self.items.iter().map(|t| t.size).collect();
+        let decoded = crate::texture_budget::choose_limit(&dims, crate::texture_budget::BUDGET_BYTES);
+        let packed = crate::texture_budget::choose_limit_for_bytes(&sizes, USDZ_CAP.saturating_sub(layer));
+        match (decoded, packed) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
+    }
 }
 
 /// The USD graph's object layer import in `project.ocs`: none (the

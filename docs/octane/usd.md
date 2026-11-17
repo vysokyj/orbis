@@ -73,7 +73,9 @@ Inputs (defaults): `diffuseColor` (0.18), `emissiveColor` (0), `metallic` (0),
 `ior` (1.5), `normal` (tangent space), `clearcoat`, `clearcoatRoughness`,
 `useSpecularWorkflow`. Textures: `UsdUVTexture` (`file`, `st`, `wrapS/T`,
 `scale`, `bias`, `sourceColorSpace` `raw|sRGB|auto`, outputs `r g b a rgb`),
-`st` from `UsdPrimvarReader_float2` (`varname = "st"`). Normal maps:
+`st` from `UsdPrimvarReader_float2` (`string inputs:varname = "st"`),
+optionally through `UsdTransform2d` (`in`, `scale`, `rotation`,
+`translation`: st · scale, rotated, + translation). Normal maps:
 `sourceColorSpace = "raw"`, `scale (2,2,2,1)`, `bias (-1,-1,-1,0)`.
 
 ## UsdLux

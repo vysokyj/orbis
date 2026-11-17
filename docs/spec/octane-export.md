@@ -16,6 +16,7 @@ wrong and changes in the same commit. Background on the other tools:
 [Hair](#dforce-hair--hair-material-147), [Emission](#emission)) ·
 [Lights](#lights) · [Environment](#environment) (Sun-Sky,
 [ground shadow](#ground-shadow)) · [Textures](#textures) ·
+[Viewing export (`.usdz`)](#viewing-export-usdz) ·
 [Opening](#opening) · [Open work](#open-work)
 
 Code: `src/`. Run: `cargo run --release -- export <scene.duf> -o
@@ -245,7 +246,9 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   texture, `.orbx`), which the script turns into steps. Cancel works in both.
 - The closing report gives the summary and the `.orbx` path; skipped nodes
   and missing textures go in a scrolling box below (left out when none).
-- Options dialog, remembered in `DzAppSettings("ORBIS")`: where the `.orbx`
+- Options dialog, remembered in `DzAppSettings("ORBIS")`: **Format** —
+  *.orbx for Octane X* or *.usdz for viewing* (`--format orbx|usdz`; the
+  Octane and Look sections are greyed out for a `.usdz`), where the export
   goes (beside the scene, or a folder — default `~/Documents/ORBIS`), fast
   preview, shadow-catching ground, denoise, Look, **Max. samples** (a text
   field: empty = the render mode's default, else `--samples N`; DAZ Studio
@@ -391,7 +394,8 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   read without their modifiers).
 - A `Material` per (mesh, group) under `/Scene/Materials/<mesh>_<group>` (a
   constant `UsdPreviewSurface`) — overridden by the Octane material inputs
-  below.
+  below. The `.orbx`'s layer keeps these constants (byte for byte as
+  before #199); only the `.usdz` gets its maps.
 
 ### Instances
 
@@ -493,9 +497,10 @@ volumes `assets/vdb/NN_<file>` and
   `.usdz` could hold it — and the export peaked at 22.7 GB beside the
   meshes. Octane X imports the bare `.usdc` and a `.usdz` holding one
   alike, rendering as the text layer did (Calib-Hair, #16).
-- A `.usdz` export holds `scene.usdc` (stored, 64-byte aligned); `-o
-  x.usda` writes the same layer as text (`UsdaWriter`, also what the tests
-  read). Text keeps 5 decimals for points, 4 for normals, 6 for UVs and
+- A `.usdz` export holds `scene.usdc` (stored, 64-byte aligned) with its
+  maps — the [viewing export](#viewing-export-usdz); `-o x.usda` writes
+  that layer as text (`UsdaWriter`, also what the tests read; its maps
+  named, not written). Text keeps 5 decimals for points, 4 for normals, 6 for UVs and
   widths; binary keeps the floats whole.
 - Library `.dsf` files are read without `modifier_library`, and a geometry
   or UV set entry leaves its file's JSON once parsed (intake's 300 MB of
@@ -4402,6 +4407,68 @@ default) only instance copies can be below the ground.
   (413 maps, ~17.8 GB decoded) failed in Octane on a 24 GB Mac; at 2048 px
   ~6.4 GB, 1.4 GB `.orbx`, export 25 s. Under the budget textures keep full
   size. HDR / EXR untouched.
+
+## Viewing export (`.usdz`)
+
+`--format usdz` (the dialog's *.usdz for viewing*) or `-o x.usdz`: a file
+to look at in Quick Look / AR Quick Look, Reality Composer or Blender —
+the posed geometry with `UsdPreviewSurface` materials and their maps
+(#199, the user's call, superseding #173). **Not an Octane path and not
+calibrated:** the preview surface has one diffuse, one GGX specular, a
+normal, an opacity and an emission — no subsurface, translucency, top
+coat, layering, dual lobe, flakes or hair shading; no camera or
+environment (the scene's lights are in the layer as UsdLux, which viewers
+mostly ignore); VDB volumes are reported as skipped. Octane X can import a `.usdz`
+and, with its *Load USD Materials* import preference, takes the preview
+surfaces (the manual's USD import preferences) — noted, not targeted.
+
+Per material (`material::preview_materials`, `usda::write_textured_material`):
+one `UsdPrimvarReader_float2` on `st`, a `UsdTransform2d` per placement,
+a `UsdUVTexture` per map (wrap repeat). The maps are the Octane path's own
+(`Textures`): layered images flattened, the OOT Cap's blend baked
+(`cap_bake`, #141), height and normal maps baked into one normal map
+(`detail_normal`).
+
+- **diffuseColor** — the diffuse map × the base colour Iray multiplies it
+  by (the texture's `scale`, linear), sRGB unless the map's gamma is 1;
+  the Cap's bake with its colour in it. Strand hair (curves, no UVs): the
+  map's mean × the colour, a constant.
+- **roughness** — UsdPreviewSurface squares its roughness into the GGX
+  alpha and Iray squares the slider (`Roughness Squared`, `Glossiness
+  Squared`, on by default), so the slider goes in as it is: the constant
+  √(Iray's roughness), a map × its value (1 − value × map for a
+  glossiness channel) as `scale` / `bias`. A material with no glossy
+  layer, dual lobe, top coat, metal or refraction gets roughness 1: the
+  preview's 4 % specular at the slider's 0 was a mirror sheen on matte
+  surfaces.
+- **metallic** — Iray's metallic weight; its map where it reaches Iray
+  (`metallic_map`, Base Mixing 0).
+- **opacity** — cutout opacity × (1 − refraction weight): no transmission
+  in the preview, and an opaque cornea or eye moisture hid the iris. An
+  opacity map goes on as a **cutout** (`opacityThreshold` = half its
+  value): blended, the viewers didn't sort the transmapped lashes and
+  hair cards. A look for viewing, not a match.
+- **normal** — the Normal Map at its strength with the Bump Strength map
+  blended in, baked (as `surface_detail_pins`); a normal map Iray reads at
+  gamma 1 and strength 1 as it is. `raw`, scale 2, bias −1.
+- **emissiveColor** — Emission Color (and its map) when it isn't black;
+  no luminance (viewers show it unlit). **occlusion** — AO Texture Map.
+- Grey maps read their picked channel (`r` for DAZ's average), through
+  the map's value range; 8-bit grey maps as sRGB, as Iray reads them at
+  gamma 2.2 (#49), gamma-1 maps `raw`. Placement: Iray's uvw transform —
+  scale = material tiles × map tiles, translation = (offset u, −offset v)
+  in those tiles.
+
+Packing: the layer first, then each map once under `assets/tex/NNNN_<file>`
+— PNG and JPEG as they are (the extension lower-cased), any other image
+(TIFF, BMP, TGA: not a USDZ type) as a PNG of the same depth, a map the
+export can't read left off its material. Scaled like the `.orbx`'s
+(`BUDGET_BYTES`), and further when the files would pass 4 GiB − 64 MB
+(a plain zip; `choose_limit_for_bytes`, #16). Written a file at a time
+(`UsdzWriter`). Checked with Apple's `usdchecker --arkit` and Blender's
+USD import (textured, eyes and lashes as expected) on Calib-G9Eye, a
+Genesis 9 skin scene and Calib-OOT; a figure scene (264 k faces, 18 maps)
+gave a 111 MB `.usdz` beside a 308 MB `.orbx`.
 
 ## Opening
 

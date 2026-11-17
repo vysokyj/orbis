@@ -33,10 +33,12 @@ enum Ty {
     Double = 9,
     String = 10,
     Token = 11,
+    AssetPath = 12,
     Matrix4d = 15,
     Quath = 18,
     Vec2f = 20,
     Vec3f = 24,
+    Vec4f = 28,
     TokenListOp = 32,
     PathListOp = 34,
     TokenVector = 41,
@@ -256,6 +258,16 @@ impl<'a, W: Patch> UsdcWriter<'a, W> {
             Val::Color(c) => {
                 let b: Vec<u8> = c.iter().flat_map(|n| f32_of(n).to_le_bytes()).collect();
                 self.value_at(Ty::Vec3f, &b)?
+            }
+            // An asset path is stored as its token, inlined.
+            Val::Asset(s) => Rep::inline(Ty::AssetPath, self.token(s)),
+            Val::Float2(c) => {
+                let b: Vec<u8> = c.iter().flat_map(|n| f32_of(n).to_le_bytes()).collect();
+                self.value_at(Ty::Vec2f, &b)?
+            }
+            Val::Float4(c) => {
+                let b: Vec<u8> = c.iter().flat_map(|n| f32_of(n).to_le_bytes()).collect();
+                self.value_at(Ty::Vec4f, &b)?
             }
             Val::Matrix(m) => {
                 let b: Vec<u8> = m.iter().flatten().flat_map(|x| x.to_le_bytes()).collect();

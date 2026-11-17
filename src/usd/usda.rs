@@ -100,6 +100,11 @@ pub(super) enum Val<'a> {
     Bool(bool),
     Float(Num),
     Color([Num; 3]),
+    /// A single `float2` / `float4`.
+    Float2([Num; 2]),
+    Float4([Num; 4]),
+    /// An asset path (`@tex/a.png@`).
+    Asset(&'a str),
     Matrix([[f64; 4]; 4]),
     Ints(&'a [u32]),
     Floats(&'a [f32], usize),
@@ -262,6 +267,17 @@ impl LayerSink for UsdaWriter {
     }
 }
 
+fn write_tuple(o: &mut String, c: &[Num]) {
+    o.push('(');
+    for (k, n) in c.iter().enumerate() {
+        if k > 0 {
+            o.push_str(", ");
+        }
+        n.write(o);
+    }
+    o.push(')');
+}
+
 fn write_value(o: &mut String, v: &Val) {
     let list = |o: &mut String, n: usize, each: &mut dyn FnMut(&mut String, usize)| {
         o.push('[');
@@ -288,15 +304,11 @@ fn write_value(o: &mut String, v: &Val) {
         Val::Token(s) | Val::Str(s) => o.push_str(&usd_string(s)),
         Val::Bool(b) => o.push(if *b { '1' } else { '0' }),
         Val::Float(n) => n.write(o),
-        Val::Color(c) => {
-            o.push('(');
-            for (k, n) in c.iter().enumerate() {
-                if k > 0 {
-                    o.push_str(", ");
-                }
-                n.write(o);
-            }
-            o.push(')');
+        Val::Color(c) => write_tuple(o, c),
+        Val::Float2(c) => write_tuple(o, c),
+        Val::Float4(c) => write_tuple(o, c),
+        Val::Asset(s) => {
+            let _ = write!(o, "@{s}@");
         }
         Val::Matrix(m) => {
             let rows: Vec<String> = m.iter().map(|r| format!("({}, {}, {}, {})", r[0], r[1], r[2], r[3])).collect();
@@ -317,6 +329,7 @@ pub type BoundMaterial = (String, Rc<crate::daz_material::Material>, f64);
 
 /// The scene's text layer and the bound materials (`.usda` output and
 /// tests; an export writes the binary layer with `write_layer`).
+#[cfg(test)]
 pub(super) fn write_usda(meshes: &[Mesh], lights: &[SceneLight]) -> (String, Vec<BoundMaterial>) {
     let mut w = UsdaWriter::new();
     let materials = write_layer(&mut w, meshes, lights).expect("text layer");
@@ -328,10 +341,25 @@ pub(super) fn write_usda(meshes: &[Mesh], lights: &[SceneLight]) -> (String, Vec
 /// materials. Returns the bound materials by prim name (`/Scene/Materials/…`)
 /// — Octane names its material inputs after them.
 pub(super) fn write_layer<M: std::borrow::Borrow<Mesh>>(sink: &mut dyn LayerSink, meshes: impl IntoIterator<Item = M>, lights: &[SceneLight]) -> Result<Vec<BoundMaterial>> {
+    write_layer_with(sink, meshes, lights, None)
+}
+
+/// What a viewing export (`.usdz`) puts on its materials: given the bound
+/// materials once the meshes are written (and which of them strand hair
+/// wears), each one's preview surface with its maps
+/// (`material::preview_materials`).
+pub(super) type PreviewSurfaces<'a> = &'a mut dyn FnMut(&[BoundMaterial], &[bool]) -> Vec<crate::material::PreviewMaterial>;
+
+/// `write_layer`, the materials' preview surfaces from `preview` when
+/// given (the `.usdz`), else the constant ones (the `.orbx`, whose
+/// materials Octane's inputs override: its layer stays as it was).
+pub(super) fn write_layer_with<M: std::borrow::Borrow<Mesh>>(sink: &mut dyn LayerSink, meshes: impl IntoIterator<Item = M>, lights: &[SceneLight], preview: Option<PreviewSurfaces>) -> Result<Vec<BoundMaterial>> {
     sink.begin_prim("Xform", "Scene", &PrimMeta { kind: Some("assembly"), ..Default::default() })?;
     let mut taken = HashSet::new();
     let mut material_names = HashSet::new();
     let mut materials: Vec<BoundMaterial> = Vec::new();
+    // Which of them strands wear (curves, no UVs).
+    let mut strands: Vec<bool> = Vec::new();
     const BINDING: &[&str] = &["MaterialBindingAPI"];
     for m in meshes {
         let m: &Mesh = m.borrow();
@@ -343,6 +371,8 @@ pub(super) fn write_layer<M: std::borrow::Borrow<Mesh>>(sink: &mut dyn LayerSink
             let material = m.materials.first().cloned().flatten().map(|mat| {
                 let name = unique_name(&mut material_names, &m.name);
                 materials.push((name.clone(), mat, 0.0));
+                strands.resize(materials.len(), false);
+                strands[materials.len() - 1] = true;
                 name
             });
             let meta = PrimMeta { display_name: Some(&m.label), api_schemas: if material.is_some() { BINDING } else { &[] }, ..Default::default() };
@@ -366,8 +396,18 @@ pub(super) fn write_layer<M: std::borrow::Borrow<Mesh>>(sink: &mut dyn LayerSink
     write_lights(sink, lights)?;
     if !materials.is_empty() {
         sink.begin_prim("Scope", "Materials", &PrimMeta::default())?;
-        for (name, mat, _) in &materials {
-            write_preview_material(sink, name, mat)?;
+        match preview {
+            Some(f) => {
+                strands.resize(materials.len(), false);
+                for ((name, _, _), p) in materials.iter().zip(f(&materials, &strands)) {
+                    write_textured_material(sink, name, &p)?;
+                }
+            }
+            None => {
+                for (name, mat, _) in &materials {
+                    write_preview_material(sink, name, mat)?;
+                }
+            }
         }
         sink.end_prim()?;
     }
@@ -589,5 +629,99 @@ pub(super) fn write_preview_material(sink: &mut dyn LayerSink, name: &str, mat: 
     sink.attr(Attr::new("inputs:opacity", "float", float(mat.opacity())))?;
     sink.attr(Attr::new("outputs:surface", "token", Val::None))?;
     sink.end_prim()?;
+    sink.end_prim()
+}
+
+/// A `UsdPreviewSurface` with its maps (the `.usdz`, #199): one
+/// `UsdPrimvarReader_float2` on `st`, a `UsdTransform2d` per placement
+/// other than the identity, a `UsdUVTexture` per map.
+pub(super) fn write_textured_material(sink: &mut dyn LayerSink, name: &str, p: &crate::material::PreviewMaterial) -> Result<()> {
+    let root = format!("/Scene/Materials/{name}");
+    sink.begin_prim("Material", name, &PrimMeta::default())?;
+    sink.attr(Attr::new("outputs:surface", "token", Val::None).connect(&format!("{root}/Surface.outputs:surface")))?;
+    let num = |x: f32| Num::Trim(x as f64, 4);
+    let float = |x: f32| Val::Float(num(x.clamp(0.0, 1.0)));
+    let colour = |c: [f32; 3]| Val::Color(c.map(|v| num(v.max(0.0))));
+    // (USD input, its type, the texture prim's name, the map).
+    let inputs: [(&str, &str, &str, Option<&crate::material::PreviewMap>); 7] = [
+        ("diffuseColor", "color3f", "DiffuseTexture", p.diffuse_map.as_ref()),
+        ("roughness", "float", "RoughnessTexture", p.roughness_map.as_ref()),
+        ("metallic", "float", "MetallicTexture", p.metallic_map.as_ref()),
+        ("opacity", "float", "OpacityTexture", p.opacity_map.as_ref()),
+        ("normal", "normal3f", "NormalTexture", p.normal_map.as_ref()),
+        ("emissiveColor", "color3f", "EmissiveTexture", p.emissive_map.as_ref()),
+        ("occlusion", "float", "OcclusionTexture", p.occlusion_map.as_ref()),
+    ];
+    sink.begin_prim("Shader", "Surface", &PrimMeta::default())?;
+    sink.attr(Attr::new("info:id", "token", Val::Token("UsdPreviewSurface")).uniform())?;
+    for (input, ty, prim, map) in &inputs {
+        let attr = format!("inputs:{input}");
+        if let Some(m) = map {
+            let target = format!("{root}/{prim}.outputs:{}", m.output);
+            sink.attr(Attr::new(&attr, ty, Val::None).connect(&target))?;
+            continue;
+        }
+        match *input {
+            "diffuseColor" => sink.attr(Attr::new(&attr, ty, colour(p.diffuse)))?,
+            "roughness" => sink.attr(Attr::new(&attr, ty, float(p.roughness)))?,
+            "metallic" => sink.attr(Attr::new(&attr, ty, float(p.metallic)))?,
+            "opacity" => sink.attr(Attr::new(&attr, ty, float(p.opacity)))?,
+            "emissiveColor" if p.emissive != [0.0; 3] => sink.attr(Attr::new(&attr, ty, colour(p.emissive)))?,
+            _ => {}
+        }
+    }
+    if p.opacity_threshold > 0.0 {
+        sink.attr(Attr::new("inputs:opacityThreshold", "float", float(p.opacity_threshold)))?;
+    }
+    sink.attr(Attr::new("outputs:surface", "token", Val::None))?;
+    sink.end_prim()?;
+    if inputs.iter().any(|i| i.3.is_some()) {
+        sink.begin_prim("Shader", "TexCoords", &PrimMeta::default())?;
+        sink.attr(Attr::new("info:id", "token", Val::Token("UsdPrimvarReader_float2")).uniform())?;
+        sink.attr(Attr::new("inputs:varname", "string", Val::Str("st")))?;
+        sink.attr(Attr::new("outputs:result", "float2", Val::None))?;
+        sink.end_prim()?;
+    }
+    // One transform per distinct placement, shared by the maps it places.
+    let mut placements: Vec<([f32; 2], [f32; 2])> = Vec::new();
+    for (_, _, _, map) in &inputs {
+        if let Some(pl) = map.and_then(|m| m.placement) {
+            if !placements.contains(&pl) {
+                placements.push(pl);
+            }
+        }
+    }
+    for (k, (scale, shift)) in placements.iter().enumerate() {
+        sink.begin_prim("Shader", &format!("Placement{k}"), &PrimMeta::default())?;
+        sink.attr(Attr::new("info:id", "token", Val::Token("UsdTransform2d")).uniform())?;
+        sink.attr(Attr::new("inputs:in", "float2", Val::None).connect(&format!("{root}/TexCoords.outputs:result")))?;
+        sink.attr(Attr::new("inputs:scale", "float2", Val::Float2(scale.map(|v| Num::Trim(v as f64, 6)))))?;
+        sink.attr(Attr::new("inputs:translation", "float2", Val::Float2(shift.map(|v| Num::Trim(v as f64, 6)))))?;
+        sink.attr(Attr::new("outputs:result", "float2", Val::None))?;
+        sink.end_prim()?;
+    }
+    for (_, _, prim, map) in &inputs {
+        let Some(m) = map else { continue };
+        sink.begin_prim("Shader", prim, &PrimMeta::default())?;
+        sink.attr(Attr::new("info:id", "token", Val::Token("UsdUVTexture")).uniform())?;
+        sink.attr(Attr::new("inputs:file", "asset", Val::Asset(&m.asset)))?;
+        let st = match m.placement.and_then(|pl| placements.iter().position(|q| *q == pl)) {
+            Some(k) => format!("{root}/Placement{k}.outputs:result"),
+            None => format!("{root}/TexCoords.outputs:result"),
+        };
+        sink.attr(Attr::new("inputs:st", "float2", Val::None).connect(&st))?;
+        sink.attr(Attr::new("inputs:wrapS", "token", Val::Token("repeat")))?;
+        sink.attr(Attr::new("inputs:wrapT", "token", Val::Token("repeat")))?;
+        sink.attr(Attr::new("inputs:sourceColorSpace", "token", Val::Token(if m.srgb { "sRGB" } else { "raw" })))?;
+        if m.scale != [1.0; 4] {
+            sink.attr(Attr::new("inputs:scale", "float4", Val::Float4(m.scale.map(|v| num(v)))))?;
+        }
+        if m.bias != [0.0; 4] {
+            sink.attr(Attr::new("inputs:bias", "float4", Val::Float4(m.bias.map(|v| num(v)))))?;
+        }
+        let ty = if m.output == "rgb" { "float3" } else { "float" };
+        sink.attr(Attr::new(&format!("outputs:{}", m.output), ty, Val::None))?;
+        sink.end_prim()?;
+    }
     sink.end_prim()
 }
