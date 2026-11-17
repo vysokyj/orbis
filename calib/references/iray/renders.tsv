@@ -84,6 +84,9 @@ Calib-Furnace-MdlTransmit	5000	0	Iray Server (Boost for Daz)	2026-11-13 23:52		o
 Calib-Furnace-MdlVersion	5000	0	Iray Server (Boost for Daz)	2026-11-13 23:49		on@8
 Calib-Furnace-Metal	5000	0	Iray Server (Boost for Daz)	2026-11-10 19:12	60	on@8
 Calib-Furnace-MetalBump	5000	0	Iray Server (Boost for Daz)	2026-11-10 22:48		on@8
+Calib-Furnace-RefrVol-Chroma	5000	0	Iray Server (headless submit)	2026-11-17 02:08	527	on@8
+Calib-Furnace-RefrVol-Grey	5000	0	Iray Server (headless submit)	2026-11-17 02:12	271	on@8
+Calib-Furnace-RefrVol-SSSColor	5000	0	Iray Server (headless submit)	2026-11-17 02:19	387	on@8
 Calib-Furnace-Resin	5000	0	Iray Server (Boost for Daz)	2026-11-11 02:04	82	on@8
 Calib-Furnace-Resin2	5000	0	Iray Server (Boost for Daz)	2026-11-11 03:28	72	on@8
 Calib-Furnace-Resin3	5000	0	Iray Server (Boost for Daz)	2026-11-11 09:40	58	on@8
@@ -160,8 +163,10 @@ Calib-L-Opt-Decay1	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:10	110	on@8
 Calib-L-Opt-EmitterOff	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:12	110	on@8
 Calib-L-Opt-IllumDiffuse	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:14	112	on@8
 Calib-L-Opt-IllumSpecular	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:16	110	on@8
+Calib-L-Opt-Rect-Dome	5000	0	Iray Server (headless submit)	2026-11-17 02:20	10	on@8
 Calib-L-Opt-Rect-Facing	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:09	104	on@8
 Calib-L-Opt-Rect-Facing-EmitterOff	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:10	103	on@8
+Calib-L-Opt-Rect-Portal	5000	0	Iray Server (headless submit)	2026-11-17 02:20	10	on@8
 Calib-L-Opt-ShadowColor	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:18	110	on@8
 Calib-L-Opt-ShadowInt0	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:20	110	on@8
 Calib-L-Opt-ShadowInt05	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:22	110	on@8
@@ -195,11 +200,13 @@ Calib-Lens-Brown	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:14	105	on@8
 Calib-Lens-Cylindrical	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:17	60	on@8
 Calib-Lens-Equidistant	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:15	69	on@8
 Calib-Lens-InvPoly5	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:12	103	on@8
+Calib-Lens-Mi-PTLens	5000	0	Iray Server (headless submit)	2026-11-17 02:26	356	on@8
 Calib-Lens-Poly3	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:10	79	on@8
 Calib-Lens-Shift	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:00	106	on@8
 Calib-Lens-Spherical	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:16	49	on@8
 Calib-Lens-Stereo	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:01	41	on@8
 Calib-Lens-Thick	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:09	120	on@8
+Calib-Map-Audit	5000	0	Iray Server (headless submit)	2026-11-17 02:32	356	on@8
 Calib-Map-Effect	5000	0	Iray Server (Boost for Daz)	2026-10-31 19:42	120	on@8
 Calib-Map-Metal	5000	0	Iray Server (Boost for Daz)	2026-10-31 19:02	123	on@8
 Calib-Map-Misc	5000	0	Iray Server (Boost for Daz)	2026-10-31 19:46	130	on@8
@@ -215,6 +222,7 @@ Calib-MetalRefr-TL	400	0	Iray Server (Boost for Daz)	2026-11-11 18:08	15	on@8
 Calib-MetalRefr-TL-Solid	400	0	Iray Server (Boost for Daz)	2026-11-14 00:43		on@8
 Calib-MetalRefr-g0	400	0	Iray Server (Boost for Daz)	2026-11-11 18:07	23	on@8
 Calib-MetalTL-Back	5000	0	Iray Server (Boost for Daz)	2026-11-14 00:04		on@8
+Calib-MetalTL-Back-Shown	5000	0	Iray Server (headless submit)	2026-11-17 02:38	361	on@8
 Calib-Mi-DzDefault	5000	0	Iray Server (Boost for Daz)	2026-11-01 01:06	106	on@8
 Calib-Mi-DzDefault2	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:30	120	on@8
 Calib-Mi-Emit	5000	0	Iray Server (Boost for Daz)	2026-11-01 00:59	111	on@8
@@ -231,10 +239,12 @@ Calib-NVIDIA	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:18	123	on@8
 Calib-NVIDIA-Brushed	5000	0	Iray Server (Boost for Daz)	2026-11-10 18:36	289	on@8
 Calib-NVIDIA-BumpG1	5000	0	Iray Server (Boost for Daz)	2026-11-10 02:42	144	on@8
 Calib-NVIDIA-CastFlat	5000	0	Iray Server (Boost for Daz)	2026-11-10 10:05	131	on@8
+Calib-NVIDIA-NoComp	5000	0	Iray Server (headless submit)	2026-11-17 02:44	331	on@8
 Calib-NVIDIA2	5000	0	Iray Server (Boost for Daz)	2026-11-11 00:19	133	on@8
 Calib-NVIDIA3	5000	0	Iray Server (Boost for Daz)	2026-11-05 20:43	133	on@8
 Calib-Overlay	5000	0	Iray Server (Boost for Daz)	2026-11-05 00:43	104	on@8
 Calib-PBRSkin	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:32	110	on@8
+Calib-PBRSkin-Colour8	5000	0	Iray Server (headless submit)	2026-11-17 02:52	431	on@8
 Calib-PBRSkin-Detail	5000	0	Iray Server (Boost for Daz)	2026-11-15 18:06	110	on@8
 Calib-PBRSkin-Detail-NoDN	5000	0	Iray Server (Boost for Daz)	2026-11-15 18:40	109	off
 Calib-PBRSkin-DetailLayers	5000	0	Iray Server (Boost for Daz)	2026-11-16 13:09	111	on@8
@@ -262,6 +272,9 @@ Calib-RS-Bloom10000	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:21	128	on@8
 Calib-RS-Bloom2000	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:19	130	on@8
 Calib-RS-Caustics	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:24	438	on@8
 Calib-RS-FireflyOff	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:26	129	on@8
+Calib-RS-Mi-Bloom	5000	0	Iray Server (headless submit)	2026-11-17 02:58	381	on@8
+Calib-RS-Mi-Lengths	5000	0	Iray Server (headless submit)	2026-11-17 03:05	361	on@8
+Calib-RS-Mi-Triangle	5000	0	Iray Server (headless submit)	2026-11-17 03:11	376	on@8
 Calib-RS-PathLen2	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:28	95	on@8
 Calib-RS-PathLen4	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:30	120	on@8
 Calib-RS-PixelBox	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:32	129	on@8
@@ -270,6 +283,7 @@ Calib-RS-Spectral	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:36	132	on@8
 Calib-RefrBack	5000	0	Iray Server (Boost for Daz)	2026-11-14 00:13		on@8
 Calib-RefrTL-BM1	400	0	Iray Server (Boost for Daz)	2026-11-16 13:11	14	on@8
 Calib-RefrTL-BM1-Solid	400	0	Iray Server (Boost for Daz)	2026-11-16 13:11	15	on@8
+Calib-RefrVol	5000	0	Iray Server (headless submit)	2026-11-17 03:21	567	on@8
 Calib-Resin	5000	0	Iray Server (Boost for Daz)	2026-11-11 01:32	141	on@8
 Calib-RoundCorners	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:25	123	on@8
 Calib-SSS	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:34	118	on@8
@@ -280,6 +294,14 @@ Calib-Smooth	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:27	103	on@8
 Calib-SpecMode	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:01	105	on@8
 Calib-Strand	5000	0	Iray Server (Boost for Daz)	2026-11-11 17:13	124	on@8
 Calib-Strand-Dome	2000	0	Iray Server (Boost for Daz)	2026-11-11 17:31	53	on@8
+Calib-Strand-Hair	5000	0	Iray Server (headless submit)	2026-11-17 03:26	296	on@8
+Calib-Strand-Hair-Back	5000	0	Iray Server (headless submit)	2026-11-17 03:32	296	on@8
+Calib-Strand-Hair-T3	5000	0	Iray Server (headless submit)	2026-11-17 03:39	421	on@8
+Calib-Strand-Hair-T3-Back	5000	0	Iray Server (headless submit)	2026-11-17 03:46	426	on@8
+Calib-Strand-HairW	5000	0	Iray Server (headless submit)	2026-11-17 03:52	286	on@8
+Calib-Strand-HairW-Dome	5000	0	Iray Server (headless submit)	2026-11-17 03:57	296	on@8
+Calib-Strand-HairW-T3	5000	0	Iray Server (headless submit)	2026-11-17 04:05	482	on@8
+Calib-Strand-HairW-T3-Dome	5000	0	Iray Server (headless submit)	2026-11-17 04:14	487	on@8
 Calib-Strand-Side	2000	0	Iray Server (Boost for Daz)	2026-11-11 17:32	55	on@8
 Calib-Strand-Sparse	2000	0	Iray Server (Boost for Daz)	2026-11-11 22:32		on@8
 Calib-Strand-Sparse-T2	2000	0	Iray Server (Boost for Daz)	2026-11-11 22:32		on@8
@@ -334,6 +356,7 @@ Calib-Tone-WhiteWarm	5000	0	Iray Server (Boost for Daz)	2026-11-02 21:51	105	on@
 Calib-TopCoat	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:33	106	on@8
 Calib-WeightedBack	5000	0	Iray Server (Boost for Daz)	2026-11-14 00:10		on@8
 Calib-WeightedRefr	5000	0	Iray Server (Boost for Daz)	2026-11-14 00:06		on@8
+Calib-WeightedRefr-Shown	5000	0	Iray Server (headless submit)	2026-11-17 04:20	381	on@8
 Calib-WeightedRefr-Thin	5000	0	Iray Server (Boost for Daz)	2026-11-14 00:09		on@8
 Calib-WeightedTL	5000	0	Iray Server (Boost for Daz)	2026-11-11 17:26	116	on@8
 Calib-WeightedTL-Solid	5000	0	Iray Server (Boost for Daz)	2026-11-13 23:56		on@8
