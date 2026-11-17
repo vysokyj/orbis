@@ -91,6 +91,19 @@ const FAITHFUL_ROUGH_LOBE: RoughLobe = RoughLobe::Std;
 const ENHANCED_LEGACY_METAL_RIM: bool = false;
 const FAITHFUL_LEGACY_METAL_RIM: bool = true;
 
+/// Enhanced's skin detail contrast s (`skin_detail_contrast`, #47, the
+/// user's call 2026-11-16): the baked skin colour × (D / D_low)^s, D / D_low
+/// the diffuse map's own detail, so pores and fine wrinkles get (1 + s) x
+/// their contrast. A look, not a match: denoised Enhanced already keeps
+/// Iray's texture within 0.5 - 0.9 x (pores softened by the denoiser on the
+/// random walk's grain, docs/notes/2026-11-12-skin-texture-contrast.md); it
+/// trades Iray's texture for crisper skin. 0.15 for light and dark skins
+/// alike is the starting point; the final s, and whether dark skins want
+/// their own, is open in #179 - judge it on Calib-Skin fronts and Demo-*
+/// figures, not spheres. Faithful keeps 0 (Iray's texture).
+const ENHANCED_SKIN_DETAIL_CONTRAST: f32 = 0.15;
+const FAITHFUL_SKIN_DETAIL_CONTRAST: f32 = 0.0;
+
 /// One of the four exports.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Variant {
@@ -159,6 +172,10 @@ pub struct Tuning {
     /// towards the rim as Iray's legacy lobe makes them (Look): Octane's
     /// flat metal, or Iray's rim as a Falloff Mix on the albedo.
     pub legacy_metal_rim: bool,
+    /// The skin's detail contrast s (Look, Skin; #47, #179): the baked
+    /// random-walk skin colour × (D / D_low)^s. Only the OpenPBR skin bake
+    /// reads it.
+    pub skin_detail_contrast: f32,
 }
 
 impl Variant {
@@ -188,6 +205,7 @@ impl Variant {
                 strand_hair: StrandHair::HairPile,
                 rough_lobe: ENHANCED_ROUGH_LOBE,
                 legacy_metal_rim: ENHANCED_LEGACY_METAL_RIM,
+                skin_detail_contrast: ENHANCED_SKIN_DETAIL_CONTRAST,
             },
             (Faithful, Final) => Tuning {
                 kernel: Kernel::PathTracing,
@@ -203,6 +221,7 @@ impl Variant {
                 strand_hair: StrandHair::MdlLayers,
                 rough_lobe: FAITHFUL_ROUGH_LOBE,
                 legacy_metal_rim: FAITHFUL_LEGACY_METAL_RIM,
+                skin_detail_contrast: FAITHFUL_SKIN_DETAIL_CONTRAST,
             },
             (Enhanced, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -218,6 +237,7 @@ impl Variant {
                 strand_hair: StrandHair::HairPile,
                 rough_lobe: ENHANCED_ROUGH_LOBE,
                 legacy_metal_rim: ENHANCED_LEGACY_METAL_RIM,
+                skin_detail_contrast: ENHANCED_SKIN_DETAIL_CONTRAST,
             },
             (Faithful, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -233,6 +253,7 @@ impl Variant {
                 strand_hair: StrandHair::HairPile,
                 rough_lobe: FAITHFUL_ROUGH_LOBE,
                 legacy_metal_rim: FAITHFUL_LEGACY_METAL_RIM,
+                skin_detail_contrast: FAITHFUL_SKIN_DETAIL_CONTRAST,
             },
         }
     }
@@ -249,6 +270,14 @@ mod tests {
         assert_eq!(Look::default(), Look::Enhanced);
         let t = Variant::new(Look::Enhanced, OctaneMode::Final).tuning();
         assert_eq!((t.kernel, t.skin, t.daylight_model), (Kernel::PathTracing, SkinShader::OpenPbr, 3));
+    }
+
+    #[test]
+    fn skin_detail_contrast_is_enhanced_only() {
+        for mode in [OctaneMode::Final, OctaneMode::Preview] {
+            assert_eq!(Variant::new(Look::Enhanced, mode).tuning().skin_detail_contrast, ENHANCED_SKIN_DETAIL_CONTRAST);
+            assert_eq!(Variant::new(Look::Faithful, mode).tuning().skin_detail_contrast, 0.0);
+        }
     }
 
     #[test]
