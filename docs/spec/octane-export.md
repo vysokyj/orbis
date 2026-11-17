@@ -1542,7 +1542,11 @@ leaves out, #15):
   coat) take `legacy_phong_pin` too, and the Iray model of the legacy
   lobe in `mdl_layer` traces `libbsdf`'s at r′ (`legacy_rough`), its loss
   table refitted on it (The legacy lobe's angle, below). Architectural's
-  glass keeps the √r pins it was swept on (#198). Octane
+  glass and the coating over it take it too (#198: r_t is read on Iray's
+  own legacy lobe; against the √r pins it had kept, Calib-ArchGlass /
+  Calib-NVIDIA3's rough glass draws the background through it closer to
+  Iray, band-passed detail correlation G4 / G5 / A7 0.94 / 0.96 / 0.93 →
+  0.97 / 0.98 / 0.97). Octane
   Faithful (STD) at the legacy pin, Calib-Point-ArchAniso v Iray: P2 (a 4)
   51 × 24 / 40 × 18 v 52 × 25 / 40 × 18 (was 57 × 26 / 45 × 20), P7 (a
   0.25) 25 × 49 / 19 × 38 v 25 × 48 / 19 × 38, P8 27 × 50 / 20 × 40 v 27
@@ -1578,8 +1582,7 @@ leaves out, #15):
   flat, Beckmann dims it to 0.84 – 0.87 at 0.9 R, and both draw the same
   sharp lobe (1.013 – 1.018 × Iray head-on, furnace alike). Nodes with a
   metal part keep Beckmann for sharp lobes. Exceptions:
-  architectural's glass keeps the pins its rule was swept on and its
-  anisotropy has its own α ratio (NVIDIA MDL examples), a saturated anisotropic metal lobe plain GGX (Anisotropy), the flakes
+  architectural's anisotropy has its own α ratio (NVIDIA MDL examples), a saturated anisotropic metal lobe plain GGX (Anisotropy), the flakes
   GGX energy preserving (their roughness stands for the flakes' normals).
 
   Why (#95; the 2026-10-31 GGX curve min(r + 1.85 r², √r) it replaces was
@@ -2972,8 +2975,9 @@ leaves out, #15):
     at **r_t = Iray's transmit roughness by refr_gloss: 0.72 / 0.60 /
     0.21 at 0 / 0.2 / 0.4 (linear between), 4.13 × architectural_gloss_to
     _rough(refr_gloss) above 0.4** (`arch_glass_rough`), and `ior` = Index of Refraction (refr_ior), under
-    the rough-glass rule (Beckmann at √r); the reflection on the coating
-    at √r of its own roughness and the reflection curve's IOR. k makes a
+    the rough-glass rule (Beckmann) at `legacy_phong_pin(r_t)`; the
+    reflection on the coating at the legacy pin of its own roughness and
+    the reflection curve's IOR (#198, below). k makes a
     closed sphere keep in Octane what it keeps in Iray in a white furnace:
     Iray = `libbsdf`'s layering — `custom_curve_layer` (Schlick's r0, r90,
     exponent; its base weight 1 − w · max(c(n·k1), c(|n·k2|)), no IOR) or,
@@ -2996,10 +3000,26 @@ leaves out, #15):
     the IOR) and Iray under `libbsdf` × τ (0.98 / 1.02 / 1.06): the
     legacy lobe's per-event loss met on `libbsdf`'s longer bent paths, not
     an IOR term (Calib-Furnace-MdlTir, #117) — now drawn per event with
-    its angle (`LEGACY_LOBE`, below; τ ≈ 1 on top); Octane = the coating at its IOR, the lobe Beckmann at
-    α r_t, Smith, physical layering. Reflectivity 0, refr_gloss 0.6 / 0.4
-    / 0.2 / 0: k 0.98 / 0.97 / 0.85 / 0.93 (Octane caps α at 1 too); 0.2
-    under reflectivity 0.6 0.85, with the Fresnel term 0.73. Why: the
+    its angle (`LEGACY_LOBE`, below; τ ≈ 1 on top); Octane = the coating at its IOR, the lobe Beckmann,
+    each at its legacy α (`legacy_phong_alpha`), Smith, physical layering.
+    Reflectivity 0, refr_gloss 0.6 / 0.4 / 0.2 / 0: k 0.99 / 0.98 / 0.88 /
+    0.84; 0.2 under reflectivity 0.6 0.87, with the Fresnel term 0.67.
+    The pins (#198): r_t is Iray's own `mdl 1.0` lobe's roughness (read
+    among its twins, #117), and that lobe is cosᵉ (#191), so Octane's
+    Beckmann takes `legacy_phong_pin(r_t)` (α 0.585 / 0.514 / 0.205 at
+    refr_gloss 0 / 0.2 / 0.4 where √r gave 0.72 / 0.60 / 0.21). Lit
+    (Calib-ArchGlass, Calib-NVIDIA3, enhanced-final 400 denoised), the
+    band-passed detail inside 0.85 R against Iray, √r → legacy pin:
+    σ 1.5 – 6 px correlation G4 0.941 → 0.966, G5 0.958 → 0.978, A7
+    0.934 → 0.968, detail G3 / G5 / A7 0.96 / 1.08 / 1.02 → 0.98 / 1.02 /
+    1.01; σ 3 – 12 G4 / G5 / G8 / A7 0.977 / 0.984 / 0.968 / 0.977 → 0.989
+    / 0.995 / 0.985 / 0.992. The furnace levels stay within Octane's
+    excess over its Smith model: disks G4 / G5 1.04 / 1.03 → 1.03 / 1.05,
+    H6 / H2 / H7 (IOR 1.2 / 1.5 / 2) 1.05 / 1.05 / 1.00 → 1.03 / 1.03 /
+    1.07 — the model's k now falls with the IOR (0.90 / 0.88 / 0.85) where
+    Octane at IOR 2 keeps more, its rough inside reflections (#185); G5's
+    rim 1.01 → 1.06 × Iray, its ring shape closer (rms 0.031 → 0.017),
+    G4's 0.005 → 0.016; thin walls unchanged. Why: the
     architectural lobe loses far more in Iray than `libbsdf`'s at the
     formula's roughness (refr_gloss 0.2: 0.614 v 0.99), and that isn't
     Iray's `simple_glossy_bsdf` (#116): the same df through DAZ's Uber

@@ -1032,10 +1032,6 @@ struct MdlDielectric {
     thin: bool,
     metallic: bool,
     opacity: f32,
-    /// Architectural's glass: its transmit lobe and the coating over it
-    /// at √r under Beckmann, the pins `arch_glass_rough` was swept on
-    /// (#21). Its reflection is the Phong lobe as everywhere (#156).
-    arch_glass_pins: bool,
 }
 
 /// Architectural's absorption (`refr_falloff_on`) as the MDL computes it
@@ -1145,7 +1141,6 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
         thin: false,
         metallic: false,
         opacity: 1.0,
-        arch_glass_pins: module == "architectural",
     };
     match module {
         // The bump map tints the gloss.
@@ -1279,10 +1274,10 @@ const ARCH_GLASS_ROUGH: f32 = 4.13;
 /// of weight `weight`, its reflection at `refl_rough`, over the transmit-
 /// only lobe at `refr` (`arch_glass_rough`) — with the lobe's own loss
 /// measured (`ARCH_GLASS_LOBE`). Octane: the coating at its IOR `coat_ior`
-/// and α `refl_rough`, the lobe Beckmann at α `refr`, Smith, physical
-/// layering. Reflectivity 0, refr_gloss 0.6 / 0.4 / 0.2 / 0: 0.98 / 0.97 /
-/// 0.85 / 0.93 (the lobe's α is capped at 1 in Octane too); 0.2 under
-/// reflectivity 0.6 0.85, with the Fresnel term 0.73 (the critical angle in
+/// and the lobe Beckmann, each at its `legacy_phong_alpha` (the pins the
+/// export writes, #198), Smith, physical layering. Reflectivity 0,
+/// refr_gloss 0.6 / 0.4 / 0.2 / 0: 0.99 / 0.98 / 0.88 / 0.84; 0.2 under
+/// reflectivity 0.6 0.87, with the Fresnel term 0.67 (the critical angle in
 /// `fresnel_layer`'s weights).
 #[allow(clippy::too_many_arguments)]
 fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, refl_rough: f32, coat_ior: f32, curve: Option<(f64, f64, f64)>, thin: bool, colour: [f32; 3]) -> crate::mdl_layer::Falloff {
@@ -1297,7 +1292,9 @@ fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, ref
         ior,
         thin,
     };
-    let octane = Stack { curve: Curve::Fresnel((coat_ior as f64).max(1.0001)), ..iray };
+    // Octane's lobes at the export's α (`legacy_phong_pin`², #198).
+    let alpha = |r: f32| legacy_phong_alpha(r) as f64;
+    let octane = Stack { curve: Curve::Fresnel((coat_ior as f64).max(1.0001)), coat_rough: alpha(refl_rough), base_rough: alpha(refr), ..iray };
     let lobe = if thin { &ARCH_GLASS_THIN_LOBE[..] } else { &ARCH_GLASS_LOBE[..] };
     crate::mdl_layer::transmission_falloff(&iray, &octane, crate::mdl_layer::interp(lobe, refr_gloss as f64), ARCH_GLASS_LOBE_IOR, colour)
 }
@@ -2603,18 +2600,13 @@ impl Ocs<'_> {
         // came out alike) but Iray's layer weights (`resin_lobe_albedo`,
         // #113). Porcelain's band-passed detail 0.75 → 0.88 × Iray,
         // correlation 0.93 → 0.99 (#95).
-        // Architectural's glass keeps the pins its roughness rule was swept
-        // on (`MdlDielectric::arch_glass_pins`; the derived pin there is
-        // #198); its reflection is the Phong lobe (#156). Every other lobe is the module's `mdl 1.0`
-        // Phong of exponent e (`legacy_phong_pin`): reflect-only (#184) and
-        // transmitting, resin's base and the coat over it (#191).
-        let pin = |r: f32| {
-            if m.arch_glass_pins && m.transmission.is_some() {
-                r.clamp(0.0, 1.0).sqrt()
-            } else {
-                legacy_phong_pin(r)
-            }
-        };
+        // Every lobe is the module's `mdl 1.0` Phong of exponent e
+        // (`legacy_phong_pin`): reflect-only (#184) and transmitting,
+        // resin's base and the coat over it (#191), architectural's glass
+        // and the coating over it (#198: its r_t is read on Iray's own
+        // legacy lobe, so the pin follows it; the √r pins it had kept are
+        // gone).
+        let pin = legacy_phong_pin;
         if let Some((u, v, rotation)) = m.aniso.filter(|_| m.transmission.is_none()) {
             // Octane's roughness the long axis, the anisotropy of the α's
             // (`mdl_anisotropy`, as the metals'): each axis at its Phong
@@ -8747,22 +8739,25 @@ mod tests {
         assert_eq!(pin(&x, "brdf"), GLASS_BRDF, "{x}");
         assert_eq!(pin(&x, "specular"), "0 0 0", "{x}");
         // Iray's glass roughness (0.60 at refr_gloss 0.2, #117), Beckmann
-        // at √r (the pin it was swept on); the transmission × what the furnace sphere
+        // at its legacy Phong pin (#198); the transmission × what the furnace sphere
         // keeps (reflectivity 0.6 by default, Schlick's curve, a mirror
         // reflection at its 0.2 → IOR 2.62).
         let rr = arch_glass_rough(0.2);
         assert!((rr - 0.60).abs() < 1e-6 && (arch_glass_rough(0.0) - 0.72).abs() < 1e-6 && (arch_glass_rough(0.4) - 0.21).abs() < 2e-3, "{rr}");
-        assert_eq!(pin(&x, "roughness"), num(rr.sqrt()), "{x}");
+        assert_eq!(pin(&x, "roughness"), num(legacy_phong_pin(rr)), "{x}");
         let f = arch_glass_albedo(rr, 0.2, 1.5, 0.6, 0.0, (1.0 + 0.2f32.sqrt()) / (1.0 - 0.2f32.sqrt()), Some((0.2, 1.0, 5.0)), false, [1.0; 3]);
         let k = f.k;
         assert!((0.8..0.95).contains(&k[0]) && f.grazing < 0.9, "{f:?}");
-        // The lobe's τ is solved at the IOR it was measured at (#148): both
-        // models lose alike with the IOR, so the factor barely moves (solved
+        // The lobe's τ is solved at the IOR it was measured at (#148), so
+        // the factor moves only with the two models' own IOR trend (solved
         // at the material's IOR it went 0.81 / 0.85 / 0.93 at IOR 1.2 / 1.5 /
-        // 2, Calib-Furnace-ArchGlass2 H6 / H2 / H7 0.89 / 1.05 / 1.32 × Iray;
-        // 0.903 / 0.905 / 0.908 on the cosᵉ lobe, #191).
+        // 2, Calib-Furnace-ArchGlass2 H6 / H2 / H7 0.89 / 1.05 / 1.32 × Iray).
+        // With Octane's lobe at the legacy pin (#198) 0.899 / 0.876 / 0.853:
+        // H6 / H2 / H7 1.03 / 1.03 / 1.07 × Iray (at √r, k flat at 0.90,
+        // 1.05 / 1.05 / 1.00) - Octane keeps more than its Smith model at
+        // IOR 2, where facets inside reflect totally (#185).
         let at = |ior: f32| arch_glass_albedo(rr, 0.2, ior, 0.0, 0.0, 1.5, None, false, [1.0; 3]).k[0];
-        assert!((at(1.2) - at(1.5)).abs() < 0.02 && (at(1.2) - at(2.0)).abs() < 0.03, "{} {} {}", at(1.2), at(1.5), at(2.0));
+        assert!((at(1.5) - 0.876).abs() < 0.01 && (0.0..0.07).contains(&(at(1.2) - at(2.0))), "{} {} {}", at(1.2), at(1.5), at(2.0));
         // Head-on k (texture1), × the grazing ratio at 90° (texture2).
         assert_eq!(pin(&x, "texture1"), format!("{} {} {}", num(k[0]), num(k[1]), num(k[2])), "{x}");
         assert_eq!(pin(&x, "texture2"), format!("{} {} {}", num(k[0] * f.grazing), num(k[1] * f.grazing), num(k[2] * f.grazing)), "{x}");
