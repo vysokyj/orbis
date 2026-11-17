@@ -1,0 +1,52 @@
+// ORBIS calibration (#161): a figure wearing one strand hair, built headless
+// from Calib-L-Distant-45 (calib/scenes) by scripts/dev/daz-script.sh with
+// DONE_FILE=<out>.done. Arguments: base .duf, the figure's .duf, the hair's
+// wearable .duf, out .duf, "--", then the content directories. The cubes,
+// the sphere and the distant light go (the scene is lit by its dome alone,
+// as the Morgan Hair scenes are); the figure comes in at the origin and the
+// hair is loaded with it selected, so it fits. Free DAZ content (Genesis 9,
+// the G9 Base dForce Pixie Hair) for the scenes in git; a store hair only
+// for a local, private scene. scripts/dev/make-hair-set-scenes.py aims the
+// camera, sets the exposure and writes the variants.
+// ECMAScript 3, ASCII only.
+(function () {
+    var a = App.scriptArgs;
+    var sBase = a[0], sFigure = a[1], sHair = a[2], sOut = a[3];
+    var oContent = App.getContentMgr();
+    for (var i = 5; i < a.length; i++) oContent.addContentDirectory(a[i], false);
+    var sLog = "";
+    function done(s) {
+        var f = new DzFile(sOut + ".done");
+        f.open(DzFile.WriteOnly | DzFile.Truncate);
+        f.write(s + "\n" + sLog);
+        f.close();
+        App.delayedExit();
+    }
+    if (!oContent.openFile(sBase, false)) { done("base not opened"); return; }
+    var aGone = [];
+    for (var k = 0; k < Scene.getNumNodes(); k++) {
+        var o = Scene.getNode(k);
+        var sLabel = o.getLabel();
+        if (sLabel.indexOf("Cube") == 0 || sLabel == "Sphere" || o.inherits("DzDistantLight")) aGone.push(o);
+    }
+    for (var g = 0; g < aGone.length; g++) Scene.removeNode(aGone[g]);
+    sLog += "removed " + aGone.length + "\n";
+    Scene.selectAllNodes(false);
+    sLog += "figure " + oContent.openFile(sFigure, true) + "\n";
+    var oFigure = null;
+    for (var m = 0; m < Scene.getNumNodes(); m++) {
+        var p = Scene.getNode(m);
+        if (p.inherits("DzFigure") && !oFigure) oFigure = p;
+    }
+    if (!oFigure) { done("figure not loaded"); return; }
+    sLog += "  " + oFigure.getLabel() + "\n";
+    Scene.selectAllNodes(false);
+    oFigure.select(true);
+    Scene.setPrimarySelection(oFigure);
+    sLog += "hair " + oContent.openFile(sHair, true) + "\n";
+    for (var n = 0; n < Scene.getNumNodes(); n++) {
+        var q = Scene.getNode(n);
+        if (q.inherits("DzFigure") && q != oFigure) sLog += "  " + q.getLabel() + "\n";
+    }
+    done("saved " + Scene.saveScene(sOut));
+})();
