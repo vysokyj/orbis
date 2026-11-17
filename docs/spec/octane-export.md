@@ -84,7 +84,7 @@ field of `Tuning`, set per variant in one table (`Variant::tuning`,
 | `strand_hair` | Hair material, pile albedo | the MDL's layers | Hair material, pile albedo | Hair material, pile albedo |
 | `rough_lobe` | GGX energy preserving | STD | GGX energy preserving | STD |
 | `legacy_metal_rim` | no (flat) | yes (Falloff Mix) | no | yes |
-| `skin_detail_contrast` | 0.15 | 0 | 0.15 (no skin bake) | 0 |
+| `skin_detail_contrast` | 0.3 | 0 | 0.3 (no skin bake) | 0 |
 | `clip_below_ground` | no (seen through the catcher) | yes (cut at Iray's ground) | no | yes |
 
 Calibrated on the same 17 scenes in each variant (lights, Sun-Sky at
@@ -3527,15 +3527,18 @@ base skin too since #83 (above, docs/notes/2026-11-08-skin-constants.md).
   dark brows into blue-grey smudges; Universal at w 0 kept them dark.
   (Calib-SSS's spheres at `subsurface` 0.5 rendering 0.67 – 0.73 of the
   colour was the S² of the split above: 0.5 + 0.25.)
-- **Detail contrast** (Enhanced, `skin_detail_contrast` s = 0.15, #47):
+- **Detail contrast** (Enhanced, `skin_detail_contrast` s = 0.3, #47, #179):
   the baked colour, both parts of the split, × (D / D_low)^s per channel
   — the diffuse map's own detail, the ratio the mask reads (the mask
   itself unchanged) — so every texture band's contrast × (1 + s) on the
   albedo. A look, not a match (the user's call, 2026-11-16): denoised
   Enhanced keeps 0.5 – 0.9 × Iray's pores at the default samples, the
   denoiser softening the walk's grain (docs/notes/2026-11-12-skin-texture-contrast.md);
-  Faithful (0) keeps Iray's texture. The final s, and whether dark skins
-  want their own, is open in #179.
+  Faithful (0) keeps Iray's texture. s = 0.3 for every skin (the user's
+  call, 2026-11-17, #179, on face close-ups: it reads more natural); its
+  price, taken knowingly: dark skins turn a touch ashier, and at 400
+  samples the denoiser stops smoothing at about this s, so the texture
+  comes in with the walk's grain (docs/notes/2026-11-17-skin-detail-closeup.md).
 - The low-pass (D_low, Tc_low) stays on the **UV islands**
   (`fill_padding`, #86): a map whose padding is a flat colour (four
   equal corners, any colour) gets it replaced by the islands' mean before

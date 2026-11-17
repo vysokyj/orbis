@@ -6,6 +6,7 @@ Then, depending on what you need:
 | Document | What it covers | Read it when |
 |---|---|---|
 | [spec/octane-export.md](spec/octane-export.md) | **Normative.** What the export does with every part of a DAZ scene, and why — with the calibration numbers behind each rule. | You change the export, or wonder why something looks the way it does in Octane. |
+| [tuning.md](tuning.md) | The judgment calls (look, not match): each choice, the options weighed, why, and whether it should become an export option. | You revisit a look decision or wonder what could be a user setting. |
 | [calibration.md](calibration.md) | How the export is checked against Iray: the principle, the calibration scenes and what each measures, the scripts, the references. | You calibrate a feature, add a test scene or re-check a rule. |
 | [notes/](notes/README.md) | Dated lab notebook of calibration sessions: every attempt, the numbers, dead ends, process lessons. Not normative. | You re-open a rule or wonder how it was found. |
 | [daz/iray.md](daz/iray.md) | Iray in DAZ Studio: the Uber material's channels, lights, environment, tone mapping. | You need to know what a DAZ channel means. |

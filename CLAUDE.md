@@ -155,7 +155,9 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   tuning on real scenes (Calib-Skin fronts, Demo-*), not only on spheres; any
   decision may be revisited. A question the user answers "both, by
   parameter" becomes a `Tuning` field split by Look (Enhanced = Octane's more
-  plausible take, Faithful = Iray's), not a new switch.
+  plausible take, Faithful = Iray's), not a new switch. Each decided call
+  also gets a row in `docs/tuning.md` (options weighed, why, whether it
+  should become an export option; the user's overview, 2026-11-17).
 - **Language**: the user writes Czech (informal); everything in the repo is
   English.
 

@@ -97,11 +97,16 @@ const FAITHFUL_LEGACY_METAL_RIM: bool = true;
 /// their contrast. A look, not a match: denoised Enhanced already keeps
 /// Iray's texture within 0.5 - 0.9 x (pores softened by the denoiser on the
 /// random walk's grain, docs/notes/2026-11-12-skin-texture-contrast.md); it
-/// trades Iray's texture for crisper skin. 0.15 for light and dark skins
-/// alike is the starting point; the final s, and whether dark skins want
-/// their own, is open in #179 - judge it on Calib-Skin fronts and Demo-*
-/// figures, not spheres. Faithful keeps 0 (Iray's texture).
-const ENHANCED_SKIN_DETAIL_CONTRAST: f32 = 0.15;
+/// trades Iray's texture for crisper skin. 0.3 for light and dark skins
+/// alike (the user's call 2026-11-17, #179, on face close-ups of Victoria,
+/// Monique and Twosret at s 0 / 0.15 / 0.3 / 0.5): it reads more natural,
+/// the price taken knowingly - a dark skin turns a touch ashier, and at
+/// low sample counts (400) the denoiser stops smoothing at about this s, so
+/// the texture jumps in with the walk's grain. Rejected: 0.15 (safe, but
+/// the texture mostly vanishes at 400 samples), a split by skin tone (one
+/// more rule). A candidate for an export option (docs/tuning.md). Faithful
+/// keeps 0 (Iray's texture).
+const ENHANCED_SKIN_DETAIL_CONTRAST: f32 = 0.3;
 const FAITHFUL_SKIN_DETAIL_CONTRAST: f32 = 0.0;
 
 /// Geometry below Iray's ground per Look (`clip_below_ground`, #69, the
