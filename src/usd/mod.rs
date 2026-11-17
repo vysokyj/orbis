@@ -26,6 +26,7 @@ use crate::dson::{decompress_scene, percent_decode};
 mod camera;
 mod dump;
 mod environment;
+mod ground_clip;
 mod instance;
 mod lens;
 mod library;
@@ -192,10 +193,15 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
     // What needs the meshes, before they go into the layer one by one: a
     // big scene's (60 M points) held beside a text copy of itself peaked
     // at 23 GB.
-    let uv = uv_scales(&meshes);
-    let uv_covers = uv_coverages(&meshes);
     let mut environment = scene_environment(&mut lib);
     let ground_y = environment.as_ref().map_or(0.0, |e| ground_height(e, &meshes));
+    // The shadow-catching ground stands in for Iray's ground under an HDRI
+    // backdrop; without a map there is nothing for its shadow to sit on.
+    let ground = environment.as_ref().filter(|e| e.map.is_some() && !opts.no_ground).and_then(|e| Some((e.ground_shadow?, ground_y)));
+    // Faithful: Iray's opaque ground hides what lies below it (#69).
+    let meshes = if ground.is_some() && opts.tuning().clip_below_ground { ground_clip::clip_below_ground(meshes, ground_y as f32) } else { meshes };
+    let uv = uv_scales(&meshes);
+    let uv_covers = uv_coverages(&meshes);
     let name = scene.file_stem().and_then(|s| s.to_str()).unwrap_or("scene");
     let mut scaled = 0;
     write_atomically(out, |f| {
@@ -216,9 +222,6 @@ pub fn export_scene_orbx(scene: &Path, dump: &Path, out: &Path, opts: &ExportOpt
         let env_power = environment.as_ref().map(|e| if e.scene_only { 0.0 } else { e.intensity }).unwrap_or(1.0);
         let emitters = light_emitters(&lights, &mut |p| textures.ies(&lib.dirs, p));
         let light_inputs = crate::material::light_inputs(&emitters, 180_000);
-        // The shadow-catching ground stands in for Iray's ground under an HDRI
-        // backdrop; without a map there is nothing for its shadow to sit on.
-        let ground = environment.as_ref().filter(|e| e.map.is_some() && !opts.no_ground).and_then(|e| Some((e.ground_shadow?, ground_y)));
         let layers: Vec<(String, &str, bool)> = camera_shown_lights(&lights).into_iter().map(|p| (p, "camera_visibility", true)).collect();
         let iray_ground = ground_y;
         // VDB volumes, each file packed once.

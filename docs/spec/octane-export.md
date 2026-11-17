@@ -54,7 +54,9 @@ Iray's flat 1 − R W; Enhanced keeps Beckmann; same field, #196), the
 Uber skin's dual lobe on Specular Layers at Iray's Phong shape instead of
 OpenPBR's GGX lobes (Enhanced keeps those; same field, #175),
 NVIDIA's textured metals falling to the rim as Iray's legacy lobe makes
-them (Enhanced keeps them flat; `legacy_metal_rim`, #112).
+them (Enhanced keeps them flat; `legacy_metal_rim`, #112), and geometry
+below Iray's ground cut away as Iray's opaque ground hides it (Enhanced
+leaves it visible through the shadow catcher; `clip_below_ground`, #69).
 **Denoise** (`--no-denoise` off; the dialog's Denoise) is separate: Octane's
 AI denoiser on the Final render — it changes no light or colour, it may
 soften fine detail. So is the sample count (`--samples N`, Render modes).
@@ -83,6 +85,7 @@ field of `Tuning`, set per variant in one table (`Variant::tuning`,
 | `rough_lobe` | GGX energy preserving | STD | GGX energy preserving | STD |
 | `legacy_metal_rim` | no (flat) | yes (Falloff Mix) | no | yes |
 | `skin_detail_contrast` | 0.15 | 0 | 0.15 (no skin bake) | 0 |
+| `clip_below_ground` | no (seen through the catcher) | yes (cut at Iray's ground) | no | yes |
 
 Calibrated on the same 17 scenes in each variant (lights, Sun-Sky at
 18:00, noon and steered, HDRI, tone, PBRSkin, Glossy, SSS, Glass, Mixing,
@@ -4305,12 +4308,25 @@ the sky's fill (Octane2 umbra 11 % of lit sand). The scene detail's **Ground
 shadow** checkbox (`no_ground`) leaves it out — the plane can't know about
 holes in a floor.
 
-**Known difference** (#69): Iray's ground is a matte object, opaque — the
-camera sees the environment in the ray's direction there, never what lies
-below it (Calib-L-Mi-Dome-turned: a Manual ground at 12 cm hides the floor
-and the sphere's lower half). Octane's shadow catcher is see-through, so
-geometry under a Manual ground shows. With Ground Position Mode Auto
-(DAZ's default) nothing is below the ground and the two agree.
+**Geometry below the ground** (#69, split by Look, `clip_below_ground`):
+Iray's ground is a matte object, opaque — the camera sees the environment
+in the ray's direction there, never what lies below it, and secondary rays
+don't reach it either (Iray manual 12.3, 4.4; Calib-L-Mi-Dome-turned: a
+Manual ground at 12 cm hides the floor and the sphere's lower half;
+Calib-Env-Mi-GroundAuto-Instance: an instance copy down to −60 cm under
+the Auto ground at −0.001 cm is gone). Octane's shadow catcher is
+see-through. **Faithful** cuts the geometry at Iray's ground height
+wherever the shadow catcher is written (`usd::ground_clip`): faces across
+it clipped (points, UVs and normals interpolated on the cut edges, shared
+by the faces on either side, so the mesh stays closed), strands split
+where they cross it, meshes wholly below dropped; instanced meshes per
+copy (above: still a copy; below: dropped; across: baked into a mesh of its
+own and cut). Through the catcher the camera then sees the environment, as
+in Iray. **Enhanced** keeps the geometry (a documented difference, Octane
+over Iray). Either way a camera under the ground differs (Iray shows the
+ground from below, Ground Visible from Below); spot / point lights and
+volumes below it are not cut. With Ground Position Mode Auto (DAZ's
+default) only instance copies can be below the ground.
 
 ## Textures
 

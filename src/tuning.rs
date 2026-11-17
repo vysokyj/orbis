@@ -104,6 +104,17 @@ const FAITHFUL_LEGACY_METAL_RIM: bool = true;
 const ENHANCED_SKIN_DETAIL_CONTRAST: f32 = 0.15;
 const FAITHFUL_SKIN_DETAIL_CONTRAST: f32 = 0.0;
 
+/// Geometry below Iray's ground per Look (`clip_below_ground`, #69, the
+/// user's call 2026-11-16). A contested choice: Iray's ground is a matte
+/// object, opaque - under a Manual ground above the floor (or an instance
+/// copy under an Auto one) the camera sees the environment where the
+/// geometry below would be. Octane's shadow catcher is see-through. Faithful
+/// cuts the geometry at the ground's height (Iray's look; the cut parts are
+/// gone for reflections and light too, as Iray's ground hides them); Enhanced
+/// leaves it whole and visible through the catcher (a documented difference).
+const ENHANCED_CLIP_BELOW_GROUND: bool = false;
+const FAITHFUL_CLIP_BELOW_GROUND: bool = true;
+
 /// One of the four exports.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Variant {
@@ -176,6 +187,10 @@ pub struct Tuning {
     /// random-walk skin colour × (D / D_low)^s. Only the OpenPBR skin bake
     /// reads it.
     pub skin_detail_contrast: f32,
+    /// Geometry below Iray's ground (Draw Ground under an HDRI) cut away
+    /// (Environment, Ground shadow; #69): Iray's matte ground hides it,
+    /// Octane's shadow catcher doesn't.
+    pub clip_below_ground: bool,
 }
 
 impl Variant {
@@ -206,6 +221,7 @@ impl Variant {
                 rough_lobe: ENHANCED_ROUGH_LOBE,
                 legacy_metal_rim: ENHANCED_LEGACY_METAL_RIM,
                 skin_detail_contrast: ENHANCED_SKIN_DETAIL_CONTRAST,
+                clip_below_ground: ENHANCED_CLIP_BELOW_GROUND,
             },
             (Faithful, Final) => Tuning {
                 kernel: Kernel::PathTracing,
@@ -222,6 +238,7 @@ impl Variant {
                 rough_lobe: FAITHFUL_ROUGH_LOBE,
                 legacy_metal_rim: FAITHFUL_LEGACY_METAL_RIM,
                 skin_detail_contrast: FAITHFUL_SKIN_DETAIL_CONTRAST,
+                clip_below_ground: FAITHFUL_CLIP_BELOW_GROUND,
             },
             (Enhanced, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -238,6 +255,7 @@ impl Variant {
                 rough_lobe: ENHANCED_ROUGH_LOBE,
                 legacy_metal_rim: ENHANCED_LEGACY_METAL_RIM,
                 skin_detail_contrast: ENHANCED_SKIN_DETAIL_CONTRAST,
+                clip_below_ground: ENHANCED_CLIP_BELOW_GROUND,
             },
             (Faithful, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -254,6 +272,7 @@ impl Variant {
                 rough_lobe: FAITHFUL_ROUGH_LOBE,
                 legacy_metal_rim: FAITHFUL_LEGACY_METAL_RIM,
                 skin_detail_contrast: FAITHFUL_SKIN_DETAIL_CONTRAST,
+                clip_below_ground: FAITHFUL_CLIP_BELOW_GROUND,
             },
         }
     }
@@ -277,6 +296,14 @@ mod tests {
         for mode in [OctaneMode::Final, OctaneMode::Preview] {
             assert_eq!(Variant::new(Look::Enhanced, mode).tuning().skin_detail_contrast, ENHANCED_SKIN_DETAIL_CONTRAST);
             assert_eq!(Variant::new(Look::Faithful, mode).tuning().skin_detail_contrast, 0.0);
+        }
+    }
+
+    #[test]
+    fn only_faithful_clips_below_the_ground() {
+        for mode in [OctaneMode::Final, OctaneMode::Preview] {
+            assert!(!Variant::new(Look::Enhanced, mode).tuning().clip_below_ground);
+            assert!(Variant::new(Look::Faithful, mode).tuning().clip_below_ground);
         }
     }
 
