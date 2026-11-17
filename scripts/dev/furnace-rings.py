@@ -14,7 +14,7 @@ renders against the `libbsdf` and Octane (Smith) sphere models.
                          [--rough R] [--ior N] [--thin] [--weight W]
                          [--curve fresnel|schlick] [--coat-rough R]
                          [--coat-ior N] [--r0 R0] [--tau T] [--loss EXPR]
-                         [--paths N]
+                         [--smith-g sep|corr|none] [--paths N]
       The same rings for a closed (or thin-walled) unit sphere traced as
       src/mdl_layer.rs traces it (a numpy port: Phong half-vector
       sampling + v-cavities for `libbsdf`, Beckmann + Smith for Octane;
@@ -113,11 +113,18 @@ def smith_g1(c, alpha):
     return np.where(x < 1.6, (3.535 * x + 2.181 * x * x) / (1.0 + 2.276 * x + 2.577 * x * x), 1.0)
 
 
+def smith_lambda(c, alpha):
+    c = np.clip(np.abs(c), 1e-9, 1.0)
+    x = c / (alpha * np.sqrt(1.0 - c * c) + 1e-12)
+    return np.where(x < 1.6, (1.0 - 1.259 * x + 0.396 * x * x) / (3.535 * x + 2.181 * x * x), 0.0)
+
+
 def vcav(nh, kh, nk):
     return np.minimum(2.0 * nh * nk / np.maximum(kh, 1e-12), 1.0)
 
 
 MASK = 'vcav'
+SMITH_G = 'sep'
 
 
 def lobe(model, rough, n, v, h, eta, mode, thin, rng, tir_dies=False):
@@ -149,7 +156,12 @@ def lobe(model, rough, n, v, h, eta, mode, thin, rng, tir_dies=False):
         if MASK == 'prod':
             g = g1 * g2
     else:
-        g = smith_g1(nv, rough) * smith_g1(nl, rough)
+        if SMITH_G == 'corr':
+            g = 1.0 / (1.0 + smith_lambda(nv, rough) + smith_lambda(nl, rough))
+        elif SMITH_G == 'none':
+            g = np.ones(len(n))
+        else:
+            g = smith_g1(nv, rough) * smith_g1(nl, rough)
     w = np.where(ok, vh * g / np.maximum(nv * nh, 1e-12), 0.0)
     return l, w, refr
 
@@ -253,10 +265,12 @@ def main():
     ap.add_argument('--tir-dies', action='store_true', help='a transmit lobe kills a totally reflected sample (hypothesis)')
     ap.add_argument('--loss', default='1.0')
     ap.add_argument('--mask', default='vcav', choices=['vcav', 'prod'], help="v-cavities masking as libbsdf (vcav) or g1 * g2 at every event (prod, hypothesis)")
+    ap.add_argument('--smith-g', default='sep', choices=['sep', 'corr', 'none'], help="the Smith model's shadowing-masking: separable G1 G1 (sep), height-correlated 1 / (1 + Λ(v) + Λ(l)) (corr), none (hypotheses, #185)")
     ap.add_argument('--paths', type=int, default=1 << 18)
     a = ap.parse_args(sys.argv[2:])
-    global MASK
+    global MASK, SMITH_G
     MASK = a.mask
+    SMITH_G = a.smith_g
     model(a)
 
 
