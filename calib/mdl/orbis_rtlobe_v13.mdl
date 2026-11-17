@@ -1,0 +1,49 @@
+// ORBIS calibration module (#191), written for ORBIS (GPL-3.0-or-later).
+// The head-on SHAPE of df::simple_glossy_bsdf's transmitting modes at
+// "mdl 1.3" (#184: Iray's reflect-only legacy lobe below 1.3 is a Phong of
+// exponent e = 2 / r^2, cos^e; libbsdf's is cos^(e - 1)): resin's base lobe (scatter_reflect_transmit, closed, IOR 1.49)
+// with an opaque interior (absorption 1000), so only its front reflection
+// is seen, under a point light at the camera (Calib-Point-MdlReflTrans);
+// r 0.354 / 0.5 / 0.7.
+// orbis_rtlobe_v10.mdl at "mdl 1.3" (libbsdf's lobe, cos^(e - 1)), plus twin_*
+// at r' = r sqrt(2 / (2 + r^2)), e' - 1 = 2 / r^2: libbsdf's lobe of the
+// 1.0 lobe's exponent - the same highlight as the 1.0 lobe if that is cos^e.
+mdl 1.3;
+
+import df::*;
+
+export material r0354() = material(
+    ior: color(1.49),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect_transmit, tint: color(1.0), roughness_u: 0.354, roughness_v: 0.354)),
+    volume: material_volume(absorption_coefficient: color(1000.0)));
+
+export material r05() = material(
+    ior: color(1.49),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect_transmit, tint: color(1.0), roughness_u: 0.5, roughness_v: 0.5)),
+    volume: material_volume(absorption_coefficient: color(1000.0)));
+
+export material r07() = material(
+    ior: color(1.49),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect_transmit, tint: color(1.0), roughness_u: 0.7, roughness_v: 0.7)),
+    volume: material_volume(absorption_coefficient: color(1000.0)));
+
+export material twin_r0354() = material(
+    ior: color(1.49),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect_transmit, tint: color(1.0), roughness_u: 0.3434, roughness_v: 0.3434)),
+    volume: material_volume(absorption_coefficient: color(1000.0)));
+
+export material twin_r05() = material(
+    ior: color(1.49),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect_transmit, tint: color(1.0), roughness_u: 0.4714, roughness_v: 0.4714)),
+    volume: material_volume(absorption_coefficient: color(1000.0)));
+
+export material twin_r07() = material(
+    ior: color(1.49),
+    surface: material_surface(
+        scattering: df::simple_glossy_bsdf(mode: df::scatter_reflect_transmit, tint: color(1.0), roughness_u: 0.6274, roughness_v: 0.6274)),
+    volume: material_volume(absorption_coefficient: color(1000.0)));

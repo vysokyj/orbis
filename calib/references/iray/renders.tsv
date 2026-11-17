@@ -2,6 +2,7 @@ scene	samples	max_time	renderer	rendered	seconds	denoiser
 Calib-Aniso	5000	0	Iray Server (Boost for Daz)	2026-10-30 03:15	104	on@8
 Calib-Aniso2	5000	0	Iray Server (Boost for Daz)	2026-11-04 18:04	116	on@8
 Calib-ArchGlass	5000	0	Iray Server (Boost for Daz)	2026-11-11 03:26	143	on@8
+Calib-Back-MdlTransmit	2000	0	Iray Server (home)	2026-11-17 01:14	90	on@8
 Calib-Backscatter	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:52	108	on@8
 Calib-BumpGamma-NVIDIA	5000	0	Iray Server (Boost for Daz)	2026-11-11 00:20	86	on@8
 Calib-BumpGamma-Uber	5000	0	Iray Server (Boost for Daz)	2026-11-09 23:22	98	on@8
@@ -235,6 +236,7 @@ Calib-Point-DualLobeBase-Off	2000	0	Iray Server (home)	2026-11-16 22:39		on@8
 Calib-Point-DualLobeCurve-Black	2000	0	Iray Server (home)	2026-11-16 22:40		on@8
 Calib-Point-DualLobeCurve-Grey	2000	0	Iray Server (home)	2026-11-16 22:40		on@8
 Calib-Point-MdlAniso	2000	0	Iray Server (Boost for Daz)	2026-11-14 00:32		on@8
+Calib-Point-MdlReflTrans	2000	0	Iray Server (home)	2026-11-17 01:07	65	on@8
 Calib-Point-UberGloss	2000	0	Iray Server (Boost for Daz)	2026-11-15 18:30	23	on@8
 Calib-PropVol-Chromatic	5000	0	Iray Server (Boost for Daz)	2026-11-13 23:35		on@8
 Calib-PropVol-Grey	5000	0	Iray Server (Boost for Daz)	2026-11-13 23:38		on@8
