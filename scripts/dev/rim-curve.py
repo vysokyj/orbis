@@ -97,8 +97,19 @@ def fmt(v):
 
 
 def parse_lobe(s):
+    """LABEL=alpha1,n[,...] -> (label, values); None for anything else.
+
+    A file that exists is a path, whatever it is named: orbx-variants
+    renders carry `name=value` in their names (#192)."""
+    if os.path.exists(s) or '=' not in s:
+        return None
     label, vals = s.split('=', 1)
-    return label, [float(x) for x in vals.split(',')]
+    if not label or os.sep in label:
+        return None
+    try:
+        return label, [float(x) for x in vals.split(',')]
+    except ValueError:
+        return None
 
 
 def measure(args):
@@ -114,8 +125,8 @@ def measure(args):
             matte = next(it)
         elif a == '--frame':
             frame = float(next(it))
-        elif '=' in a:
-            lobes.append(parse_lobe(a))
+        elif (lobe := parse_lobe(a)) is not None:
+            lobes.append(lobe)
         else:
             paths.append(a)
     p, label = octane_pass.pick(paths[0])
