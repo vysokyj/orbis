@@ -122,6 +122,22 @@ const FAITHFUL_SKIN_DETAIL_CONTRAST: f32 = 0.0;
 const ENHANCED_METAL_STD_SPREAD: Option<f32> = None;
 const FAITHFUL_METAL_STD_SPREAD: Option<f32> = Some(0.8);
 
+/// Octane's rough transmission over its Smith model taken back per Look
+/// (`rough_transmission_excess`, #185, the user's call 2026-11-17). A
+/// contested choice: a closed rough dielectric sphere in the white furnace
+/// keeps more in Octane than single-scatter Smith (the model the export
+/// solves resin's, architectural's and the Uber's rough glass against) -
+/// with the reflection on 1.10 / 1.16 / 1.37 x the model's disk at α 0.6 /
+/// 0.7 / 1, the rim to 1.71 (`mdl_layer::OCTANE_SPHERE`, measured on plain
+/// spheres) - so those glasses render 1.07 - 1.4 x Iray at α >= 0.5. A
+/// lossless rough glass keeps all of it, so Octane's is not the less
+/// plausible: Enhanced keeps it. Faithful solves against the model times
+/// the measured excess and drops them to Iray's level, paying a dimmer
+/// rough glass than physics would give. Revisit on real scenes (resin
+/// props, frosted windows; docs/tuning.md).
+const ENHANCED_ROUGH_TRANSMISSION_EXCESS: bool = false;
+const FAITHFUL_ROUGH_TRANSMISSION_EXCESS: bool = true;
+
 /// Geometry below Iray's ground per Look (`clip_below_ground`, #69, the
 /// user's call 2026-11-16). A contested choice: Iray's ground is a matte
 /// object, opaque - under a Manual ground above the floor (or an instance
@@ -213,6 +229,10 @@ pub struct Tuning {
     /// keeps Octane's default (0.5), Some(s) writes s - 0.8 is Iray's
     /// energy.
     pub metal_std_spread: Option<f32>,
+    /// Rough closed glass (resin, architectural, Uber) solved against
+    /// what Octane renders over its Smith model (Look, Glass; #185): false
+    /// keeps Octane's brighter rough glass, true takes Iray's level.
+    pub rough_transmission_excess: bool,
 }
 
 impl Variant {
@@ -245,6 +265,7 @@ impl Variant {
                 skin_detail_contrast: ENHANCED_SKIN_DETAIL_CONTRAST,
                 clip_below_ground: ENHANCED_CLIP_BELOW_GROUND,
                 metal_std_spread: ENHANCED_METAL_STD_SPREAD,
+                rough_transmission_excess: ENHANCED_ROUGH_TRANSMISSION_EXCESS,
             },
             (Faithful, Final) => Tuning {
                 kernel: Kernel::PathTracing,
@@ -263,6 +284,7 @@ impl Variant {
                 skin_detail_contrast: FAITHFUL_SKIN_DETAIL_CONTRAST,
                 clip_below_ground: FAITHFUL_CLIP_BELOW_GROUND,
                 metal_std_spread: FAITHFUL_METAL_STD_SPREAD,
+                rough_transmission_excess: FAITHFUL_ROUGH_TRANSMISSION_EXCESS,
             },
             (Enhanced, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -281,6 +303,7 @@ impl Variant {
                 skin_detail_contrast: ENHANCED_SKIN_DETAIL_CONTRAST,
                 clip_below_ground: ENHANCED_CLIP_BELOW_GROUND,
                 metal_std_spread: ENHANCED_METAL_STD_SPREAD,
+                rough_transmission_excess: ENHANCED_ROUGH_TRANSMISSION_EXCESS,
             },
             (Faithful, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -299,6 +322,7 @@ impl Variant {
                 skin_detail_contrast: FAITHFUL_SKIN_DETAIL_CONTRAST,
                 clip_below_ground: FAITHFUL_CLIP_BELOW_GROUND,
                 metal_std_spread: FAITHFUL_METAL_STD_SPREAD,
+                rough_transmission_excess: FAITHFUL_ROUGH_TRANSMISSION_EXCESS,
             },
         }
     }
@@ -330,6 +354,14 @@ mod tests {
         for mode in [OctaneMode::Final, OctaneMode::Preview] {
             assert_eq!(Variant::new(Look::Enhanced, mode).tuning().metal_std_spread, None);
             assert_eq!(Variant::new(Look::Faithful, mode).tuning().metal_std_spread, Some(0.8));
+        }
+    }
+
+    #[test]
+    fn only_faithful_takes_back_octanes_rough_transmission_excess() {
+        for mode in [OctaneMode::Final, OctaneMode::Preview] {
+            assert!(!Variant::new(Look::Enhanced, mode).tuning().rough_transmission_excess);
+            assert!(Variant::new(Look::Faithful, mode).tuning().rough_transmission_excess);
         }
     }
 

@@ -1066,13 +1066,13 @@ fn arch_absorption(mat: &Material) -> Option<[f32; 3]> {
 /// with Iray's own lobe loss on top (`RESIN_LOBE`, #115). Grey 0.79, coat
 /// 0.95: 0.98 at r 0.02, 0.92 at 0.1, 0.81 at 0.25, 0.59 at 0.5; uncoated
 /// white 0.99 / 0.98 / 0.97 / 0.89.
-fn resin_lobe_albedo(r: f32, weight: f32, ior: f32, tint: [f32; 3]) -> crate::mdl_layer::Falloff {
+fn resin_lobe_albedo(r: f32, weight: f32, ior: f32, tint: [f32; 3], excess: bool) -> crate::mdl_layer::Falloff {
     use crate::mdl_layer::{Curve, Scatter, Stack};
     let (r, weight, ior) = (r.max(0.0) as f64, weight.clamp(0.0, 1.0) as f64, (ior as f64).max(1.0001));
     // Octane's lobe at the export's α (`legacy_phong_pin`², #191).
     let alpha = legacy_phong_alpha(r as f32) as f64;
     let stack = |rough: f64| Stack { weight, curve: Curve::Fresnel(ior), coat_rough: rough, base: Scatter::ReflectTransmit, base_rough: rough, ior, thin: false };
-    crate::mdl_layer::transmission_falloff(&stack(r), &stack(alpha), crate::mdl_layer::interp(&RESIN_LOBE, r), RESIN_LOBE_IOR, tint)
+    crate::mdl_layer::transmission_falloff(&stack(r), &stack(alpha), crate::mdl_layer::interp(&RESIN_LOBE, r), RESIN_LOBE_IOR, tint, excess)
 }
 
 /// The transmission's Falloff pins, None when it is flat.
@@ -1097,7 +1097,7 @@ const RESIN_LOBE_IOR: f64 = 1.49;
 
 /// The NVIDIA dielectric a brick shader renders with, its parameters from
 /// the shader's channels and the MDL defaults (`nvidia/<module>.mdl`).
-fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
+fn mdl_dielectric(mat: &Material, excess: bool) -> Option<MdlDielectric> {
     const MODULES: [&str; 8] = ["concrete", "concrete_polished", "asphalt", "ceramic_tiles_small", "granite_black", "porcelain", "resin_polyurethane_matte", "architectural"];
     let module = MODULES.into_iter().find(|m| mat.uses_mdl(&format!("nvidia::{m}::{m}")))?;
     // As for the metals: a map channel the shader leaves out takes the
@@ -1161,7 +1161,7 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
             // the hue; Iray's layer weights set the level
             // (`resin_lobe_albedo`).
             let tint = mat.color("diffuse").unwrap_or([0.8, 0.104, 0.144]);
-            let f = resin_lobe_albedo(d.roughness, weight, d.ior, tint);
+            let f = resin_lobe_albedo(d.roughness, weight, d.ior, tint, excess);
             d.transmission = Some([0, 1, 2].map(|i| tint[i] * f.k[i]));
             d.transmission_falloff = falloff_pins(&f);
         }
@@ -1220,7 +1220,7 @@ fn mdl_dielectric(mat: &Material) -> Option<MdlDielectric> {
                 // bending, no volume (so no absorption), the IOR still the
                 // layer's Fresnel (#147).
                 d.thin = mat.float("thin_walled").unwrap_or(0.0) > 0.0;
-                let f = arch_glass_albedo(refr, refr_gloss, refr_ior, weight, d.roughness, d.ior, curve, d.thin, colour);
+                let f = arch_glass_albedo(refr, refr_gloss, refr_ior, weight, d.roughness, d.ior, curve, d.thin, colour, excess);
                 d.transmission = Some([0, 1, 2].map(|i| colour[i] * transparency * f.k[i]));
                 d.transmission_falloff = falloff_pins(&f);
                 d.albedo = MdlAlbedo::Colour(diffuse.map(|c| c * (1.0 - transparency)));
@@ -1280,7 +1280,7 @@ const ARCH_GLASS_ROUGH: f32 = 4.13;
 /// reflectivity 0.6 0.87, with the Fresnel term 0.67 (the critical angle in
 /// `fresnel_layer`'s weights).
 #[allow(clippy::too_many_arguments)]
-fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, refl_rough: f32, coat_ior: f32, curve: Option<(f64, f64, f64)>, thin: bool, colour: [f32; 3]) -> crate::mdl_layer::Falloff {
+fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, refl_rough: f32, coat_ior: f32, curve: Option<(f64, f64, f64)>, thin: bool, colour: [f32; 3], excess: bool) -> crate::mdl_layer::Falloff {
     use crate::mdl_layer::{Curve, Scatter, Stack};
     let ior = (refr_ior as f64).max(1.0001);
     let iray = Stack {
@@ -1296,7 +1296,7 @@ fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, ref
     let alpha = |r: f32| legacy_phong_alpha(r) as f64;
     let octane = Stack { curve: Curve::Fresnel((coat_ior as f64).max(1.0001)), coat_rough: alpha(refl_rough), base_rough: alpha(refr), ..iray };
     let lobe = if thin { &ARCH_GLASS_THIN_LOBE[..] } else { &ARCH_GLASS_LOBE[..] };
-    crate::mdl_layer::transmission_falloff(&iray, &octane, crate::mdl_layer::interp(lobe, refr_gloss as f64), ARCH_GLASS_LOBE_IOR, colour)
+    crate::mdl_layer::transmission_falloff(&iray, &octane, crate::mdl_layer::interp(lobe, refr_gloss as f64), ARCH_GLASS_LOBE_IOR, colour, excess)
 }
 
 /// Rough Uber glass's transmission colour × this (per channel): a closed
@@ -1315,7 +1315,7 @@ fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, ref
 /// physical layering. `rough` is Iray's lobe roughness (squared), `own` the
 /// refraction's own inputs. The rest of what Octane renders over its Smith
 /// model (~4 % at α 0.5, #148) isn't in it.
-fn uber_glass_level(u: &crate::iray::Uber, rough: f32, own: bool, colour: [f32; 3]) -> [f32; 3] {
+fn uber_glass_level(u: &crate::iray::Uber, rough: f32, own: bool, colour: [f32; 3], excess: bool) -> [f32; 3] {
     use crate::mdl_layer::{Curve, Scatter, Stack};
     let reflects = u.bool("refraction_reflection_enable").unwrap_or(true);
     let full = u.bool("full_refraction_reflection_enable").unwrap_or(false);
@@ -1341,7 +1341,7 @@ fn uber_glass_level(u: &crate::iray::Uber, rough: f32, own: bool, colour: [f32; 
         ior,
         thin: false,
     };
-    crate::mdl_layer::tint_factor(&iray, &octane, colour)
+    crate::mdl_layer::tint_factor_octane(&iray, &octane, colour, excess)
 }
 
 /// What Iray's architectural transmit lobe alone keeps (reflectivity 0,
@@ -1508,6 +1508,8 @@ struct Ocs<'a> {
     skin_detail_contrast: f32,
     /// `Tuning::metal_std_spread` (`metal_brdf`'s STD).
     metal_spread: Option<f32>,
+    /// `Tuning::rough_transmission_excess` (`mdl_layer::octane_excess`).
+    transmission_excess: bool,
     /// The current material's Iray thin films (`Film::of`): `pin_open`
     /// multiplies its colour pins by their tint.
     film: Option<Film>,
@@ -4177,7 +4179,7 @@ impl Ocs<'_> {
         if let Some(metal) = mdl_metal(mat) {
             return self.mdl_metal(indent, name, &metal, mat);
         }
-        if let Some(d) = mdl_dielectric(mat) {
+        if let Some(d) = mdl_dielectric(mat, self.transmission_excess) {
             return self.mdl_dielectric(indent, name, &d, mat);
         }
         let tiles = [mat.float("Horizontal Tiles"), mat.float("Vertical Tiles")].map(|t| t.filter(|t| *t > 0.0).unwrap_or(1.0));
@@ -4849,7 +4851,7 @@ impl Ocs<'_> {
                 // (`uber_glass_level`, #118); a roughness map keeps 1.
                 let mapped = rough_ch.and_then(|c| mat.image(c)).is_some();
                 let level = match iray(mat) {
-                    Some(u) if glass && !mapped && rough > 0.0 => uber_glass_level(&u, rough, own_refraction, colour),
+                    Some(u) if glass && !mapped && rough > 0.0 => uber_glass_level(&u, rough, own_refraction, colour, self.transmission_excess),
                     _ => [1.0; 3],
                 };
                 let scale = self.weighted_refraction.unwrap_or(1.0);
@@ -7180,7 +7182,7 @@ fn ies_projection_rotation(frame: &[[f64; 3]; 3]) -> [f64; 3] {
 /// material with a blackbody (or colour) emission of the light's power.
 pub fn light_inputs(lights: &[LightEmitter], first_id: u32) -> String {
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), legacy_metal_rim: false, skin_detail_contrast: 0.0, metal_spread: None, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), legacy_metal_rim: false, skin_detail_contrast: 0.0, metal_spread: None, transmission_excess: false, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     for (k, l) in lights.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -7278,6 +7280,7 @@ pub struct Shading {
     pub legacy_metal_rim: bool,
     pub skin_detail_contrast: f32,
     pub metal_spread: Option<f32>,
+    pub transmission_excess: bool,
 }
 
 impl Default for Shading {
@@ -7288,13 +7291,13 @@ impl Default for Shading {
 
 impl From<SkinShader> for Shading {
     fn from(skin: SkinShader) -> Self {
-        Shading { skin, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), legacy_metal_rim: false, skin_detail_contrast: 0.0, metal_spread: None }
+        Shading { skin, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), legacy_metal_rim: false, skin_detail_contrast: 0.0, metal_spread: None, transmission_excess: false }
     }
 }
 
 impl From<&crate::tuning::Tuning> for Shading {
     fn from(t: &crate::tuning::Tuning) -> Self {
-        Shading { skin: t.skin, thin_glass_ior_one: t.thin_glass_ior_one, max_transmission: t.max_transmission, strand_hair: t.strand_hair, rough_lobe: t.rough_lobe, legacy_metal_rim: t.legacy_metal_rim, skin_detail_contrast: t.skin_detail_contrast, metal_spread: t.metal_std_spread }
+        Shading { skin: t.skin, thin_glass_ior_one: t.thin_glass_ior_one, max_transmission: t.max_transmission, strand_hair: t.strand_hair, rough_lobe: t.rough_lobe, legacy_metal_rim: t.legacy_metal_rim, skin_detail_contrast: t.skin_detail_contrast, metal_spread: t.metal_std_spread, transmission_excess: t.rough_transmission_excess }
     }
 }
 
@@ -7422,7 +7425,7 @@ pub fn scene_lights(spots: &[OctaneSpot], ground: Option<(f64, f64)>, dome_groun
         return (String::new(), usd_output);
     }
     let mut textures = Textures::default();
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), legacy_metal_rim: false, skin_detail_contrast: 0.0, metal_spread: None, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), legacy_metal_rim: false, skin_detail_contrast: 0.0, metal_spread: None, transmission_excess: false, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     let mut ids = Vec::new();
     for (k, l) in spots.iter().enumerate() {
         let id = w.id();
@@ -7646,7 +7649,7 @@ fn environment_texture_at(
     first_id: u32,
     origin: Option<[f64; 3]>,
 ) -> String {
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), legacy_metal_rim: false, skin_detail_contrast: 0.0, metal_spread: None, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), legacy_metal_rim: false, skin_detail_contrast: 0.0, metal_spread: None, transmission_excess: false, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     let map = env.and_then(|e| e.map.clone()).and_then(|m| w.textures.asset(dirs, &m));
     match map {
         Some(asset) => {
@@ -7833,12 +7836,12 @@ pub fn material_inputs_scaled(
     first_id: u32,
     shading: impl Into<Shading>,
 ) -> (String, Textures) {
-    let Shading { skin, thin_glass_ior_one, max_transmission, strand_hair, rough_lobe, legacy_metal_rim, skin_detail_contrast, metal_spread } = shading.into();
+    let Shading { skin, thin_glass_ior_one, max_transmission, strand_hair, rough_lobe, legacy_metal_rim, skin_detail_contrast, metal_spread, transmission_excess } = shading.into();
     // DAZ has one gamma per image file (`scene_image_gammas`): the
     // materials' channels give each its own, "auto" ones aren't listed.
     let own_gammas = materials.iter().flat_map(|(_, m, _)| m.channels.values()).filter_map(|c| Some((c.image.clone()?, c.gamma?))).collect();
     let mut textures = Textures { layered, own_gammas, ..Default::default() };
-    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one, max_transmission, strand_hair, rough_lobe, legacy_metal_rim, skin_detail_contrast, metal_spread, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+    let mut w = Ocs { out: String::new(), next_id: first_id, dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one, max_transmission, strand_hair, rough_lobe, legacy_metal_rim, skin_detail_contrast, metal_spread, transmission_excess, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
     for (k, (name, mat, area)) in materials.iter().enumerate() {
         let id = w.id();
         let _ = writeln!(
@@ -8717,7 +8720,7 @@ mod tests {
         // pin of 0.25, #191), its white tint × what Iray's layer weights keep
         // (`resin_lobe_albedo`, ~0.89 head-on, flat it was ~0.80; the test
         // material has no IOR channel: 1.5).
-        let f = resin_lobe_albedo(0.25, 0.95, 1.5, [1.0; 3]);
+        let f = resin_lobe_albedo(0.25, 0.95, 1.5, [1.0; 3], false);
         let k = f.k;
         assert!((0.82..0.95).contains(&k[0]), "{k:?}");
         // Head-on k, falling to the rim by the Falloff Mix (#117).
@@ -8755,7 +8758,7 @@ mod tests {
         let rr = arch_glass_rough(0.2);
         assert!((rr - 0.60).abs() < 1e-6 && (arch_glass_rough(0.0) - 0.72).abs() < 1e-6 && (arch_glass_rough(0.4) - 0.21).abs() < 2e-3, "{rr}");
         assert_eq!(pin(&x, "roughness"), num(legacy_phong_pin(rr)), "{x}");
-        let f = arch_glass_albedo(rr, 0.2, 1.5, 0.6, 0.0, (1.0 + 0.2f32.sqrt()) / (1.0 - 0.2f32.sqrt()), Some((0.2, 1.0, 5.0)), false, [1.0; 3]);
+        let f = arch_glass_albedo(rr, 0.2, 1.5, 0.6, 0.0, (1.0 + 0.2f32.sqrt()) / (1.0 - 0.2f32.sqrt()), Some((0.2, 1.0, 5.0)), false, [1.0; 3], false);
         let k = f.k;
         assert!((0.8..0.95).contains(&k[0]) && f.grazing < 0.9, "{f:?}");
         // The lobe's τ is solved at the IOR it was measured at (#148), so
@@ -8766,7 +8769,7 @@ mod tests {
         // H6 / H2 / H7 1.03 / 1.03 / 1.07 × Iray (at √r, k flat at 0.90,
         // 1.05 / 1.05 / 1.00) - Octane keeps more than its Smith model at
         // IOR 2, where facets inside reflect totally (#185).
-        let at = |ior: f32| arch_glass_albedo(rr, 0.2, ior, 0.0, 0.0, 1.5, None, false, [1.0; 3]).k[0];
+        let at = |ior: f32| arch_glass_albedo(rr, 0.2, ior, 0.0, 0.0, 1.5, None, false, [1.0; 3], false).k[0];
         assert!((at(1.5) - 0.876).abs() < 0.01 && (0.0..0.07).contains(&(at(1.2) - at(2.0))), "{} {} {}", at(1.2), at(1.5), at(2.0));
         // Head-on k (texture1), × the grazing ratio at 90° (texture2).
         assert_eq!(pin(&x, "texture1"), format!("{} {} {}", num(k[0]), num(k[1]), num(k[2])), "{x}");
@@ -11522,7 +11525,7 @@ mod tests {
     #[test]
     fn mdl_metal_roughness_is_the_long_axis() {
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), legacy_metal_rim: false, skin_detail_contrast: 0.0, metal_spread: None, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &[], textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), legacy_metal_rim: false, skin_detail_contrast: 0.0, metal_spread: None, transmission_excess: false, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.02, 0.4), rough_v: (String::new(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         let x = w.out;
@@ -11574,7 +11577,7 @@ mod tests {
         let dirs = [dir.path().to_path_buf()];
         for faithful in [false, true] {
             let mut textures = Textures::default();
-            let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), legacy_metal_rim: faithful, skin_detail_contrast: 0.0, metal_spread: None, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+            let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), legacy_metal_rim: faithful, skin_detail_contrast: 0.0, metal_spread: None, transmission_excess: false, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
             let m = MdlMetal { colour: [0.65; 3], weight: ("w.png".into(), 0.5, 0.5), rough_u: ("w.png".into(), 0.02, 0.4), rough_v: ("w.png".into(), 0.35, 0.325), bump: (String::new(), 0.0), tiles: [1.0, 1.0] };
             w.mdl_metal(0, "Metal", &m, &mat(json!([])));
             let x = w.out;
@@ -11597,13 +11600,13 @@ mod tests {
         image::GrayImage::from_fn(16, 16, |x, _| image::Luma([(x * 8) as u8])).save(dir.path().join("b.png")).unwrap();
         let dirs = [dir.path().to_path_buf()];
         let mut textures = Textures::default();
-        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), legacy_metal_rim: false, skin_detail_contrast: 0.0, metal_spread: None, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
+        let mut w = Ocs { out: String::new(), next_id: 1, dirs: &dirs, textures: &mut textures, tiling: None, in_mix: false, in_coat_mix: false, in_layered_coat: false, in_flake_mix: false, in_backscatter_mix: false, nested: false, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), legacy_metal_rim: false, skin_detail_contrast: 0.0, metal_spread: None, transmission_excess: false, film: None, pin_wraps: Vec::new(), metal_scale: None, metal_override: None, metal_lobe: None, refraction_override: None, weighted_refraction: None, gloss_brdf: None, uv_scale: None, uv_cover: None, map_mod: ImageMod::default() };
         let m = MdlMetal { colour: [0.65; 3], weight: (String::new(), 0.5, 0.5), rough_u: (String::new(), 0.06, 0.4), rough_v: (String::new(), 0.06, 0.4), bump: ("b.png".into(), 1.5), tiles: [1.0, 1.0] };
         w.mdl_metal(0, "Metal", &m, &mat(json!([])));
         assert!(w.out.contains("<pin name='normal'>") && !w.out.contains("<pin name='bump'>"), "{}", w.out);
         let mut concrete = Material::from_dson(&json!({"extra": [{"channels": [{"channel": {"id": "Bump Strength", "current_value": 6.0, "image_file": "b.png"}}]}]}), &HashMap::new());
         concrete.mdl.push("nvidia::concrete::concrete".into());
-        let mut d = mdl_dielectric(&concrete).unwrap();
+        let mut d = mdl_dielectric(&concrete, false).unwrap();
         w.out.clear();
         w.mdl_dielectric(0, "Concrete", &d, &concrete);
         assert!(w.out.contains("<pin name='normal'>") && !w.out.contains("<pin name='bump'>"), "{}", w.out);
@@ -11664,12 +11667,12 @@ mod tests {
                 check("metal colour", (0..3).all(|k| near(metal.colour[k], c[k])));
                 check("tiling", near(metal.tiles[0], args["tiling"]["args"]["x"].as_f64().unwrap()));
                 check("bump map", tex("bump_texture") == Some(name(&metal.bump.0)));
-            } else if let Some(d) = mdl_dielectric(&mat) {
+            } else if let Some(d) = mdl_dielectric(&mat, false) {
                 match (&d.albedo, tex("diffuse_texture"), colour("base_color")) {
                     (MdlAlbedo::Map(m, _), Some(t), _) => check("diffuse map", name(m) == t),
                     (_, _, Some(b)) if d.transmission.is_some() => {
                         let w = if let MdlGloss::Weight(w) = d.gloss { w } else { 1.0 };
-                        let f = resin_lobe_albedo(d.roughness, w, d.ior, [0, 1, 2].map(|k| b[k] as f32));
+                        let f = resin_lobe_albedo(d.roughness, w, d.ior, [0, 1, 2].map(|k| b[k] as f32), false);
                         check("resin colour", d.transmission.is_some_and(|t| (0..3).all(|k| near(t[k] / f.k[k], b[k]))))
                     }
                     (MdlAlbedo::Colour(c), _, Some(b)) => check("base colour", (0..3).all(|k| near(c[k], b[k]))),

@@ -276,15 +276,20 @@ struct Traced {
 /// The sphere's paths; `legacy`: Iray's `mdl 1.0` lobe (`legacy_loss` on
 /// every base event of a closed `Libbsdf` stack).
 fn trace(model: Model, s: &Stack, disk: f64, legacy: bool) -> Traced {
+    trace_n(model, s, disk, legacy, PATHS)
+}
+
+/// `trace` with `paths` paths.
+fn trace_n(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize) -> Traced {
     let legacy = legacy && !s.thin && matches!(model, Model::Libbsdf);
     // The legacy lobe's shape: `libbsdf`'s at `legacy_rough` (the coat is
     // the module's `mdl 1.0` lobe too); its loss stays indexed by r.
     let (base_d, coat_d) = if legacy { (legacy_rough(s.base_rough), legacy_rough(s.coat_rough)) } else { (s.base_rough, s.coat_rough) };
     let mut rng = Rng(0x5eed_0113);
-    let mut out = Vec::with_capacity(PATHS);
+    let mut out = Vec::with_capacity(paths);
     let mut entered = [0usize; 10];
     let shared = s.coat_rough == s.base_rough;
-    for _ in 0..PATHS {
+    for _ in 0..paths {
         let rr = disk * rng.next().sqrt();
         entered[((rr * 10.0) as usize).min(9)] += 1;
         let phi = 2.0 * std::f64::consts::PI * rng.next();
@@ -415,6 +420,132 @@ pub fn legacy_loss(r: f64, c: f64) -> f64 {
     (row(a) + (row(b) - row(a)) * f).min(1.0)
 }
 
+/// What Octane renders of a plain closed rough dielectric sphere in the
+/// white furnace, measured (#185): Calib-Furnace-UberGlass's export
+/// re-pinned (`orbx-variants.py set=`) to Universal Beckmann at α (the
+/// roughness pin √α), transmission white, no falloff, `specular` 0 (`tr`:
+/// the transmission lobe alone) and 1 (`rt`: reflect + transmit by
+/// Fresnel), at IOR 1.5 and 2; enhanced-final `--no-denoise`, 1024
+/// samples, raw pass, `furnace-rings.py measure`: the rings 0 – 0.1 … 0.8 –
+/// 0.9 of the silhouette over the dome. **Measured, not derived**: the
+/// Smith model (`trace`, `Model::Smith`) follows `tr` within 1 – 3 % up to
+/// α 0.7 but Octane's `rt` keeps 1.10 / 1.16 / 1.37 × the model's disk at α
+/// 0.6 / 0.7 / 1 (rim 1.24 / 1.34 / 1.71) — its masking is Smith's, its
+/// rough dielectric reflection, most of all where facets inside reflect
+/// totally, keeps more than F D G, and no single-event model explains all
+/// of it (2026-11-17 note). Rows (IOR, α, `tr` rings, `rt` rings).
+const OCTANE_SPHERE: [(f64, f64, [f64; 9], [f64; 9]); 16] = [
+    (1.5, 0.25, [1.011, 1.012, 1.013, 1.010, 1.006, 0.999, 0.982, 0.954, 0.907], [1.009, 1.009, 1.008, 1.007, 1.003, 0.995, 0.979, 0.953, 0.911]),
+    (1.5, 0.36, [1.013, 1.007, 1.001, 0.994, 0.979, 0.958, 0.926, 0.887, 0.830], [1.007, 1.005, 1.001, 0.992, 0.978, 0.959, 0.932, 0.897, 0.848]),
+    (1.5, 0.45, [0.989, 0.984, 0.973, 0.956, 0.935, 0.906, 0.871, 0.828, 0.772], [0.988, 0.982, 0.974, 0.958, 0.940, 0.917, 0.888, 0.855, 0.815]),
+    (1.5, 0.5, [0.967, 0.959, 0.946, 0.927, 0.905, 0.875, 0.839, 0.799, 0.744], [0.965, 0.959, 0.948, 0.934, 0.915, 0.892, 0.866, 0.838, 0.803]),
+    (1.5, 0.6, [0.895, 0.890, 0.877, 0.859, 0.837, 0.811, 0.781, 0.747, 0.697], [0.899, 0.894, 0.888, 0.876, 0.863, 0.848, 0.833, 0.817, 0.798]),
+    (1.5, 0.7, [0.815, 0.809, 0.803, 0.791, 0.773, 0.755, 0.734, 0.707, 0.665], [0.827, 0.829, 0.824, 0.820, 0.816, 0.812, 0.810, 0.812, 0.807]),
+    (1.5, 0.85, [0.705, 0.705, 0.703, 0.699, 0.694, 0.688, 0.682, 0.667, 0.636], [0.742, 0.742, 0.746, 0.754, 0.764, 0.779, 0.799, 0.822, 0.833]),
+    (1.5, 1.0, [0.628, 0.629, 0.631, 0.633, 0.638, 0.644, 0.647, 0.642, 0.620], [0.685, 0.687, 0.698, 0.712, 0.733, 0.764, 0.800, 0.835, 0.858]),
+    (2.0, 0.25, [1.012, 1.009, 1.003, 0.995, 0.983, 0.965, 0.942, 0.912, 0.875], [1.002, 0.999, 0.994, 0.986, 0.976, 0.960, 0.941, 0.917, 0.883]),
+    (2.0, 0.36, [0.963, 0.958, 0.950, 0.937, 0.917, 0.895, 0.868, 0.836, 0.795], [0.962, 0.955, 0.945, 0.935, 0.919, 0.901, 0.877, 0.849, 0.814]),
+    (2.0, 0.45, [0.893, 0.888, 0.881, 0.867, 0.851, 0.831, 0.804, 0.775, 0.738], [0.901, 0.896, 0.890, 0.880, 0.866, 0.848, 0.829, 0.800, 0.773]),
+    (2.0, 0.5, [0.851, 0.844, 0.837, 0.825, 0.810, 0.792, 0.769, 0.743, 0.707], [0.872, 0.864, 0.855, 0.848, 0.834, 0.820, 0.801, 0.781, 0.762]),
+    (2.0, 0.6, [0.755, 0.757, 0.750, 0.742, 0.733, 0.722, 0.705, 0.687, 0.661], [0.792, 0.789, 0.786, 0.782, 0.778, 0.769, 0.761, 0.754, 0.744]),
+    (2.0, 0.7, [0.673, 0.673, 0.669, 0.667, 0.664, 0.659, 0.652, 0.644, 0.627], [0.726, 0.723, 0.723, 0.725, 0.727, 0.730, 0.734, 0.742, 0.748]),
+    (2.0, 0.85, [0.580, 0.577, 0.582, 0.584, 0.588, 0.595, 0.601, 0.601, 0.602], [0.647, 0.649, 0.654, 0.663, 0.675, 0.692, 0.717, 0.741, 0.767]),
+    (2.0, 1.0, [0.518, 0.521, 0.527, 0.533, 0.543, 0.556, 0.568, 0.583, 0.593], [0.599, 0.604, 0.612, 0.625, 0.644, 0.673, 0.707, 0.746, 0.786]),
+];
+
+/// Octane's render / its Smith model per ring (`OCTANE_SPHERE`; the model
+/// traced with 2^18 paths, ring noise ~1 %), over the mean ratio of its
+/// IOR's and mode's α 0.25 row on the disk (rings to 0.7): there the model
+/// is Octane's within 1 % and what is left (1.01) is the dome's
+/// normalisation, not the lobe, so the excess is 1 at α ≤ 0.25. Rows
+/// (IOR, α, `tr`, `rt`).
+fn octane_excess_rows() -> &'static [(f64, f64, [f64; 9], [f64; 9])] {
+    static ROWS: std::sync::OnceLock<Vec<(f64, f64, [f64; 9], [f64; 9])>> = std::sync::OnceLock::new();
+    ROWS.get_or_init(|| {
+        let model = |ior: f64, alpha: f64, weight: f64| {
+            let s = Stack { weight, curve: Curve::Fresnel(ior), coat_rough: alpha, base: Scatter::Transmit, base_rough: alpha, ior, thin: false };
+            let t = trace_n(Model::Smith, &s, 1.0, false, 1 << 18);
+            let mut rings = [0.0; 9];
+            for p in &t.paths {
+                let j = (p.rr * 10.0) as usize;
+                if j < 9 {
+                    rings[j] += p.w;
+                }
+            }
+            (0..9).map(|j| rings[j] / t.entered[j].max(1) as f64).collect::<Vec<_>>()
+        };
+        let raw: Vec<_> = OCTANE_SPHERE
+            .iter()
+            .map(|&(ior, alpha, tr, rt)| {
+                let (mt, mr) = (model(ior, alpha, 0.0), model(ior, alpha, 1.0));
+                (ior, alpha, std::array::from_fn::<f64, 9, _>(|j| tr[j] / mt[j]), std::array::from_fn::<f64, 9, _>(|j| rt[j] / mr[j]))
+            })
+            .collect();
+        raw.iter()
+            .map(|&(ior, alpha, tr, rt)| {
+                let base = raw.iter().find(|r| r.0 == ior).unwrap();
+                let (bt, br) = (base.2[..7].iter().sum::<f64>() / 7.0, base.3[..7].iter().sum::<f64>() / 7.0);
+                (ior, alpha, tr.map(|x| x / bt), rt.map(|x| x / br))
+            })
+            .collect()
+    })
+}
+
+/// What Octane renders of the closed `octane` stack over its Smith model,
+/// per tenth of the silhouette's radius the path entered (the last for
+/// 0.9 – 1): `octane_excess_rows` at the stack's base α, linear in α (1 at
+/// α ≤ 0.25) and in the IOR between the measured ones (held outside),
+/// mixed between `tr` and `rt` by the reflection's share — 1 for a
+/// reflect + transmit base, the coat's weight over a transmit-only one
+/// (Universal's `specular` over its transmission, or a coating: one
+/// Fresnel reflection on the same surface; the coating's own α is not
+/// measured, the base's stands for both). None for a thin wall (Octane's
+/// Thin Wall doesn't scatter its transmission, #136) or a reflect-only base.
+fn octane_excess(octane: &Stack) -> Option<[f64; 10]> {
+    let share = match octane.base {
+        _ if octane.thin => return None,
+        Scatter::Reflect => return None,
+        Scatter::ReflectTransmit => 1.0,
+        Scatter::Transmit => octane.weight.clamp(0.0, 1.0),
+    };
+    let rows = octane_excess_rows();
+    let at_ior = |ior: f64| {
+        let mine: Vec<_> = rows.iter().filter(|r| r.0 == ior).collect();
+        let alphas: Vec<f64> = std::iter::once(0.0).chain(mine.iter().map(|r| r.1)).collect();
+        let a = octane.base_rough.clamp(0.0, *alphas.last().unwrap());
+        let i = alphas.windows(2).position(|w| a <= w[1]).unwrap_or(alphas.len() - 2);
+        let f = (a - alphas[i]) / (alphas[i + 1] - alphas[i]);
+        let ring = |r: Option<&&(f64, f64, [f64; 9], [f64; 9])>, j: usize| r.map_or(1.0, |r| r.2[j] + share * (r.3[j] - r.2[j]));
+        let lo = if i == 0 { None } else { mine.get(i - 1) };
+        std::array::from_fn::<f64, 9, _>(|j| ring(lo, j) + f * (ring(mine.get(i), j) - ring(lo, j)))
+    };
+    let mut iors: Vec<f64> = rows.iter().map(|r| r.0).collect();
+    iors.dedup();
+    let ior = octane.ior.clamp(iors[0], *iors.last().unwrap());
+    let i = iors.windows(2).position(|w| ior <= w[1]).unwrap_or(0);
+    let rings = if iors.len() == 1 {
+        at_ior(iors[0])
+    } else {
+        let (a, b) = (at_ior(iors[i]), at_ior(iors[i + 1]));
+        let f = (ior - iors[i]) / (iors[i + 1] - iors[i]);
+        std::array::from_fn(|j| a[j] + f * (b[j] - a[j]))
+    };
+    Some(std::array::from_fn(|j| rings[j.min(8)]))
+}
+
+/// Octane's sphere paths: the Smith model, with `excess` each path's
+/// weight × what Octane renders over the model at its entry ring
+/// (`octane_excess`, #185; `Tuning::rough_transmission_excess`).
+fn octane_trace(octane: &Stack, excess: bool) -> Traced {
+    let mut t = trace(Model::Smith, octane, 1.0, false);
+    if let Some(e) = excess.then(|| octane_excess(octane)).flatten() {
+        for p in &mut t.paths {
+            p.w *= e[((p.rr * 10.0) as usize).min(9)];
+        }
+    }
+    t
+}
+
 fn albedo(paths: &[(f64, i32)], tint: f64) -> f64 {
     paths.iter().map(|&(w, m)| w * tint.powi(m)).sum::<f64>() / PATHS as f64
 }
@@ -429,8 +560,14 @@ pub fn furnace_albedo(iray: &Stack, octane: &Stack, tint: f64) -> (f64, f64) {
 /// The base tint × this (per channel) makes the closed sphere keep in
 /// Octane (`octane`) what it keeps under Iray's `libbsdf` (`iray`). At most 1.
 pub fn tint_factor(iray: &Stack, octane: &Stack, tint: [f32; 3]) -> [f32; 3] {
+    tint_factor_octane(iray, octane, tint, false)
+}
+
+/// `tint_factor` against what Octane renders (`excess`: the Smith model ×
+/// `octane_excess`, #185) or its Smith model.
+pub fn tint_factor_octane(iray: &Stack, octane: &Stack, tint: [f32; 3], excess: bool) -> [f32; 3] {
     let ip = sphere_paths(Model::Libbsdf, iray);
-    let op = sphere_paths(Model::Smith, octane);
+    let op: Vec<(f64, i32)> = octane_trace(octane, excess).paths.into_iter().map(|p| (p.w, p.m)).collect();
     tint.map(|t| {
         let t = t.clamp(0.0, 1.0) as f64;
         let target = albedo(&ip, t);
@@ -505,21 +642,25 @@ pub struct Falloff {
 /// × at architectural's refr_gloss 0.2; with the falloff the models' rings
 /// agree within 1 – 3 %. A thin wall: `tint_factor_measured` (Octane's
 /// Thin Wall is flat), no falloff.
-pub fn transmission_falloff(iray: &Stack, octane: &Stack, lobe_albedo: f64, lobe_ior: f64, tint: [f32; 3]) -> Falloff {
+///
+/// `excess`: Octane's side is what Octane renders, the Smith model ×
+/// `octane_excess` (#185, `Tuning::rough_transmission_excess`), so the
+/// solve also takes back what Octane keeps over its own model.
+pub fn transmission_falloff(iray: &Stack, octane: &Stack, lobe_albedo: f64, lobe_ior: f64, tint: [f32; 3], excess: bool) -> Falloff {
     if iray.thin {
         return Falloff { k: tint_factor_measured(iray, octane, lobe_albedo, lobe_ior, tint), grazing: 1.0, skew: 1.0 };
     }
-    falloff_rings(iray, octane, lobe_albedo, lobe_ior, tint).0
+    falloff_rings(iray, octane, lobe_albedo, lobe_ior, tint, excess).0
 }
 
 /// `transmission_falloff` of a closed stack, with Iray's white rings and
 /// Octane's at the solved white falloff (centre to 0.8 – 0.9).
-fn falloff_rings(iray: &Stack, octane: &Stack, lobe_albedo: f64, lobe_ior: f64, tint: [f32; 3]) -> (Falloff, [f64; 9], [f64; 9]) {
+fn falloff_rings(iray: &Stack, octane: &Stack, lobe_albedo: f64, lobe_ior: f64, tint: [f32; 3], excess: bool) -> (Falloff, [f64; 9], [f64; 9]) {
     let lobe = trace(Model::Libbsdf, &Stack { weight: 0.0, ior: lobe_ior.max(1.0001), ..*iray }, 0.75, true);
     let lobe = lobe.paths.iter().map(|p| (p.w, p.m)).collect::<Vec<_>>();
     let tau = solve_in(|t| albedo(&lobe, t), lobe_albedo, 1.2);
     let ip = trace(Model::Libbsdf, iray, 1.0, true);
-    let op = trace(Model::Smith, octane, 1.0, false);
+    let op = octane_trace(octane, excess);
     // Iray's rings on white (t = τ per base event).
     let mut target = [0.0; 9];
     for p in &ip.paths {
@@ -725,14 +866,38 @@ mod tests {
         // Octane at the export's α (`legacy_phong_alpha`, #191).
         let alpha = |r: f64| crate::material::legacy_phong_alpha(r as f32) as f64;
         let s = |rough| Stack { weight: 0.0, curve: Curve::Fresnel(1.49), coat_rough: rough, base: Scatter::ReflectTransmit, base_rough: rough, ior: 1.49, thin: false };
-        let (f, iray, octane) = falloff_rings(&s(0.5), &s(alpha(0.5)), 0.678, 1.49, [1.0; 3]);
+        let (f, iray, octane) = falloff_rings(&s(0.5), &s(alpha(0.5)), 0.678, 1.49, [1.0; 3], false);
         assert!(f.grazing < 0.9 && f.k[0] > 0.85, "{f:?}");
         assert!((0..9).all(|j| (octane[j] / iray[j] - 1.0).abs() < 0.03), "{iray:?} {octane:?}");
         // Iray's model is the measured rings (U4 0.783 → 0.517).
         assert!((iray[0] - 0.783).abs() < 0.02 && (iray[8] - 0.517).abs() < 0.02, "{iray:?}");
         // A thin wall keeps one flat k.
         let thin = Stack { thin: true, base: Scatter::Transmit, ..s(0.5) };
-        assert_eq!(transmission_falloff(&thin, &thin, 0.5, 1.5, [1.0; 3]).grazing, 1.0);
+        assert_eq!(transmission_falloff(&thin, &thin, 0.5, 1.5, [1.0; 3], true).grazing, 1.0);
+    }
+
+    #[test]
+    fn octane_keeps_more_than_its_smith_model_in_rough_transmission() {
+        // #185: the plain spheres' excess, none at α 0.25 (the baseline).
+        let s = |weight, alpha, ior| Stack { weight, curve: Curve::Fresnel(ior), coat_rough: alpha, base: Scatter::Transmit, base_rough: alpha, ior, thin: false };
+        assert!(octane_excess(&s(1.0, 0.25, 1.5)).unwrap()[..7].iter().all(|e| (e - 1.0).abs() < 0.02));
+        assert!(octane_excess(&s(1.0, 0.1, 1.5)).unwrap().iter().all(|e| (e - 1.0).abs() < 0.01));
+        // The reflection on: the disk ~1.1 at α 0.6, the rim more.
+        let rt = octane_excess(&s(1.0, 0.6, 1.5)).unwrap();
+        assert!((1.05..1.15).contains(&rt[3]) && rt[8] > rt[3] + 0.08, "{rt:?}");
+        // Transmission alone barely: within 5 % up to α 0.7.
+        let tr = octane_excess(&s(0.0, 0.7, 1.5)).unwrap();
+        assert!(tr[..7].iter().all(|e| (e - 1.0).abs() < 0.05), "{tr:?}");
+        // A reflect + transmit base is the rt sphere; a thin wall none.
+        let rtb = Stack { weight: 0.0, base: Scatter::ReflectTransmit, ..s(0.0, 0.6, 1.5) };
+        assert_eq!(octane_excess(&rtb), Some(rt));
+        assert_eq!(octane_excess(&Stack { thin: true, ..s(1.0, 0.6, 1.5) }), None);
+        // Folded in, rough resin's level drops, most towards the rim (the
+        // falloff's grazing ratio); off, it is the model's.
+        let alpha = |r: f64| crate::material::legacy_phong_alpha(r as f32) as f64;
+        let r = |rough| Stack { weight: 0.0, curve: Curve::Fresnel(1.49), coat_rough: rough, base: Scatter::ReflectTransmit, base_rough: rough, ior: 1.49, thin: false };
+        let (off, on) = (transmission_falloff(&r(0.75), &r(alpha(0.75)), 0.462, 1.49, [1.0; 3], false), transmission_falloff(&r(0.75), &r(alpha(0.75)), 0.462, 1.49, [1.0; 3], true));
+        assert!(on.k[0] < off.k[0] && on.grazing < off.grazing - 0.1, "{off:?} {on:?}");
     }
 
     #[test]
@@ -751,4 +916,3 @@ mod tests {
         assert!((0.6..0.8).contains(&k[0]), "{k:?}");
     }
 }
-

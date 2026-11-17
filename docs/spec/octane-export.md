@@ -87,6 +87,7 @@ field of `Tuning`, set per variant in one table (`Variant::tuning`,
 | `skin_detail_contrast` | 0.3 | 0 | 0.3 (no skin bake) | 0 |
 | `clip_below_ground` | no (seen through the catcher) | yes (cut at Iray's ground) | no | yes |
 | `metal_std_spread` | default (0.5) | 0.8 (Iray's energy) | default | 0.8 |
+| `rough_transmission_excess` | no (Octane's rough glass) | yes (Octane's measured excess taken back) | no | yes |
 
 Calibrated on the same 17 scenes in each variant (lights, Sun-Sky at
 18:00, noon and steered, HDRI, tone, PBRSkin, Glossy, SSS, Glass, Mixing,
@@ -2482,7 +2483,8 @@ leaves out, #15):
   0.997 / 0.990 / 0.964 / 0.997 / 0.964); Smith over `libbsdf` was 1.02 /
   1.10 / 1.01 / 1.08 of it. What is left is Octane over its own Smith model
   (1.01 / 1.01 / 1.01 / 1.04, #148) and Iray 1 % under `libbsdf` — not
-  folded into k. Calib-Dispersion-Rough's frosted spheres (no Abbe, r
+  folded into k in Enhanced; Faithful solves k against the model × that
+  excess (`rough_transmission_excess`, #185, below under architectural). Calib-Dispersion-Rough's frosted spheres (no Abbe, r
   0.36, inner disk): shared 1.09 → 1.06, own 1.07 → 1.05 × Iray (k 0.985 /
   0.990; under the HDRI, the clear ones 1.01 – 1.04 unchanged);
   Calib-Glass R6 (r 0.09) k 1.
@@ -3112,8 +3114,31 @@ leaves out, #15):
     (Calib-Furnace-Resin, white r 0.25) 0.672 → 0.622 / 0.818 → 0.523 v
     0.834 → 0.508; disks barely move (G8, the Fresnel term, 1.11 → 0.96).
     Left: Octane over its Smith model at α ≥ 0.5 (uncoated resin r 0.75 /
-    1 rims 1.22 / 1.41 ×, centres 1.04 – 1.09 ×), not folded in
-    (note 2026-11-16-legacy-lobe-falloff).
+    1 rims 1.22 / 1.41 ×, centres 1.04 – 1.09 ×; note
+    2026-11-16-legacy-lobe-falloff). Decomposed (#185, note
+    2026-11-17-octane-rough-transmission): it is Octane's plain rough
+    dielectric over single-scatter Smith, measured on plain closed
+    Beckmann spheres (Calib-Furnace-UberGlass re-pinned, no falloff, no
+    Iray; `OCTANE_SPHERE`, IOR 1.5 and 2, α 0.25 – 1, specular 0 and 1):
+    transmission alone 1.01 – 1.07 × the model at IOR 1.5 (to 1.3 – 1.5
+    at IOR 2, α 1), with the reflection on 1.10 / 1.16 / 1.37 × on the
+    disk at α 0.6 / 0.7 / 1, the rim to 1.71 (IOR 2: 1.17 / 1.28 / 1.66,
+    rim 1.94); masking is Smith's, the rough reflection where facets
+    inside reflect totally keeps more. **Faithful takes it back**
+    (`rough_transmission_excess`, the user's call 2026-11-17): Octane's
+    side of every closed rough-glass solve (`transmission_falloff` for
+    resin and architectural, `tint_factor` for the Uber's rough glass) is
+    the Smith model with each path × Octane / model at its entry ring
+    (`octane_excess`: over the α 0.25 row, which is the dome's 1 %;
+    linear in α from 1 at α 0.25, in the IOR between 1.5 and 2, held
+    outside; between specular 0 and 1 by the reflection's share - 1 for
+    resin's reflect + transmit base, the coat's weight over a
+    transmit-only one, the base's α for both). Thin walls take none
+    (Octane's Thin Wall doesn't scatter its transmission). **Enhanced
+    keeps Octane's level**: a lossless rough glass keeps all its light in
+    the white furnace, so Octane's brighter rough glass is the more
+    plausible; its export is byte-identical to before. The Faithful
+    renders against Iray are still to be checked (#185).
     **Enable Absorption** (`refr_falloff_on`, with transparency) → an
     absorption medium on the glass, σa = −ln(c) / d per metre
     (`arch_absorption`), as `nvidia/architectural.mdl` computes its
