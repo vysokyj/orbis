@@ -24,7 +24,7 @@ A `v*` tag makes CI (`.github/workflows/ci.yml`) test, package (`scripts/package
 3. Bump `version` in `Cargo.toml`, `cargo build` to refresh `Cargo.lock`. Do not touch the dump `format_version` here (it changes only with an incompatible dump change, in script and crate together).
 
 ## 3. Notes
-Release notes in English from `git log <last tag>..HEAD --no-merges`, grouped (New, Fixed, Calibration, Internal), issue numbers as `#N`. No personal data. Mention known limits: the binary is ad-hoc signed until #3, so a downloaded copy is quarantined (`xattr -d com.apple.quarantine`), macOS only.
+Release notes in English from `git log <last tag>..HEAD --no-merges`, grouped (New, Fixed, Calibration, Internal), issue numbers as `#N`. No personal data. Mention known limits: macOS only (the binary is signed and notarized, #3; check the CI log says `status: Accepted`).
 Write them to a file in the scratchpad, show the user, proceed on their yes.
 
 ## 4. Publish

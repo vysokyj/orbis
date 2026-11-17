@@ -20,12 +20,12 @@ Octane X.
 
 1. Download `orbis-<version>-macos.zip` from the
    [releases](https://github.com/vysokyj/orbis/releases) and unzip it.
-2. Until the binary is notarized ([#3](https://github.com/vysokyj/orbis/issues/3)),
-   macOS blocks a downloaded one; clear the quarantine flag and install:
+2. Install (the binary is signed with a Developer ID and notarized, so
+   macOS runs the downloaded copy; the first launch checks the
+   notarization online):
 
    ```sh
    cd orbis-<version>-macos
-   xattr -d com.apple.quarantine orbis
    ./orbis install
    ```
 

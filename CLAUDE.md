@@ -206,9 +206,10 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   launch it with a file; the user opens the `.orbx` from its File → Open.
 - Signing: `scripts/sign.sh` (used by `install.sh` and `package.sh`) signs
   with the keychain's Developer ID Application identity (hardened runtime),
-  else ad hoc; never put the identity's name or team in the repo. The release
-  zip isn't notarized until CI does it (#3), so a downloaded copy is still
-  quarantined.
+  else ad hoc; never put the identity's name or team in the repo. CI signs the
+  release zip from the `MACOS_CERT_*` secrets and notarizes it with
+  `notarytool` (#3; v0.1.0-rc1: Accepted, a quarantined download passes
+  `spctl` as "Notarized Developer ID").
 - Automation: DAZ and Octane may run at once (the user's rule, 2026-11-16):
   headless DAZ (`daz-script.sh`, `daz` lock: one instance at a time) beside
   Octane renders / probes. Only local CPU Iray (`daz-render.sh`) and Octane
