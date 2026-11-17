@@ -44,6 +44,11 @@ Hypotheses (by the Iray channels the variants stand for):
 - `turbidity=<t>`: the Daylight environment's turbidity.
 - `vignetting=<v>`: the imager's vignetting (#38).
 - `fov=<deg>`: the camera's field of view (to see what vignetting follows).
+- `shift=<x>,<y>`: the thin lens's `lensShift` (fractions of the frame's
+  width / height; the view moves right / up). With `fov=` a close-up of
+  part of the frame: zoom z = tan(fov / 2) / tan(fov' / 2), a point
+  (dx, dy) px from the centre (right, up) of a W x H frame centres at
+  shift (z dx / W, z dy / H) (#179: a face close-up of a Calib-Skin front).
 - `absorb-x<k>`: every absorption medium's scale × k.
 - `thin-ior1`: thin-walled glass (transmissionType 2) at IOR 1.
 - `dl-ior`: the same for PBRSkin's Dual Lobe Specular Reflectivity.
@@ -292,6 +297,9 @@ def apply(ocs, hyp):
         return re.sub(r"(<pin name='vignetting'>\s*<node id='\d+' type='6'>\s*<attr name='value' type='9'>)[^<]*", lambda m: m.group(1) + hyp.split('=')[1] + ' 0 0 0', ocs)
     if hyp.startswith('fov='):
         return re.sub(r"(<node id='\d*100010' type='6'>\s*<attr name='value' type='9'>)[^<]*", lambda m: m.group(1) + hyp.split('=')[1] + ' 0 0 0', ocs)
+    if hyp.startswith('shift='):
+        x, y = hyp.split('=')[1].split(',')
+        return re.sub(r"(<node id='\d*100013' type='6'>\s*<attr name='value' type='9'>)[^<]*", lambda m: m.group(1) + f'{x} {y} 0 0', ocs)
     if hyp.startswith('turbidity='):
         return re.sub(r"(<node id='100212' type='6'>\s*<attr name='value' type='9'>)[^<]*", lambda m: m.group(1) + hyp.split('=')[1] + ' 0 0 0', ocs)
     if hyp.startswith('daylight='):
