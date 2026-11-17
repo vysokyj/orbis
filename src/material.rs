@@ -1064,9 +1064,10 @@ fn arch_absorption(mat: &Material) -> Option<[f32; 3]> {
 fn resin_lobe_albedo(r: f32, weight: f32, ior: f32, tint: [f32; 3]) -> crate::mdl_layer::Falloff {
     use crate::mdl_layer::{Curve, Scatter, Stack};
     let (r, weight, ior) = (r.max(0.0) as f64, weight.clamp(0.0, 1.0) as f64, (ior as f64).max(1.0001));
-    let pin = phong_pin(r as f32) as f64;
+    // Octane's lobe at the export's α (`legacy_phong_pin`², #191).
+    let alpha = legacy_phong_alpha(r as f32) as f64;
     let stack = |rough: f64| Stack { weight, curve: Curve::Fresnel(ior), coat_rough: rough, base: Scatter::ReflectTransmit, base_rough: rough, ior, thin: false };
-    crate::mdl_layer::transmission_falloff(&stack(r), &stack(pin * pin), crate::mdl_layer::interp(&RESIN_LOBE, r), RESIN_LOBE_IOR, tint)
+    crate::mdl_layer::transmission_falloff(&stack(r), &stack(alpha), crate::mdl_layer::interp(&RESIN_LOBE, r), RESIN_LOBE_IOR, tint)
 }
 
 /// The transmission's Falloff pins, None when it is flat.
@@ -2582,8 +2583,8 @@ impl Ocs<'_> {
                 }
             }
         }
-        // The MDL's `simple_glossy_bsdf` is the Uber's Phong lobe: the
-        // derived pin (`phong_pin`) under `phong_brdf` (Beckmann, the
+        // The MDL's `simple_glossy_bsdf` is a Phong lobe (at `mdl 1.0` of
+        // exponent e, below): the derived pin under `phong_brdf` (Beckmann, the
         // Look's `RoughLobe` past Octane's dielectric limit). A lobe that transmits
         // (resin's base, architectural's glass) and the reflection on the
         // coating over it take the rough-glass rule (`GLASS_BRDF`, Beckmann
@@ -2592,15 +2593,13 @@ impl Ocs<'_> {
         // #113). Porcelain's band-passed detail 0.75 → 0.88 × Iray,
         // correlation 0.93 → 0.99 (#95).
         // Architectural's glass keeps the pins its roughness rule was swept
-        // on (`MdlDielectric::arch_glass_pins`); its reflection is the
-        // Phong lobe (#156). A reflect-only lobe is the module's `mdl 1.0`
-        // Phong of exponent e (`legacy_phong_pin`, #184); a transmitting
-        // stack keeps `phong_pin`, which its measured tables were fitted on.
+        // on (`MdlDielectric::arch_glass_pins`; the derived pin there is
+        // #198); its reflection is the Phong lobe (#156). Every other lobe is the module's `mdl 1.0`
+        // Phong of exponent e (`legacy_phong_pin`): reflect-only (#184) and
+        // transmitting, resin's base and the coat over it (#191).
         let pin = |r: f32| {
             if m.arch_glass_pins && m.transmission.is_some() {
                 r.clamp(0.0, 1.0).sqrt()
-            } else if m.transmission.is_some() {
-                phong_pin(r)
             } else {
                 legacy_phong_pin(r)
             }
@@ -6566,12 +6565,24 @@ pub(crate) fn phong_alpha(r: f32) -> f32 {
 /// 35 × 27 v the model's 35.5 × 27.4; u 0.5 51 × 40 v 51.3 × 40.3; v 0.25
 /// 25 × 19 v 25.1 × 19.2), every 1.3 one the cos^(e − 1) profile (37 ×
 /// 29, 57 × 45, 25 × 20 v 36.6 × 28.3, 56.3 × 44.5, 25.5 × 19.5). The
-/// legacy lobe's lost energy is its own matter (`LEGACY_METAL_RIM`); the
-/// transmitting lobes keep `phong_pin`, the measured tables
-/// (`RESIN_LOBE`, `mdl_layer`'s `LEGACY_LOBE`) were fitted on it.
+/// legacy lobe's lost energy is its own matter (`LEGACY_METAL_RIM`). The
+/// transmitting `mdl 1.0` lobes are cosᵉ too (#191): resin's
+/// `scatter_reflect_transmit` (its reflection point-lit, the interior
+/// opaque; Calib-Point-MdlReflTrans) r 0.354 / 0.5 / 0.7 vertical 35 / 27,
+/// 48 / 38, 64 / 52 against the cosᵉ model × `legacy_loss` 35.4 / 27.3,
+/// 49.2 / 38.6, 65.0 / 52.4 (cos^(e − 1) 36.5 / 28.2, 52.4 / 41.4, 69.7 /
+/// 60.1), and the transmit lobe through a closed sphere against a spot
+/// behind it (Calib-Back-MdlTransmit) as `libbsdf`'s lobe at
+/// `mdl_layer::legacy_rough` within 0 – 2 px. So resin takes this pin too.
 fn legacy_phong_pin(r: f32) -> f32 {
+    legacy_phong_alpha(r).sqrt()
+}
+
+/// Beckmann's α for Iray's legacy Phong lobe at MDL roughness `r`
+/// (`legacy_phong_pin`), at most 1.
+pub(crate) fn legacy_phong_alpha(r: f32) -> f32 {
     let r = r.max(0.0);
-    (r / (1.0 + r * r).sqrt()).min(1.0).sqrt()
+    (r / (1.0 + r * r).sqrt()).min(1.0)
 }
 
 /// The largest Beckmann α (`phong_pin`²) Octane renders a *dielectric*
@@ -8685,8 +8696,8 @@ mod tests {
         let resin = nvidia("resin_polyurethane_matte", json!([{"channel": {"id": "diffuse", "current_value": [1, 1, 1]}}]));
         let (z, _) = material_inputs(&[("Resin".into(), resin, 1.0)], &dirs, HashMap::new(), 9500, SkinShader::None);
         assert!(z.contains("<pin name='transmission'>") && z.contains("<pin name='coating'>"), "{z}");
-        // Resin's base: the rough-glass rule (Beckmann at the Phong pin of
-        // 0.25), its white tint × what Iray's layer weights keep
+        // Resin's base: the rough-glass rule (Beckmann at the legacy Phong
+        // pin of 0.25, #191), its white tint × what Iray's layer weights keep
         // (`resin_lobe_albedo`, ~0.89 head-on, flat it was ~0.80; the test
         // material has no IOR channel: 1.5).
         let f = resin_lobe_albedo(0.25, 0.95, 1.5, [1.0; 3]);
@@ -8694,7 +8705,7 @@ mod tests {
         assert!((0.82..0.95).contains(&k[0]), "{k:?}");
         // Head-on k, falling to the rim by the Falloff Mix (#117).
         assert!(f.grazing < 1.0 && z.contains("<node id=") && z.contains("type='50'>") && z.contains("<pin name='falloff index'>"), "{f:?} {z}");
-        assert!(z.contains(&format!("type='2'>{GLASS_BRDF}<")) && z.contains(&format!(">{}<", num(phong_pin(0.25)))) && z.contains(&format!(">{} {} {}<", num(k[0]), num(k[1]), num(k[2]))), "{z}");
+        assert!(z.contains(&format!("type='2'>{GLASS_BRDF}<")) && z.contains(&format!(">{}<", num(legacy_phong_pin(0.25)))) && z.contains(&format!(">{} {} {}<", num(k[0]), num(k[1]), num(k[2]))), "{z}");
     }
 
     /// Arch+Design glass: a transmit-only lobe (specular 0) at refr_gloss
@@ -8733,9 +8744,10 @@ mod tests {
         // The lobe's τ is solved at the IOR it was measured at (#148): both
         // models lose alike with the IOR, so the factor barely moves (solved
         // at the material's IOR it went 0.81 / 0.85 / 0.93 at IOR 1.2 / 1.5 /
-        // 2, Calib-Furnace-ArchGlass2 H6 / H2 / H7 0.89 / 1.05 / 1.32 × Iray).
+        // 2, Calib-Furnace-ArchGlass2 H6 / H2 / H7 0.89 / 1.05 / 1.32 × Iray;
+        // 0.903 / 0.905 / 0.908 on the cosᵉ lobe, #191).
         let at = |ior: f32| arch_glass_albedo(rr, 0.2, ior, 0.0, 0.0, 1.5, None, false, [1.0; 3]).k[0];
-        assert!(at(1.2) >= at(1.5) && at(1.5) >= at(2.0) && at(1.2) - at(2.0) < 0.03, "{} {} {}", at(1.2), at(1.5), at(2.0));
+        assert!((at(1.2) - at(1.5)).abs() < 0.02 && (at(1.2) - at(2.0)).abs() < 0.03, "{} {} {}", at(1.2), at(1.5), at(2.0));
         // Head-on k (texture1), × the grazing ratio at 90° (texture2).
         assert_eq!(pin(&x, "texture1"), format!("{} {} {}", num(k[0]), num(k[1]), num(k[2])), "{x}");
         assert_eq!(pin(&x, "texture2"), format!("{} {} {}", num(k[0] * f.grazing), num(k[1] * f.grazing), num(k[2] * f.grazing)), "{x}");

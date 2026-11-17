@@ -40,7 +40,11 @@
 //! with an undocumented legacy behaviour below 1.3 (our own 1.0 / 1.3
 //! twins, #117: 1.3 is this tracer ring for ring, 1.0 is it times a
 //! per-event loss that grows with roughness and towards grazing, at any
-//! IOR, with or without refraction). Not derivable, so it is a measured
+//! IOR, with or without refraction). Its shape is derivable: the legacy
+//! lobe is a Phong of exponent e = 2 / r², D ∝ cosᵉ, where `libbsdf`'s is
+//! cos^(e − 1) — in reflection (#184) and in its transmitting modes too
+//! (#191) — so the model traces `libbsdf`'s lobe at `legacy_rough`. The
+//! loss on top is not derivable, so it is a measured
 //! per-event table on closed solids (`LEGACY_LOBE`), the base lobe alone
 //! measured in the furnace scales it (τ, `tint_factor_measured`); the
 //! layering on top is `libbsdf`'s, and predicts Iray's coated spheres
@@ -273,6 +277,9 @@ struct Traced {
 /// every base event of a closed `Libbsdf` stack).
 fn trace(model: Model, s: &Stack, disk: f64, legacy: bool) -> Traced {
     let legacy = legacy && !s.thin && matches!(model, Model::Libbsdf);
+    // The legacy lobe's shape: `libbsdf`'s at `legacy_rough` (the coat is
+    // the module's `mdl 1.0` lobe too); its loss stays indexed by r.
+    let (base_d, coat_d) = if legacy { (legacy_rough(s.base_rough), legacy_rough(s.coat_rough)) } else { (s.base_rough, s.coat_rough) };
     let mut rng = Rng(0x5eed_0113);
     let mut out = Vec::with_capacity(PATHS);
     let mut entered = [0usize; 10];
@@ -292,8 +299,8 @@ fn trace(model: Model, s: &Stack, disk: f64, legacy: bool) -> Traced {
             let outside = !inside || s.thin;
             let eta = if outside { s.ior } else { 1.0 / s.ior };
             let nk1 = dot(n, v).clamp(0.0, 1.0);
-            let h = sample_h(model, s.base_rough, n, &mut rng);
-            let hc = if shared { h } else { sample_h(model, s.coat_rough, n, &mut rng) };
+            let h = sample_h(model, base_d, n, &mut rng);
+            let hc = if shared { h } else { sample_h(model, coat_d, n, &mut rng) };
             let ev = match model {
                 Model::Libbsdf => {
                     let p_layer = s.weight * s.curve.eval(!outside, nk1);
@@ -346,7 +353,8 @@ fn trace(model: Model, s: &Stack, disk: f64, legacy: bool) -> Traced {
 }
 
 /// Iray's `mdl 1.0` `simple_glossy_bsdf` (NVIDIA's modules) loses this on
-/// every base event of a closed solid over `libbsdf`'s lobe (the 1.3 one):
+/// every base event of a closed solid over the cosᵉ lobe it draws
+/// (`libbsdf`'s at `legacy_rough`):
 /// g(r, θ) = head + (grazing − head) (θ / 90°)^skew at the event's incoming
 /// angle, by MDL roughness, linear in r between the rows. **Measured, not
 /// derived** — the release notes name only a "legacy behavior" (#117). Each
@@ -356,11 +364,19 @@ fn trace(model: Model, s: &Stack, disk: f64, legacy: bool) -> Traced {
 /// X3 (r 0.2 at IOR 1.2 / 2), -MdlLegacy K1 – K4 (r 0.3 / 0.5 / 0.7 / 1),
 /// -MdlLegacy2 L1 – L4, L7 (IOR 1.05 / 1.2 / 2 at r 0.6 and 1),
 /// Calib-Furnace-Resin2 U3 – U6 (`scatter_reflect_transmit`, r 0.25 / 0.5 /
-/// 0.75 / 1), MdlArch A2 (r 0.6). One row holds every IOR from 1.05 to 2
+/// 0.75 / 1), MdlArch A2 (r 0.6; left out of the #191 refit: its r is
+/// architectural's equivalent, `ARCH_GLASS_RT`). One row holds every IOR from 1.05 to 2
 /// and both scatter modes within 1 – 5 % per ring (r 1, IOR 1.05: 0.88 at
 /// the rim), so the loss is the lobe's, not the bending's. A thin wall
 /// loses about g² per wall head-on (`ARCH_GLASS_THIN_LOBE` stays measured
-/// on its own): not this table.
+/// on its own): not this table. Rows 0.4 – 1 refitted on the cosᵉ lobe
+/// (#191): the old rows, fitted on `libbsdf`'s lobe at r, left the
+/// spheres' rings up to 4 / 10 / 9 / 10 / 23 % off on it at r 0.5 / 0.6 /
+/// 0.7 / 0.75 / 1, the refit 1.5 / 5.8 / 3.0 / 2.6 / 11 % (the r 1 row
+/// holds IOR 1.05 – 2 and rt at once, as before 10.5 %); below r 0.4 the
+/// two lobes differ by < 2 % in r and the rows stand (worst ring 1 – 1.7 %
+/// on either lobe). The new rows lose more: the cosᵉ lobe alone keeps more
+/// than `libbsdf`'s at r (disk 0.84 v 0.82 at r 0.5, 0.61 v 0.53 at r 1).
 const LEGACY_LOBE: [(f64, f64, f64, f64); 12] = [
     (0.0, 1.0, 1.0, 1.0),
     (0.05, 1.009, 0.971, 0.296),
@@ -368,13 +384,24 @@ const LEGACY_LOBE: [(f64, f64, f64, f64); 12] = [
     (0.2, 0.986, 0.967, 0.453),
     (0.25, 0.977, 0.956, 1.134),
     (0.3, 0.970, 0.942, 1.720),
-    (0.4, 0.957, 0.860, 2.839),
-    (0.5, 0.939, 0.769, 2.210),
-    (0.6, 0.922, 0.753, 1.470),
-    (0.7, 0.913, 0.611, 1.465),
-    (0.75, 0.886, 0.559, 1.923),
-    (1.0, 0.840, 0.609, 1.109),
+    (0.4, 0.955, 0.870, 2.352),
+    (0.5, 0.927, 0.789, 2.047),
+    (0.6, 0.907, 0.735, 1.522),
+    (0.7, 0.885, 0.628, 1.454),
+    (0.75, 0.862, 0.629, 1.374),
+    (1.0, 0.790, 0.551, 1.209),
 ];
+
+/// The roughness at which `libbsdf`'s Phong lobe (cos^(e − 1), e = 2 / r²)
+/// is Iray's legacy `mdl 1.0` lobe of MDL roughness `r` (cosᵉ): e′ − 1 = e,
+/// r′ = r √(2 / (2 + r²)). Derived: point-lit, head-on, every `mdl 1.0`
+/// lobe draws the cosᵉ profile and `libbsdf`'s lobe at r′ the same to a
+/// pixel — reflect-only (#184), `scatter_reflect_transmit`'s reflection
+/// and `scatter_transmit` through a closed sphere (#191,
+/// Calib-Point-MdlReflTrans, Calib-Back-MdlTransmit).
+pub fn legacy_rough(r: f64) -> f64 {
+    r * (2.0 / (2.0 + r * r)).sqrt()
+}
 
 /// `LEGACY_LOBE` at MDL roughness `r` and incoming cosine `c`, at most 1
 /// (r 0.05's head 1.009 is the 8-bit reference near white).
@@ -685,16 +712,20 @@ mod tests {
 
     #[test]
     fn the_falloff_draws_the_legacy_rim() {
-        // The `mdl 1.0` lobe's loss: none on a mirror, head-on 0.92 at r
-        // 0.6 (MdlLegacy2 L1 / L3 / L4 with MdlArch A2), more to the rim.
+        // The `mdl 1.0` lobe's loss: none on a mirror, head-on 0.91 at r
+        // 0.6 (MdlLegacy2 L1 / L3 / L4 on the cosᵉ lobe, #191), more to the rim.
         assert_eq!(legacy_loss(0.0, 0.3), 1.0);
-        assert!((legacy_loss(0.6, 1.0) - 0.922).abs() < 1e-9 && legacy_loss(0.6, 0.5) < 0.86, "{}", legacy_loss(0.6, 0.5));
+        assert!((legacy_loss(0.6, 1.0) - 0.907).abs() < 1e-9 && legacy_loss(0.6, 0.5) < 0.86, "{}", legacy_loss(0.6, 0.5));
+        // The cosᵉ lobe is `libbsdf`'s one exponent up.
+        let r = 0.5;
+        assert!(((2.0 / legacy_rough(r).powi(2) - 1.0) - 2.0 / (r * r)).abs() < 1e-9);
         assert!(legacy_loss(1.0, 1.0) < legacy_loss(0.5, 1.0) && legacy_loss(0.5, 1.0) < legacy_loss(0.2, 1.0));
         // Uncoated resin r 0.5 (Calib-Furnace-Resin2 U4): one k left
         // Octane's rim 1.13 × Iray's; with the falloff every ring within 3 %.
-        let pin2 = |r: f64| (crate::material::phong_alpha(r as f32) as f64).powi(2);
+        // Octane at the export's α (`legacy_phong_alpha`, #191).
+        let alpha = |r: f64| crate::material::legacy_phong_alpha(r as f32) as f64;
         let s = |rough| Stack { weight: 0.0, curve: Curve::Fresnel(1.49), coat_rough: rough, base: Scatter::ReflectTransmit, base_rough: rough, ior: 1.49, thin: false };
-        let (f, iray, octane) = falloff_rings(&s(0.5), &s(pin2(0.5)), 0.678, 1.49, [1.0; 3]);
+        let (f, iray, octane) = falloff_rings(&s(0.5), &s(alpha(0.5)), 0.678, 1.49, [1.0; 3]);
         assert!(f.grazing < 0.9 && f.k[0] > 0.85, "{f:?}");
         assert!((0..9).all(|j| (octane[j] / iray[j] - 1.0).abs() < 0.03), "{iray:?} {octane:?}");
         // Iray's model is the measured rings (U4 0.783 → 0.517).

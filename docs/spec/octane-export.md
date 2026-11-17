@@ -1522,9 +1522,23 @@ leaves out, #15):
   the cos^(e − 1) profile: r 0.354 35 × 27 v 37 × 29 (model 35.5 × 27.4 v
   36.6 × 28.3), u 0.5 51 × 40 v 57 × 45 (51.3 × 40.3 v 56.3 × 44.5), v
   0.25 25 × 19 v 25 × 20 — isotropic or along either axis alike, so the
-  anisotropy and the conversion (u = r · a^¼) stand. The transmitting
-  1.0 lobes (resin's base, architectural's glass and the coat over them)
-  keep `phong_pin`: their measured loss tables were fitted on it. Octane
+  anisotropy and the conversion (u = r · a^¼) stand. **The transmitting
+  1.0 lobes are cosᵉ too** (#191; our own module at 1.0 / 1.3 and a 1.3
+  twin at r′ = r √(2 / (2 + r²)), whose cos^(e′ − 1) is cosᵉ):
+  Calib-Point-MdlReflTrans (resin's `scatter_reflect_transmit`, closed,
+  the interior opaque, its reflection under the point light at the camera)
+  vertical 0.3 / 0.5 widths r 0.354 / 0.5 / 0.7 1.0 35 / 27, 48 / 38,
+  64 / 52, 1.3 36 / 28, 52 / 42, twins 36 / 28, 49 / 39, 66 / 54 — the
+  cosᵉ model × the legacy loss (`legacy_loss`) 35.4 / 27.3, 49.2 / 38.6,
+  65.0 / 52.4, cos^(e − 1) 36.5 / 28.2, 52.4 / 41.4, 69.7 / 60.1 (the
+  head-on Fresnel is flat: h = k); Calib-Back-MdlTransmit (the transmit
+  lobe, closed IOR 1.5, a spot behind each sphere on the line of sight)
+  1.0 41 / 32, 54 / 44, 70 / 56 against its twins 42 / 32, 56 / 44, 72 /
+  58 and the 1.3 lobe at r 42 / 33, 58 / 46. So resin's lobes (base and
+  coat) take `legacy_phong_pin` too, and the Iray model of the legacy
+  lobe in `mdl_layer` traces `libbsdf`'s at r′ (`legacy_rough`), its loss
+  table refitted on it (The legacy lobe's angle, below). Architectural's
+  glass keeps the √r pins it was swept on (#198). Octane
   Faithful (STD) at the legacy pin, Calib-Point-ArchAniso v Iray: P2 (a 4)
   51 × 24 / 40 × 18 v 52 × 25 / 40 × 18 (was 57 × 26 / 45 × 20), P7 (a
   0.25) 25 × 49 / 19 × 38 v 25 × 48 / 19 × 38, P8 27 × 50 / 20 × 40 v 27
@@ -2830,7 +2844,8 @@ leaves out, #15):
     transmit (`simple_glossy_bsdf`, `scatter_reflect_transmit`): specular
     and transmission its colour, which Octane, like Iray, applies at every
     crossing — that keeps the hue — under the rough-glass rule (Beckmann at
-    the Phong pin; the clear gloss as the coating at its Phong pin), both ×
+    the legacy Phong pin `legacy_phong_pin`; the clear gloss as the coating
+    at its legacy pin, #191), both ×
     **k per channel** (`resin_lobe_albedo`, `mdl_layer::transmission_falloff`;
     the transmission falls to the rim by a Falloff Mix, see "The legacy
     lobe's angle" below):
@@ -3023,11 +3038,16 @@ leaves out, #15):
     of the colour × k head-on and × k · q at 90° (`transmission_pin`);
     Octane takes the falloff per hit at that hit's incoming ray (inside a
     solid the refracted ray's), so it is a factor on every transmission
-    event. Iray's model: `libbsdf` × **g(r, θ) on every base event**
+    event. Iray's model: `libbsdf`'s lobe at r′ = r √(2 / (2 + r²))
+    (`legacy_rough`: the legacy lobe is cosᵉ, #191; coat and base) × **g(r,
+    θ) on every base event**
     (`LEGACY_LOBE`, `legacy_loss`): per MDL roughness head + (grazing −
     head)(θ / 90°)^skew at the event's incoming angle, linear in r between
-    rows — head 0.986 / 0.957 / 0.922 / 0.840 at r 0.2 / 0.4 / 0.6 / 1,
-    grazing 0.967 / 0.860 / 0.753 / 0.609 — then τ so the lobe alone keeps
+    rows — head 0.986 / 0.955 / 0.907 / 0.790 at r 0.2 / 0.4 / 0.6 / 1,
+    grazing 0.967 / 0.870 / 0.735 / 0.551 (rows 0.4 – 1 refitted on the
+    cosᵉ lobe, #191: the old rows on it left rings up to 4 – 23 % off at r
+    0.5 – 1, the refit 1.5 – 11 %; the cosᵉ lobe alone keeps more, disk
+    0.84 v 0.82 at r 0.5, 0.61 v 0.53 at r 1, so g loses more) — then τ so the lobe alone keeps
     the measured disk (`RESIN_LOBE` / `ARCH_GLASS_LOBE`, τ ≈ 1). Octane's
     Smith paths keep each transmission event's cosine; (k, q, skew) is
     solved (Nelder – Mead) so the white sphere's rings (tenths of the
