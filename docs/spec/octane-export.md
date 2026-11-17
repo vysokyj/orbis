@@ -1650,6 +1650,19 @@ leaves out, #15):
   STD's rings are flat to 0.85 R; its core (ρ < 0.5 R) over the floor,
   1.01 – 1.17 rising with r, is the furnace excess above (#189), and the
   dark metal's outer rim (0.85 – 0.95 R) is 0.93 – 0.79 × Iray.
+  That excess decomposed (#189, furnace rings): Iray is the single-scatter
+  `libbsdf` model (Phong 2 / r², v-cavities) within 1 – 2 % ring by ring,
+  Octane's Beckmann the single-scatter Smith-Beckmann at `phong_alpha`
+  exactly; STD (default `spread` 0.5) lies between, 1.02 – 1.18 × Iray on
+  the disk at r 0.3 – 1, 1.18 head-on / 1.06 at the rim for r 1. STD's
+  `spread` (a plain float pin, 0 – 1) sets its loss: 0 ≈ Beckmann, 1 loses
+  most (r 1 0.28 of the dome); at **0.8** the white metal is Iray's level
+  for every r (sphere means 0.99 – 1.03 over the dome, rings within ± 6 %),
+  Calib-Metal-Rough under the HDRI 1.00 – 1.03 over the floor's 1.03
+  (default 1.05 – 1.18), Calib-Point-UberGloss's metals 0.97 / 0.95 / 0.98
+  (default 1.00 / 1.02 / 1.07), widths ± 2 – 4 px. Not applied: whether
+  rough metals take it (both Looks, Faithful only, or neither) is the
+  user's call in #189; the export keeps the default spread.
 - **Anisotropy** (Glossy Anisotropy + Glossy Anisotropy Rotations on the
   gloss and the metal, Top Coat Anisotropy + Top Coat Rotations on the top
   coat; #23). Iray (`base::anisotropy_conversion`, MDL SDK's `base.mdl`):

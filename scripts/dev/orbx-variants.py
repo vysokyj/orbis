@@ -56,7 +56,8 @@ Hypotheses (by the Iray channels the variants stand for):
   Octane model's; Faithful sets it).
 - `set=<material>.<pin>=<f|c|p><value>[+…]`: any Universal pin of the
   material named /Scene/Materials/<material>… — `f` a float, `c` a grey
-  colour, `r` an RGB colour (`r<r>,<g>,<b>`), `e` an enum (e.g. `hairMode`), `p` the texture on that pin at power × value, `x` the pin's
+  colour, `r` an RGB colour (`r<r>,<g>,<b>`), `e` an enum (e.g. `hairMode`), `v` a plain
+  float pin that takes no texture (a float value node, e.g. STD's `spread`), `p` the texture on that pin at power × value, `x` the pin's
   colour (per channel with `x<r>,<g>,<b>`), or its texture's power, ×
   value, `o<head>,<grazing>,<skew>` a grey that a Falloff Map (normal
   vs. eye ray) takes from `head` facing the ray to `grazing` at 90° as
@@ -241,6 +242,10 @@ def apply(ocs, hyp):
                 ocs = set_pin(ocs, mat, pin, value_node(33, 8, v.replace(',', ' ')))
             elif kind == 'e':
                 ocs = set_pin(ocs, mat, pin, value_node(57, 2, v))
+            elif kind == 'v':
+                # A plain float pin (not a texture): a float value node (6),
+                # e.g. the STD `spread` (#189; a type-31 node there is ignored).
+                ocs = set_pin(ocs, mat, pin, value_node(6, 9, f'{v} 0 0 0'))
             elif kind == 'o':
                 head, graze, skew = v.split(',')
                 ocs = set_pin(ocs, mat, pin, falloff_mix(head, graze, skew))
