@@ -109,6 +109,19 @@ const FAITHFUL_LEGACY_METAL_RIM: bool = true;
 const ENHANCED_SKIN_DETAIL_CONTRAST: f32 = 0.3;
 const FAITHFUL_SKIN_DETAIL_CONTRAST: f32 = 0.0;
 
+/// STD's `spread` on rough all-metal nodes per Look (`metal_std_spread`,
+/// #189, the user's call 2026-11-17). A contested choice: Iray's rough
+/// metal is a single-scatter v-cavities lobe and loses energy; Octane's STD
+/// at its default spread (0.5) keeps more - 1.02 / 1.03 / 1.05 / 1.10 /
+/// 1.17 x Iray in the white furnace at r 0.3 / 0.4 / 0.5 / 0.7 / 1. A
+/// lossless rough metal keeps all of it, so Octane's is the more plausible:
+/// Enhanced keeps the default. Faithful takes spread 0.8, Iray's level
+/// (furnace 1.01 - 1.05, HDRI 1.00 - 1.03, point light 0.95 - 0.98 x Iray),
+/// paying a highlight 2 - 4 px narrower in the core with a longer tail.
+/// Revisit on real scenes (armour, Demo-*; docs/tuning.md).
+const ENHANCED_METAL_STD_SPREAD: Option<f32> = None;
+const FAITHFUL_METAL_STD_SPREAD: Option<f32> = Some(0.8);
+
 /// Geometry below Iray's ground per Look (`clip_below_ground`, #69, the
 /// user's call 2026-11-16). A contested choice: Iray's ground is a matte
 /// object, opaque - under a Manual ground above the floor (or an instance
@@ -196,6 +209,10 @@ pub struct Tuning {
     /// (Environment, Ground shadow; #69): Iray's matte ground hides it,
     /// Octane's shadow catcher doesn't.
     pub clip_below_ground: bool,
+    /// STD's `spread` on a rough all-metal node (Look, Gloss; #189): None
+    /// keeps Octane's default (0.5), Some(s) writes s - 0.8 is Iray's
+    /// energy.
+    pub metal_std_spread: Option<f32>,
 }
 
 impl Variant {
@@ -227,6 +244,7 @@ impl Variant {
                 legacy_metal_rim: ENHANCED_LEGACY_METAL_RIM,
                 skin_detail_contrast: ENHANCED_SKIN_DETAIL_CONTRAST,
                 clip_below_ground: ENHANCED_CLIP_BELOW_GROUND,
+                metal_std_spread: ENHANCED_METAL_STD_SPREAD,
             },
             (Faithful, Final) => Tuning {
                 kernel: Kernel::PathTracing,
@@ -244,6 +262,7 @@ impl Variant {
                 legacy_metal_rim: FAITHFUL_LEGACY_METAL_RIM,
                 skin_detail_contrast: FAITHFUL_SKIN_DETAIL_CONTRAST,
                 clip_below_ground: FAITHFUL_CLIP_BELOW_GROUND,
+                metal_std_spread: FAITHFUL_METAL_STD_SPREAD,
             },
             (Enhanced, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -261,6 +280,7 @@ impl Variant {
                 legacy_metal_rim: ENHANCED_LEGACY_METAL_RIM,
                 skin_detail_contrast: ENHANCED_SKIN_DETAIL_CONTRAST,
                 clip_below_ground: ENHANCED_CLIP_BELOW_GROUND,
+                metal_std_spread: ENHANCED_METAL_STD_SPREAD,
             },
             (Faithful, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -278,6 +298,7 @@ impl Variant {
                 legacy_metal_rim: FAITHFUL_LEGACY_METAL_RIM,
                 skin_detail_contrast: FAITHFUL_SKIN_DETAIL_CONTRAST,
                 clip_below_ground: FAITHFUL_CLIP_BELOW_GROUND,
+                metal_std_spread: FAITHFUL_METAL_STD_SPREAD,
             },
         }
     }
@@ -301,6 +322,14 @@ mod tests {
         for mode in [OctaneMode::Final, OctaneMode::Preview] {
             assert_eq!(Variant::new(Look::Enhanced, mode).tuning().skin_detail_contrast, ENHANCED_SKIN_DETAIL_CONTRAST);
             assert_eq!(Variant::new(Look::Faithful, mode).tuning().skin_detail_contrast, 0.0);
+        }
+    }
+
+    #[test]
+    fn only_faithful_drops_rough_metals_to_iray_energy() {
+        for mode in [OctaneMode::Final, OctaneMode::Preview] {
+            assert_eq!(Variant::new(Look::Enhanced, mode).tuning().metal_std_spread, None);
+            assert_eq!(Variant::new(Look::Faithful, mode).tuning().metal_std_spread, Some(0.8));
         }
     }
 

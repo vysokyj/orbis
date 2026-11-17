@@ -86,6 +86,7 @@ field of `Tuning`, set per variant in one table (`Variant::tuning`,
 | `legacy_metal_rim` | no (flat) | yes (Falloff Mix) | no | yes |
 | `skin_detail_contrast` | 0.3 | 0 | 0.3 (no skin bake) | 0 |
 | `clip_below_ground` | no (seen through the catcher) | yes (cut at Iray's ground) | no | yes |
+| `metal_std_spread` | default (0.5) | 0.8 (Iray's energy) | default | 0.8 |
 
 Calibrated on the same 17 scenes in each variant (lights, Sun-Sky at
 18:00, noon and steered, HDRI, tone, PBRSkin, Glossy, SSS, Glass, Mixing,
@@ -1663,9 +1664,12 @@ leaves out, #15):
   for every r (sphere means 0.99 – 1.03 over the dome, rings within ± 6 %),
   Calib-Metal-Rough under the HDRI 1.00 – 1.03 over the floor's 1.03
   (default 1.05 – 1.18), Calib-Point-UberGloss's metals 0.97 / 0.95 / 0.98
-  (default 1.00 / 1.02 / 1.07), widths ± 2 – 4 px. Not applied: whether
-  rough metals take it (both Looks, Faithful only, or neither) is the
-  user's call in #189; the export keeps the default spread.
+  (default 1.00 / 1.02 / 1.07), widths ± 2 – 4 px. **Faithful writes
+  spread 0.8** on a rough all-metal node on STD (`metal_std_spread`, a
+  float value node - a texture node on the pin is ignored); **Enhanced
+  keeps the default**: a lossless rough metal keeps all of its light, so
+  Octane's level is the more plausible (the user's call, 2026-11-17, #189;
+  to be judged again on real scenes such as armour, docs/tuning.md).
 - **Anisotropy** (Glossy Anisotropy + Glossy Anisotropy Rotations on the
   gloss and the metal, Top Coat Anisotropy + Top Coat Rotations on the top
   coat; #23). Iray (`base::anisotropy_conversion`, MDL SDK's `base.mdl`):
