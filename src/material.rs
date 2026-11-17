@@ -3874,7 +3874,10 @@ impl Ocs<'_> {
         // rendered 0.89 / 0.83 / 0.94 x Iray against 1.00 / 0.96 / 1.07
         // (#86, docs/notes/2026-11-08-skin-walk-weight.md, step 8); Angel's
         // Base Color Effect 1 diffuse share would drop 10 - 15 %. The skin
-        // rules are held (#19 / #57): which mean they want is open in #82.
+        // rules are held (#19 / #57). Kept on the old mean (the user's call
+        // 2026-11-17, #82, docs/tuning.md): calibrated and matching Iray, but
+        // the fill probably stands in for a component the walk weight is
+        // missing - find it by decomposition, don't refit.
         let d_mean = d.as_deref().and_then(|t| self.textures.mean_covered_colour(self.dirs, t, None));
         let (a, b, k) = skin_albedo(mat, translucency, d_mean);
         // Enhanced: the random walk's weight S (`skin_walk_weight`), the
