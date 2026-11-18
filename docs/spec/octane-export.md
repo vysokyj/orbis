@@ -2891,7 +2891,10 @@ leaves out, #15):
     mirror (roughness 0). Resin's base is a tinted glossy reflect +
     transmit (`simple_glossy_bsdf`, `scatter_reflect_transmit`): specular
     and transmission its colour, which Octane, like Iray, applies at every
-    crossing — that keeps the hue — under the rough-glass rule (Beckmann at
+    crossing — that keeps the hue — though not as Iray splits it: Universal
+    refracts T (1 − F s) where the tinted lobe gives T (1 − F) and leaves a
+    total reflection inside untinted, which the solve's Octane model draws
+    (#201, "Octane's grey dielectric" below) — under the rough-glass rule (Beckmann at
     the legacy Phong pin `legacy_phong_pin`; the clear gloss as the coating
     at its legacy pin, #191), both ×
     **k per channel** (`resin_lobe_albedo`, `mdl_layer::transmission_falloff`;
@@ -3161,6 +3164,43 @@ leaves out, #15):
     the white furnace, so Octane's brighter rough glass is the more
     plausible; its export is byte-identical to before. The Faithful
     renders against Iray are still to be checked (#185).
+    **The excess depends on fake shadows** (#201, note
+    2026-11-18-grey-dielectric-tint): `OCTANE_SPHERE` was measured on
+    the Uber glass's export, which carries `fake_shadows` 1; with them off
+    (Octane's default, what resin and architectural glass export) the
+    same spheres keep less towards the rim — α 0.5 rim 0.80 → 0.72, α 1
+    0.86 → 0.57 — and the same spheres with `fake_shadows` 1 reproduce the
+    table within 1 %. So `octane_excess` reads one of two measured
+    tables by the material's pin: `OCTANE_SPHERE` for the rough Uber glass
+    (`tint_factor`), `OCTANE_SPHERE_PLAIN` (Calib-Furnace-Resin's export
+    re-pinned, `fake_shadows` 0) for resin and architectural glass
+    (`transmission_falloff`): at IOR 1.5 that is the Smith model within
+    1 – 6 % centre to rim (to 1.14 at α 1's rim), at IOR 2 0.8 – 0.95 ×
+    the model past α 0.45.
+    **Octane's grey dielectric** (#201): Universal's specular layer
+    reflects F · s and passes 1 − F · s; the transmission lobe under it
+    refracts T of that, **T (1 − F s)** per refraction, where a tinted
+    reflect + transmit lobe (Iray's) gives T (1 − F); a total reflection
+    inside is untinted (the specular reflects s of it, the transmission
+    lobe the rest). At s = 1 the two agree, so a white sphere can't tell;
+    at s = T < 1 Octane keeps more, most where F is large (inside, near
+    the critical angle: the rim, the rough lobe). Probed on smooth and
+    rough grey spheres (T 0.25 – 0.9, IOR 1.49 / 2, specular T and 1):
+    within 1 – 3 %. The solve's Octane model (`trace`, `Model::Smith`)
+    draws it — each refraction of a reflect + transmit base × (1 − F x) /
+    (1 − F) at its microfacet's F, a total reflection inside untinted —
+    so a grey resin's k (and k < 1 itself, a grey too) comes out lower.
+    Since that split makes the ring shape depend on the colour, the
+    falloff's shape (grazing, skew) is solved at the material's own grey
+    (the tint's channel mean), not on white. It is a model fix, not a
+    Look call: both Looks' resin and architectural solves use it.
+    Octane / Iray, disk and rim 0.8 – 0.9, Faithful before (#185) → after:
+    R5 grey r 0.25 1.07 / 1.20 → 1.02 / 1.02, U7 grey r 0.5 1.06 / 1.17 →
+    1.00 / 1.05, H8 1.07 / 1.29 → 1.00 / 1.12 (at the 8-bit floor);
+    whites within 1 – 2 % except U5 / U6 (α ≥ 0.6) rims 1.12 / 1.13
+    (Enhanced 1.26 / 1.33 → 1.15 / 1.18); coated grey R7 r 0.5 stays
+    1.03 / 1.24 (its falloff can't fit; follow-up issue). Lit Calib-Resin
+    per sphere: R5 1.10 / 1.27 → 1.05 / 1.07.
     **Enable Absorption** (`refr_falloff_on`, with transparency) → an
     absorption medium on the glass, σa = −ln(c) / d per metre
     (`arch_absorption`), as `nvidia/architectural.mdl` computes its

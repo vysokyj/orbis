@@ -149,7 +149,122 @@ sphere re-pinned with `set=` (`b`, a bool pin, new in `orbx-variants.py`):
   0.6 / 0.7 / 0.85 / 1, specular 1 / 0, IOR 1.5 / 2, `fake_shadows` 0 —
   `OCTANE_SPHERE` again without fake shadows.
 
+## 5. Resumed (the user: Octane is free): fake shadows confirmed
+
+The five variants, Octane 1024 raw, 55 – 76 s each. `fs`, disk / centre
+→ rim per α, fake shadows 0 (spheres 1 – 4) v 1 (5 – 8), and
+`OCTANE_SPHERE`'s `rt` row:
+
+| α | `fake_shadows` 0 | 1 | `OCTANE_SPHERE` rt |
+|---|---|---|---|
+| 0.25 | 0.988, 1.004 → 0.891 | 0.991, 1.008 → 0.907 | 1.009 → 0.911 |
+| 0.5 | 0.864, 0.974 → 0.719 | 0.898, 0.964 → 0.803 | 0.965 → 0.803 |
+| 0.7 | 0.733, 0.799 → 0.645 | 0.816, 0.831 → 0.806 | 0.827 → 0.807 |
+| 1 | 0.594, 0.571 → 0.571 | 0.757, 0.683 → 0.858 | 0.685 → 0.858 |
+
+Fake shadows on reproduce the table to 1 %; off, the rim loses 10 – 33 %.
+#185's table is the Uber glass's.
+
+## 6. The excess without fake shadows
+
+`xrt` / `xtr` / `xrt2` / `xtr2` became `OCTANE_SPHERE_PLAIN` (same
+layout, IOR, α grid and normalisation as `OCTANE_SPHERE`).
+`octane_excess` reads it for resin and architectural glass
+(`transmission_falloff`), the old one for the Uber glass
+(`tint_factor_octane`, which exports fake shadows unless it scatters — a
+scattering rough Uber glass is not measured). Octane / Smith model over
+the α 0.25 row, centre → 0.8 – 0.9:
+
+| IOR, α | `tr` plain | `rt` plain | `rt` fake shadows |
+|---|---|---|---|
+| 1.5, 0.5 | 1.04 → 0.97 | 1.05 → 1.01 | 1.04 → 1.12 |
+| 1.5, 0.7 | 1.04 → 0.95 | 1.04 → 1.06 | 1.08 → 1.32 |
+| 1.5, 1 | 1.05 → 0.95 | 1.06 → 1.14 | 1.28 → 1.71 |
+| 2, 0.5 | 0.95 → 0.88 | 0.95 → 0.92 | 1.08 → 1.16 |
+| 2, 1 | 0.81 → 0.78 | 0.90 → 0.98 | 1.74 → 1.94 |
+
+Without fake shadows Octane is its Smith model within a few % at IOR 1.5
+and keeps *less* at IOR 2 — most of #185's "excess" was the fake
+shadows' light.
+
+With the § 3 rule and the plain table in the model, #185's Faithful
+renders at their own (old) pins, Octane / model per ring (`diag201::
+print_old_pins`): R5 / R6 / R2 / R4 1.00 – 1.02 everywhere, R7 1.00 →
+1.06, U7 / U4 1.00 → 1.03, U5 1.01 → 1.05, U6 0.98 → 1.10 (were R5 1.04
+→ 1.20, U4 1.03 → 0.93 with the rule alone). Both errors are gone.
+
+## 7. Calib-Resin cube2 (+27 %) is not a material
+
+`calib-compare.py regions` boxes are Calib-Base's layout (cubes beside a
+figure). In Calib-Resin, `cube2` (x 910 – 1010, y 490 – 590) holds the
+right edge of R4, the dark HDRI between the spheres, the floor's horizon
+and the left rim of R5 (19 % sphere pixels). Its **median** sits where
+the bimodal histogram crosses classes, so a few % shift moves it from one
+class to the other: 1.27 – 1.29 by the median, 1.064 by the mean of the
+same box (off the spheres 1.043, on R4 1.06, on R5's rim 1.25). Measured
+per sphere instead (`sphere_discs`, f185-after Faithful, disk r < 0.75 /
+rim 0.8 – 0.95): R1 1.09 / 1.12, R2 1.04 / 1.09, R3 1.07 / 1.11, R4 1.03
+/ 1.06, R5 1.10 / 1.27, R6 1.04 / 1.06, R7 1.15 / 1.70, R8 1.03 / 1.12 —
+the grey and rough spheres high, as in the furnace (R5, R7). The lit
+scene's spheres are compared per disc from now on; the cube boxes don't
+apply to Calib-Resin / -ArchGlass.
+
+## 8. The scene check (both Looks, 400 samples denoised, vs Iray)
+
+v1 = the § 3 rule + the plain table; the falloff's shape still solved on
+white. Furnace disk / rim (0.8 – 0.9), Faithful: R5 1.07 / 1.20 → 0.96 /
+1.08 (centre 0.93), U7 1.06 / 1.17 → 0.97 / 1.08, H8 1.07 / 1.29 → 0.96 /
+1.18 — the grey's level right, its shape not: the centre low, the rim
+high. Cause: the shape (grazing, skew) was solved on the white sphere,
+then k per channel; with Octane's grey split the white and the grey
+rings differ in shape (the grey's total reflections and T (1 − F s) keep
+the rim relatively brighter), so a white-solved shape leaves a grey rim
+high. v2 solves the shape at the tint's grey (channel mean) — derived,
+no constant: the model meets Iray's rings within 1 – 3 % for R5 / U7 /
+U4 / U5 / U6 (R7 0.95 – 1.08, its grazing pinned at 0).
+
+| sphere | before (#185, f185-after) | v1 | v2 |
+|---|---|---|---|
+| R5 grey r 0.25 c0 | 1.067 / 1.20 | 0.961 / 1.08 | 1.023 / 1.02 |
+| R7 grey r 0.5 | 1.051 / 1.21 | 1.035 / 1.24 | 1.031 / 1.24 |
+| U7 grey r 0.5 c0 | 1.061 / 1.17 | 0.974 / 1.08 | 1.000 / 1.05 |
+| H8 colour 0.5 | 1.071 / 1.29 | 0.964 / 1.18 | 1.000 / 1.12 |
+| R2 grey r 0.02 | 1.026 / 1.04 | 0.981 / 1.01 | 1.003 / 1.01 |
+| U4 white r 0.5 c0 | 1.009 / 1.03 | 0.994 / 1.02 | 0.994 / 1.02 |
+| U5 white r 0.75 c0 | 1.022 / 1.07 | 1.022 / 1.12 | 1.020 / 1.12 |
+| U6 white r 1 c0 | 1.041 / 1.05 | 1.066 / 1.13 | 1.066 / 1.13 |
+| Resin3 7 | 0.940 / 0.98 (no before) | | 0.965 / 0.95 |
+
+Enhanced (no excess) moves the same way and its rough whites come down
+with the rule: U5 / U6 1.100 / 1.26, 1.170 / 1.33 → 1.040 / 1.15, 1.085 /
+1.18; R5 1.050 / 1.18 → 1.028 / 1.01; H8 1.107 / 1.35 → 1.000 / 1.06.
+Uber glass (fake-shadow table, unchanged path): within 0.01 of before.
+Architectural G-spheres within 0.01 – 0.02.
+
+Lit, per sphere (disk / rim 0.8 – 0.95), Faithful before → v2:
+Calib-Resin R1 1.09 / 1.12 → 1.06 / 1.09, R2 1.04 / 1.09 → 1.02 / 1.05,
+R5 1.10 / 1.27 → 1.05 / 1.07, R8 1.03 / 1.12 → 1.01 / 1.10, R7 1.15 /
+1.70 → 1.14 / 1.71; Calib-ArchGlass G4 1.04 / 1.05 → 1.03 / 1.03, G7
+1.03 / 0.98 → 1.04 / 1.02, G8 1.15 / 0.93 unchanged (floor 1.03 in both).
+
+Left (follow-up issue): the coated grey R7 (r 0.5, coat 0.95) — its
+falloff fit can't reach Iray's rings (grazing pinned at 0, rim 1.24 in
+the furnace, 1.70 lit); the rough uncoated whites U5 / U6 rims 1.12 /
+1.13 over Iray (the plain table's rt rows are measured without a falloff
+on the transmission). Neither is in #201's grey residue.
+
+The first scene check printed "Octane X quit before the probe was done"
+but all eight scenes of both variants rendered (Octane relaunched by
+itself); the second ran clean.
+
 ## Process lessons
+
+- A shape solved on white and a level solved per channel are only
+  separable when the model is linear in the tint per event. Octane's
+  T (1 − F s) is not: solve the shape at the material's own colour.
+- `calib-compare.py regions` boxes are Calib-Base's; on another layout a
+  region's median of a mixed box (background, floor, two sphere edges)
+  is no measurement. Use the projected discs.
 
 - A white furnace sphere can't separate a reflection from a transmission
   split: any energy-conserving split keeps 1. Probe the grey (and two

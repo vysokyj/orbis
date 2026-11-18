@@ -1066,7 +1066,7 @@ fn arch_absorption(mat: &Material) -> Option<[f32; 3]> {
 /// angle; Octane layers physically. The factor makes a closed sphere of the
 /// material keep in Octane what it keeps in Iray in a white furnace,
 /// computed from both models (`mdl_layer::tint_factor_measured`, #113),
-/// with Iray's own lobe loss on top (`RESIN_LOBE`, #115). Grey 0.79, coat
+/// with Iray's own lobe loss on top (`RESIN_LOBE`, #115). Before #201: grey 0.79, coat
 /// 0.95: 0.98 at r 0.02, 0.92 at 0.1, 0.81 at 0.25, 0.59 at 0.5; uncoated
 /// white 0.99 / 0.98 / 0.97 / 0.89.
 fn resin_lobe_albedo(r: f32, weight: f32, ior: f32, tint: [f32; 3], excess: bool) -> crate::mdl_layer::Falloff {
@@ -8789,9 +8789,11 @@ mod tests {
         // With Octane's lobe at the legacy pin (#198) 0.899 / 0.876 / 0.853:
         // H6 / H2 / H7 1.03 / 1.03 / 1.07 × Iray (at √r, k flat at 0.90,
         // 1.05 / 1.05 / 1.00) - Octane keeps more than its Smith model at
-        // IOR 2, where facets inside reflect totally (#185).
+        // IOR 2, where facets inside reflect totally (#185). Octane's total
+        // reflections are untinted (#201): at k < 1 its sphere keeps more,
+        // the more the IOR traps, 0.897 / 0.872 / 0.821.
         let at = |ior: f32| arch_glass_albedo(rr, 0.2, ior, 0.0, 0.0, 1.5, None, false, [1.0; 3], false).k[0];
-        assert!((at(1.5) - 0.876).abs() < 0.01 && (0.0..0.07).contains(&(at(1.2) - at(2.0))), "{} {} {}", at(1.2), at(1.5), at(2.0));
+        assert!((at(1.5) - 0.872).abs() < 0.01 && (0.04..0.1).contains(&(at(1.2) - at(2.0))), "{} {} {}", at(1.2), at(1.5), at(2.0));
         // Head-on k (texture1), × the grazing ratio at 90° (texture2).
         assert_eq!(pin(&x, "texture1"), format!("{} {} {}", num(k[0]), num(k[1]), num(k[2])), "{x}");
         assert_eq!(pin(&x, "texture2"), format!("{} {} {}", num(k[0] * f.grazing), num(k[1] * f.grazing), num(k[2] * f.grazing)), "{x}");
