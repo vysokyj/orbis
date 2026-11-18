@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ORBIS calibration: keep Iray renders of the generated scenes in git.
 
-  python3 scripts/dev/keep-refs.py [--demo] [--renderer NAME] [--queue-log LOG] <render.png>...
+  python3 scripts/dev/keep-refs.py [--demo | --approved] [--renderer NAME] [--queue-log LOG] <render.png>...
 
 --demo: renders of Demo- scenes (demo/scenes.toml), kept in demo/references/iray with the scene's sha256
 
@@ -18,7 +18,9 @@ Server applies the Post Denoiser; the local CPU Iray never does (NVIDIA's
 deep-learning denoiser runs on GPUs only), whatever the scene says, so a CPU
 render is recorded `off` (#171). Only scenes that are in calib/scenes are taken (generated from scratch,
 DAZ built-ins and primitives only); every other render is skipped, so a
-user's own scene or DAZ Store content never gets into the repo. A render with
+user's own scene or DAZ Store content never gets into the repo - unless the
+user approved that scene's render by name: --approved takes it (the render
+only, never the scene). A render with
 fewer samples than the one already kept is skipped too.
 
 Samples and the time cap come from the capped copy of the scene the render
@@ -44,6 +46,13 @@ calib = os.path.expanduser('~/Library/Caches/orbis/calib')
 FIELDS = ['scene', 'samples', 'max_time', 'renderer', 'rendered', 'seconds', 'denoiser']
 
 args = sys.argv[1:]
+# --approved: renders of a scene outside calib/scenes (store content the user
+# owns) that the user approved by name for git (2026-11-18: the private
+# Calib-Hair-Kevin / -Hudson / -Athena references). Only the render goes in,
+# never the scene. Never pass it on Claude's own judgment.
+approved = '--approved' in args
+if approved:
+    args.remove('--approved')
 demo = '--demo' in args
 if demo:
     # Demo- scenes: store content stays in the library, only renders are kept.
@@ -122,7 +131,7 @@ for png in pngs:
         if not os.path.exists(lib_scene) or os.path.getmtime(lib_scene) > os.path.getmtime(png):
             print(f'skip {name}: the scene was saved after this render, so the render is stale')
             continue
-    elif not os.path.exists(os.path.join(scenes, name + '.duf')):
+    elif not approved and not os.path.exists(os.path.join(scenes, name + '.duf')):
         print(f'skip {name}: not a generated scene in calib/scenes')
         continue
     failed = daz_log.errors_before(name, datetime.datetime.fromtimestamp(os.path.getmtime(png)))

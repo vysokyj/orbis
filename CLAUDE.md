@@ -172,7 +172,10 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   2026-11-02); the prefix is their consent. **Never** the assets themselves
   or what is derived from their geometry/materials: dumps, `.mi`, `.usdz`,
   `.orbx`. Anything else (teens, Calib-Hair-Teens...) is private: neither
-  scene nor renders in git; use it freely for local calibration. Claude never
+  scene nor renders in git; use it freely for local calibration. Never delete
+  such scenes or their references: the user approves at the end, by name,
+  which renders may go in (`keep-refs.py --approved`; so far the Calib-Hair-
+  Kevin / -Hudson / -Athena references, 2026-11-18). Claude never
   edits a `Demo-*.duf` by hand. References go in through
   `keep-refs.py` (`--demo` for `Demo-*`), committed as they come during a
   long run; `demo.py check` shows stale references and a library file that differs from git.
