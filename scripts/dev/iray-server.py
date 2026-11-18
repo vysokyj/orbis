@@ -228,7 +228,7 @@ def submit(argv):
     # it was last seen in the queue. A job that never shows up (`appear` s)
     # or renders without progress (`render_stall` s) is failed and removed,
     # so the batch goes on (#200).
-    started, moved, seen, left, t0 = {}, {}, {}, set(sent), time.time()
+    started, moved, seen, killed, left, t0 = {}, {}, {}, {}, set(sent), time.time()
     while left:
         time.sleep(5)
         now = time.time()
@@ -245,19 +245,24 @@ def submit(argv):
             if j['name'] not in left:
                 continue
             seen[j['name']] = now
-            if j['status'] == 'active':
+            if j['name'] in killed:
+                if j['status'] in ('done', 'failed', 'stopped'):
+                    s.call('DELETE', 'results', {'id': j['id']})
+                    s.call('DELETE', 'queue', {'ids': [j['id']]})
+                    left.discard(j['name'])
+            elif j['status'] == 'active':
                 started.setdefault(j['name'], now)
                 sig = job_signature(j)
                 if moved.get(j['name'], (None,))[0] != sig:
                     moved[j['name']] = (sig, now)
                 elif now - moved[j['name']][1] > render_stall:
                     failed.append(j['name'])
-                    print(f"iray-server: {jobs[j['name']][0]} stalled: no render progress for {render_stall} s; removed from the server", flush=True)
-                    # The web UI's Stop (POST job, now), then its Remove.
+                    print(f"iray-server: {jobs[j['name']][0]} stalled: no render progress for {render_stall} s; stopping and removing it", flush=True)
+                    # The web UI's Stop (POST job, now); once it reads
+                    # "stopped", the branch below removes it and its result
+                    # (deleted at once, the result came back afterwards).
                     s.call('POST', 'job', {'id': j['id'], 'command': 'stop', 'now': True})
-                    s.call('DELETE', 'queue', {'ids': [j['id']]})
-                    s.call('DELETE', 'results', {'id': j['id']})
-                    left.discard(j['name'])
+                    killed[j['name']] = (j['id'], now)
             elif j['status'] in ('done', 'failed', 'stopped'):
                 name, copy = jobs[j['name']]
                 secs = round(now - started.get(j['name'], t0))
@@ -276,7 +281,15 @@ def submit(argv):
                 s.call('DELETE', 'results', {'id': j['id']})
                 s.call('DELETE', 'queue', {'ids': [j['id']]})
                 left.discard(j['name'])
+        for name, (jid, since) in killed.items():
+            if name in left and now - since > 120:
+                # Never reached "stopped": remove it as it is.
+                s.call('DELETE', 'queue', {'ids': [jid]})
+                s.call('DELETE', 'results', {'id': jid})
+                left.discard(name)
         for name in list(left):
+            if name in killed:
+                continue
             if now - seen.get(name, t0) > appear:
                 failed.append(name)
                 print(f'iray-server: {jobs[name][0]}: not in the server queue for {appear} s; given up', flush=True)
