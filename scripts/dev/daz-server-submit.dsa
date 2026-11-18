@@ -10,7 +10,10 @@
 // exportRenderToBridgeQueue(job, "", camera, render options) uploads the
 // open scene as a job and returns a DzError (errorCode 0 = queued). The
 // render runs on the server, never on this Mac's CPU. <out>/submit.txt gets
-// one line per job: "ok <job>" or "failed <job>: <message>".
+// one line per job: "ok <job>" or "failed <job>: <message>", rewritten after
+// each job, and <out>/current.txt names the job being uploaded: the export
+// blocks while the server never answers (#200), and iray-server.py then
+// kills this DAZ and needs to know which jobs are already in.
 // ECMAScript 3, ASCII only.
 (function () {
     var aArgs = App.scriptArgs;
@@ -62,10 +65,13 @@
                 aLines.push("failed " + sJob + ": camera " + sCamera + " not found (" + nCameras + " cameras)");
                 continue;
             }
+            write(sOut + "/submit.txt", aLines.join("\n") + "\n");
+            write(sOut + "/current.txt", sJob + "\n");
             var oErr = oRenderer.exportRenderToBridgeQueue(sJob, "", oCamera, App.getRenderMgr().getRenderOptions());
             var nCode = oErr ? oErr.errorCode : 0;
             if (nCode) aLines.push("failed " + sJob + ": " + nCode + " " + oErr.errorMsg);
             else aLines.push("ok " + sJob);
+            write(sOut + "/submit.txt", aLines.join("\n") + "\n");
         }
     } catch (e) {
         aLines.push("failed: " + e);
