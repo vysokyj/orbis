@@ -68,6 +68,9 @@ where the hair shader's module fails to re-import (#94).
 The -UberM scenes take Morgan's Strands material apart (materials 5, 14 -
 16: whole, without its gloss, without its translucency, without its
 refraction) on fibres and on ribbons (-T2, Morgan's shape), sun and dome.
+-UberA-Dome / -UberA-T2-Dome (#161): plain diffuse at 0.2 / 0.5 / 0.85
+and 0.85 with translucency 0.48 (materials 17, 1, 18, 19) on fibres and
+ribbons under the dome: how the albedo moves Octane's curves against Iray.
 -UberM-Edge-T2 (-Dome) put the same strands in the same places with each
 ribbon turned 65 degrees about its strand (node and geometry turned against
 each other), as Calib-Hair-Teens shows Morgan's ribbons (#99).
@@ -188,6 +191,12 @@ MATERIALS = {
     14: ('Morgan nocoat, no gloss', [0.854902, 0.8117647, 0.7294118], {**MORGAN_GLOSS, **MORGAN_BASE, 'Glossy Layered Weight': 0.0}),
     15: ('Morgan nocoat, no translucency', [0.854902, 0.8117647, 0.7294118], {**MORGAN_GLOSS, **MORGAN_BASE, 'Translucency Weight': 0.0}),
     16: ('Morgan nocoat, no refraction', [0.854902, 0.8117647, 0.7294118], {**MORGAN_GLOSS, **MORGAN_BASE, 'Refraction Weight': 0.0}),
+    # Plain diffuse at a dark / a blond albedo, and the blond with Hudson
+    # Hair's translucency (-UberA, #161: Octane's curves against Iray's
+    # ribbons on darker and on blond store hairs; material 1 is the middle).
+    17: ('diffuse dark', [0.2, 0.2, 0.2], {}),
+    18: ('diffuse blond', [0.85, 0.85, 0.85], {}),
+    19: ('diffuse blond translucent', [0.85, 0.85, 0.85], {'Translucency Weight': 0.48, 'Translucency Color': [0.85, 0.85, 0.85]}),
 }
 THICK = 20.0                     # Line Start / End Width of rows A
 THIN = (0.2, 0.1)                # Morgan's
@@ -531,3 +540,8 @@ for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
 # ribbons' normal turned about each strand.
 build('Calib-Strand-UberM-Edge-T2', rows='GHIJ', mats=(5, 14, 15, 16), tess=2, turn=65.0)
 build('Calib-Strand-UberM-Edge-T2-Dome', rows='GHIJ', mats=(5, 14, 15, 16), tess=2, turn=65.0, dome=True)
+# Plain diffuse by albedo under the dome (#161): fibres (Octane's curves'
+# own shape in Iray) and ribbons (what DAZ hands Iray for Line
+# Tessellation 2, Faithful's reference for ribbon hair).
+for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
+    build('Calib-Strand-UberA' + _name + '-Dome', rows='GHIJ', mats=(17, 1, 18, 19), dome=True, **_kw)
