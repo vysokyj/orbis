@@ -7,6 +7,7 @@ git-ignored .env (IRAY_SERVER_HOST, _PORT, _USER, _PASSWORD; see
   python3 scripts/dev/iray-server.py info              # server info, queue state
   python3 scripts/dev/iray-server.py queue             # jobs in the queue
   python3 scripts/dev/iray-server.py idle              # block until no job waits or renders
+  python3 scripts/dev/iray-server.py cancel [prefix]   # remove queued / rendering jobs
   python3 scripts/dev/iray-server.py results [search]  # finished results
   python3 scripts/dev/iray-server.py get <path>        # raw GET, JSON printed
 idle: a low-priority batch calls it before each scene, so jobs an issue
@@ -168,6 +169,13 @@ def main(argv):
             time.sleep(15)
     elif cmd == 'queue':
         print(json.dumps(s.call('GET', 'queue'), indent=1)[:8000])
+    elif cmd == 'cancel':
+        # Remove waiting / rendering jobs (all, or those whose name starts with
+        # the argument): after killing a submit, its job would render on.
+        for j in s.call('GET', 'queue').get('jobs', []):
+            if len(argv) < 2 or j['name'].startswith(argv[1]):
+                s.call('DELETE', 'queue', {'ids': [j['id']]})
+                print(f"iray-server: cancelled {j['name']} ({j['status']})")
     elif cmd == 'results':
         q = urllib.parse.urlencode({'search': argv[1] if len(argv) > 1 else '', 'limit': 20, 'offset': 0})
         print(json.dumps(s.call('GET', 'results?' + q), indent=1)[:8000])
