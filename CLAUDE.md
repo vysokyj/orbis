@@ -57,6 +57,7 @@ never wait for CI - the local `cargo test` before a push is the gate.
 | `scripts/dev/` | Calibration tools: Octane Lua probes, render comparison, manual mirror |
 | `demo/` | `Demo-*` scenes: manifest (`scenes.toml`) + Iray references with the scene's sha256; the scenes stay in My Library |
 | `calib/scenes/` | Calibration scenes the scripts generated (Calib-PBRSkin, -Glossy, -Tone-*, -DOF-*, -L-*): copies of `My Library/Scenes`, exposure as tuned; DAZ built-ins, primitives and free DAZ add-ons only |
+| `calib/scenes-store/` | Calibration scenes on the user's store content (Calib-Skin-*, store hair, Calib-Base...): copies with the contributor blanked; the content itself never |
 
 ## Documentation
 Map of all docs: `docs/README.md`. Calibration (principle, test scenes,
@@ -104,15 +105,15 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   rule, 2026-11-16, until they say otherwise): free, but **4 GB VRAM**.
   Generic scenes (`calib/scenes`, generated `Calib-*`) go there on Claude's
   judgment without asking, in batches of any size, headless with
-  `scripts/dev/iray-server.py submit` (#195; login in the git-ignored `.env`); `Demo-*` and private
-  scenes only after asking (they may not fit). Claude may start, quit and
+  `scripts/dev/iray-server.py submit` (#195; login in the git-ignored `.env`); `Demo-*` and
+  `calib/scenes-store` scenes only after asking (they may not fit). Claude may start, quit and
   restart the queue-side DAZ and its queue script (2026-11-16; the Iray
   Server itself and its password stay the user's). Never reorder; scenes
   that need a queue-side DAZ restart before them (#94) are held back and
   queued with `--held` once DAZ is down. Octane may render alongside it.
   Stalled queue / "session handler rejected the session" = tell the user.
 - **A failed Octane render/probe: leave Octane X open** so the user can read
-  its error dialog (#50). Big scenes (the teens scene, 1.2 M faces) in a
+  its error dialog (#50). Big scenes (the former teens scene, 1.2 M faces) in a
   series of full renders froze the Mac — experiment on small Calib-* scenes
   or half resolution.
 - **Clean up the cache**: `.orbx` exports in `~/Library/Caches/orbis` filled
@@ -171,11 +172,15 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   manifest and the Iray reference renders go in git (the user's decision,
   2026-11-02); the prefix is their consent. **Never** the assets themselves
   or what is derived from their geometry/materials: dumps, `.mi`, `.usdz`,
-  `.orbx`. Anything else (teens, Calib-Hair-Teens...) is private: neither
-  scene nor renders in git; use it freely for local calibration. Never delete
-  such scenes or their references: the user approves at the end, by name,
-  which renders may go in (`keep-refs.py --approved`; so far the Calib-Hair-
-  Kevin / -Hudson / -Athena references, 2026-11-18). Claude never
+  `.orbx`. `Calib-*` scenes built on the user's store content (Calib-Skin-*,
+  Calib-Hair-Kevin, Calib-OmniHair-*, the user's own Calib-Base...) live in
+  `calib/scenes-store/` (contributor blanked) with their references in
+  `calib/references/iray` (the user's decision, 2026-11-18: "all of it in
+  git; what doesn't go in is deleted and not used"). A new scene with store
+  content: ask before it goes in. There are no private calibration scenes any
+  more: the teens scene and Calib-*-Teens were deleted; build generic scenes
+  instead (#203). Never delete a scene outside git on your own: the user
+  decides. Claude never
   edits a `Demo-*.duf` by hand. References go in through
   `keep-refs.py` (`--demo` for `Demo-*`), committed as they come during a
   long run; `demo.py check` shows stale references and a library file that differs from git.
@@ -183,15 +188,14 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   reproduces DAZ's own `.mi` export (`calib/references/mi/*.json`, test in
   the module). Never change it to fit a render; tune the Octane side
   instead. It changes only with new `.mi` fixtures that prove it (#62).
-- `calib/scenes/` holds only generated scenes — never the user's own
-  Calib-*.duf (Base, Point, Area, Spot, Distant, Emissive, HDRI, Materials)
-  nor Calib-Hair (it wears a DAZ Store hair): copy a new one in with its
+- `calib/scenes/` holds only generated scenes: copy a new one in with its
   references checked (DAZ built-ins / primitives only, or a free DAZ
   add-on such as dForce Starter Essentials — the scene only references it,
-  e.g. Calib-Mi-Hair; decided 2026-11-03).
+  e.g. Calib-Mi-Hair; decided 2026-11-03). Scenes with store content go to
+  `calib/scenes-store/` instead (rule above).
 - Iray references go into git (`calib/references/iray`, with `renders.tsv`)
-  as they are rendered, through `keep-refs.py` — only renders of
-  `calib/scenes` (see the private-scenes rule above).
+  as they are rendered, through `keep-refs.py` — only renders of scenes in
+  `calib/scenes` or `calib/scenes-store`.
 - **Nothing third-party-copyrighted in the repo**: no OTOY manual text, no
   Octane sample files (the ORBX round-trip test reads `cornell.orbx` from the
   installed app and skips without it), no DAZ store content in fixtures —

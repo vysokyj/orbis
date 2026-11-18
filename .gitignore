@@ -42,6 +42,7 @@ __pycache__/
 # calibration scenes (hook .claude/hooks/guard.sh checks staged files too)
 *.duf
 !/calib/scenes/*.duf
+!/calib/scenes-store/*.duf
 *.dbz
 !/demo/scenes/*.duf
 
