@@ -60,6 +60,7 @@ Calib-Env-Rot180	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:01	105	on@8
 Calib-Env-Rot90	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:03	105	on@8
 Calib-Env-Tint	5000	0	Iray Server (Boost for Daz)	2026-11-02 20:05	105	on@8
 Calib-Eye	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:42	318	on@8
+Calib-Eye-G9	5000	0	Iray Server (Boost for Daz)	2026-11-02 19:37		on@8
 Calib-FilmIOR	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:44	106	on@8
 Calib-Flakes	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:45	109	on@8
 Calib-Furnace-ArchGlass	5000	0	Iray Server (Boost for Daz)	2026-11-11 02:53	81	on@8
@@ -330,9 +331,19 @@ Calib-Skin-Angel-front	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:42	134	o
 Calib-Skin-Angel-front-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:39	69	on@8
 Calib-Skin-Angel-hdri	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:46	138	on@8
 Calib-Skin-Angel-hdri-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:43	76	on@8
+Calib-Skin-Base-back	5000	0	Iray Server (Boost for Daz)	2026-10-31 00:30		on@8
+Calib-Skin-Base-back-bce0	5000	0	DAZ Studio Iray (CPU)	2026-10-30 17:26		off
+Calib-Skin-Base-back-w0	5000	0	Iray Server (Boost for Daz)	2026-10-31 00:31		on@8
+Calib-Skin-Base-front	5000	0	Iray Server (Boost for Daz)	2026-10-31 00:34		on@8
+Calib-Skin-Base-front-bce0	5000	0	Iray Server (Boost for Daz)	2026-10-31 00:36		on@8
+Calib-Skin-Base-front-sssdir0	5000	0	Iray Server (Boost for Daz)	2026-10-31 00:38		on@8
+Calib-Skin-Base-front-w0	5000	0	Iray Server (Boost for Daz)	2026-10-31 00:40		on@8
+Calib-Skin-Base-front-w09	5000	0	Iray Server (Boost for Daz)	2026-10-31 00:42		on@8
+Calib-Skin-Base-hdri	5000	0	Iray Server (Boost for Daz)	2026-10-31 00:45		on@8
 Calib-Skin-Base-hdri-coat0	400	0	Iray Server (Boost for Daz)	2026-11-11 21:26		on@8
 Calib-Skin-Base-hdri-dlgloss	400	0	Iray Server (Boost for Daz)	2026-11-11 21:27		on@8
 Calib-Skin-Base-hdri-dlglosstc	400	0	Iray Server (Boost for Daz)	2026-11-11 21:27		on@8
+Calib-Skin-Base-hdri-w0	5000	0	Iray Server (Boost for Daz)	2026-10-31 00:46		on@8
 Calib-Skin-Gabriela-back	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:52	131	on@8
 Calib-Skin-Gabriela-back-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:49	60	on@8
 Calib-Skin-Gabriela-front	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:58	130	on@8
