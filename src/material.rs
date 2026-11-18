@@ -90,6 +90,9 @@ pub struct Textures {
     pub generated: Vec<(String, Vec<u8>)>,
     /// Mean colours of hair maps by DAZ path (`None`: not found).
     means: HashMap<String, Option<[f32; 3]>>,
+    /// A grey map's column means (left to right, one per texel column, as
+    /// Iray decodes it) by DAZ path and channel pick (`None`: not found).
+    columns: HashMap<String, Option<Vec<f32>>>,
     /// Images' own gamma by DAZ path, as DAZ hands it Iray
     /// (`Channel::gamma`; "auto" ones aren't listed): one per file.
     pub own_gammas: HashMap<String, f32>,
@@ -333,6 +336,43 @@ impl Textures {
         });
         self.means.insert(key, mean);
         mean
+    }
+
+    /// The mean of each texel column of a grey map (left to right), the
+    /// texels decoded as Iray reads the channel's map: at its gamma
+    /// (`source_gamma`), the channel `mono` picks (`Average`: the
+    /// luminance, as `bake_mono` reads it; `Alpha`: linear coverage). Their
+    /// mean is a cutout map's on strands (`Ocs::opacity_pin`); by column,
+    /// a profile along the strand reads them as they are (#202). None: the
+    /// file is missing or unreadable (a layered image too).
+    fn column_means(&mut self, dirs: &[PathBuf], daz_path: &str, mono: Mono) -> Option<Vec<f32>> {
+        let key = format!("{mono:?}:{daz_path}");
+        if let Some(c) = self.columns.get(&key) {
+            return c.clone();
+        }
+        let rel = daz_path.trim_start_matches('/');
+        let img = dirs.iter().map(|d| d.join(rel)).find(|p| p.is_file()).and_then(|f| image::open(&f).map_err(|e| tracing::warn!(file = %f.display(), error = %e, "Octane export: map unreadable")).ok());
+        let cols = img.map(|img| {
+            let g = self.source_gamma(daz_path, img.color());
+            let img = img.to_rgba32f();
+            let (w, h) = img.dimensions();
+            let (d, lin) = (|c: f32| c.max(0.0).powf(g), |c: f32| c);
+            let texel = |p: [f32; 4]| match mono {
+                Mono::Average => 0.2126 * d(p[0]) + 0.7152 * d(p[1]) + 0.0722 * d(p[2]),
+                Mono::Red => d(p[0]),
+                Mono::Green => d(p[1]),
+                Mono::Blue => d(p[2]),
+                Mono::Maximum => d(p[0].max(p[1]).max(p[2])),
+                Mono::Alpha => lin(p[3]),
+            };
+            let mut sum = vec![0.0f64; w as usize];
+            for (x, _, p) in img.enumerate_pixels() {
+                sum[x as usize] += f64::from(texel(p.0));
+            }
+            sum.into_iter().map(|s| (s / f64::from(h.max(1))) as f32).collect::<Vec<f32>>()
+        });
+        self.columns.insert(key, cols.clone());
+        cols
     }
 
     /// Flatten a layered image into a PNG asset.
@@ -1884,7 +1924,7 @@ impl Ocs<'_> {
         self.gloss_brdf = None;
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
-            self.float_or_map(j + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
+            self.opacity_pin(j + 1, mat, opacity);
         }
         let _ = writeln!(self.out, "{:j$}</node>", "");
     }
@@ -1925,7 +1965,7 @@ impl Ocs<'_> {
         self.round_edges_pin(j + 1, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
-            self.float_or_map(j + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
+            self.opacity_pin(j + 1, mat, opacity);
         }
         let _ = writeln!(self.out, "{:j$}</node>", "");
         self.pin_close(i);
@@ -2056,7 +2096,7 @@ impl Ocs<'_> {
         self.round_edges_pin(j + 1, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
-            self.float_or_map(j + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
+            self.opacity_pin(j + 1, mat, opacity);
         }
         let _ = writeln!(self.out, "{:j$}</node>", "");
     }
@@ -2278,7 +2318,7 @@ impl Ocs<'_> {
         self.top_coat(k + 1, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
-            self.float_or_map(k + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
+            self.opacity_pin(k + 1, mat, opacity);
         }
         let _ = writeln!(self.out, "{:k$}</node>", "");
     }
@@ -2465,7 +2505,7 @@ impl Ocs<'_> {
         self.round_edges_pin(j + 1, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
-            self.float_or_map(j + 1, "opacity", mat, Some(mat.opacity_channel()), opacity);
+            self.opacity_pin(j + 1, mat, opacity);
         }
         let _ = writeln!(self.out, "{:j$}</node>", "");
         self.pin_close(i);
@@ -3448,6 +3488,33 @@ impl Ocs<'_> {
         }
     }
 
+    /// The cutout (`Material::opacity_channel` at `value`): its map as it
+    /// is on surfaces. Strand hair carries no UVs (curves), and Octane read
+    /// a map there at one texel, the image's corner: Athena Hair's maps are
+    /// 0 there and the hair vanished, Morgan's lost a level (#202). On
+    /// strands the map's mean (as Iray decodes the channel) × the value
+    /// stands in: the coverage it gives the hair as a whole, never one
+    /// texel. Interim, pending what Iray's fibres read (#202's
+    /// Calib-Strand-Cutout2-Dome): on fibres whose UVs are all 0 Iray
+    /// rendered u-half, v-half and v-band maps fully opaque
+    /// (Calib-Strand-Cutout-Dome), so it reads neither along the fibre
+    /// (texture space 0's x, the programmer's manual 8.1.4) nor the mean
+    /// there - it ignores the map or reads it at the strand's own UV.
+    /// An unreadable map: the value alone.
+    fn opacity_pin(&mut self, indent: usize, mat: &Material, value: f32) {
+        let ch = mat.opacity_channel();
+        if !mat.strands {
+            return self.float_or_map(indent, "opacity", mat, Some(ch), value);
+        }
+        let Some(map) = mat.image(ch).map(str::to_string) else {
+            return self.float_pin(indent, "opacity", value);
+        };
+        let im = mat.image_mod(ch);
+        let mean = self.textures.column_means(self.dirs, &map, im.mono).filter(|c| !c.is_empty()).map(|c| c.iter().sum::<f32>() / c.len() as f32);
+        // DAZ's scale / offset / invert are affine: the mean's is the texels'.
+        self.float_pin(indent, "opacity", mean.map_or(value, |m| (im.apply(m) * value).clamp(0.0, 1.0)));
+    }
+
     /// The gloss's roughness pin: `value` (Iray's roughness, through the GGX
     /// curve when `ggx`), or the channel's map as Iray reads it — the map ×
     /// the channel's value, 1 − that for a glossiness, squared (`square_float`,
@@ -3957,7 +4024,7 @@ impl Ocs<'_> {
         self.leaf_displacement_pin(i, mat);
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
-            self.float_or_map(i, "opacity", mat, Some(mat.opacity_channel()), opacity);
+            self.opacity_pin(i, mat, opacity);
         }
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
@@ -4939,7 +5006,7 @@ impl Ocs<'_> {
         // Cutout: geometry shells are mostly transparent outside a mask.
         let opacity = mat.opacity().clamp(0.0, 1.0);
         if opacity < 1.0 || mat.image(mat.opacity_channel()).is_some() {
-            self.float_or_map(i, "opacity", mat, Some(mat.opacity_channel()), opacity);
+            self.opacity_pin(i, mat, opacity);
         }
         let _ = writeln!(self.out, "{:indent$}</node>", "");
     }
@@ -11416,6 +11483,29 @@ mod tests {
         for other in [of(ribbons, Shading::default()), of((*mat(chs.clone())).clone(), faithful), of(prisms, faithful)] {
             assert!(other.contains("<pin name='transmission'>") && albedo(&other).contains(">0.108819 0.108819 0.108819<"), "{other}");
         }
+    }
+
+    #[test]
+    fn strand_cutout_maps_give_their_mean() {
+        // #202: curves carry no UVs - a map on strands is its mean × the
+        // value, not the texel at the image's corner; meshes keep the map.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("t")).unwrap();
+        let save = |name: &str, f: &dyn Fn(u32, u32) -> bool| image::GrayImage::from_fn(64, 64, |x, y| image::Luma([if f(x, y) { 255 } else { 0 }])).save(dir.path().join("t").join(name)).unwrap();
+        save("u.png", &|x, _| x >= 32); // 0 at the corner, mean 0.5
+        save("v.png", &|_, y| y < 16); // mean 0.25
+        let dirs = vec![dir.path().to_path_buf()];
+        let with = |file: &str, value: f32| mat(json!([{"channel": {"id": "Cutout Opacity", "current_value": value, "image_file": file}}]));
+        let of = |m: Material| material_inputs(&[("Hair".into(), Rc::new(m), 0.0)], &dirs, HashMap::new(), 4000, Shading::default()).0;
+        let opacity = |x: &str| x[x.find("<pin name='opacity'>").expect("an opacity pin")..].split("</pin>").next().unwrap().to_string();
+        let strands = |m: Rc<Material>, fibres: bool| Material { strands: true, fibres, ribbons: !fibres, ..(*m).clone() };
+        assert!(opacity(&of(strands(with("/t/u.png", 1.0), true))).contains(">0.5<"));
+        assert!(opacity(&of(strands(with("/t/v.png", 1.0), true))).contains(">0.25<"));
+        assert!(opacity(&of(strands(with("/t/u.png", 0.5), false))).contains(">0.25<"));
+        // Missing: the value alone.
+        assert!(opacity(&of(strands(with("/t/none.png", 0.8), true))).contains(">0.8<"));
+        // A mesh keeps the image.
+        assert!(opacity(&of((*with("/t/u.png", 1.0)).clone())).contains("type='36'"));
     }
 
     #[test]

@@ -409,6 +409,20 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   0.91 - 1.08 x Iray's fibres at every albedo (Calib-Strand-UberA-Dome),
   and Iray's own ribbons are 1.11 - 1.18 x its fibres in a dense patch,
   0.76 - 0.88 on a single strand - the ribbons' shape (#79), not a level.
+- **A cutout map on strands** (Cutout Opacity, any material, every
+  variant) is written as **its mean × the value** (the texels decoded as
+  Iray reads the channel, its scale / offset / invert applied), a
+  constant; an unreadable map, the value. Why: the curves carry no UVs
+  and Octane read the map at one texel, the image's corner - Athena Hair
+  (fibres, 27 groups, maps 0 at the corner) vanished, Morgan's TR2 read
+  ~0.6 against its mean 0.847 (#202, #161). Interim: Iray's fibres with
+  all-0 UVs rendered maps opaque for u < 0.5, for v < 0.5 and but for a
+  quarter of v all as the plain fibre (0.99 - 1.02 x, the vertical patch
+  within its strands' placement; Calib-Strand-Cutout-Dome), so Iray reads
+  the cutout neither along the fibre (texture space 0's x, programmer's
+  manual 8.1.4) nor as its mean there; whether it ignores the map on
+  fibres or reads it at the strand's own UV is Calib-Strand-Cutout2-Dome's
+  question.
 - A `Material` per (mesh, group) under `/Scene/Materials/<mesh>_<group>` (a
   constant `UsdPreviewSurface`) — overridden by the Octane material inputs
   below. The `.orbx`'s layer keeps these constants (byte for byte as

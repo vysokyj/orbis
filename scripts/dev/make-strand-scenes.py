@@ -74,6 +74,12 @@ ribbons under the dome: how the albedo moves Octane's curves against Iray.
 -UberM-Edge-T2 (-Dome) put the same strands in the same places with each
 ribbon turned 65 degrees about its strand (node and geometry turned against
 each other), as Calib-Hair-Teens shows Morgan's ribbons (#99).
+-Cutout-Dome / -Cutout2-Dome (#202): grey 0.5 fibres under the dome with a
+Cutout Opacity map (ours, written into My Library's Runtime/Textures/ORBIS):
+-Cutout none, opaque for u < 0.5, for v < 0.5, but for v 0.75 - 1;
+-Cutout2 a plain 0.5, the u and v maps inverted, all black. The strands'
+UV set is all 0, so the first maps all read opaque there and the second
+transparent: which coordinate Iray's fibres read a cutout map at.
 
 How DAZ hands a polyline to Iray depends on the hair's Line Tessellation
 modifier (its .mi export reads the Viewport sides, the render the Render
@@ -197,7 +203,41 @@ MATERIALS = {
     17: ('diffuse dark', [0.2, 0.2, 0.2], {}),
     18: ('diffuse blond', [0.85, 0.85, 0.85], {}),
     19: ('diffuse blond translucent', [0.85, 0.85, 0.85], {'Translucency Weight': 0.48, 'Translucency Color': [0.85, 0.85, 0.85]}),
+    # Grey diffuse under a Cutout Opacity map (-Cutout, #202): which of the
+    # map's axes Iray's fibres read along the strand and which around it
+    # (Iray programmer's manual 8.1.4: texture space 0 is x along the fibre,
+    # y around it), and what a transparent band around the fibre costs.
+    20: ('diffuse cutout u half', [0.5, 0.5, 0.5], {('Cutout Opacity', 'image'): 'u-half'}),
+    21: ('diffuse cutout v half', [0.5, 0.5, 0.5], {('Cutout Opacity', 'image'): 'v-half'}),
+    22: ('diffuse cutout v band', [0.5, 0.5, 0.5], {('Cutout Opacity', 'image'): 'v-band'}),
+    # -Cutout2: the first scene's maps all read opaque at uv (0, 0), the
+    # corner every strand's UVs sit at (the generated UV set is all 0).
+    # These read transparent there, and a plain 0.5 shows whether the
+    # cutout reaches Iray's fibres at all.
+    23: ('diffuse cutout 0.5', [0.5, 0.5, 0.5], {'Cutout Opacity': 0.5}),
+    24: ('diffuse cutout u half inverted', [0.5, 0.5, 0.5], {('Cutout Opacity', 'image'): 'u-half-inv'}),
+    25: ('diffuse cutout v half inverted', [0.5, 0.5, 0.5], {('Cutout Opacity', 'image'): 'v-half-inv'}),
+    26: ('diffuse cutout black', [0.5, 0.5, 0.5], {('Cutout Opacity', 'image'): 'black'}),
 }
+# The -Cutout maps (ours, 256 x 256, pure 0 / 1 so no gamma reads them
+# differently), in My Library's Runtime/Textures/ORBIS: u-half opaque for
+# u < 0.5 (the image's left half), v-half for v < 0.5 (its lower half),
+# v-band opaque but for v 0.75 - 1 (its top quarter: a quarter of the
+# fibre's circumference, Athena Hair's maps fade 15 - 35 % of v).
+CUTOUT_MAPS = {name: f'/Runtime/Textures/ORBIS/calib-cutout-{name}.png' for name in ('u-half', 'v-half', 'v-band', 'u-half-inv', 'v-half-inv', 'black')}
+
+
+def cutout_map(name):
+    path = os.path.join(os.path.dirname(out_dir), CUTOUT_MAPS[name].lstrip('/'))
+    if not os.path.exists(path):
+        from PIL import Image
+        import numpy as np
+        yy, xx = (np.mgrid[0:256, 0:256] + 0.5) / 256
+        u, v = xx, 1 - yy
+        a = {'u-half': u < 0.5, 'v-half': v < 0.5, 'v-band': v < 0.75, 'u-half-inv': u >= 0.5, 'v-half-inv': v >= 0.5, 'black': u < 0}[name]
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        Image.fromarray(np.where(a, 255, 0).astype(np.uint8)).save(path)
+    return CUTOUT_MAPS[name]
 THICK = 20.0                     # Line Start / End Width of rows A
 THIN = (0.2, 0.1)                # Morgan's
 TUBE_R = 1.0                     # cm, rows B
@@ -295,7 +335,10 @@ def material(mid, k, widths):
     m['diffuse']['channel']['current_value'] = colour
     chs = channels_of(m, 'studio_material_channels')
     for cid, v in {**PLAIN, **over, 'Line Start Width': widths[0], 'Line End Width': widths[1]}.items():
-        set_channel(chs, cid, v)
+        if isinstance(cid, tuple):
+            next(c['channel'] for c in chs if c['channel']['id'] == cid[0])['image_file'] = cutout_map(v)
+        else:
+            set_channel(chs, cid, v)
     return m, colour
 
 
@@ -459,6 +502,11 @@ def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None, h
             d['scene']['materials'].append(hair_material('Mat-' + oid, gid, k, widths, hair))
             continue
         m, colour = material('Mat-' + oid, k, widths)
+        for c in channels_of(m, 'studio_material_channels'):
+            v = c['channel'].get('image_file')
+            images = d.setdefault('image_library', [])
+            if v and not any(i['id'] == v for i in images):
+                images.append({'id': v, 'name': os.path.basename(v), 'map_gamma': 0, 'map': [{'url': v, 'label': os.path.basename(v)}]})
         d['material_library'].append(m)
         d['scene']['materials'].append({
             'id': 'Mat-' + oid + '-i', 'url': '#Mat-' + oid, 'geometry': '#' + gid + '-i', 'groups': ['Default'],
@@ -545,3 +593,8 @@ build('Calib-Strand-UberM-Edge-T2-Dome', rows='GHIJ', mats=(5, 14, 15, 16), tess
 # Tessellation 2, Faithful's reference for ribbon hair).
 for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
     build('Calib-Strand-UberA' + _name + '-Dome', rows='GHIJ', mats=(17, 1, 18, 19), dome=True, **_kw)
+# Cutout Opacity maps on fibres under the dome (#202): grey 0.5 without a
+# map (Calib-Strand-UberA-Dome's column 2 material, here in column 1), then
+# the u-half, v-half and v-band maps.
+build('Calib-Strand-Cutout-Dome', rows='GHIJ', mats=(1, 20, 21, 22), dome=True)
+build('Calib-Strand-Cutout2-Dome', rows='GHIJ', mats=(23, 24, 25, 26), dome=True)
