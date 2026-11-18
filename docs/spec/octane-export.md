@@ -3117,7 +3117,10 @@ leaves out, #15):
     **The legacy lobe's angle** (resin, closed architectural glass;
     `mdl_layer::transmission_falloff`, #117): Octane's `transmission` is
     a Mix (38) by a Falloff Map (50, normal vs. eye ray, (θ / 90°)^skew)
-    of the colour × k head-on and × k · q at 90° (`transmission_pin`);
+    of the colour × k head-on and × k · q at 90° (`transmission_pin`;
+    that curve holds for skew ≥ 1, every solved falloff's; below 1 Octane
+    draws 1 − (1 − θ / 90°)^(1 / skew), probed on a Lambertian in the
+    white furnace, #205 — OTOY's manual has the branches swapped);
     Octane takes the falloff per hit at that hit's incoming ray (inside a
     solid the refracted ray's), so it is a factor on every transmission
     event. Iray's model: `libbsdf`'s lobe at r′ = r √(2 / (2 + r²))

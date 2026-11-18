@@ -973,6 +973,37 @@ mod tests {
     }
 
     #[test]
+    fn a_reflect_only_legacy_lobe_loses_the_legacy_loss_too() {
+        // #205: Calib-Furnace-MdlLobe (`mdl 1.0` reflect, white, Iray Server
+        // 5000), rings centre -> 0.8 - 0.9. With `legacy_loss` on every
+        // event the model is Iray's within 3.5 % per ring up to r 0.5; the
+        // cos^e lobe alone keeps 2 - 18 % more. Resin's coat is such a lobe
+        // (the export doesn't give it the loss yet, #205).
+        let iray: [(f64, [f64; 9]); 3] = [
+            (0.3, [0.962, 0.962, 0.962, 0.959, 0.943, 0.941, 0.926, 0.906, 0.877]),
+            (0.4, [0.924, 0.924, 0.914, 0.906, 0.898, 0.884, 0.864, 0.840, 0.817]),
+            (0.5, [0.834, 0.834, 0.834, 0.818, 0.813, 0.797, 0.780, 0.762, 0.749]),
+        ];
+        for (r, ir) in iray {
+            let st = Stack { weight: 0.0, curve: Curve::Fresnel(1.5), coat_rough: r, base: Scatter::Reflect, base_rough: r, ior: 1.5, thin: false };
+            let ratio = |legacy: bool| {
+                let t = trace(Model::Libbsdf, &st, 1.0, legacy);
+                let mut rings = [0.0; 9];
+                for p in &t.paths {
+                    let j = (p.rr * 10.0) as usize;
+                    if j < 9 {
+                        rings[j] += p.w;
+                    }
+                }
+                std::array::from_fn::<f64, 9, _>(|j| rings[j] / t.entered[j] as f64 / ir[j])
+            };
+            let (with, without) = (ratio(true), ratio(false));
+            assert!(with.iter().all(|x| (x - 1.0).abs() < 0.035), "r {r}: {with:?}");
+            assert!(without[8] > 1.05, "r {r}: {without:?}");
+        }
+    }
+
+    #[test]
     fn octane_keeps_more_than_its_smith_model_in_rough_transmission() {
         // #185: the plain spheres' excess, none at α 0.25 (the baseline).
         let s = |weight, alpha, ior| Stack { weight, curve: Curve::Fresnel(ior), coat_rough: alpha, base: Scatter::Transmit, base_rough: alpha, ior, thin: false };
