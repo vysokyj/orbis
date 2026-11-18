@@ -4334,7 +4334,22 @@ impl Ocs<'_> {
         // Mix; Base Mixing 0 / 1 split it, `refractive_metal_material`,
         // #135, #165) the translucency takes it while the surface is mostly
         // diffuse.
-        let transmit = if metal || refraction >= 0.5 || eye_volume || prop_volume { 0.0 } else { translucency.min(self.max_transmission) };
+        // Faithful + Final on ribbon strands (Line Tessellation 2, #161):
+        // the translucency stays in the diffuse, no transmission. Iray's flat
+        // ribbon passes it back as light under ambient light (plain diffuse
+        // 0.85 at Translucency Weight 0.48 against the same without, under
+        // the dome: 0.93 - 1.08, Calib-Strand-UberA-T2-Dome), where Octane's
+        // round curves lose most of a diffuse transmission (transmission
+        // alone against the same colour as albedo: 0.76 one thick strand,
+        // 0.44 a dense patch; the translucent blond 0.60 - 0.91 x Iray where
+        // the opaque one is 0.80 - 1.20). Trade-off (a Look split, #161):
+        // back-lit hair loses the glow a transmission gives; Enhanced keeps
+        // Octane's transmission. Not on prisms (sides 3): light into a prism
+        // leaves through a second face, and the free Pixie Hair (prisms,
+        // Translucency Weight 0.33) went from 0.75 - 1.04 x Iray to 1.06 -
+        // 1.46 with the rule.
+        let ribbon_reflects = mat.strands && mat.ribbons && self.strand_hair == StrandHair::MdlLayers;
+        let transmit = if metal || refraction >= 0.5 || eye_volume || prop_volume || ribbon_reflects { 0.0 } else { translucency.min(self.max_transmission) };
         // Base Color Effect 1 / 2 on that diffuse: the diffuse thinned to
         // its colour's mono, the translucency the rest
         // (`base_color_effect_shares`). Calib-Thin's cards (thin-walled,
@@ -11376,6 +11391,29 @@ mod tests {
         assert!(!f.contains("<pin name='transmission'>") && f.matches("type='130'").count() == 3, "{f}");
         // The default shading keeps Octane's Hair.
         assert!(material_inputs(&[("Hair".into(), mat(chs), 0.0)], &[], HashMap::new(), 4000, SkinShader::None).0.contains("type='147'"));
+    }
+
+    #[test]
+    fn faithful_ribbon_strands_keep_the_translucency_in_the_diffuse() {
+        // #161: Iray's ribbons pass a translucency back as light, Octane's
+        // curves lose a transmission - Faithful + Final writes the whole
+        // diffuse on ribbon strands, no transmission; Enhanced, prisms and
+        // meshes keep it (diffuse 0.5 sRGB: 0.2176 linear).
+        let chs = json!([
+            {"channel": {"id": "diffuse", "current_value": [0.5, 0.5, 0.5]}},
+            {"channel": {"id": "Translucency Weight", "current_value": 0.5}},
+            {"channel": {"id": "Translucency Color", "current_value": [1, 1, 1]}},
+        ]);
+        let faithful = Shading { strand_hair: StrandHair::MdlLayers, ..Shading::default() };
+        let of = |m: Material, shading: Shading| material_inputs(&[("Hair".into(), Rc::new(m), 0.0)], &[], HashMap::new(), 4000, shading).0;
+        let albedo = |x: &str| x[x.find("<pin name='albedo'>").unwrap()..].split("</pin>").next().unwrap().to_string();
+        let ribbons = Material { strands: true, ribbons: true, ..(*mat(chs.clone())).clone() };
+        let x = of(ribbons.clone(), faithful);
+        assert!(!x.contains("<pin name='transmission'>") && albedo(&x).contains(">0.217638 0.217638 0.217638<"), "{x}");
+        let prisms = Material { strands: true, ..(*mat(chs.clone())).clone() };
+        for other in [of(ribbons, Shading::default()), of((*mat(chs.clone())).clone(), faithful), of(prisms, faithful)] {
+            assert!(other.contains("<pin name='transmission'>") && albedo(&other).contains(">0.108819 0.108819 0.108819<"), "{other}");
+        }
     }
 
     #[test]

@@ -392,6 +392,23 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   every part 0.76 - 1.14, under the dome 0.91 - 1.07 (#79). A
   value the scene leaves out counts as tessellated (library files are
   read without their modifiers).
+  **On ribbons** (2 sides, `Material::ribbons`) Faithful + Final keeps an
+  Uber translucency in the diffuse: the albedo without the 1 − w, no
+  transmission. Enhanced keeps the transmission (Look: back-lit hair
+  glows); prisms keep it in both. Why (#161, Calib-Strand-UberA-T2-Dome,
+  plain diffuse 0.2 / 0.5 / 0.85 and 0.85 at Translucency Weight 0.48,
+  under the dome): Iray's flat ribbon gives the translucency back as
+  light (translucent / opaque 0.93 - 1.08), Octane's curves lose most of
+  a diffuse transmission (transmission alone against the same colour as
+  albedo: 0.76 one thick strand, 0.69 sparse, 0.44 dense), so the
+  translucent blond was 0.60 - 0.91 x Iray where the opaque one is 0.81 -
+  1.21; with the rule 0.90 - 1.13. Store ribbon hair: Hudson Hair (w 0.48)
+  0.69 - 0.77 → 0.78 - 0.92 x Iray. On prisms the rule overshot (the free
+  Pixie Hair, w 0.33: 0.75 - 1.04 → 1.06 - 1.46): light into a prism
+  leaves through a second face. The plain diffuse itself: Octane's curves
+  0.91 - 1.08 x Iray's fibres at every albedo (Calib-Strand-UberA-Dome),
+  and Iray's own ribbons are 1.11 - 1.18 x its fibres in a dense patch,
+  0.76 - 0.88 on a single strand - the ribbons' shape (#79), not a level.
 - A `Material` per (mesh, group) under `/Scene/Materials/<mesh>_<group>` (a
   constant `UsdPreviewSurface`) — overridden by the Octane material inputs
   below. The `.orbx`'s layer keeps these constants (byte for byte as

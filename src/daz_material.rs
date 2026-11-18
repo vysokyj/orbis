@@ -143,6 +143,9 @@ pub struct Material {
     /// Tessellation, or one of fewer than 2 sides. Iray drops a surface
     /// BSDF's transmission on them.
     pub fibres: bool,
+    /// Strands DAZ hands Iray as flat ribbons (Line Tessellation 2 sides),
+    /// not fibres or prisms.
+    pub ribbons: bool,
     /// A DAZ brick shader's MDL materials, as `module::name` (e.g.
     /// `nvidia::metal_examples::cast_iron`): what its graph renders with.
     pub mdl: Vec<String>,

@@ -353,7 +353,9 @@ pub(super) fn strand_width(root: f32, tip: f32, k: usize, points: usize) -> f32 
 /// strands' widths tapering from root to tip as DAZ's hair shader sets them.
 pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DumpNode, names: &mut HashSet<String>) -> Vec<Mesh> {
     let materials = scene_materials(lib, &n.instance_id);
-    let fibres = line_tessellation_sides(lib, &n.id).is_none_or(|sides| sides < 2);
+    let sides = line_tessellation_sides(lib, &n.id);
+    let fibres = sides.is_none_or(|sides| sides < 2);
+    let ribbons = sides == Some(2);
     let scale = LINE_WIDTH_SCALE;
     let mut by_group: Vec<Vec<&Vec<u32>>> = vec![Vec::new(); fig.material_groups.len().max(1)];
     for (k, strand) in fig.polylines.iter().enumerate() {
@@ -386,7 +388,7 @@ pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DumpNode, names:
             mesh.face_counts.push(s.len() as u32);
         }
         mesh.subsets = vec![(group, (0..strands.len() as u32).collect())];
-        mesh.materials = vec![mat.map(|m| Rc::new(crate::daz_material::Material { strands: true, fibres, ..(*m).clone() }))];
+        mesh.materials = vec![mat.map(|m| Rc::new(crate::daz_material::Material { strands: true, fibres, ribbons, ..(*m).clone() }))];
         mesh.curve_widths = Some(widths);
         out.push(mesh);
     }
