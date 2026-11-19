@@ -18,7 +18,7 @@ if len(sys.argv) < 4 or sys.argv[1] in ('-h', '--help'):
     sys.exit(0 if len(sys.argv) > 1 and sys.argv[1] in ('-h', '--help') else 2)
 import gzip, json, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import duf_camera
+import duf_camera, duf_io
 
 src, dst, sides = sys.argv[1], sys.argv[2], int(sys.argv[3])
 parent = sys.argv[sys.argv.index('--parent') + 1] if '--parent' in sys.argv else ''
@@ -49,5 +49,5 @@ name = os.path.splitext(os.path.basename(dst))[0]
 if 'asset_info' in d:
     d['asset_info']['id'] = f'/Scenes/{name}.duf'
 duf_camera.ensure(d)
-open(dst, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+duf_io.save(dst, d)
 print(dst)

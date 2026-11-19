@@ -16,6 +16,7 @@ scene's only camera node in place (a scene with several is reported, not
 guessed). The make-*.py generators call ensure() before they save.
 """
 import gzip, json, sys
+import duf_io  # scene writes: contributor blanked, deterministic (#208)
 
 
 def load(p):
@@ -74,6 +75,6 @@ if __name__ == '__main__':
             print(f'{p}: {e}')
             bad += 1
             continue
-        open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+        duf_io.save(p, d)
         print(f'{p}: current_camera {cam}')
     sys.exit(1 if bad else 0)

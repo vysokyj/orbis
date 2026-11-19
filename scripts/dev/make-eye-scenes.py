@@ -36,7 +36,7 @@ if len(_sys.argv) < 2 or _sys.argv[1] in ('-h', '--help'):
     _sys.exit(0)
 import copy, gzip, json, os, shutil, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import duf_camera
+import duf_camera, duf_io
 
 repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 calib = os.path.join(repo, 'calib', 'scenes')
@@ -168,7 +168,7 @@ for name, change in VARIANTS:
     change(d)
     d['asset_info']['id'] = f'/Scenes/{name}.duf'
     duf_camera.ensure(d)  # DAZ saved it headless, without current_camera (#97)
-    open(dst, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(dst, d)
     if os.path.isdir(lib):
         shutil.copyfile(dst, os.path.join(lib, name + '.duf'))
     print(name)

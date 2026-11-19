@@ -16,7 +16,8 @@
 // came out the same - a group's items survive a save and a reload. The
 // saved .mi are the fixtures (calib/references/mi). Afterwards:
 // python3 scripts/dev/duf_camera.py --fix on the saved scenes, copy them
-// into calib/scenes and My Library/Scenes.
+// into My Library/Scenes, then python3 scripts/dev/duf_io.py copy into
+// calib/scenes (contributor details blanked, #208).
 // ECMAScript 3 (QtScript): var only, ASCII only.
 (function () {
     var a = App.scriptArgs;

@@ -28,6 +28,7 @@ if any(a in ('-h', '--help') for a in _sys.argv[1:]):
     print(__doc__)
     _sys.exit(0)
 import gzip, json, os, sys
+import duf_io  # scene writes: contributor blanked, deterministic (#208)
 
 scenes = next((a for a in sys.argv[1:] if not a.startswith('--')), None) or '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes'
 
@@ -216,5 +217,5 @@ for name, src, profile, edit in VARIANTS:
     path = os.path.join(scenes, f'Calib-L-{name}.duf')
     if os.path.exists(path) and '--force' not in sys.argv:
         continue   # it may carry the exposure calib-render.py tuned
-    open(path, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(path, d)
     print(path)

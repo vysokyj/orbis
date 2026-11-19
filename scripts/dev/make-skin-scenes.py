@@ -24,6 +24,7 @@ if any(a in ('-h', '--help') for a in _sys.argv[1:]):
     print(__doc__)
     _sys.exit(0)
 import copy, gzip, json, os, re, subprocess, sys
+import duf_io  # scene writes: contributor blanked, deterministic (#208)
 from PIL import Image
 
 here = os.path.dirname(os.path.abspath(__file__))
@@ -65,7 +66,7 @@ def load(p):
 
 
 def save(d, p):
-    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(p, d)
     print(p)
 
 

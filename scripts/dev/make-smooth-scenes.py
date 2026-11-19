@@ -22,6 +22,7 @@ if any(a in ('-h', '--help') for a in _sys.argv[1:]):
     print(__doc__)
     _sys.exit(0)
 import copy, gzip, json, math, os, sys
+import duf_io  # scene writes: contributor blanked, deterministic (#208)
 
 src = next((a for a in sys.argv[1:] if a.endswith('.duf')), None) or '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes/Calib-Materials.duf'
 out_dir = os.path.dirname(src)
@@ -165,7 +166,7 @@ def scene(name, variants):
             ch = next(e for e in lm['extra'] if e['type'] == 'studio_material_channels')['channels']
             for key, val in {**GLOSSY_GREY, **over}.items():
                 set_channel(ch, key, val, TYPES[type(val)])
-    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(p, d)
     print(p)
 
 

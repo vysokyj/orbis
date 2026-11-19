@@ -43,7 +43,7 @@ The worker's job. Generic scenes: steps 1 - 2 below, then **at once** `python3 s
 1. Generate the scenes (`make-*.py`, `daz-build-*.dsa`; DAZ built-ins / primitives / free DAZ add-ons only for `calib/scenes`). Include the variants the decomposition will ask for (w0, tcwhite, dwhite, gloss off...); keep each scene small (4 GB VRAM).
 2. Check each scene: it opens, `python3 scripts/dev/duf_camera.py --fix` (a scene without `current_camera` is refused, #97), list the NVIDIA presets it uses (#94).
 3. Dump (`daz-dump.sh`), `.mi` fixture if the conversion is in question, and render the **Octane side now**.
-4. Copy the scenes into `calib/scenes` (some generators do it, `make-calib-scenes.py` / `make-light-scenes.py` and the `daz-build-*.dsa` don't), commit and push them with the generator (`refs #N`); the batch must be reproducible from git.
+4. Copy the scenes into `calib/scenes` with `python3 scripts/dev/duf_io.py copy <My Library scene>...` (blanks the contributor details DAZ saved, in the library file too, #208; never a plain `cp`) - some generators do it, `make-calib-scenes.py` / `make-light-scenes.py` and the `daz-build-*.dsa` don't; commit and push them with the generator (`refs #N`); the batch must be reproducible from git.
 5. Comment on the issue, this exact shape (the collector reads it), then `gh issue edit N --add-label needs-iray`:
 
    ```markdown

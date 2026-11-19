@@ -113,7 +113,7 @@ if any(a in ('-h', '--help') for a in _sys.argv[1:]):
     _sys.exit(0)
 import copy, gzip, json, math, os, random, shutil, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import duf_camera
+import duf_camera, duf_io
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 CALIB = os.path.join(REPO, 'calib', 'scenes')
@@ -515,13 +515,13 @@ def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None, h
     duf_camera.ensure(d)
     if save_dir:  # a scratch scene
         p = os.path.join(save_dir, name + '.duf')
-        open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+        duf_io.save(p, d)
         return p
     p = os.path.join(out_dir, name + '.duf')
     if os.path.exists(p) and not FORCE:
         print('kept', p)
     else:
-        open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+        duf_io.save(p, d)
         print(p)
     shutil.copy2(p, os.path.join(CALIB, name + '.duf'))
 
@@ -546,7 +546,7 @@ def mohawk_scene(lib):
                 {'channel': {'id': f'{w} Line Tessellation Sides', 'type': 'int', 'current_value': 2}} for w in ('Viewport', 'Render')]})
     duf_camera.ensure(d)
     p = os.path.join(out_dir, 'Calib-Mi-Mohawk-T2.duf')
-    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(p, d)
     print(p)
 
 

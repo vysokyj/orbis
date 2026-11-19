@@ -49,7 +49,7 @@ if any(a in ('-h', '--help') for a in _sys.argv[1:]):
 import copy, gzip, json, math, os, shutil, subprocess, sys, urllib.parse
 here = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, here)
-import duf_camera
+import duf_camera, duf_io
 
 repo = os.path.dirname(os.path.dirname(here))
 CALIB = os.path.join(repo, 'calib', 'scenes')
@@ -84,7 +84,7 @@ def load(p):
 
 
 def save(d, path):
-    open(path, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(path, d)
 
 
 def build(name):
@@ -288,8 +288,6 @@ def main():
             if change:
                 print(f'  {scene}: {change(d)} hair materials')
             d['asset_info']['id'] = f'/Scenes/{scene}.duf'
-            # The contributor DAZ saved blanked, as demo.py does (no personal data in git).
-            d['asset_info']['contributor'] = {'author': '', 'email': '', 'website': ''}
             duf_camera.ensure(d)
             targets = [SCENES] + ([CALIB] if generic else [])
             for dirpath in targets:

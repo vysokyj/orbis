@@ -20,6 +20,8 @@ rendered from (demo/references/iray/renders.tsv): a re-saved scene makes
 the reference stale, and nothing is overwritten silently.
 """
 import csv, gzip, hashlib, json, os, re, shutil, sys, time, tomllib
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import duf_io
 
 repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 manifest = os.path.join(repo, 'demo', 'scenes.toml')
@@ -52,15 +54,8 @@ def copy_path(name):
 
 
 def sanitized(name):
-    """The library scene as gzip bytes, contributor details blanked, deterministic."""
-    raw = open(scene_path(name), 'rb').read()
-    d = json.loads(gzip.decompress(raw) if raw[:2] == b'\x1f\x8b' else raw)
-    c = d.get('asset_info', {}).get('contributor')
-    if isinstance(c, dict):
-        for k in ('author', 'email', 'website'):
-            if k in c:
-                c[k] = ''
-    return gzip.compress(json.dumps(d, indent=1).encode(), mtime=0)
+    """The library scene as gzip bytes, contributor details blanked, deterministic (duf_io.encode, #208)."""
+    return duf_io.encode(duf_io.load(scene_path(name)))
 
 
 def sync(name):
@@ -72,10 +67,7 @@ def sync(name):
 
 
 def has_contributor(path):
-    raw = open(path, 'rb').read()
-    d = json.loads(gzip.decompress(raw) if raw[:2] == b'\x1f\x8b' else raw)
-    c = d.get('asset_info', {}).get('contributor') or {}
-    return any(c.get(k) for k in ('author', 'email', 'website'))
+    return duf_io.has_contributor(duf_io.load(path))
 
 
 def restore(name):

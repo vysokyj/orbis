@@ -27,6 +27,7 @@ argument) and copied into calib/scenes; existing scenes are kept (--force).
                 Calib-Tone-Default; aperture blades, radial bias, lens thickness on Calib-DOF-f4
 """
 import copy, gzip, json, os, shutil, sys
+import duf_io  # scene writes: contributor blanked, deterministic (#208)
 
 repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 calib = os.path.join(repo, 'calib', 'scenes')
@@ -45,7 +46,7 @@ def save(d, name):
     if os.path.exists(dst) and not FORCE:
         return
     d['asset_info']['id'] = f'/Scenes/{name}.duf'
-    open(dst, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(dst, d)
     if os.path.isdir(lib):
         shutil.copyfile(dst, os.path.join(lib, name + '.duf'))
     print(name)

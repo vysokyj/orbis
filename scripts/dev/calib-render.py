@@ -16,6 +16,7 @@ if any(a in ('-h', '--help') for a in _sys.argv[1:]):
     print(__doc__)
     _sys.exit(0)
 import gzip, json, math, os, subprocess, sys
+import duf_io  # scene writes: contributor blanked, deterministic (#208)
 import numpy as np
 from PIL import Image
 
@@ -54,7 +55,7 @@ def set_ev(p, ev):
     iso = ch['Film ISO'].get('current_value', 100.0)
     ch['Shutter Speed']['current_value'] = 2 ** ev / (n * n) * (iso / 100.0)
     ch['Exposure Value']['current_value'] = ev
-    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(p, d)
 
 
 def render(scene, png, n):

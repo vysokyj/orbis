@@ -123,7 +123,7 @@ if '-h' in sys.argv or '--help' in sys.argv:
     print(__doc__)
     sys.exit(0)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import duf_camera
+import duf_camera, duf_io
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 args = [a for a in sys.argv[1:] if not a.startswith('--')]
@@ -480,7 +480,7 @@ def furnace_scene(name, spheres, ev=None, arch=False, back=None):
     if back is not None:
         back_lit(d, back, lit)
     duf_camera.ensure(d)  # else Iray renders DAZ's Perspective View (#97)
-    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(p, d)
     shutil.copyfile(p, os.path.join(REPO, 'calib/scenes', name + '.duf'))
     print(p)
     return p
@@ -538,7 +538,7 @@ def uber_point_scene(name, spheres, ev):
                 c['channel']['current_value'] = vals.pop(c['channel']['id'])
         assert not vals, vals
     duf_camera.ensure(d)
-    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(p, d)
     shutil.copyfile(p, os.path.join(REPO, 'calib/scenes', name + '.duf'))
     print(p)
     return p

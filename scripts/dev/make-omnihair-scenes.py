@@ -27,6 +27,7 @@ if any(a in ('-h', '--help') for a in _sys.argv[1:]):
     print(__doc__)
     _sys.exit(0)
 import copy, gzip, json, os, sys
+import duf_io  # scene writes: contributor blanked, deterministic (#208)
 
 SCENES = '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes'
 URL = '/data/DAZ%203D/Built-in%20Content/OmniSurface/OmniHair%20Root-Tip%20Blend.dsf#OmniHair%20Root-Tip%20Blend'
@@ -80,7 +81,7 @@ def main():
         if not hit:
             sys.exit(f'{name}: no brick channels on {HAIR}')
         with open(out, 'wb') as f:
-            f.write(gzip.compress(json.dumps(d).encode()))
+            f.write(duf_io.encode(d, indent=None))
         print(f'wrote {out}')
 
 

@@ -32,6 +32,7 @@ if any(a in ('-h', '--help') for a in _sys.argv[1:]):
     print(__doc__)
     _sys.exit(0)
 import copy, gzip, json, os, sys
+import duf_io  # scene writes: contributor blanked, deterministic (#208)
 
 src = next((a for a in sys.argv[1:] if a.endswith('.duf')), None) or '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes/Calib-L-Distant-45.duf'
 out_dir = os.path.dirname(src)
@@ -106,5 +107,5 @@ for name, (thick, over, *ev) in SCENES.items():
     light = nlib['DistantLight']
     for axis, v in LIGHT_ROTATION.items():
         set_axis(light, 'rotation', axis, v)
-    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(p, d)
     print(p)

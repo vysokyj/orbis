@@ -429,6 +429,31 @@ fn calibration_scenes_render_through_their_camera() {
     assert!(missing.is_empty(), "no current_camera: {missing:?}");
 }
 
+/// No personal data in git (#208): DAZ Studio writes its user's contributor
+/// details (author, e-mail, website) into every scene it saves; every scene
+/// in the repo has them blanked (`scripts/dev/duf_io.py fix`). Names only in
+/// the message, never the values.
+#[test]
+fn committed_scenes_carry_no_contributor() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut found = Vec::new();
+    for sub in ["calib/scenes", "calib/scenes-store", "demo/scenes"] {
+        let Ok(dir) = std::fs::read_dir(root.join(sub)) else { continue };
+        for e in dir {
+            let p = e.unwrap().path();
+            if p.extension().and_then(|x| x.to_str()) != Some("duf") {
+                continue;
+            }
+            let duf: Value = serde_json::from_str(&crate::dson::decompress_scene(&std::fs::read(&p).unwrap()).unwrap()).unwrap();
+            let c = &duf["asset_info"]["contributor"];
+            if ["author", "email", "website"].iter().any(|k| c[k].as_str().is_some_and(|s| !s.is_empty())) {
+                found.push(format!("{sub}/{}", p.file_name().unwrap().to_string_lossy()));
+            }
+        }
+    }
+    assert!(found.is_empty(), "contributor details not blank (scripts/dev/duf_io.py fix): {found:?}");
+}
+
 #[test]
 fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     let ch = |id: &str, v: Value| json!({"channel": {"id": id, "current_value": v}});

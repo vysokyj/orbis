@@ -148,7 +148,7 @@ if any(a in ('-h', '--help') for a in _sys.argv[1:]):
     _sys.exit(0)
 import copy, glob, gzip, json, os, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import duf_camera
+import duf_camera, duf_io
 
 src = next((a for a in sys.argv[1:] if a.endswith('.duf')), None) or '/Volumes/Data/DAZ 3D/Studio/My Library/Scenes/Calib-Materials.duf'
 out_dir = os.path.dirname(src)
@@ -169,7 +169,7 @@ def save(d, name):
     if os.path.exists(p) and not FORCE:
         return None
     duf_camera.ensure(d)  # else Iray renders DAZ's Perspective View (#97)
-    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(p, d)
     print(p)
     return p
 
@@ -803,7 +803,7 @@ if made[-1][0]:
             for c in e.get('channels', []) or []:
                 c['channel'].pop('visible', None)
     p = os.path.join(out_dir, 'Calib-MetalTL-Back-Shown.duf')
-    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(p, d)
     print(p)
 # Volume scattering (#28) on a skin's volume (Victoria 8's: translucency
 # 0.9, Transmitted Color over 0.125, scattering over 0.015 cm): chromatic
@@ -1108,7 +1108,7 @@ if made[-1][0]:
     for i in d['image_library']:
         if i['id'] == DISP['grey-g1']:
             i['map_gamma'] = 1
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(made[-1][0], d)
 # Data maps (#49): does DAZ decode a grey 128 map at 2.2 on other float
 # channels too (as on displacement)? Each map with no gamma of its own
 # (automatic) beside the same grey at `map_gamma` 1 and a plain 0.5.
@@ -1129,7 +1129,7 @@ if made[-1][0]:
     for i in d['image_library']:
         if i['id'] == GREY1:
             i['map_gamma'] = 1
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(made[-1][0], d)
 # Map depth (#93): gamma "auto" by the file's pixel type. Iray's loader
 # reads an 8-bit map at 2.2, a 16-bit single channel at 1.0, 16-bit RGB at
 # 2.2 (MDL SDK `get_pixel_type_and_gamma`). The same grey 128 (8 bits) /
@@ -1166,7 +1166,7 @@ if made[-1][0]:
     for i in d['image_library']:
         if i['id'] == MD['16-g22']:
             i['map_gamma'] = 2.2
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(made[-1][0], d)
 # Calib-MapDepth2: the same rule on colour maps (diffuse: 8-bit, 16-bit grey
 # and RGB, a float TIFF, the 8-bit map at `map_gamma` 1) and on the top
 # coat's weight map in the weighted and the anisotropic (layered) coat.
@@ -1192,7 +1192,7 @@ if made[-1][0]:
     for i in d['image_library']:
         if i['id'] == DISP['grey-g1']:
             i['map_gamma'] = 1
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(made[-1][0], d)
 uber_spheres('Calib-Disp', GREY_SPHERE, {}, [
     ('P1 none', {}),
     ('P2 white 0..5', {('Displacement Strength', 'image'): DISP['white'], 'Displacement Strength': 1.0, 'Minimum Displacement': 0.0, 'Maximum Displacement': 5.0}),
@@ -1289,7 +1289,7 @@ if os.path.exists(leaf):
             set_channel(ch, k, v, TYPES.get(type(v), 'float'))
         tuned = True
     if tuned:
-        open(leaf, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+        duf_io.save(leaf, d)
         print(leaf, '(cards tuned)')
 
 # --- Thin-walled translucency (#45): Calib-Leaf's three cards, all thin
@@ -1509,7 +1509,7 @@ if made[-1][0]:
             for c in e.get('channels', []) or []:
                 c['channel'].pop('visible', None)
     p = os.path.join(out_dir, 'Calib-Mi-Visible-Shown.duf')
-    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(p, d)
     print(p)
 
 # The same groups in the other mixing modes (gloss and backscatter
@@ -1537,7 +1537,7 @@ if made[-1][0]:
             for c in e.get('channels', []) or []:
                 c['channel'].pop('visible', None)
     p = os.path.join(out_dir, 'Calib-Mi-Visible2-Shown.duf')
-    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(p, d)
     print(p)
 
 # What opens hidden gloss anisotropy: the Glossy Roughness channel above 0
@@ -1585,7 +1585,7 @@ if made[-1][0]:
             for c in e.get('channels', []) or []:
                 c['channel'].pop('visible', None)
     p = os.path.join(out_dir, 'Calib-Mi-FullRefl-Shown.duf')
-    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(p, d)
     print(p)
 
 # --- Refraction without gloss per mixing mode (#143, .mi only): DAZ's
@@ -1613,7 +1613,7 @@ if made[-1][0]:
             for c in e.get('channels', []) or []:
                 c['channel'].pop('visible', None)
     p = os.path.join(out_dir, 'Calib-Mi-RefrNoGloss-Shown.duf')
-    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(p, d)
     print(p)
 
 # --- Weighted mixing with gloss and refraction (#154): `normalized_base`
@@ -1676,7 +1676,7 @@ for src_p, shown in ((wr_closed, 'Calib-WeightedRefr-Shown'), (wr2, 'Calib-Mi-We
                 for c in e.get('channels', []) or []:
                     c['channel'].pop('visible', None)
         p = os.path.join(out_dir, shown + '.duf')
-        open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+        duf_io.save(p, d)
         print(p)
 
 # --- Backscattering under weighted mixing (#155): `normalized_base` lays
@@ -1744,7 +1744,7 @@ if made[-1][0]:
             for c in e.get('channels', []) or []:
                 c['channel'].pop('visible', None)
     p = os.path.join(out_dir, 'Calib-Mi-RefrBack-Shown.duf')
-    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(p, d)
     print(p)
 
 # --- Top Coat Bump (#61): DAZ's MDL gives the coat its own normal
@@ -1788,7 +1788,7 @@ if made[-1][0]:
     for i in d['image_library']:
         if i['id'] in BUMPS.values():
             i['map_gamma'] = 1
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(made[-1][0], d)
 
 # --- Normal map strength (#176): the value DAZ hands Iray as
 # `tangent_space_normal_texture`'s factor - the base Normal Map at 0.5, 0,
@@ -1811,13 +1811,13 @@ if made[-1][0]:
     for i in d['image_library']:
         if i['id'] in BUMPS.values():
             i['map_gamma'] = 1
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(made[-1][0], d)
     for m in d['material_library']:
         for e in m.get('extra', []):
             for c in e.get('channels', []) or []:
                 c['channel'].pop('visible', None)
     p = os.path.join(out_dir, 'Calib-Mi-NormalStrength-Shown.duf')
-    open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(p, d)
     print(p)
 # The maps at 0 (N3, N8: DAZ leaves them out) beside the other bumps, and
 # small strengths.
@@ -1837,7 +1837,7 @@ if made[-1][0]:
     for i in d['image_library']:
         if i['id'] in BUMPS.values():
             i['map_gamma'] = 1
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(made[-1][0], d)
 
 # --- Uber dual lobe over a normal map, by lobe (#174): which lobe sees the
 # base normal. DAZ's add_dual_lobe_specular puts lobe 1 as the top layer of
@@ -1865,7 +1865,7 @@ if made[-1][0]:
     for i in d['image_library']:
         if i['id'] in BUMPS.values():
             i['map_gamma'] = 1
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(made[-1][0], d)
 
 # --- Uber dual lobe over pore-sized detail (#175): the skin faces' dual
 # lobe sits at 0.74 - 0.84 x Iray where the plain Calib-DualLobe spheres
@@ -1921,7 +1921,7 @@ if made[-1][0]:
     for i in d['image_library']:
         if i['id'] in PORES.values():
             i['map_gamma'] = 1
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(made[-1][0], d)
 
 # --- Diffuse Overlay with maps (#71): Iray Uber's overlay is a second
 # diffuse at the overlay weight over the base. Synthetic maps (ours): a
@@ -1993,7 +1993,7 @@ if made[-1][0]:
     s1 = next(n for n in d['scene']['nodes'] if n.get('label', '').startswith('S1'))
     lib = next(l for l in d['node_library'] if '#' + l['id'].replace('(', '%28').replace(')', '%29') == s1['url'])
     lib['general_scale']['current_value'] = 0.5
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(made[-1][0], d)
 
 # --- Calib-Mi-ImageGamma (#91, .mi only): maps the scene's image_library
 # doesn't list. The Calib-Skin spheres' cropped maps, saved without
@@ -2021,7 +2021,7 @@ uber_spheres('Calib-Mi-ImageGamma', GREY_SPHERE, {}, [
 if made[-1][0]:
     d = load(made[-1][0])
     d['image_library'] = [i for i in d.get('image_library', []) if i['map'][0]['url'] not in IG.values()]
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(made[-1][0], d)
 
 # --- Height-map gamma (#91): Calib-Leaf's three vertical cards, lit from
 # the front 45 degrees up (the distant light turned round), Scene Only, tone
@@ -2134,7 +2134,7 @@ if os.path.exists(bgn):
                              ('N2 height 8-bit gamma 1', BG['-g1'], None, BG_F, 1),
                              ('N3 height 16-bit auto', BG['-16'], None, BG_F, 0)], True)
         duf_camera.ensure(d)  # DAZ saved it through its Perspective View (#97)
-        open(bgn, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+        duf_io.save(bgn, d)
         print(bgn, '(cards tuned)')
 # Calib-NVIDIA-BumpG1: Calib-NVIDIA with its bump maps at `map_gamma` 1, so
 # Iray reads them linear - Cast Iron's band-passed detail (#89, linear
@@ -2251,7 +2251,7 @@ def dome_file(p):
     if p:
         d = load(p)
         furnace_dome(d)
-        open(p, 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+        duf_io.save(p, d)
 
 
 uber_spheres('Calib-Furnace-Metal', [1.0, 1.0, 1.0], {'Metallic Weight': 1.0}, [
@@ -2465,7 +2465,7 @@ for name, path_len in (('Calib-Furnace-UberGlass', None), ('Calib-Furnace-UberGl
         furnace_dome(d)
         if path_len:
             render_option(d, 'Max Path Length', path_len)
-        open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+        duf_io.save(made[-1][0], d)
 # Scattering inside a refracting solid (#104): Calib-Map-Misc's X7 (a
 # closed sphere, Refraction Weight 1, Transmitted Color 0.5 / 0.7 / 0.9 at
 # 2 cm, mono SSS Amount 0.3 at 0.5 cm, SSS Direction 0.4) is the one
@@ -2500,7 +2500,7 @@ for name, tc, tag in (('Calib-Furnace-RefrVol-Grey', RV_GREY, 'G'), ('Calib-Furn
     if made[-1][0]:
         d = load(made[-1][0])
         furnace_dome(d)
-        open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+        duf_io.save(made[-1][0], d)
 SSS_COLOR = {'SSS Mode': 1, 'SSS Amount': 1.0}
 uber_spheres('Calib-Furnace-RefrVol-SSSColor', [1.0, 1.0, 1.0], {**RV, 'Glossy Roughness': 0.0, 'Transmitted Color': RV_GREY}, [
     ('S1 colour grey 0.5', {**SSS_COLOR, 'SSS Color': [0.5, 0.5, 0.5]}),
@@ -2515,7 +2515,7 @@ uber_spheres('Calib-Furnace-RefrVol-SSSColor', [1.0, 1.0, 1.0], {**RV, 'Glossy R
 if made[-1][0]:
     d = load(made[-1][0])
     furnace_dome(d)
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(made[-1][0], d)
 X7 = {**RV, 'Glossy Roughness': 0.3, 'Transmitted Color': RV_CHROMA, 'SSS Amount': 0.3, 'SSS Direction': 0.4}
 uber_spheres('Calib-RefrVol', [0.6, 0.1, 0.05], X7, [
     ('R1 X7', {}),
@@ -2634,7 +2634,7 @@ if made[-1][0]:
     for i in d['image_library']:
         if i['id'] in BUMPS.values():
             i['map_gamma'] = 1
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(made[-1][0], d)
 
 # --- PBRSkin Detail Normal Map, decomposed (#140): O8's dimples rendered
 # ~25 % stronger in Octane than in Iray, while the same map as an Uber coat
@@ -2666,7 +2666,7 @@ for name, denoise in (('Calib-PBRSkin-Detail', True), ('Calib-PBRSkin-Detail-NoD
                 i['map_gamma'] = 1
         if not denoise:
             render_option(d, 'Post Denoiser Enable', False)
-        open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+        duf_io.save(made[-1][0], d)
 
 # --- PBRSkin Detail Normal Map by layer (#140, round 3): with lobe 2 on the
 # detail normal too the dimples correlate 0.97 - 0.98 with Iray's, but
@@ -2694,7 +2694,7 @@ if made[-1][0]:
     for i in d['image_library']:
         if i['id'] in BUMPS.values():
             i['map_gamma'] = 1
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(made[-1][0], d)
 
 # --- PBRSkin Makeup (#142): `pbr_material` lays a diffuse at Makeup Weight
 # in Makeup Base Color over the diffuse and its translucency (under the
@@ -2809,7 +2809,7 @@ if made[-1][0]:
     for i in d['image_library']:
         if i['id'] in BUMPS.values():
             i['map_gamma'] = 1
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(made[-1][0], d)
 # The .mi of the first showed the Normal Map gated by Bump Enable (only K5
 # enables it): the same strengths with Bump Enable on, a map at 0 beside a
 # height map and under a detail normal, the inverted normal under
@@ -2832,6 +2832,6 @@ if made[-1][0]:
     for i in d['image_library']:
         if i['id'] in BUMPS.values():
             i['map_gamma'] = 1
-    open(made[-1][0], 'wb').write(gzip.compress(json.dumps(d, indent=1).encode()))
+    duf_io.save(made[-1][0], d)
 
 # Scene dumps: scripts/dev/daz-dump.sh (DAZ evaluates each scene headless).
