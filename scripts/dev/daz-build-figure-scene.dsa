@@ -1,0 +1,92 @@
+// ORBIS calibration (#203): Genesis 9 figures in their wearables, posed,
+// built headless from Calib-L-Distant-45 (calib/scenes) by
+// scripts/dev/daz-script.sh with DONE_FILE=<out>.done. Arguments: base .duf,
+// out .duf, then items, "--", then the content directories. Items, in order:
+//   figure:<x>,<z>,<yaw>:<figure .duf>  loads a figure there (cm, degrees)
+//   pose:<pose .duf>                    applies a pose preset to it
+//   wear:<wearable .duf>                loads a wearable (hair, clothes) on it
+// pose and wear act on the last figure loaded. The cubes, the sphere and the
+// distant light go (the scene is lit by its dome alone, as the hair scenes
+// are); the floor plane stays. Free DAZ content only (Genesis 9 Starter
+// Essentials) for the scenes in git. scripts/dev/make-figure-scenes.py aims
+// the camera, sets the exposure and writes the variants.
+// ECMAScript 3, ASCII only.
+(function () {
+    var a = App.scriptArgs;
+    var sBase = a[0], sOut = a[1];
+    var oContent = App.getContentMgr();
+    var iEnd = 2;
+    while (iEnd < a.length && a[iEnd] != "--") iEnd++;
+    for (var i = iEnd + 1; i < a.length; i++) oContent.addContentDirectory(a[i], false);
+    var sLog = "";
+    function done(s) {
+        var f = new DzFile(sOut + ".done");
+        f.open(DzFile.WriteOnly | DzFile.Truncate);
+        f.write(s + "\n" + sLog);
+        f.close();
+        App.delayedExit();
+    }
+    if (!oContent.openFile(sBase, false)) { done("base not opened"); return; }
+    var aGone = [];
+    for (var k = 0; k < Scene.getNumNodes(); k++) {
+        var o = Scene.getNode(k);
+        var sLabel = o.getLabel();
+        if (sLabel.indexOf("Cube") == 0 || sLabel == "Sphere" || o.inherits("DzDistantLight")) aGone.push(o);
+    }
+    for (var g = 0; g < aGone.length; g++) Scene.removeNode(aGone[g]);
+    sLog += "removed " + aGone.length + "\n";
+    function figures() {
+        var r = [];
+        for (var m = 0; m < Scene.getNumNodes(); m++) {
+            var p = Scene.getNode(m);
+            if (p.inherits("DzFigure") && !p.getFollowTarget()) r.push(p);
+        }
+        return r;
+    }
+    function select(o) {
+        Scene.selectAllNodes(false);
+        o.select(true);
+        Scene.setPrimarySelection(o);
+    }
+    var oFigure = null;
+    var aPlaced = [];
+    for (var j = 2; j < iEnd; j++) {
+        var sItem = a[j];
+        var iColon = sItem.indexOf(":");
+        var sKind = sItem.substring(0, iColon);
+        var sRest = sItem.substring(iColon + 1);
+        if (sKind == "figure") {
+            var iSep = sRest.indexOf(":");
+            var aPos = sRest.substring(0, iSep).split(",");
+            var sPath = sRest.substring(iSep + 1);
+            var aBefore = figures();
+            Scene.selectAllNodes(false);
+            var bOk = oContent.openFile(sPath, true);
+            var aAfter = figures();
+            oFigure = null;
+            for (var q = 0; q < aAfter.length; q++) {
+                var bOld = false;
+                for (var r = 0; r < aBefore.length; r++) if (aBefore[r] == aAfter[q]) bOld = true;
+                if (!bOld) { oFigure = aAfter[q]; break; }
+            }
+            if (!bOk || !oFigure) { done("figure not loaded: " + sPath); return; }
+            aPlaced.push([oFigure, aPos]);
+            sLog += "figure " + oFigure.getLabel() + " at " + aPos.join(",") + "\n";
+        } else if (sKind == "pose" || sKind == "wear") {
+            if (!oFigure) { done(sKind + " before any figure"); return; }
+            select(oFigure);
+            sLog += sKind + " " + oContent.openFile(sRest, true) + " " + sRest + "\n";
+        } else {
+            done("unknown item " + sItem);
+            return;
+        }
+    }
+    // Placed last: a pose preset may carry the root's transform.
+    for (var t = 0; t < aPlaced.length; t++) {
+        var oF = aPlaced[t][0], aP = aPlaced[t][1];
+        oF.getXPosControl().setValue(Number(aP[0]));
+        oF.getZPosControl().setValue(Number(aP[1]));
+        oF.getYRotControl().setValue(Number(aP[2]));
+    }
+    done("saved " + Scene.saveScene(sOut));
+})();

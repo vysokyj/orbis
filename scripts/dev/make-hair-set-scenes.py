@@ -20,6 +20,9 @@ default dome, DTHDR-RuinsB, as the Morgan scenes are), then here:
 - -nogloss: Glossy Layered Weight, Glossy Weight and Dual Lobe Specular
   Weight 0 on the hair's materials (Calib-Hair-Teens-nogloss: the glossy layer, Morgan's
   only gloss): the base under the gloss.
+- Pixie only (#203, the deleted Calib-Hair-Teens-* on free content):
+  -T2 / -T1 the hair's Line Tessellation sides 2 (ribbons) / 1 (fibres),
+  each also -nogloss and -coat (a white top coat, COAT).
 
 HAIRS: what each covers (DAZ's Render Line Tessellation Sides: 2 = flat
 ribbons in Iray, 3 = prisms, under 2 = round `hair` fibres; all Iray Uber):
@@ -209,6 +212,61 @@ def nogloss(d):
     return len(mats)
 
 
+def sides(d, n):
+    """The hair's Line Tessellation sides (Render and Viewport alike: DAZ's
+    .mi export reads the Viewport sides, its render the Render sides)."""
+    mods = [m for m in d['scene'].get('modifiers', []) if any(e.get('type') == 'studio/modifier/line_tessellation' for e in m.get('extra', []))]
+    assert mods, 'no line tessellation modifier'
+    for m in mods:
+        ext = next(e for e in m['extra'] if e.get('type') == 'studio_modifier_channels')
+        for w in ('Render', 'Viewport'):
+            cid = f'{w} Line Tessellation Sides'
+            c = next((c['channel'] for c in ext['channels'] if c['channel']['id'] == cid), None)
+            if c is None:
+                c = {'id': cid, 'type': 'int'}
+                ext['channels'].append({'channel': c})
+            c['current_value'] = n
+    return len(mods)
+
+
+# A top coat on the hair (#203, replacing Calib-Hair-Teens' coat variants):
+# Morgan's coat on fibres was never measured in Iray (2026-11-14 note). A
+# plain white coat, reflectivity mode, over the hair's own Uber.
+COAT = {'Top Coat Weight': 1.0, 'Top Coat Color': [1.0, 1.0, 1.0], 'Top Coat Layering Mode': 0,
+        'Top Coat Reflectivity': 0.5, 'Top Coat Roughness': 0.2}
+
+
+def coat(d):
+    mats = hair_materials(d)
+    assert mats, 'no hair materials'
+    for m in mats:
+        ext = next((e for e in m.setdefault('extra', []) if e.get('type') == 'studio_material_channels'), None)
+        if ext is None:
+            ext = {'type': 'studio_material_channels', 'channels': []}
+            m['extra'].append(ext)
+        for cid, v in COAT.items():
+            c = next((c['channel'] for c in ext['channels'] if c['channel']['id'] == cid), None)
+            if c is None:
+                c = {'id': cid, 'type': 'float_color' if isinstance(v, list) else 'int' if cid.endswith('Mode') else 'float'}
+                ext['channels'].append({'channel': c})
+            c['current_value'] = v
+    return len(mats)
+
+
+def chain(*fs):
+    def run(d):
+        return [f(d) for f in fs]
+    return run
+
+
+# The Pixie hair (sides 3) as ribbons (-T2) and fibres (-T1, under 2 = Iray
+# `hair`), each whole, without its gloss and with a top coat (#203: the
+# ribbon / fibre split, gloss and coat variants Calib-Hair-Teens-* held,
+# on free content).
+PIXIE_VARIANTS = [(f'-T{n}{s}', chain(lambda d, n=n: sides(d, n), *([f] if f else [])))
+                  for n in (2, 1) for s, f in (('', None), ('-nogloss', nogloss), ('-coat', coat))]
+
+
 def main():
     force, rebuild = '--force' in sys.argv, '--rebuild' in sys.argv
     names = [a for a in sys.argv[1:] if not a.startswith('--')] or list(HAIRS)
@@ -221,12 +279,17 @@ def main():
         lo, hi, pos = aim(d0)
         render_setup(d0)
         print(f'{name}: hair {[round(v) for v in lo]} - {[round(v) for v in hi]} cm, camera {[round(v) for v in pos]}')
-        for suffix, change in (('', None), ('-nogloss', nogloss)):
+        variants = [('', None), ('-nogloss', nogloss)]
+        if name == 'Pixie':
+            variants += PIXIE_VARIANTS
+        for suffix, change in variants:
             scene = f'Calib-Hair-{name}{suffix}'
             d = copy.deepcopy(d0)
             if change:
                 print(f'  {scene}: {change(d)} hair materials')
             d['asset_info']['id'] = f'/Scenes/{scene}.duf'
+            # The contributor DAZ saved blanked, as demo.py does (no personal data in git).
+            d['asset_info']['contributor'] = {'author': '', 'email': '', 'website': ''}
             duf_camera.ensure(d)
             targets = [SCENES] + ([CALIB] if generic else [])
             for dirpath in targets:
