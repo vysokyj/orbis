@@ -147,10 +147,13 @@ where a script maps that folder as an MDL directory (`daz-export-mi.dsa`,
    `daz-apply-presets.dsa` via `scripts/dev/daz-script.sh`. Copy a new
    generated scene into `calib/scenes` with `scripts/dev/duf_io.py copy`:
    DAZ saves its user's contributor details (author, e-mail, website) into
-   every scene, and none go into git (#208). The Python generators write
-   through `duf_io.save()`, which blanks them (deterministic gzip); a test
-   fails on a scene in `calib/scenes`, `calib/scenes-store` or `demo/scenes`
-   that still carries them (`duf_io.py check` / `fix --library`).
+   every scene, and none go into git (#208); a scene saved outside the
+   library keeps its absolute save path, under the user's home, in
+   `asset_info.id`, which `duf_io` sets to `/Scenes/<name>.duf` (#209). The
+   Python generators write through `duf_io.save()`, which does both
+   (deterministic gzip); a test fails on a scene in `calib/scenes`,
+   `calib/scenes-store` or `demo/scenes` that still carries contributor
+   details or any home path (`duf_io.py check` / `fix --library`).
 2. **Iray reference** — `scripts/dev/calib-render.py [--auto-ev]
    [--samples N] <scene.duf>…`: a headless DAZ Studio render, capped by
    samples so every variant has the same noise; `--auto-ev` sets the

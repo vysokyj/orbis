@@ -431,8 +431,10 @@ fn calibration_scenes_render_through_their_camera() {
 
 /// No personal data in git (#208): DAZ Studio writes its user's contributor
 /// details (author, e-mail, website) into every scene it saves; every scene
-/// in the repo has them blanked (`scripts/dev/duf_io.py fix`). Names only in
-/// the message, never the values.
+/// in the repo has them blanked (`scripts/dev/duf_io.py fix`). Nor a home
+/// path anywhere (#209: a scene saved outside the library keeps its absolute
+/// save path in `asset_info.id`, which names the login; `duf_io.py fix` sets
+/// it to `/Scenes/<name>.duf`). Names only in the message, never the values.
 #[test]
 fn committed_scenes_carry_no_contributor() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -444,14 +446,19 @@ fn committed_scenes_carry_no_contributor() {
             if p.extension().and_then(|x| x.to_str()) != Some("duf") {
                 continue;
             }
-            let duf: Value = serde_json::from_str(&crate::dson::decompress_scene(&std::fs::read(&p).unwrap()).unwrap()).unwrap();
+            let text = crate::dson::decompress_scene(&std::fs::read(&p).unwrap()).unwrap();
+            let duf: Value = serde_json::from_str(&text).unwrap();
             let c = &duf["asset_info"]["contributor"];
+            let name = format!("{sub}/{}", p.file_name().unwrap().to_string_lossy());
             if ["author", "email", "website"].iter().any(|k| c[k].as_str().is_some_and(|s| !s.is_empty())) {
-                found.push(format!("{sub}/{}", p.file_name().unwrap().to_string_lossy()));
+                found.push(format!("{name}: contributor"));
+            }
+            if text.contains("/Users/") {
+                found.push(format!("{name}: home path"));
             }
         }
     }
-    assert!(found.is_empty(), "contributor details not blank (scripts/dev/duf_io.py fix): {found:?}");
+    assert!(found.is_empty(), "contributor details or home paths (scripts/dev/duf_io.py fix): {found:?}");
 }
 
 #[test]
