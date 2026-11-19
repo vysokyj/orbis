@@ -1,7 +1,6 @@
 [package]
 name = "orbis"
 version = "0.1.0"
-authors = ["Jiri Vysoky <jiri.vysoky@gmail.com>"]
 edition = "2021"
 description = "DAZ Studio scenes to Octane X (.orbx)"
 license = "GPL-3.0-or-later"

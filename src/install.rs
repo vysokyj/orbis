@@ -129,7 +129,7 @@ mod tests {
         let paths = InstallPaths {
             library: root.path().join("My Library"),
             binary: root.path().join("Support/ORBIS/bin/orbis"),
-            output_dir: PathBuf::from("/Users/Jiří \"J\"/Documents/ORBIS"),
+            output_dir: PathBuf::from("/Users/Křída \"K\"/Documents/ORBIS"),
         };
         let src = root.path().join("fake-orbis");
         std::fs::write(&src, b"#!/bin/sh\n").unwrap();
@@ -142,7 +142,7 @@ mod tests {
         let script = std::fs::read_to_string(plugin.join(SCRIPT_NAME)).unwrap();
         assert!(!script.contains("@ORBIS_BIN@") && !script.contains("@DEFAULT_OUTPUT_DIR@"));
         assert!(script.contains(&format!("var sBin = \"{}\";", paths.binary.display())));
-        assert!(script.contains(r#"var sDefaultOutputDir = "/Users/Ji\u0159\u00ed \"J\"/Documents/ORBIS";"#));
+        assert!(script.contains(r#"var sDefaultOutputDir = "/Users/K\u0159\u00edda \"K\"/Documents/ORBIS";"#));
         assert!(plugin.join("Export to Octane.png").is_file());
         assert!(paths.library.join("Scripts/ORBIS.png").is_file());
         assert!(root.path().join("Support/ORBIS/banner@2x.png").is_file());
