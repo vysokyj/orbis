@@ -79,6 +79,13 @@ material file with one Shader Mixer brick material per module material
   so only the front reflection is seen) at 1.0 / 1.3, r 0.354 / 0.5 / 0.7,
   with 1.3 twins at r' = r sqrt(2 / (2 + r^2)) (cos^(e' - 1) = cos^e):
   whether the transmitting legacy lobe is cos^e as the reflect-only one.
+- Calib-Furnace-MdlFresnel (#207): architectural's Use Fresnel Term stack
+  written out - fresnel_layer (IOR 1.5) of a mirror over the closed
+  transmit lobe - F1 / F2 w 0.6 r 0.6 (Calib-Furnace-ArchGlass G8's twin)
+  at 1.0 / 1.3, F3 / F4 w 1 at 1.0 / 1.3, F5 / F6 w 0.6 at r 0.3 / 1 (1.0),
+  F7 the 1.0 lobe alone (w 0), F8 custom_curve_layer at Fresnel's F0 0.04
+  (no critical angle): whether the legacy loss multiplies the
+  critical-angle weight or falls on the same wide microfacets.
 - Calib-Back-MdlTransmit (#191): the same spheres in architectural's
   transmit lobe (closed, IOR 1.5), the camera level with them and a spot
   light behind each on its line of sight (`back_lit`): the lobe through
@@ -597,3 +604,10 @@ furnace_scene('Calib-Furnace-MdlLegacy', LEGACY)
 furnace_scene('Calib-Furnace-MdlTextured', TEXTURED)
 furnace_scene('Calib-Furnace-MdlLegacy2', LEGACY2)
 furnace_scene('Calib-Furnace-MdlRoughTex', ROUGHTEX)
+# #207: G8's stack, one piece at a time (see the docstring).
+FRESNEL = [(f'F{k + 1} v{v} {what}', f'v{v.replace(".", "")}_fresnel_{mat}', f'orbis/orbis_fresnel_v{v.replace(".", "")}.mdl#{mat}')
+           for k, (what, mat, v) in enumerate([('w 0.6 r 0.6', 'fresnel_w06_r06', '1.0'), ('w 0.6 r 0.6', 'fresnel_w06_r06', '1.3'),
+                                               ('w 1 r 0.6', 'fresnel_w1_r06', '1.0'), ('w 1 r 0.6', 'fresnel_w1_r06', '1.3'),
+                                               ('w 0.6 r 0.3', 'fresnel_w06_r03', '1.0'), ('w 0.6 r 1', 'fresnel_w06_r1', '1.0'),
+                                               ('w 0 r 0.6', 'fresnel_w0_r06', '1.0'), ('schlick 0.04 w 0.6 r 0.6', 'schlick004_w06_r06', '1.0')])]
+furnace_scene('Calib-Furnace-MdlFresnel', FRESNEL)

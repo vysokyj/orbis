@@ -1193,3 +1193,205 @@ mod diag201 {
         }
     }
 }
+
+#[cfg(test)]
+mod diag207 {
+    use super::*;
+
+    /// How the base's layer weight 1 − w · c(·) is taken (#207 hypotheses).
+    #[derive(Clone, Copy, Debug)]
+    enum Wt {
+        /// `curve_layer_sample` as modelled: max(c(n·k1), c(nk2)), nk2 the
+        /// reflection of k1 about the microfacet for a refraction.
+        Max,
+        /// c(n·k1) only (energy-conserving: the coat's pick probability).
+        K1,
+        /// max(c(n·k1), c(|n·k2|)), k2 the refracted direction itself.
+        K2Out,
+        /// nk2 on the refraction, but the curve at nk2 taken from the side
+        /// k2 leaves to (outside's IOR for an exit).
+        Nk2Other,
+    }
+
+    /// Where `legacy_loss` is drawn (#207 hypotheses).
+    #[derive(Clone, Copy, Debug)]
+    enum Lg {
+        /// Every base event at its incoming angle (the model).
+        All,
+        /// Refractions only (a total reflection inside loses nothing).
+        Refr,
+        /// Every base event at the head-on value.
+        Head,
+        /// Exits at their angle, entries head-on, total reflections nothing.
+        Exit,
+        /// The same g per event, but as the death of the samples with the
+        /// widest microfacets (u of the h sample above g), not a factor.
+        Tail,
+    }
+
+    /// The libbsdf Iray model of a closed coated transmit stack, `legacy`
+    /// as `trace_n`, with the base's weight by `wt`; rings + disk at
+    /// base factor tau.
+    fn rings(s: &Stack, wt: Wt, lg: Lg, tau: f64, paths: usize) -> ([f64; 9], f64) {
+        rings_t(s, wt, lg, tau, 1.0, false, paths)
+    }
+
+    /// `rings` at base tint `t` (every base event), `coat_loss`: the coat
+    /// loses `legacy_loss` at its roughness (#205's patch).
+    #[allow(clippy::too_many_arguments)]
+    fn rings_t(s: &Stack, wt: Wt, lg: Lg, tau: f64, t: f64, coat_loss: bool, paths: usize) -> ([f64; 9], f64) {
+        rings_v(s, wt, lg, tau, t, coat_loss, true, paths)
+    }
+
+    /// `rings_t`; `legacy` false: the `mdl 1.3` lobe (`libbsdf` at r, no loss).
+    #[allow(clippy::too_many_arguments)]
+    fn rings_v(s: &Stack, wt: Wt, lg: Lg, tau: f64, t: f64, coat_loss: bool, legacy: bool, paths: usize) -> ([f64; 9], f64) {
+        let shared = s.coat_rough == s.base_rough;
+        let (base_d, coat_d) = if legacy { (legacy_rough(s.base_rough), legacy_rough(s.coat_rough)) } else { (s.base_rough, s.coat_rough) };
+        let mut rng = Rng(0x5eed_0113);
+        let (mut r, mut e) = ([0.0; 9], [0usize; 9]);
+        let (mut disk, mut nd) = (0.0, 0usize);
+        for _ in 0..paths {
+            let rr = rng.next().sqrt();
+            let j = ((rr * 10.0) as usize).min(9);
+            if j < 9 {
+                e[j] += 1;
+            }
+            if rr < 0.75 {
+                nd += 1;
+            }
+            let phi = 2.0 * std::f64::consts::PI * rng.next();
+            let mut p: V = [rr * phi.cos(), rr * phi.sin(), (1.0 - rr * rr).max(0.0).sqrt()];
+            let mut d: V = [0.0, 0.0, -1.0];
+            let (mut thr, mut inside) = (1.0, false);
+            for _ in 0..DEPTH {
+                let n = if inside { scale(p, -1.0) } else { p };
+                let v = scale(d, -1.0);
+                let eta = if !inside { s.ior } else { 1.0 / s.ior };
+                let nk1 = dot(n, v).clamp(0.0, 1.0);
+                let u_peek = Rng(rng.0).next();
+                let h = sample_h(Model::Libbsdf, base_d, n, &mut rng);
+                let hc = if shared { h } else { sample_h(Model::Libbsdf, coat_d, n, &mut rng) };
+                let p_layer = s.weight * s.curve.eval(inside, nk1);
+                let ev = if rng.next() < p_layer {
+                    lobe(Model::Libbsdf, s.coat_rough, n, v, hc, eta, Scatter::Reflect, false, &mut rng).map(|(l, w, _)| (l, w * s.weight * s.curve.eval(inside, dot(v, hc)) / p_layer * if coat_loss { legacy_loss(s.coat_rough, nk1) } else { 1.0 }, false))
+                } else {
+                    lobe(Model::Libbsdf, s.base_rough, n, v, h, eta, s.base, false, &mut rng).map(|(l, w, refr)| {
+                        let c1 = s.curve.eval(inside, nk1);
+                        let nk2m = 2.0 * dot(v, h) * dot(n, h) - nk1;
+                        let c2 = match (wt, s.curve) {
+                            (Wt::K1, _) => 0.0,
+                            (Wt::Max, Curve::Fresnel(_)) if refr => s.curve.eval(inside, nk2m),
+                            (Wt::Nk2Other, Curve::Fresnel(_)) if refr => s.curve.eval(!inside, nk2m),
+                            (Wt::K2Out, _) if refr => s.curve.eval(!inside, dot(n, l).abs()),
+                            _ => s.curve.eval(inside, dot(n, l).abs()),
+                        };
+                        let base = 1.0 - s.weight * c1.max(c2);
+                        let g = if !legacy { 1.0 } else { match lg {
+                            Lg::All => legacy_loss(s.base_rough, nk1),
+                            Lg::Refr => if refr { legacy_loss(s.base_rough, nk1) } else { 1.0 },
+                            Lg::Head => legacy_loss(s.base_rough, 1.0),
+                            Lg::Tail => if u_peek > legacy_loss(s.base_rough, nk1) { 0.0 } else { 1.0 },
+                            Lg::Exit => if refr && inside { legacy_loss(s.base_rough, nk1) } else if refr { legacy_loss(s.base_rough, 1.0) } else { 1.0 },
+                        } };
+                        (l, w * base * g * tau * t / (1.0 - p_layer), refr)
+                    })
+                };
+                let Some((l, w, refr)) = ev else { break };
+                thr *= w;
+                if refr {
+                    inside = !inside;
+                }
+                if !inside {
+                    if j < 9 {
+                        r[j] += thr;
+                    }
+                    if rr < 0.75 {
+                        disk += thr;
+                    }
+                    break;
+                }
+                let l = norm(l);
+                p = norm(add(p, scale(l, -2.0 * dot(p, l))));
+                d = l;
+            }
+        }
+        for j in 0..9 {
+            r[j] /= e[j].max(1) as f64;
+        }
+        (r, disk / nd.max(1) as f64)
+    }
+
+    #[test]
+    #[ignore]
+    fn print_resin_tail() {
+        // Calib-Furnace-Resin / -Resin2, Iray Server 5000, projected discs.
+        let lobe = [(0.02, 0.969), (0.1, 0.962), (0.25, 0.913), (0.5, 0.687), (0.75, 0.452), (1.0, 0.317)];
+        let cases: [(&str, f64, f64, f64, f64, [f64; 9]); 9] = [
+            ("R1 grey r.25 c.95", 0.25, 0.95, 0.787, 0.472, [0.538, 0.534, 0.522, 0.507, 0.489, 0.465, 0.438, 0.408, 0.357]),
+            ("R3 white r.25 c.95", 0.25, 0.95, 1.0, 0.721, [0.834, 0.823, 0.804, 0.780, 0.750, 0.712, 0.666, 0.608, 0.508]),
+            ("R7 grey r.5 c.95", 0.5, 0.95, 0.787, 0.256, [0.281, 0.281, 0.272, 0.271, 0.264, 0.257, 0.245, 0.216, 0.173]),
+            ("R8 grey r.1 c.95", 0.1, 0.95, 0.787, 0.602, [0.639, 0.626, 0.624, 0.624, 0.618, 0.606, 0.584, 0.550, 0.502]),
+            ("R6 white r.25 c0", 0.25, 0.0, 1.0, 0.912, [0.959, 0.943, 0.943, 0.938, 0.924, 0.915, 0.892, 0.852, 0.799]),
+            ("U4 white r.5 c0", 0.5, 0.0, 1.0, 0.687, [0.783, 0.778, 0.763, 0.742, 0.715, 0.679, 0.636, 0.583, 0.517]),
+            ("U5 white r.75 c0", 0.75, 0.0, 1.0, 0.452, [0.538, 0.535, 0.521, 0.503, 0.476, 0.445, 0.407, 0.363, 0.312]),
+            ("U6 white r1 c0", 1.0, 0.0, 1.0, 0.317, [0.376, 0.375, 0.367, 0.353, 0.334, 0.311, 0.284, 0.252, 0.215]),
+            ("U7 grey r.5 c0", 0.5, 0.0, 0.787, 0.425, [0.497, 0.486, 0.477, 0.464, 0.443, 0.419, 0.389, 0.352, 0.306]),
+        ];
+        let fmt = |a: &[f64]| a.iter().map(|v| format!("{v:.2}")).collect::<Vec<_>>().join(" ");
+        for lg in [Lg::All, Lg::Tail] {
+            for coat_loss in [false, true] {
+                for (lab, r, w, t, idisk, ir) in cases {
+                    let st = |w| Stack { weight: w, curve: Curve::Fresnel(1.49), coat_rough: r, base: Scatter::ReflectTransmit, base_rough: r, ior: 1.49, thin: false };
+                    let tau = solve_in(|x| rings(&st(0.0), Wt::Max, lg, x, 1 << 15).1, interp(&lobe, r), 1.5);
+                    let (m, disk) = rings_t(&st(w), Wt::Max, lg, tau, t, coat_loss, PATHS);
+                    let ratio: Vec<f64> = (0..9).map(|j| m[j] / ir[j]).collect();
+                    println!("{lg:?} coat_loss {coat_loss} {lab:20} tau {tau:.3} disk {disk:.3} v {idisk:.3} ({:.3})  {}", disk / idisk, fmt(&ratio));
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_mdl_fresnel_predictions() {
+        // Calib-Furnace-MdlFresnel's spheres: (label, weight, curve, r, mdl 1.0).
+        let sch = Curve::Schlick { r0: 0.04, r90: 1.0, exponent: 5.0 };
+        let fr = Curve::Fresnel(1.5);
+        let cases = [("F1 1.0 w.6 r.6", 0.6, fr, 0.6, true), ("F2 1.3 w.6 r.6", 0.6, fr, 0.6, false), ("F3 1.0 w1 r.6", 1.0, fr, 0.6, true), ("F4 1.3 w1 r.6", 1.0, fr, 0.6, false),
+            ("F5 1.0 w.6 r.3", 0.6, fr, 0.3, true), ("F6 1.0 w.6 r1", 0.6, fr, 1.0, true), ("F7 1.0 w0 r.6", 0.0, fr, 0.6, true), ("F8 1.0 schlick .04 w.6 r.6", 0.6, sch, 0.6, true)];
+        let fmt = |a: &[f64]| a.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(" ");
+        for (lab, w, curve, r, legacy) in cases {
+            let st = |w| Stack { weight: w, curve, coat_rough: 0.0, base: Scatter::Transmit, base_rough: r, ior: 1.5, thin: false };
+            let lobe = rings_v(&st(0.0), Wt::Max, Lg::All, 1.0, 1.0, false, legacy, 1 << 15).1;
+            let tau = solve_in(|x| rings_v(&st(0.0), Wt::Max, Lg::Tail, x, 1.0, false, legacy, 1 << 15).1, lobe, 1.5);
+            let (a, da) = rings_v(&st(w), Wt::Max, Lg::All, 1.0, 1.0, false, legacy, PATHS);
+            let (b, db) = rings_v(&st(w), Wt::Max, Lg::Tail, tau, 1.0, false, legacy, PATHS);
+            println!("{lab:28} factor disk {da:.3} [{}] | tail disk {db:.3} [{}]", fmt(&a), fmt(&b));
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_g8_decomposition() {
+        // Calib-Furnace-ArchGlass, Iray Server 5000, projected discs (#206).
+        let iray: [(&str, f64, [f64; 9]); 3] = [
+            ("G4", 0.609, [0.717, 0.703, 0.689, 0.667, 0.638, 0.601, 0.556, 0.500, 0.431]),
+            ("G7", 0.648, [0.749, 0.735, 0.723, 0.704, 0.676, 0.642, 0.597, 0.545, 0.484]),
+            ("G8", 0.412, [0.459, 0.459, 0.448, 0.438, 0.423, 0.404, 0.387, 0.376, 0.374]),
+        ];
+        let st = |w: f64, curve| Stack { weight: w, curve, coat_rough: 0.0, base: Scatter::Transmit, base_rough: 0.6, ior: 1.5, thin: false };
+        let sch = Curve::Schlick { r0: 0.2, r90: 1.0, exponent: 5.0 };
+        let fr = Curve::Fresnel(1.5);
+        let fmt = |a: &[f64]| a.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(" ");
+        for lg in [Lg::All, Lg::Tail] {
+            let tau = solve_in(|t| rings(&st(0.0, fr), Wt::Max, lg, t, 1 << 15).1, 0.609, 1.5);
+            for (lab, stack) in [("G4", st(0.0, fr)), ("G7", st(0.6, sch)), ("G8", st(0.6, fr))] {
+                let (_, idisk, ir) = iray.iter().find(|x| x.0 == lab).unwrap();
+                let (r, disk) = rings(&stack, Wt::Max, lg, tau, PATHS);
+                let ratio: Vec<f64> = (0..9).map(|j| r[j] / ir[j]).collect();
+                println!("{lg:?} tau {tau:.3} {lab}: disk {disk:.3} v {idisk:.3}  model/Iray {}", fmt(&ratio));
+            }
+        }
+    }
+}
