@@ -1319,9 +1319,9 @@ const ARCH_GLASS_ROUGH: f32 = 4.13;
 /// measured (`ARCH_GLASS_LOBE`). Octane: the coating at its IOR `coat_ior`
 /// and the lobe Beckmann, each at its `legacy_phong_alpha` (the pins the
 /// export writes, #198), Smith, physical layering. Reflectivity 0,
-/// refr_gloss 0.6 / 0.4 / 0.2 / 0: 0.99 / 0.98 / 0.88 / 0.84; 0.2 under
-/// reflectivity 0.6 0.87, with the Fresnel term 0.67 (the critical angle in
-/// `fresnel_layer`'s weights).
+/// refr_gloss 0.6 / 0.4 / 0.2 / 0: 0.99 / 0.98 / 0.87 / 0.83; 0.2 under
+/// reflectivity 0.6 0.87, with the Fresnel term 0.66 (the critical angle in
+/// `fresnel_layer`'s weights; head-on k of the falloff, Smith model, #206).
 #[allow(clippy::too_many_arguments)]
 fn arch_glass_albedo(refr: f32, refr_gloss: f32, refr_ior: f32, weight: f32, refl_rough: f32, coat_ior: f32, curve: Option<(f64, f64, f64)>, thin: bool, colour: [f32; 3], excess: bool) -> crate::mdl_layer::Falloff {
     use crate::mdl_layer::{Curve, Scatter, Stack};
@@ -1389,15 +1389,22 @@ fn uber_glass_level(u: &crate::iray::Uber, rough: f32, own: bool, colour: [f32; 
 
 /// What Iray's architectural transmit lobe alone keeps (reflectivity 0,
 /// white) in the furnace, over the sphere's inner disk, by refr_gloss:
-/// Calib-Furnace-ArchGlass G5 – G1 (Iray Server 5000, #115). Measured, not
+/// Calib-Furnace-ArchGlass G5 – G1 (Iray Server 5000, #115; re-read on the
+/// projected discs, #206: the first reading, 0.512 / 0.614 / 0.938 / 0.964
+/// / 1, came from discs found in the image before #146; ArchGlass2's H3 /
+/// H2 / H1, the same materials in another frame, read 0.508 / 0.609 / 0.964
+/// too, and `legacy_loss`'s lobe alone now needs τ 1.008 / 1.000 / 0.998
+/// at G5 / G4 / G3 where the old reading needed 1.012 / 1.004 / 0.999). Measured, not
 /// derived: `libbsdf` at the formula's roughness keeps 0.87 – 1.00 (it
 /// loses only to v-cavities masking), at `arch_glass_rough`'s (0.72 / 0.60
 /// / 0.21 / 0.08 / 0) 0.72 / 0.78 / 0.99 / 1.00 / 1 — Iray loses more with NVIDIA's module, at every
 /// surface event, while the same lobe through the Uber keeps `libbsdf`'s
 /// value (Calib-Furnace-UberGlass / -ArchGlass2, #116). With it the `libbsdf` layering
 /// predicts the coated spheres (refr_gloss 0.2 under reflectivity 0.6:
-/// Schlick 0.657 v Iray 0.655, Fresnel term 0.421 v 0.416).
-const ARCH_GLASS_LOBE: [(f64, f64); 5] = [(0.0, 0.512), (0.2, 0.614), (0.4, 0.938), (0.6, 0.964), (1.0, 1.0)];
+/// Schlick 0.648 v Iray 0.648, G7; the Fresnel term, G8, 0.399 v 0.412 -
+/// the per-event `legacy_loss` model, #206; the first reading's model, 0.657
+/// v 0.655 and 0.421 v 0.416, was before it).
+const ARCH_GLASS_LOBE: [(f64, f64); 5] = [(0.0, 0.508), (0.2, 0.609), (0.4, 0.936), (0.6, 0.964), (1.0, 1.0)];
 
 /// The refr_ior `ARCH_GLASS_LOBE` was measured at (G1 – G5, #148).
 const ARCH_GLASS_LOBE_IOR: f64 = 1.5;
@@ -1412,7 +1419,11 @@ const ARCH_GLASS_LOBE_IOR: f64 = 1.5;
 /// at `arch_glass_rough`'s roughness, squared — measured points, no curve
 /// of their own (J4 = the plain 1.0 lobe's thin r 0.2, 0.943 → 0.885 to
 /// the rim; disks 0.936 / 0.963 / 0.968 / 1). A mirror (1) loses nothing,
-/// any roughness ~2 % per wall. IOR 2 keeps the same (J8 = J4).
+/// any roughness ~2 % per wall. IOR 2 keeps the same (J8 = J4). Re-read
+/// on the projected discs (#206): J4 – J2 were read on them already (#149,
+/// unchanged); H5 / H4 0.389 / 0.503 (disk 0.387 / 0.506) — H5 is one
+/// 8-bit level, 0.386 in every ring to 0.8, its 0.389 only the edge
+/// pixels past 0.9, and H4 within 0.4 %: both kept.
 const ARCH_GLASS_THIN_LOBE: [(f64, f64); 6] = [(0.0, 0.386), (0.2, 0.505), (0.4, 0.915), (0.6, 0.960), (0.8, 0.965), (1.0, 1.0)];
 
 /// mental ray's glossiness → MDL roughness by the MDL SDK's

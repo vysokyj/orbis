@@ -3031,9 +3031,11 @@ leaves out, #15):
     reflection colour's peak, the reflection at its roughness, over the
     transmit lobe at r_t (`scatter_transmit` refracts every sample, a
     totally reflected one reflects) — with the lobe's own loss measured
-    (`ARCH_GLASS_LOBE`, by refr_gloss 0 / 0.2 / 0.4 / 0.6 / 1: 0.512 /
-    0.614 / 0.938 / 0.964 / 1.000, Calib-Furnace-ArchGlass G5 – G1,
-    reflectivity 0, refr_ior 1.5) — τ solved on the lobe at the IOR the
+    (`ARCH_GLASS_LOBE`, by refr_gloss 0 / 0.2 / 0.4 / 0.6 / 1: 0.508 /
+    0.609 / 0.936 / 0.964 / 1.000, Calib-Furnace-ArchGlass G5 – G1,
+    reflectivity 0, refr_ior 1.5; read on the projected discs, #206 — the
+    first reading, 0.512 / 0.614 / 0.938, found its discs in the image
+    before #146) — τ solved on the lobe at the IOR the
     table was measured at (1.5; resin's `RESIN_LOBE` at its Coat IOR
     1.49), then the stack traced at the material's refr_ior with it (#148:
     `libbsdf`'s closed lobe itself loses more with the IOR — total
@@ -3045,10 +3047,11 @@ leaves out, #15):
     the IOR) and Iray under `libbsdf` × τ (0.98 / 1.02 / 1.06): the
     legacy lobe's per-event loss met on `libbsdf`'s longer bent paths, not
     an IOR term (Calib-Furnace-MdlTir, #117) — now drawn per event with
-    its angle (`LEGACY_LOBE`, below; τ ≈ 1 on top); Octane = the coating at its IOR, the lobe Beckmann,
+    its angle (`LEGACY_LOBE`, below; τ ≈ 1 on top: 1.008 / 1.000 / 0.998 at
+    refr_gloss 0 / 0.2 / 0.4, #206); Octane = the coating at its IOR, the lobe Beckmann,
     each at its legacy α (`legacy_phong_alpha`), Smith, physical layering.
-    Reflectivity 0, refr_gloss 0.6 / 0.4 / 0.2 / 0: k 0.99 / 0.98 / 0.88 /
-    0.84; 0.2 under reflectivity 0.6 0.87, with the Fresnel term 0.67.
+    Reflectivity 0, refr_gloss 0.6 / 0.4 / 0.2 / 0: k 0.99 / 0.98 / 0.87 /
+    0.83; 0.2 under reflectivity 0.6 0.87, with the Fresnel term 0.66.
     The pins (#198): r_t is Iray's own `mdl 1.0` lobe's roughness (read
     among its twins, #117), and that lobe is cosᵉ (#191), so Octane's
     Beckmann takes `legacy_phong_pin(r_t)` (α 0.585 / 0.514 / 0.205 at
@@ -3066,7 +3069,7 @@ leaves out, #15):
     rim 1.01 → 1.06 × Iray, its ring shape closer (rms 0.031 → 0.017),
     G4's 0.005 → 0.016; thin walls unchanged. Why: the
     architectural lobe loses far more in Iray than `libbsdf`'s at the
-    formula's roughness (refr_gloss 0.2: 0.614 v 0.99), and that isn't
+    formula's roughness (refr_gloss 0.2: 0.609 v 0.99), and that isn't
     Iray's `simple_glossy_bsdf` (#116): the same df through DAZ's Uber
     (Calib-Furnace-UberGlass: transmit at r 0.019 – 0.6, reflect_transmit
     at 0.25 / 0.5) keeps what `libbsdf` predicts within 1 % per ring, at
@@ -3089,7 +3092,8 @@ leaves out, #15):
     architectural's lobe is that legacy lobe at r_t (A1 – A3 = G3 – G5). The legacy behaviour isn't documented, so the
     lobe alone stays measured; with it `libbsdf`'s layer weights
     predict the coated spheres — refr_gloss 0.2 under reflectivity 0.6
-    Schlick 0.657 v Iray 0.655, Fresnel term 0.421 v 0.416 — while
+    Schlick 0.648 v Iray 0.648, Fresnel term 0.399 v 0.412 (the per-event
+    legacy model on the re-read lobe, #206) — while
     Octane's coating keeps all (its furnace 0.895 for both, the lobe alone
     0.886; Smith model 0.87). The former 1 − 0.36 r_t (`ARCH_GLASS_LOSS`,
     fitted on Calib-NVIDIA3's HDRI at two refr_gloss values) was the same

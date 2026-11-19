@@ -924,8 +924,8 @@ mod tests {
         let sch = Curve::Schlick { r0: 0.2, r90: 1.0, exponent: 5.0 };
         let iray = |curve| Stack { weight: 0.6, curve, coat_rough: 0.0, base: Scatter::Transmit, base_rough: 0.5, ior: 1.5, thin: false };
         let octane = |s: Stack| Stack { curve: Curve::Fresnel(2.618), ..s };
-        let ks = tint_factor_measured(&iray(sch), &octane(iray(sch)), 0.614, 1.5, [1.0; 3]);
-        let kf = tint_factor_measured(&iray(Curve::Fresnel(1.5)), &octane(iray(Curve::Fresnel(1.5))), 0.614, 1.5, [1.0; 3]);
+        let ks = tint_factor_measured(&iray(sch), &octane(iray(sch)), 0.609, 1.5, [1.0; 3]);
+        let kf = tint_factor_measured(&iray(Curve::Fresnel(1.5)), &octane(iray(Curve::Fresnel(1.5))), 0.609, 1.5, [1.0; 3]);
         assert!((0.8..0.9).contains(&ks[0]) && kf[0] < ks[0] - 0.05, "{ks:?} {kf:?}");
         // The lobe's measured loss only lowers it.
         assert!(tint_factor(&iray(sch), &octane(iray(sch)), [1.0; 3])[0] > ks[0]);
