@@ -40,7 +40,8 @@
         oSettings.setStringValue("Connection", "Iray Server");
         oSettings.setStringValue("Server", (oEnv.IRAY_SERVER_HOST || "localhost") + ":" + nPort);
         oSettings.setIntValue("Port", nPort);
-        oSettings.setBoolValue("Secure", false);
+        // IRAY_SERVER_SECURE=1: a rented server behind https (the home one is plain http).
+        oSettings.setBoolValue("Secure", /^(1|true|yes)$/i.test(oEnv.IRAY_SERVER_SECURE || ""));
         oSettings.setStringValue("Username", oEnv.IRAY_SERVER_USER || "");
         oSettings.setStringValue("Password", oEnv.IRAY_SERVER_PASSWORD || "");
         oSettings.setBoolValue("Streaming", false);

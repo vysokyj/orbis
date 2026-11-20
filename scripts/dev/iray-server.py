@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """ORBIS: talk to the Iray Server's web API (the REST calls its own web UI
 makes, js/main.js; undocumented, #195). The login comes from the repo's
-git-ignored .env (IRAY_SERVER_HOST, _PORT, _USER, _PASSWORD; see
+git-ignored .env (IRAY_SERVER_HOST, _PORT, _USER, _PASSWORD, optional
+_SECURE=1 for https; see
 .env.example) and is never printed.
   python3 scripts/dev/iray-server.py submit [-s samples] [-o out dir] [--upload-stall s] [--render-stall s] <scene.duf>...
   python3 scripts/dev/iray-server.py info              # server info, queue state
@@ -51,7 +52,8 @@ def env():
 class Server:
     def __init__(self):
         e = env()
-        self.base = f"http://{e.get('IRAY_SERVER_HOST', 'localhost')}:{e.get('IRAY_SERVER_PORT', '9090')}/"
+        scheme = 'https' if e.get('IRAY_SERVER_SECURE', '').lower() in ('1', 'true', 'yes') else 'http'
+        self.base = f"{scheme}://{e.get('IRAY_SERVER_HOST', 'localhost')}:{e.get('IRAY_SERVER_PORT', '9090')}/"
         self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
         r = self.call('POST', 'session', {'user_name': e.get('IRAY_SERVER_USER', ''), 'password': e.get('IRAY_SERVER_PASSWORD', '')})
         if not isinstance(r, dict) or r.get('error'):
