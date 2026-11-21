@@ -282,6 +282,12 @@ BACK_TRANS = [(f'T{k + 1} {what}', f'v{v.replace(".", "")}_tlobe_{mat}', f'orbis
 # NVIDIA's architectural preset itself under the same light, its lobe alone
 # (diffuse black, reflectivity 1, Schlick 1 / 1: a white constant lobe): the
 # scene the export maps, so it has an Octane side. (label, channels).
+# #207: G8's stack, one piece at a time (see the docstring).
+FRESNEL = [(f'F{k + 1} v{v} {what}', f'v{v.replace(".", "")}_fresnel_{mat}', f'orbis/orbis_fresnel_v{v.replace(".", "")}.mdl#{mat}')
+           for k, (what, mat, v) in enumerate([('w 0.6 r 0.6', 'fresnel_w06_r06', '1.0'), ('w 0.6 r 0.6', 'fresnel_w06_r06', '1.3'),
+                                               ('w 1 r 0.6', 'fresnel_w1_r06', '1.0'), ('w 1 r 0.6', 'fresnel_w1_r06', '1.3'),
+                                               ('w 0.6 r 0.3', 'fresnel_w06_r03', '1.0'), ('w 0.6 r 1', 'fresnel_w06_r1', '1.0'),
+                                               ('w 0 r 0.6', 'fresnel_w0_r06', '1.0'), ('schlick 0.04 w 0.6 r 0.6', 'schlick004_w06_r06', '1.0')])]
 ARCH_POINT = [('P1 arch g 0 iso', {'refl_gloss': 0.0, 'anisotropy': 1.0}),
               ('P2 arch g 0 aniso 4', {'refl_gloss': 0.0, 'anisotropy': 4.0}),
               ('P3 arch g 0.15 iso', {'refl_gloss': 0.15, 'anisotropy': 1.0}),
@@ -309,7 +315,7 @@ for _, _, c, root in PATH_PROBE:
     open(os.path.join(d, c.split('/')[1].split('#')[0]), 'w').write(probe)
 
 os.makedirs(os.path.dirname(DSF), exist_ok=True)
-lib_mats = [brick_material(mid, c) for _, mid, c, *_ in PATH_PROBE + VERSION + LOBE + TRANSMIT + ANISO + TIR + RESIN + GENERIC + ARCH_MDL + LEGACY + TEXTURED + LEGACY2 + ROUGHTEX + REFL_TRANS + BACK_TRANS]
+lib_mats = [brick_material(mid, c) for _, mid, c, *_ in PATH_PROBE + VERSION + LOBE + TRANSMIT + ANISO + TIR + RESIN + GENERIC + ARCH_MDL + LEGACY + TEXTURED + LEGACY2 + ROUGHTEX + REFL_TRANS + BACK_TRANS + FRESNEL]
 dsf = {'file_version': '0.6.0.0',
        'asset_info': {'id': DSF_URL, 'type': 'material', 'contributor': {'author': 'ORBIS', 'email': '', 'website': ''}, 'revision': '1.0'},
        'material_library': lib_mats}
@@ -604,10 +610,4 @@ furnace_scene('Calib-Furnace-MdlLegacy', LEGACY)
 furnace_scene('Calib-Furnace-MdlTextured', TEXTURED)
 furnace_scene('Calib-Furnace-MdlLegacy2', LEGACY2)
 furnace_scene('Calib-Furnace-MdlRoughTex', ROUGHTEX)
-# #207: G8's stack, one piece at a time (see the docstring).
-FRESNEL = [(f'F{k + 1} v{v} {what}', f'v{v.replace(".", "")}_fresnel_{mat}', f'orbis/orbis_fresnel_v{v.replace(".", "")}.mdl#{mat}')
-           for k, (what, mat, v) in enumerate([('w 0.6 r 0.6', 'fresnel_w06_r06', '1.0'), ('w 0.6 r 0.6', 'fresnel_w06_r06', '1.3'),
-                                               ('w 1 r 0.6', 'fresnel_w1_r06', '1.0'), ('w 1 r 0.6', 'fresnel_w1_r06', '1.3'),
-                                               ('w 0.6 r 0.3', 'fresnel_w06_r03', '1.0'), ('w 0.6 r 1', 'fresnel_w06_r1', '1.0'),
-                                               ('w 0 r 0.6', 'fresnel_w0_r06', '1.0'), ('schlick 0.04 w 0.6 r 0.6', 'schlick004_w06_r06', '1.0')])]
 furnace_scene('Calib-Furnace-MdlFresnel', FRESNEL)
