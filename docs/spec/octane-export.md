@@ -2936,9 +2936,10 @@ leaves out, #15):
     grazing, and isn't total internal reflection or a rougher lobe
     (note 2026-11-14-legacy-transmit-lobe); not documented, so what the lobe
     alone (no coat, white) keeps in the furnace over the sphere's inner
-    disk is measured (`RESIN_LOBE`, by MDL roughness: 0.971 / 0.963 /
-    0.920 / 0.678 / 0.462 / 0.324 at r 0.02 / 0.1 / 0.25 / 0.5 / 0.75 / 1,
-    Calib-Furnace-Resin2; `libbsdf` 1.000 / 0.999 / 0.973 / 0.824 / 0.655 /
+    disk is measured (`RESIN_LOBE`, by MDL roughness: 0.969 / 0.962 /
+    0.913 / 0.687 / 0.452 / 0.317 at r 0.02 / 0.1 / 0.25 / 0.5 / 0.75 / 1,
+    Calib-Furnace-Resin2 on the projected discs, #205 - the first reading,
+    found in the image before #146, put r 0.75 2 % high; `libbsdf` 1.000 / 0.999 / 0.973 / 0.824 / 0.655 /
     0.531), and the `libbsdf` model meets it with an extra tint τ on every
     base event before the coated stack is traced. Grey 0.79, coat 0.95,
     IOR 1.49: k 0.98 at r 0.02, 0.92 at 0.1, 0.81 at 0.25, 0.59 at 0.5;
@@ -3129,7 +3130,10 @@ leaves out, #15):
     solid the refracted ray's), so it is a factor on every transmission
     event. Iray's model: `libbsdf`'s lobe at r′ = r √(2 / (2 + r²))
     (`legacy_rough`: the legacy lobe is cosᵉ, #191; coat and base) × **g(r,
-    θ) on every base event**
+    θ) on every base event**, and on every coat event of a legacy stack
+    (resin's and architectural glass's coat is the module's `mdl 1.0`
+    reflect lobe too: Calib-Furnace-MdlLobe's 1.0 reflect spheres, r 0.2 –
+    0.5, within 1 – 3 % per ring with it, 2 – 18 % over without; #205)
     (`LEGACY_LOBE`, `legacy_loss`): per MDL roughness head + (grazing −
     head)(θ / 90°)^skew at the event's incoming angle, linear in r between
     rows — head 0.986 / 0.955 / 0.907 / 0.790 at r 0.2 / 0.4 / 0.6 / 1,

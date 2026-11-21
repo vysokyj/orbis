@@ -343,7 +343,13 @@ fn trace_n(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize) -> Tr
                 Model::Libbsdf => {
                     let p_layer = s.weight * s.curve.eval(!outside, nk1);
                     if rng.next() < p_layer {
-                        lobe(model, s.coat_rough, n, v, hc, eta, Scatter::Reflect, s.thin, &mut rng).map(|(l, w, _)| (l, w * s.weight * s.curve.eval(!outside, dot(v, hc)) / p_layer, false, 0))
+                        // The coat is the module's `mdl 1.0` `simple_glossy_bsdf` too:
+                        // a reflect-only legacy lobe loses `legacy_loss` as
+                        // the base does (#205: Calib-Furnace-MdlLobe's 1.0
+                        // reflect spheres, r 0.2 - 0.5, within 1 - 3 % per
+                        // ring with it, 2 - 18 % over without).
+                        let g = if legacy { legacy_loss(s.coat_rough, nk1) } else { 1.0 };
+                        lobe(model, s.coat_rough, n, v, hc, eta, Scatter::Reflect, s.thin, &mut rng).map(|(l, w, _)| (l, w * s.weight * s.curve.eval(!outside, dot(v, hc)) / p_layer * g, false, 0))
                     } else {
                         lobe(model, s.base_rough, n, v, h, eta, s.base, s.thin, &mut rng).map(|(l, w, refr)| {
                             let nk2 = match s.curve {
@@ -766,7 +772,7 @@ fn falloff_rings(iray: &Stack, octane: &Stack, lobe_albedo: f64, lobe_ior: f64, 
     }
     // Octane's paths with the falloff's angles as θ / 90°.
     let angles: Vec<Vec<f64>> = op.paths.iter().map(|p| p.through.iter().map(|c| c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2).collect()).collect();
-    let shape = |q: f64, s: f64, p: usize| angles[p].iter().map(|t| 1.0 + (q - 1.0) * t.powf(s)).product::<f64>();
+    let shape = |q: f64, s: f64, p: usize| angles[p].iter().map(|&t| 1.0 + (q - 1.0) * falloff_curve(t, s)).product::<f64>();
     let error = |x: &[f64; 3]| {
         let (k, q, s) = (x[0], x[1], x[2]);
         if !(0.01..=1.5).contains(&k) || !(0.0..=2.0).contains(&q) || !(0.2..=8.0).contains(&s) {
@@ -799,6 +805,16 @@ fn falloff_rings(iray: &Stack, octane: &Stack, lobe_albedo: f64, lobe_ior: f64, 
         }
     }
     (Falloff { k, grazing: q as f32, skew: s as f32 }, target, rings)
+}
+
+/// Octane's Falloff Map (normal vs. eye ray) at the angle t = θ / 90° and
+/// skew s: t^s for s ≥ 1, 1 − (1 − t)^(1 / s) below (#205: a Lambertian
+/// sphere's albedo under the map in the white furnace, skews 0.5 – 4,
+/// every ring within 0.006 of these; OTOY's manual has the two branches the
+/// other way round).
+pub fn falloff_curve(t: f64, s: f64) -> f64 {
+    let t = t.clamp(0.0, 1.0);
+    if s >= 1.0 { t.powf(s) } else { 1.0 - (1.0 - t).powf(1.0 / s) }
 }
 
 /// Nelder – Mead from `x0` (deterministic, 150 steps).
@@ -1103,7 +1119,7 @@ mod diag201 {
         for p in &op.paths {
             let j = (p.rr * 10.0) as usize;
             if j < 9 {
-                let sh: f64 = p.through.iter().map(|c| 1.0 + (q - 1.0) * (c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2).powf(s)).product();
+                let sh: f64 = p.through.iter().map(|c| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, s)).product();
                 r[j] += tinted(p.w, p.m, &p.fr, x) * sh;
             }
         }

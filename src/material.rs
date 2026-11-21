@@ -1126,14 +1126,17 @@ fn falloff_pins(f: &crate::mdl_layer::Falloff) -> Option<(f32, f32)> {
 /// What Iray's resin base lobe alone keeps (`simple_glossy_bsdf`,
 /// `scatter_reflect_transmit`, no coat, white) in the furnace, over the
 /// sphere's inner disk, by MDL roughness: Calib-Furnace-Resin2 U1 – U6
-/// (Iray Server 5000, #115). Measured, not derived: `libbsdf` keeps 1.000
+/// (Iray Server 5000, #115; re-read on the projected discs, #205: the
+/// first reading, 0.971 / 0.963 / 0.920 / 0.678 / 0.462 / 0.324, came from
+/// discs found in the image before #146, and its 0.462 at r 0.75 left the
+/// model's τ 1.012 and U5's rim 1.08 × Iray). Measured, not derived: `libbsdf` keeps 1.000
 /// / 0.999 / 0.973 / 0.824 / 0.655 / 0.531 there — Iray loses more
 /// with NVIDIA's module, ~3 % even at r 0.02, while the same lobe through
 /// the Uber keeps `libbsdf`'s value (Calib-Furnace-UberGlass, #116): it is
 /// the module's `mdl 1.0` (Iray's legacy `simple_glossy_bsdf`; our own 1.0
 /// lobe renders U3 – U6 to 0.003 per ring, Calib-Furnace-MdlResin, #117). With it the `libbsdf` layering predicts the coated
 /// spheres (grey r 0.1 0.605 v Iray 0.605, r 0.25 0.473 v 0.473).
-const RESIN_LOBE: [(f64, f64); 6] = [(0.02, 0.971), (0.1, 0.963), (0.25, 0.920), (0.5, 0.678), (0.75, 0.462), (1.0, 0.324)];
+const RESIN_LOBE: [(f64, f64); 6] = [(0.02, 0.969), (0.1, 0.962), (0.25, 0.913), (0.5, 0.687), (0.75, 0.452), (1.0, 0.317)];
 
 /// The IOR `RESIN_LOBE` was measured at (the preset's Coat IOR, #148).
 const RESIN_LOBE_IOR: f64 = 1.49;
