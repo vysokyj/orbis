@@ -1119,6 +1119,12 @@ fn resin_lobe_albedo(r: f32, weight: f32, ior: f32, tint: [f32; 3], excess: bool
 }
 
 /// The transmission's Falloff pins, None when it is flat.
+/// One Falloff Map, on purpose (#211, the user's call 2026-11-21): Iray's
+/// layer weighting kills near-grazing transmission that this map, already at
+/// 0 at 90 degrees, can't follow, so a coated rough resin keeps a brighter
+/// rim (R7: 1.18 x Iray; the default resin at r 0.25 sits at 1.00). Kept as
+/// Octane's more plausible rim instead of a steeper two-map falloff
+/// (docs/tuning.md).
 fn falloff_pins(f: &crate::mdl_layer::Falloff) -> Option<(f32, f32)> {
     ((f.grazing - 1.0).abs() > 1e-6).then_some((f.grazing, f.skew))
 }
