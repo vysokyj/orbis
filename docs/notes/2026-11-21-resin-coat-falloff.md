@@ -68,7 +68,7 @@ Octane's rough coat keeps 1.23 – 1.36 × Iray's model at r 0.5 (1.06 –
 same curve): r 0.1 0.98 flat; r 0.25 0.976 → 0.94 at 50°; r 0.5 0.848 flat
 to 55°, 1 past 75°; r 0.75 0.72; r 1 0.64.
 
-## 4. Tried: the coat drawn down by angle (`coat_falloff`), not shipped
+## 4. The coat drawn down by angle (`coat_falloff`), shipped after § 7
 
 Octane's coating as a Falloff Mix, w × the models' ratio (least squares
 over θ, by the silhouette's share; ≤ 1), traced into the base solve (the
@@ -128,6 +128,90 @@ probes). The flat `OCTANE_SPHERE_PLAIN` excess at IOR 1.5, α 0.7 is 1.02 –
 it to 1.08 at the rim; the falloff's own reading inside a rough sphere is
 the next suspect. Needs probes of its own: follow-up issue.
 
+## 7. The scene check of `coat_falloff`, shipped (21:20 – 21:55)
+
+The user's call (5d305a7): R7's rim stays Octane's, no two-map falloff.
+Then the patch's before / after: HEAD and HEAD + patch, Enhanced and
+Faithful final, 400 samples denoised, Calib-Furnace-ArchGlass / 2 / 3,
+Calib-ArchGlass, Calib-NVIDIA2 / 3, Calib-Resin, Calib-Furnace-Resin /
+2 / 3 (2 × 8 min per side). Octane X was idle, screen unlocked.
+
+Which materials get the coat falloff (the exports): R1 / R3 (r 0.25:
+0.908 → 0.95, skew 5.9), R7 (0.799 → 0.95, 2.81), R8 (r 0.1: 0.942 →
+0.921, 0.55) in Calib-Resin and Calib-Furnace-Resin, U8 in Resin2 / 3,
+Calib-NVIDIA2's A7 grey resin. No architectural sphere of any scene (their
+reflections are smooth or within 2 %): their exports and renders don't
+change (largest move H8 Faithful rim 1.084 → 1.067, the denoiser's: the
+noise floor of a rim ring, 1 – 2 %; p99 moves up to 4 % on spheres the
+patch doesn't touch).
+
+Octane / Iray, disk < 0.9 R, rim 0.8 – 0.9, p99 (before → after):
+
+| sphere | Enhanced | Faithful |
+|---|---|---|
+| Calib-Resin R7 | 1.230 → 1.209, 1.549 → 1.501, 2.17 → 2.06 | 1.222 → 1.205, 1.548 → 1.508, 2.15 → 2.05 |
+| Calib-Resin R1 | 1.045 → 1.044, 1.027 → 1.025, 1.090 → 1.086 | 1.047 → 1.048, 1.046 → 1.040, 1.088 → 1.071 |
+| Calib-Resin R3 | 1.044 → 1.043, 1.047 → 1.039, 1.103 → 1.080 | 1.045 → 1.045, 1.062 → 1.056, 1.092 → 1.081 |
+| Calib-NVIDIA2 A7 | 1.080 → 1.079, 1.159 → 1.153, 1.32 → 1.31 | 1.083 → 1.082, 1.173 → 1.164, 1.33 → 1.29 |
+| Furnace-Resin R7 | 1.069 → 1.072, 1.199 → 1.194 | 1.062 → 1.066, 1.211 → 1.202 |
+| Furnace-Resin R1 | 1.017 → 1.018, 1.016 → 1.012 | 1.018 → 1.021, 1.032 → 1.026 |
+| Furnace-Resin R8 | 1.020 → 1.022, 1.031 → 1.034 | 1.022 → 1.024, 1.037 → 1.040 |
+
+Lit scenes lose part of the coat's excess highlight (R7 5 % on the p99,
+3 % on the rim); the furnace moves ≤ 0.4 % (the base takes the coat's
+share back, § 4). Nothing gets worse past the floor: shipped.
+
+## 8. U4 – U7: how Octane reads the falloff (probe `fr`)
+
+Calib-Furnace-Resin2's Faithful export `--no-denoise`, re-pinned, 1024
+raw, 61 s. Uncoated white spheres, specular 1, IOR 1.49, the
+transmission a Falloff Mix head 1 → grazing q, skew s. The models:
+`furnace-rings.py model --model smith --mode rt --loss` with the falloff
+as a per-event factor, one hypothesis per reading.
+
+Smooth (roughness 0), rings centre → 0.8 – 0.9:
+
+| sphere | Octane | through events at their incoming cosine (the model) | every event | outside hits only | camera ray |
+|---|---|---|---|---|---|
+| U1 q 0, s 1 | 0.939 0.852 0.760 0.672 0.586 0.501 0.419 0.344 0.283 | 0.933 0.847 0.756 0.667 0.581 0.498 0.418 0.343 0.280 | … 0.307 0.220 | … 0.488 0.404 | … 0.254 0.195 |
+| U3 q 0.5, s 1 | 0.973 0.929 0.880 0.832 0.782 0.733 0.681 0.630 0.582 | 0.966 0.922 0.874 0.825 0.776 0.727 0.678 0.628 0.582 | … 0.547 | … 0.702 | … 0.501 |
+| U2 flat | 1.001 … 0.997 | 1 | | | |
+
+Octane reads the falloff exactly as the model does: a factor on every
+transmission event at that event's incoming macro cosine, none on
+reflections. The falloff's reading is not what lifts U6.
+
+Rough (α 0.841, U6's), Octane v the Smith model:
+
+| sphere | Octane | model | Octane / model |
+|---|---|---|---|
+| U4 flat | 0.803 0.795 0.783 0.766 0.746 0.725 0.704 0.679 0.644 | 0.649 … 0.595 0.552 | 1.24 1.23 1.21 1.20 1.18 1.16 1.14 1.14 1.17 |
+| U5 q 0, s 1 | 0.666 … 0.234 0.190 | 0.527 … 0.180 0.132 | 1.26 … 1.30 1.44 |
+| U7 q 0, s 3.1 | 0.792 … 0.546 0.450 | 0.642 … 0.466 0.367 | |
+| U8 q 0.5, s 1 | 0.743 … 0.452 0.419 | 0.587 … 0.354 0.301 | |
+
+What the falloff keeps of the flat sphere, Octane's (falloff / flat)
+over the model's: U5 1.02 1.02 1.03 1.03 1.04 1.05 1.08 1.14 1.23; U7 1.00
+1.00 1.00 1.00 1.00 1.01 1.01 1.03 1.05; U8 1.02 1.03 1.03 1.04 1.05 1.06
+1.07 1.12 1.19. So under a falloff Octane keeps relatively more towards
+the rim: its rim paths leave through the inner surface closer to head-on
+than the Smith model's (an escaping path has two transmission events, the
+entry at the camera ray's cosine in both; the exit's cosine is the
+difference). U6's 1.08 v 1.03 flat is this (U7 is U6's shape on white:
+1.05 at the rim). Discrete model variants tried, none fits, nothing
+fitted: height-correlated Smith G (within 0.5 % of separable), α = the pin²
+(0.707) / 0.6 / 0.5 (the flat shape comes closer, the falloff ratio
+doesn't), the exit read at max(cos in, cos out). It is the rough
+transport inside, not the texture: next a rough exit probe of its own
+(#212).
+
+U5's other part, Iray's model over Iray at the rim (1.06): `LEGACY_LOBE`'s
+r 0.75 row (grazing 0.629, as high as r 0.7's 0.628 where the trend gives
+~0.61) was fitted in #191, before #205 / #207 changed the model it is
+read under (`RESIN_LOBE` re-read, the coat's loss, |n·k2_refl|). A refit
+of rows 0.6 – 1 under today's model against the same references (no Iray
+needed): #212 too.
+
 ## Process lessons
 
 - Split a coated sphere into coat alone / base alone / twin in one Octane
@@ -137,6 +221,13 @@ the next suspect. Needs probes of its own: follow-up issue.
   solve sits on top: the solve hands the difference to the next component.
   Check the model first (`print_resin_now`): it predicted the null result
   before the render.
+- A smooth sphere is the falloff's own test: its paths are fixed by the
+  entry radius, so every reading predicts a different ring profile and one
+  render settles it; keep the rough question (transport) apart from the
+  texture's.
+- Before / after on denoised 400-sample renders: rims move 1 – 2 % and
+  p99 up to 4 % on spheres the patch doesn't touch; judge a patch on the
+  spheres it changes against those.
 - A batch that chains several `octane-render.sh` runs keeps retrying after
   the screen locks; one run per background command, or stop the chain at
   the first failure.

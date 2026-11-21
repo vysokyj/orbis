@@ -3133,7 +3133,11 @@ leaves out, #15):
     white furnace, #205 — OTOY's manual has the branches swapped);
     Octane takes the falloff per hit at that hit's incoming ray (inside a
     solid the refracted ray's), so it is a factor on every transmission
-    event. Iray's model: `libbsdf`'s lobe at r′ = r √(2 / (2 + r²))
+    event (and on nothing else: smooth white spheres with a falloff of
+    1 → 0 and 1 → 0.5 on the transmission match that reading within
+    0.006 per ring, every other reading - reflections too, the outgoing
+    ray, the camera ray, outside or inside hits only - 0.04 – 0.2 off;
+    #211). Iray's model: `libbsdf`'s lobe at r′ = r √(2 / (2 + r²))
     (`legacy_rough`: the legacy lobe is cosᵉ, #191; coat and base) × **g(r,
     θ) on every base event**, and on every coat event of a legacy stack
     (resin's and architectural glass's coat is the module's `mdl 1.0`
@@ -3231,6 +3235,26 @@ leaves out, #15):
     (Enhanced 1.26 / 1.33 → 1.15 / 1.18); coated grey R7 r 0.5 stays
     1.03 / 1.24 (its falloff can't fit; follow-up issue). Lit Calib-Resin
     per sphere: R5 1.10 / 1.27 → 1.05 / 1.07.
+    **The coat's angle** (`mdl_layer::coat_falloff`, #211, note
+    2026-11-21-resin-coat-falloff): Octane's rough coating keeps more
+    than Iray's `mdl 1.0` coat (`libbsdf` at `legacy_rough` ×
+    `legacy_loss`): one reflection, Iray's / Octane's (Beckmann + Smith at
+    the export's α, both under Iray's curve), 0.98 flat at r 0.1, 0.85
+    head-on → 1 past 75° at r 0.5, 0.64 at r 1. So a closed legacy stack
+    with a rough coat (resin; architectural glass with a rough
+    reflection) writes its coating as a Falloff Mix (as the
+    transmission's) of the coat colour × head-on and × grazing factor,
+    least squares over θ by the silhouette's share (sin θ cos θ), at most
+    1; none when both ends are within 0.02 of 1. Derived from the two
+    models, nothing fitted to a render. Universal's coating colour c
+    reflects c · F and leaves the base 1 − c · F (probed: a white base
+    under coating 0.5 loses nothing), so the base solve traces Octane's
+    coat pick × the factor and takes back what the coat gives up (k
+    0.638 → 0.646 at R7). Furnace spheres move ≤ 0.4 % on the disk (R7's
+    rim 1.21 → 1.20); lit scenes lose the coat's excess highlight:
+    Calib-Resin R7 disk / rim / p99 1.22 / 1.55 / 2.15 → 1.21 / 1.51 /
+    2.05 × Iray, R1 / R3 rims 0.5 – 0.8 % down, Calib-NVIDIA2's grey
+    resin 1.17 → 1.16 rim, 1.33 → 1.29 p99 (both Looks alike).
     **Enable Absorption** (`refr_falloff_on`, with transparency) → an
     absorption medium on the glass, σa = −ln(c) / d per metre
     (`arch_absorption`), as `nvidia/architectural.mdl` computes its

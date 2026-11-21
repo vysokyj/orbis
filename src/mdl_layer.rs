@@ -315,6 +315,15 @@ fn trace(model: Model, s: &Stack, disk: f64, legacy: bool) -> Traced {
 
 /// `trace` with `paths` paths.
 fn trace_n(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize) -> Traced {
+    trace_c(model, s, disk, legacy, paths, &|_| 1.0)
+}
+
+/// `trace_n` with Octane's coating colour × `coat(n · k1)` (`Smith` only):
+/// a coating below 1 is picked that much less and the base takes the rest,
+/// 1 − c · F (#211: a white Lambertian under a coating of 0.5 stays 1.006
+/// in the furnace, as under 1 and 0; a coating of 0.5 over black reflects
+/// half of F).
+fn trace_c(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize, coat: &dyn Fn(f64) -> f64) -> Traced {
     let legacy = legacy && !s.thin && matches!(model, Model::Libbsdf);
     // The legacy lobe's shape: `libbsdf`'s at `legacy_rough` (the coat is
     // the module's `mdl 1.0` lobe too); its loss stays indexed by r.
@@ -373,7 +382,7 @@ fn trace_n(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize) -> Tr
                     }
                 }
                 Model::Smith => {
-                    if rng.next() < s.weight * s.curve.eval(!outside, dot(v, hc)) {
+                    if rng.next() < s.weight * coat(nk1) * s.curve.eval(!outside, dot(v, hc)) {
                         // Octane's Thin Wall met from inside lays the
                         // coating under the base on half the hits: that
                         // reflection passes the transmission twice (#168:
@@ -634,7 +643,12 @@ fn octane_excess(octane: &Stack, fake_shadows: bool) -> Option<[f64; 10]> {
 /// (`octane_excess`, #185; `Tuning::rough_transmission_excess`), measured
 /// with or without `fake_shadows` (#201).
 fn octane_trace(octane: &Stack, excess: bool, fake_shadows: bool) -> Traced {
-    let mut t = trace(Model::Smith, octane, 1.0, false);
+    octane_trace_c(octane, excess, fake_shadows, &|_| 1.0)
+}
+
+/// `octane_trace` with the coating × `coat(n · k1)` (`trace_c`).
+fn octane_trace_c(octane: &Stack, excess: bool, fake_shadows: bool, coat: &dyn Fn(f64) -> f64) -> Traced {
+    let mut t = trace_c(Model::Smith, octane, 1.0, false, PATHS, coat);
     if let Some(e) = excess.then(|| octane_excess(octane, fake_shadows)).flatten() {
         for p in &mut t.paths {
             p.w *= e[((p.rr * 10.0) as usize).min(9)];
@@ -725,6 +739,98 @@ pub struct Falloff {
     pub k: [f32; 3],
     pub grazing: f32,
     pub skew: f32,
+    /// The coating × `coat` (head-on, grazing, skew; a Falloff Map as the
+    /// transmission's): what Iray's `mdl 1.0` coat keeps over Octane's
+    /// (`coat_falloff`); (1, 1, 1) for none.
+    pub coat: CoatFalloff,
+}
+
+/// The coating's factor, head-on → grazing as (θ / 90°)^skew
+/// (`falloff_curve`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CoatFalloff {
+    pub head: f32,
+    pub grazing: f32,
+    pub skew: f32,
+}
+
+impl CoatFalloff {
+    pub const NONE: CoatFalloff = CoatFalloff { head: 1.0, grazing: 1.0, skew: 1.0 };
+
+    /// The factor at incoming cosine c.
+    pub fn at(&self, c: f64) -> f64 {
+        let t = c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2;
+        self.head as f64 + (self.grazing - self.head) as f64 * falloff_curve(t, self.skew as f64)
+    }
+
+    pub fn is_none(&self) -> bool {
+        *self == CoatFalloff::NONE
+    }
+}
+
+/// One reflection off the coat at incoming cosine `c`, outside, white:
+/// what it keeps (w · c(k · h) × the lobe; Iray's `mdl 1.0` lobe at
+/// `legacy_rough` × `legacy_loss` when `legacy`).
+fn coat_albedo(model: Model, s: &Stack, c: f64, legacy: bool, n: usize) -> f64 {
+    let mut rng = Rng(0x5eed_0211);
+    let nn: V = [0.0, 0.0, 1.0];
+    let v: V = [(1.0 - c * c).max(0.0).sqrt(), 0.0, c];
+    let d = if legacy { legacy_rough(s.coat_rough) } else { s.coat_rough };
+    let g = if legacy { legacy_loss(s.coat_rough, c) } else { 1.0 };
+    let mut sum = 0.0;
+    for _ in 0..n {
+        let h = sample_h(model, d, nn, &mut rng);
+        if let Some((_, w, _)) = lobe(model, s.coat_rough, nn, v, h, s.ior, Scatter::Reflect, false, &mut rng) {
+            sum += w * s.curve.eval(false, dot(v, h)) * g;
+        }
+    }
+    s.weight * sum / n as f64
+}
+
+/// Octane's coating × this (by the hit's angle) keeps what Iray's coat of
+/// a closed `mdl 1.0` stack keeps, one reflection at a time (#211). The
+/// coat is the module's legacy lobe: `libbsdf` at `legacy_rough` ×
+/// `legacy_loss` (#205: Calib-Furnace-MdlLobe within 1 - 3 % per ring);
+/// Octane's is Beckmann + Smith at the export's α, w · F. Their ratio is
+/// computed per incoming angle and drawn as a Falloff Map (least squares
+/// over θ, each angle by its share of a sphere's silhouette, sin θ cos θ;
+/// at most 1). Derived from the two models, not fitted to a render: at r
+/// 0.5 Octane's coat keeps 1 / 0.85 of Iray's head-on (Calib-Furnace-Resin
+/// R7's coat alone: 0.038 v Iray's model 0.031), the ratio near 1 only past
+/// θ ≈ 75°.
+pub fn coat_falloff(iray: &Stack, octane: &Stack) -> CoatFalloff {
+    if iray.thin || iray.weight <= 0.0 || octane.weight <= 0.0 {
+        return CoatFalloff::NONE;
+    }
+    // The lobes only: both under Iray's curve. Architectural's Schlick
+    // curve against Octane's Fresnel at the F0's IOR is a mirror coat's
+    // difference, not the legacy lobe's (within 4 %, G7 already 0.648 v
+    // 0.648, #206).
+    let lobe_only = Stack { curve: iray.curve, ..*octane };
+    const N: usize = 24;
+    let pts: Vec<(f64, f64, f64)> = (0..N)
+        .map(|i| {
+            let t = (i as f64 + 0.5) / N as f64;
+            let th = t * std::f64::consts::FRAC_PI_2;
+            let c = th.cos();
+            let ratio = (coat_albedo(Model::Libbsdf, iray, c, true, 1 << 14) / coat_albedo(Model::Smith, &lobe_only, c, false, 1 << 14).max(1e-12)).min(1.0);
+            (t, ratio, th.sin() * c)
+        })
+        .collect();
+    let err = |x: &[f64; 3]| {
+        let (h, g, k) = (x[0], x[1], x[2]);
+        if !(0.0..=1.0).contains(&h) || !(0.0..=1.0).contains(&g) || !(0.2..=8.0).contains(&k) {
+            return f64::INFINITY;
+        }
+        pts.iter().map(|&(t, r, w)| w * (h + (g - h) * falloff_curve(t, k) - r).powi(2)).sum()
+    };
+    let [h, g, k] = nelder_mead(err, [pts[0].1, pts[N - 1].1, 2.0]);
+    // Within 2 % of 1 is a fraction of a percent of a reflection of a few
+    // percent: no node (r ≤ 0.1, where the table's own rows are within 2 %).
+    if (h - 1.0).abs() < 0.02 && (g - 1.0).abs() < 0.02 {
+        return CoatFalloff::NONE;
+    }
+    CoatFalloff { head: h as f32, grazing: g as f32, skew: k as f32 }
 }
 
 /// `tint_factor_measured` with the angle (#117): the Iray model is
@@ -749,7 +855,7 @@ pub struct Falloff {
 /// solve also takes back what Octane keeps over its own model.
 pub fn transmission_falloff(iray: &Stack, octane: &Stack, lobe_albedo: f64, lobe_ior: f64, tint: [f32; 3], excess: bool) -> Falloff {
     if iray.thin {
-        return Falloff { k: tint_factor_measured(iray, octane, lobe_albedo, lobe_ior, tint), grazing: 1.0, skew: 1.0 };
+        return Falloff { k: tint_factor_measured(iray, octane, lobe_albedo, lobe_ior, tint), grazing: 1.0, skew: 1.0, coat: CoatFalloff::NONE };
     }
     falloff_rings(iray, octane, lobe_albedo, lobe_ior, tint, excess).0
 }
@@ -761,8 +867,11 @@ fn falloff_rings(iray: &Stack, octane: &Stack, lobe_albedo: f64, lobe_ior: f64, 
     let lobe = lobe.paths.iter().map(Pw::of).collect::<Vec<_>>();
     let tau = solve_in(|t| albedo(&lobe, t), lobe_albedo, 1.2);
     let ip = trace(Model::Libbsdf, iray, 1.0, true);
+    // Octane's coating drawn down to Iray's legacy coat first (#211), so the
+    // base's shape and k solve under the coat the export writes.
+    let coat = coat_falloff(iray, octane);
     // Resin and architectural glass, the callers, export no fake shadows (#201).
-    let op = octane_trace(octane, excess, false);
+    let op = octane_trace_c(octane, excess, false, &|c| coat.at(c));
     // The shape is solved at the material's own grey (the channels' mean):
     // Octane's grey dielectric keeps its rim relatively brighter than a
     // tinted lobe (T (1 - F s), untinted total reflections, #201), so a
@@ -814,7 +923,7 @@ fn falloff_rings(iray: &Stack, octane: &Stack, lobe_albedo: f64, lobe_ior: f64, 
             rings[j] += ow[i].at(kw) / op.entered[j].max(1) as f64;
         }
     }
-    (Falloff { k, grazing: q as f32, skew: s as f32 }, target, rings)
+    (Falloff { k, grazing: q as f32, skew: s as f32, coat }, target, rings)
 }
 
 /// Octane's Falloff Map (normal vs. eye ray) at the angle t = θ / 90° and
@@ -1098,6 +1207,25 @@ mod tests {
         let alpha = crate::material::legacy_phong_alpha(0.25) as f64;
         let (_, target, rings) = falloff_rings(&s(0.25), &s(alpha), 0.920, 1.49, [0.787; 3], true);
         assert!((0..9).all(|j| (rings[j] / target[j] - 1.0).abs() < 0.03), "{target:?} {rings:?}");
+    }
+
+    #[test]
+    fn octanes_rough_coat_is_drawn_down_to_irays_legacy_coat() {
+        // #211: Octane's coat over Iray's `mdl 1.0` one, one reflection by
+        // angle, from the two models (Calib-Furnace-Resin R7's coat alone:
+        // Octane 0.038 head-on v Iray's model 0.031 before, 0.032 after).
+        let resin = |r: f64, w: f64, alpha: bool| {
+            let a = if alpha { crate::material::legacy_phong_alpha(r as f32) as f64 } else { r };
+            Stack { weight: w, curve: Curve::Fresnel(1.49), coat_rough: a, base: Scatter::ReflectTransmit, base_rough: a, ior: 1.49, thin: false }
+        };
+        let c = coat_falloff(&resin(0.5, 0.95, false), &resin(0.5, 0.95, true));
+        assert!((0.80..0.88).contains(&c.head) && c.grazing > 0.95, "{c:?}");
+        // Head-on the factor, rising to 1 towards grazing.
+        assert!(c.at(1.0) < c.at(0.3) && c.at(0.3) <= 1.0);
+        // A smooth coat, an uncoated resin, a thin wall: none.
+        assert!(coat_falloff(&resin(0.02, 0.95, false), &resin(0.02, 0.95, true)).is_none());
+        assert!(coat_falloff(&resin(0.5, 0.0, false), &resin(0.5, 0.0, true)).is_none());
+        assert!(coat_falloff(&Stack { thin: true, ..resin(0.5, 0.95, false) }, &resin(0.5, 0.95, true)).is_none());
     }
 
     #[test]
@@ -1456,6 +1584,103 @@ mod diag207 {
                 let ratio: Vec<f64> = (0..9).map(|j| r[j] / ir[j]).collect();
                 println!("{wt:?} {lg:?} tau {tau:.3} {lab}: disk {disk:.3} v {idisk:.3}  model/Iray {}", fmt(&ratio));
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod diag211 {
+    use super::*;
+
+    /// Per-ring mean of `f` over a trace's escaping paths (tenths of the
+    /// silhouette to 0.9, by the paths that entered each).
+    fn rings_of(t: &Traced, f: &dyn Fn(&Path) -> f64) -> [f64; 9] {
+        let mut r = [0.0; 9];
+        for p in &t.paths {
+            let j = (p.rr * 10.0) as usize;
+            if j < 9 {
+                r[j] += f(p);
+            }
+        }
+        std::array::from_fn(|j| r[j] / t.entered[j].max(1) as f64)
+    }
+
+    /// A resin stack at MDL roughness r (Iray) or the export's α (Octane).
+    fn resin(r: f64, w: f64, alpha: bool) -> Stack {
+        let a = if alpha { crate::material::legacy_phong_alpha(r as f32) as f64 } else { r };
+        Stack { weight: w, curve: Curve::Fresnel(1.49), coat_rough: a, base: Scatter::ReflectTransmit, base_rough: a, ior: 1.49, thin: false }
+    }
+
+    fn fmt(a: &[f64]) -> String {
+        a.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(" ")
+    }
+
+    #[test]
+    #[ignore]
+    fn print_coat_alone() {
+        // The coat's single reflection (base tint 0) on the closed sphere:
+        // Iray's model v Octane's Smith model with and without `coat_falloff`
+        // (Calib-Furnace-Resin's coat-alone probes, #211).
+        for (lab, r) in [("R8", 0.1), ("R1", 0.25), ("R7", 0.5)] {
+            let (iray, octane) = (resin(r, 0.95, false), resin(r, 0.95, true));
+            let cf = coat_falloff(&iray, &octane);
+            let ip = trace_n(Model::Libbsdf, &iray, 1.0, true, 1 << 21);
+            let op = trace_n(Model::Smith, &octane, 1.0, false, 1 << 21);
+            let oc = trace_c(Model::Smith, &octane, 1.0, false, 1 << 21, &|c| cf.at(c));
+            let coat = |p: &Path| if p.m == 0 { p.w } else { 0.0 };
+            println!("{lab} {cf:?}");
+            println!("{lab} Iray model          {}", fmt(&rings_of(&ip, &coat)));
+            println!("{lab} Octane model        {}", fmt(&rings_of(&op, &coat)));
+            println!("{lab} Octane model, falloff {}", fmt(&rings_of(&oc, &coat)));
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_coat_ratio() {
+        // Iray's coat / Octane's, one reflection, by θ / 90° (0 .. 1).
+        for r in [0.1, 0.25, 0.5, 0.75, 1.0] {
+            let (iray, octane) = (resin(r, 1.0, false), resin(r, 1.0, true));
+            let line: Vec<String> = (0..=18)
+                .map(|i| {
+                    let c = (i as f64 / 18.0 * 0.999 * std::f64::consts::FRAC_PI_2).cos();
+                    format!("{:.3}", coat_albedo(Model::Libbsdf, &iray, c, true, 1 << 18) / coat_albedo(Model::Smith, &octane, c, false, 1 << 18))
+                })
+                .collect();
+            println!("r {r}: {} -> {:?}", line.join(" "), coat_falloff(&iray, &octane));
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_resin_now() {
+        // falloff_rings at today's tables, per sphere (grey 0.787 or white),
+        // and R7's rings by path kind (coat alone, base reflection, through).
+        let lobe = [(0.02, 0.969), (0.1, 0.962), (0.25, 0.913), (0.5, 0.687), (0.75, 0.452), (1.0, 0.317)];
+        let grey = 0.787;
+        for (lab, r, w, t) in [("R1", 0.25, 0.95, grey), ("R7", 0.5, 0.95, grey), ("U4", 0.5, 0.0, 1.0), ("U5", 0.75, 0.0, 1.0), ("U6", 1.0, 0.0, 1.0), ("U7", 0.5, 0.0, grey)] {
+            let (iray, octane) = (resin(r, w, false), resin(r, w, true));
+            let (f, target, rings) = falloff_rings(&iray, &octane, interp(&lobe, r), 1.49, [t as f32; 3], true);
+            println!("{lab} {f:?}");
+            println!("{lab} Iray model   {}", fmt(&target));
+            println!("{lab} Octane model {}", fmt(&rings));
+            if lab != "R7" {
+                continue;
+            }
+            let lp = trace(Model::Libbsdf, &Stack { weight: 0.0, ..iray }, 0.75, true).paths.iter().map(Pw::of).collect::<Vec<_>>();
+            let tau = solve_in(|x| albedo(&lp, x), interp(&lobe, r), 1.2);
+            let ip = trace(Model::Libbsdf, &iray, 1.0, true);
+            let op = octane_trace_c(&octane, true, false, &|c| f.coat.at(c));
+            let (k, q, s) = (f.k[0] as f64, f.grazing as f64, f.skew as f64);
+            let shape = |p: &Path| p.through.iter().map(|c| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, s)).product::<f64>();
+            let iw = |p: &Path| p.w * (t * tau).powi(p.m);
+            let ow = |p: &Path| tinted(p.w, p.m, &p.fr, t * k) * shape(p);
+            println!("R7 Iray   coat      {}", fmt(&rings_of(&ip, &|p| if p.m == 0 { iw(p) } else { 0.0 })));
+            println!("R7 Iray   base refl {}", fmt(&rings_of(&ip, &|p| if p.m > 0 && p.through.is_empty() { iw(p) } else { 0.0 })));
+            println!("R7 Iray   through   {}", fmt(&rings_of(&ip, &|p| if !p.through.is_empty() { iw(p) } else { 0.0 })));
+            println!("R7 Octane coat      {}", fmt(&rings_of(&op, &|p| if p.m == 0 && p.through.is_empty() { ow(p) } else { 0.0 })));
+            println!("R7 Octane base refl {}", fmt(&rings_of(&op, &|p| if p.m > 0 && p.through.is_empty() { ow(p) } else { 0.0 })));
+            println!("R7 Octane through   {}", fmt(&rings_of(&op, &|p| if !p.through.is_empty() { ow(p) } else { 0.0 })));
         }
     }
 }

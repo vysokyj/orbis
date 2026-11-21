@@ -1060,6 +1060,10 @@ struct MdlDielectric {
     /// solid of an `mdl 1.0` lobe (`mdl_layer::transmission_falloff`, #117):
     /// `transmission` head-on, × grazing at 90°.
     transmission_falloff: Option<(f32, f32)>,
+    /// The coating's factor by angle over a closed `mdl 1.0` stack
+    /// (`mdl_layer::coat_falloff`, #211): Octane's rough coat keeps more
+    /// than Iray's legacy one.
+    coat_falloff: crate::mdl_layer::CoatFalloff,
     /// Architectural's transmission instead: a transmit-only lobe of its
     /// own roughness and IOR (`refr_gloss`, `refr_ior`) under the
     /// reflection (no tinted reflection of its own, unlike resin's).
@@ -1187,6 +1191,7 @@ fn mdl_dielectric(mat: &Material, excess: bool) -> Option<MdlDielectric> {
         tiles,
         transmission: None,
         transmission_falloff: None,
+        coat_falloff: crate::mdl_layer::CoatFalloff::NONE,
         refraction: None,
         aniso: None,
         absorption: None,
@@ -1216,6 +1221,7 @@ fn mdl_dielectric(mat: &Material, excess: bool) -> Option<MdlDielectric> {
             let f = resin_lobe_albedo(d.roughness, weight, d.ior, tint, excess);
             d.transmission = Some([0, 1, 2].map(|i| tint[i] * f.k[i]));
             d.transmission_falloff = falloff_pins(&f);
+            d.coat_falloff = f.coat;
         }
         _ => {
             // mental ray's mia_material: diffuse × weight; a reflection of
@@ -1275,6 +1281,7 @@ fn mdl_dielectric(mat: &Material, excess: bool) -> Option<MdlDielectric> {
                 let f = arch_glass_albedo(refr, refr_gloss, refr_ior, weight, d.roughness, d.ior, curve, d.thin, colour, excess);
                 d.transmission = Some([0, 1, 2].map(|i| colour[i] * transparency * f.k[i]));
                 d.transmission_falloff = falloff_pins(&f);
+                d.coat_falloff = f.coat;
                 d.albedo = MdlAlbedo::Colour(diffuse.map(|c| c * (1.0 - transparency)));
                 d.refraction = Some((refr, refr_ior));
                 d.absorption = arch_absorption(mat);
@@ -1766,7 +1773,13 @@ impl Ocs<'_> {
         let Some((grazing, skew)) = falloff else {
             return self.rgb_pin(i, "transmission", t);
         };
-        self.pin_open(i, "transmission");
+        self.falloff_rgb_pin(i, "transmission", t, t.map(|c| (c * grazing).min(1.0)), skew);
+    }
+
+    /// A Mix (38) of `head` facing the ray and `grazing` at 90°, by a
+    /// Falloff Map (50, normal vs. eye ray) of `skew` (`mdl_layer::falloff_curve`).
+    fn falloff_rgb_pin(&mut self, i: usize, pin: &str, head: [f32; 3], grazing: [f32; 3], skew: f32) {
+        self.pin_open(i, pin);
         let mid = self.id();
         let j = i + 1;
         let _ = writeln!(self.out, "{:j$}<node id='{mid}' type='38'>", "");
@@ -1779,8 +1792,8 @@ impl Ocs<'_> {
         self.value_pin(k + 1, "falloff index", 6, 8, &format!("{} 0 0", num(skew)));
         let _ = writeln!(self.out, "{:k$}</node>", "");
         self.pin_close(j + 1);
-        self.rgb_pin(j + 1, "texture1", t);
-        self.rgb_pin(j + 1, "texture2", t.map(|c| (c * grazing).min(1.0)));
+        self.rgb_pin(j + 1, "texture1", head);
+        self.rgb_pin(j + 1, "texture2", grazing);
         let _ = writeln!(self.out, "{:j$}</node>", "");
         self.pin_close(i);
     }
@@ -2645,6 +2658,12 @@ impl Ocs<'_> {
         }
         let (gloss_pin, roughness_pin) = if m.transmission.is_some() { ("coating", "coatingRoughness") } else { ("specular", "roughness") };
         match &m.gloss {
+            MdlGloss::Weight(w) if !m.coat_falloff.is_none() && m.transmission.is_some() => {
+                // Octane's rough coating keeps more than Iray's `mdl 1.0` coat:
+                // drawn down by the hit's angle (`mdl_layer::coat_falloff`, #211).
+                let cf = m.coat_falloff;
+                self.falloff_rgb_pin(i, gloss_pin, m.tint.map(|c| c * w * cf.head), m.tint.map(|c| c * w * cf.grazing), cf.skew);
+            }
             MdlGloss::Weight(w) => self.rgb_pin(i, gloss_pin, m.tint.map(|c| c * w)),
             MdlGloss::Map(map, w) => match self.textures.asset(self.dirs, map) {
                 Some(asset) => self.image_pin(i, gloss_pin, &asset, true, self.textures.gamma(&asset), *w),
