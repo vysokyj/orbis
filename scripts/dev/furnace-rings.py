@@ -208,7 +208,7 @@ def trace(a):
         if a.model == 'libbsdf':
             wc = wc * a.weight * curve(a.curve, a.ior, r0, I, dot(v, hc)) / np.maximum(p_layer, 1e-12)
             if a.curve == 'fresnel':
-                nk2 = np.where(rb, 2 * dot(v, h) * dot(n, h) - nk1, np.abs(dot(n, lb)))
+                nk2 = np.where(rb, np.abs(2 * dot(v, h) * dot(n, h) - nk1), np.abs(dot(n, lb)))  # |nk2_refl| as Iray (#207)
             else:
                 nk2 = np.abs(dot(n, lb))
             base = 1 - a.weight * np.maximum(curve(a.curve, a.ior, r0, I, nk1), curve(a.curve, a.ior, r0, I, nk2))

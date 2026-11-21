@@ -2922,8 +2922,13 @@ leaves out, #15):
     with v-cavities masking, min(G1, G2) on reflection, max(G1 + G2 − 1, 0)
     on refraction; `fresnel_layer` picks the coat with probability
     w · F(n·k1), weights it w · F(k·h), and weights the base **1 − w ·
-    max(F(n·k1), F(n·k2_refl))** — Fresnel at the macro normal, k2_refl the
-    reflection of k1 about the base's microfacet. Light leaving a rough
+    max(F(n·k1), F(|n·k2_refl|))** — Fresnel at the macro normal, k2_refl
+    the reflection of k1 about the base's microfacet, at its |cosine|: a
+    k2_refl below the macro surface counts mirrored (`libbsdf` master would
+    saturate it to F = 1; Iray doesn't: Calib-Furnace-MdlFresnel's
+    fresnel_layer spheres, mdl 1.0 and 1.3, r 0.3 – 1, w 0.6 / 1, come
+    within 1 % of its Schlick and lobe-alone controls with it, 3 – 7 %
+    under without; #207, note 2026-11-21-mdl-fresnel-layer). Light leaving a rough
     base from inside meets k2_refl past the critical angle (F = 1): the
     base keeps 1 − w there, a loss that grows with roughness. **On top,
     Iray's base lobe loses more than `libbsdf`'s** — the module's `mdl
@@ -3092,8 +3097,9 @@ leaves out, #15):
     architectural's lobe is that legacy lobe at r_t (A1 – A3 = G3 – G5). The legacy behaviour isn't documented, so the
     lobe alone stays measured; with it `libbsdf`'s layer weights
     predict the coated spheres — refr_gloss 0.2 under reflectivity 0.6
-    Schlick 0.648 v Iray 0.648, Fresnel term 0.399 v 0.412 (the per-event
-    legacy model on the re-read lobe, #206) — while
+    Schlick 0.648 v Iray 0.648, Fresnel term 0.408 v 0.412 (the per-event
+    legacy model on the re-read lobe, #206, with |n·k2_refl|, #207: 0.396
+    without it) — while
     Octane's coating keeps all (its furnace 0.895 for both, the lobe alone
     0.886; Smith model 0.87). The former 1 − 0.36 r_t (`ARCH_GLASS_LOSS`,
     fitted on Calib-NVIDIA3's HDRI at two refr_gloss values) was the same

@@ -20,9 +20,11 @@
 //!   probability w · c(n · k1) and weighted w · c(k · h); the base is
 //!   weighted **1 − w · max(c(n · k1), c(nk2))** — the curve at the
 //!   *macro* normal; under `fresnel_layer` nk2 for a refraction is the
-//!   reflection of k1 about the base's microfacet, which light leaving a
-//!   rough base from inside meets past the critical angle (c = 1, the base
-//!   keeps only 1 − w); `custom_curve_layer` has no IOR and takes |n · k2|.
+//!   reflection of k1 about the base's microfacet (its |cosine|: one below
+//!   the macro surface counts mirrored, as Iray renders it, #207), which
+//!   light leaving a rough base from inside meets past the critical angle
+//!   (c = 1, the base keeps only 1 − w); `custom_curve_layer` has no IOR
+//!   and takes |n · k2|.
 //!   A loss that grows with roughness and isn't the surface's energy balance.
 //!
 //! Octane renders the lobes physically (Beckmann with Smith masking at the
@@ -243,8 +245,8 @@ fn lobe(model: Model, rough: f64, n: V, v: V, h: V, eta: f64, mode: Scatter, thi
 /// its whole silhouette: (weight without the tint, tinted base events).
 /// `Libbsdf` weighs the layers as `curve_layer_sample` does (the coat
 /// picked with w · c(n·k1), weighted w · c(k·h); the base 1 − w ·
-/// max(c(n·k1), c(nk2)), nk2 the reflection of k1 about the base's
-/// microfacet for a refraction under `fresnel_layer`, else |n·k2|);
+/// max(c(n·k1), c(nk2)), nk2 the |cosine| of k1's reflection about the
+/// base's microfacet for a refraction under `fresnel_layer`, else |n·k2|);
 /// `Smith` physically (the coat w · c(k·h) at its microfacet, the base the
 /// rest; Octane's coating is Fresnel at its own IOR).
 fn sphere_paths(model: Model, s: &Stack) -> Vec<Pw> {
@@ -353,7 +355,15 @@ fn trace_n(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize) -> Tr
                     } else {
                         lobe(model, s.base_rough, n, v, h, eta, s.base, s.thin, &mut rng).map(|(l, w, refr)| {
                             let nk2 = match s.curve {
-                                Curve::Fresnel(_) if refr => 2.0 * dot(v, h) * dot(n, h) - nk1,
+                                // |nk2|: a reflection about the microfacet that points
+                                // below the macro surface counts at its mirrored cosine.
+                                // `libbsdf` master would saturate it to c = 1 (the base
+                                // keeps 1 - w); Iray doesn't (#207: Calib-Furnace-
+                                // MdlFresnel, every Fresnel sphere at 1.0 and 1.3 and
+                                // r 0.3 - 1 within 1 % of the Schlick / lobe controls
+                                // with it, 3 - 7 % under without; G8 0.396 -> 0.408 v
+                                // 0.412, resin R7 0.972 -> 0.993). Measured, not fitted.
+                                Curve::Fresnel(_) if refr => (2.0 * dot(v, h) * dot(n, h) - nk1).abs(),
                                 _ => dot(n, l).abs(),
                             };
                             let base = 1.0 - s.weight * s.curve.eval(!outside, nk1).max(s.curve.eval(!outside, nk2));
@@ -1227,6 +1237,14 @@ mod diag207 {
         /// nk2 on the refraction, but the curve at nk2 taken from the side
         /// k2 leaves to (outside's IOR for an exit).
         Nk2Other,
+        /// max(c(n·k1), c(|n·k2|)), k2 the refracted direction, the curve at
+        /// k1's side (`libbsdf` up to 2020: no reflected nk2).
+        K2Same,
+        /// `Max` with nk2 mirrored when the reflection about the microfacet
+        /// points below the macro surface (c(|nk2|)).
+        AbsNk2,
+        /// `Max`, but no nk2 term when that reflection points below it.
+        PosNk2,
     }
 
     /// Where `legacy_loss` is drawn (#207 hypotheses).
@@ -1300,6 +1318,9 @@ mod diag207 {
                             (Wt::Max, Curve::Fresnel(_)) if refr => s.curve.eval(inside, nk2m),
                             (Wt::Nk2Other, Curve::Fresnel(_)) if refr => s.curve.eval(!inside, nk2m),
                             (Wt::K2Out, _) if refr => s.curve.eval(!inside, dot(n, l).abs()),
+                            (Wt::K2Same, _) => s.curve.eval(inside, dot(n, l).abs()),
+                            (Wt::AbsNk2, Curve::Fresnel(_)) if refr => s.curve.eval(inside, nk2m.abs()),
+                            (Wt::PosNk2, Curve::Fresnel(_)) if refr => if nk2m > 0.0 { s.curve.eval(inside, nk2m) } else { 0.0 },
                             _ => s.curve.eval(inside, dot(n, l).abs()),
                         };
                         let base = 1.0 - s.weight * c1.max(c2);
@@ -1355,14 +1376,14 @@ mod diag207 {
             ("U7 grey r.5 c0", 0.5, 0.0, 0.787, 0.425, [0.497, 0.486, 0.477, 0.464, 0.443, 0.419, 0.389, 0.352, 0.306]),
         ];
         let fmt = |a: &[f64]| a.iter().map(|v| format!("{v:.2}")).collect::<Vec<_>>().join(" ");
-        for lg in [Lg::All, Lg::Tail] {
+        for (wt, lg) in [(Wt::Max, Lg::All), (Wt::Max, Lg::Tail), (Wt::AbsNk2, Lg::All)] {
             for coat_loss in [false, true] {
                 for (lab, r, w, t, idisk, ir) in cases {
                     let st = |w| Stack { weight: w, curve: Curve::Fresnel(1.49), coat_rough: r, base: Scatter::ReflectTransmit, base_rough: r, ior: 1.49, thin: false };
-                    let tau = solve_in(|x| rings(&st(0.0), Wt::Max, lg, x, 1 << 15).1, interp(&lobe, r), 1.5);
-                    let (m, disk) = rings_t(&st(w), Wt::Max, lg, tau, t, coat_loss, PATHS);
+                    let tau = solve_in(|x| rings(&st(0.0), wt, lg, x, 1 << 15).1, interp(&lobe, r), 1.5);
+                    let (m, disk) = rings_t(&st(w), wt, lg, tau, t, coat_loss, PATHS);
                     let ratio: Vec<f64> = (0..9).map(|j| m[j] / ir[j]).collect();
-                    println!("{lg:?} coat_loss {coat_loss} {lab:20} tau {tau:.3} disk {disk:.3} v {idisk:.3} ({:.3})  {}", disk / idisk, fmt(&ratio));
+                    println!("{wt:?} {lg:?} coat_loss {coat_loss} {lab:20} tau {tau:.3} disk {disk:.3} v {idisk:.3} ({:.3})  {}", disk / idisk, fmt(&ratio));
                 }
             }
         }
@@ -1389,6 +1410,33 @@ mod diag207 {
 
     #[test]
     #[ignore]
+    fn print_mdl_fresnel_vs_iray() {
+        // Calib-Furnace-MdlFresnel, Iray Server 5000, projected discs (0d43a45).
+        let sch = Curve::Schlick { r0: 0.04, r90: 1.0, exponent: 5.0 };
+        let fr = Curve::Fresnel(1.5);
+        let cases = [
+            ("F1 1.0 w.6 r.6", 0.6, fr, 0.6, true, 0.404, [0.458, 0.447, 0.441, 0.429, 0.415, 0.396, 0.378, 0.371, 0.363]),
+            ("F2 1.3 w.6 r.6", 0.6, fr, 0.6, false, 0.492, [0.511, 0.511, 0.505, 0.497, 0.492, 0.484, 0.483, 0.500, 0.520]),
+            ("F3 1.0 w1 r.6", 1.0, fr, 0.6, true, 0.277, [0.300, 0.300, 0.300, 0.291, 0.289, 0.281, 0.264, 0.223, 0.171]),
+            ("F4 1.3 w1 r.6", 1.0, fr, 0.6, false, 0.313, [0.321, 0.321, 0.321, 0.321, 0.321, 0.321, 0.311, 0.260, 0.194]),
+            ("F5 1.0 w.6 r.3", 0.6, fr, 0.3, true, 0.723, [0.817, 0.804, 0.791, 0.774, 0.749, 0.718, 0.676, 0.628, 0.594]),
+            ("F6 1.0 w.6 r1", 0.6, fr, 1.0, true, 0.216, [0.241, 0.235, 0.234, 0.226, 0.219, 0.210, 0.207, 0.205, 0.208]),
+            ("F7 1.0 w0 r.6", 0.0, fr, 0.6, true, 0.600, [0.701, 0.695, 0.679, 0.658, 0.628, 0.592, 0.547, 0.492, 0.423]),
+            ("F8 1.0 schlick w.6 r.6", 0.6, sch, 0.6, true, 0.602, [0.710, 0.700, 0.683, 0.662, 0.633, 0.595, 0.547, 0.492, 0.429]),
+        ];
+        let fmt = |a: &[f64]| a.iter().map(|v| format!("{v:.2}")).collect::<Vec<_>>().join(" ");
+        for wt in [Wt::Max, Wt::AbsNk2, Wt::PosNk2] {
+            for (lab, w, curve, r, legacy, idisk, ir) in cases {
+                let st = Stack { weight: w, curve, coat_rough: 0.0, base: Scatter::Transmit, base_rough: r, ior: 1.5, thin: false };
+                let (m, disk) = rings_v(&st, wt, Lg::All, 1.0, 1.0, false, legacy, PATHS);
+                let ratio: Vec<f64> = (0..9).map(|j| m[j] / ir[j]).collect();
+                println!("{wt:?} {lab:24} disk {disk:.3} v {idisk:.3} ({:.3})  {}", disk / idisk, fmt(&ratio));
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
     fn print_g8_decomposition() {
         // Calib-Furnace-ArchGlass, Iray Server 5000, projected discs (#206).
         let iray: [(&str, f64, [f64; 9]); 3] = [
@@ -1400,13 +1448,13 @@ mod diag207 {
         let sch = Curve::Schlick { r0: 0.2, r90: 1.0, exponent: 5.0 };
         let fr = Curve::Fresnel(1.5);
         let fmt = |a: &[f64]| a.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(" ");
-        for lg in [Lg::All, Lg::Tail] {
-            let tau = solve_in(|t| rings(&st(0.0, fr), Wt::Max, lg, t, 1 << 15).1, 0.609, 1.5);
+        for (wt, lg) in [(Wt::Max, Lg::All), (Wt::Max, Lg::Tail), (Wt::AbsNk2, Lg::All)] {
+            let tau = solve_in(|t| rings(&st(0.0, fr), wt, lg, t, 1 << 15).1, 0.609, 1.5);
             for (lab, stack) in [("G4", st(0.0, fr)), ("G7", st(0.6, sch)), ("G8", st(0.6, fr))] {
                 let (_, idisk, ir) = iray.iter().find(|x| x.0 == lab).unwrap();
-                let (r, disk) = rings(&stack, Wt::Max, lg, tau, PATHS);
+                let (r, disk) = rings(&stack, wt, lg, tau, PATHS);
                 let ratio: Vec<f64> = (0..9).map(|j| r[j] / ir[j]).collect();
-                println!("{lg:?} tau {tau:.3} {lab}: disk {disk:.3} v {idisk:.3}  model/Iray {}", fmt(&ratio));
+                println!("{wt:?} {lg:?} tau {tau:.3} {lab}: disk {disk:.3} v {idisk:.3}  model/Iray {}", fmt(&ratio));
             }
         }
     }
