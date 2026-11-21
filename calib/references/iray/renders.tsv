@@ -74,6 +74,7 @@ Calib-Furnace-DualLobeBase-Off	5000	0	Iray Server (home)	2026-11-16 22:47		on@8
 Calib-Furnace-DualLobeCurve-Black	5000	0	Iray Server (home)	2026-11-16 22:51		on@8
 Calib-Furnace-DualLobeCurve-Grey	5000	0	Iray Server (home)	2026-11-16 22:49		on@8
 Calib-Furnace-MdlArch	5000	0	Iray Server (Boost for Daz)	2026-11-15 18:03	69	on@8
+Calib-Furnace-MdlFresnel	5000	0	Iray Server (headless submit)	2026-11-21 19:28	271	on@8
 Calib-Furnace-MdlGeneric	5000	0	Iray Server (Boost for Daz)	2026-11-15 18:02	61	on@8
 Calib-Furnace-MdlLegacy	5000	0	Iray Server (Boost for Daz)	2026-11-15 18:04	65	on@8
 Calib-Furnace-MdlLegacy2	5000	0	Iray Server (Boost for Daz)	2026-11-16 13:07	62	on@8
@@ -471,6 +472,7 @@ Calib-Smooth	5000	0	Iray Server (Boost for Daz)	2026-11-04 21:27	103	on@8
 Calib-SpecMode	5000	0	Iray Server (Boost for Daz)	2026-10-30 22:01	105	on@8
 Calib-Strand	5000	0	Iray Server (Boost for Daz)	2026-11-11 17:13	124	on@8
 Calib-Strand-Cutout-Dome	2000	0	Iray Server (headless submit)	2026-11-18 23:28	1139	on@8
+Calib-Strand-Cutout2-Dome	2000	0	Iray Server (headless submit)	2026-11-21 19:20	112	on@8
 Calib-Strand-Dome	2000	0	Iray Server (Boost for Daz)	2026-11-11 17:31	53	on@8
 Calib-Strand-Hair	5000	0	Iray Server (headless submit)	2026-11-17 03:26	296	on@8
 Calib-Strand-Hair-Back	5000	0	Iray Server (headless submit)	2026-11-17 03:32	296	on@8
