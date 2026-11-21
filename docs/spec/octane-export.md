@@ -3149,7 +3149,11 @@ leaves out, #15):
     grazing 0.967 / 0.870 / 0.735 / 0.551 (rows 0.4 – 1 refitted on the
     cosᵉ lobe, #191: the old rows on it left rings up to 4 – 23 % off at r
     0.5 – 1, the refit 1.5 – 11 %; the cosᵉ lobe alone keeps more, disk
-    0.84 v 0.82 at r 0.5, 0.61 v 0.53 at r 1, so g loses more) — then τ so the lobe alone keeps
+    0.84 v 0.82 at r 0.5, 0.61 v 0.53 at r 1, so g loses more; rows 0.7 /
+    0.75 refitted again under the trace as it stands after #205 / #207,
+    #212: Calib-Furnace-MdlLegacy K3 and Resin2 U5 within 0.7 / 0.5 % per
+    ring, where #191's rows left their rims 2.0 / 4.6 % over Iray; rows 0.6
+    and 1 moved only within their IOR spread and stand) — then τ so the lobe alone keeps
     the measured disk (`RESIN_LOBE` / `ARCH_GLASS_LOBE`, τ ≈ 1). Octane's
     Smith paths keep each transmission event's cosine; (k, q, skew) is
     solved (Nelder – Mead) so the white sphere's rings (tenths of the

@@ -61,7 +61,10 @@ Hypotheses (by the Iray channels the variants stand for):
   colour (per channel with `x<r>,<g>,<b>`), or its texture's power, ×
   value, `o<head>,<grazing>,<skew>` a grey that a Falloff Map (normal
   vs. eye ray) takes from `head` facing the ray to `grazing` at 90° as
-  (θ / 90°)^skew (#117: is the angle the camera ray's or each hit's?)
+  (θ / 90°)^skew (#117: is the angle the camera ray's or each hit's?),
+  `s<a>,<b>` a float that a Polygon Side texture (89) switches: a Mix (38)
+  of the floats a (its amount 0, the side texture black) and b (white)
+  (#212: a roughness on one side of a closed surface only)
   (e.g.
   `set=Genesis_8_Female_Cornea.coating=c0+Genesis_8_Female_Cornea.roughness=f0.07`).
 - `node=<id>=<value>[,<id>=<value>…]`: the value of any node by its id
@@ -128,6 +131,19 @@ def falloff_mix(head, grazing, skew):
             f"<pin name='falloff index'>{value_node(6, 8, f'{skew} 0 0')}</pin>\n</node>\n</pin>\n"
             f"<pin name='texture1'>{value_node(33, 8, f'{head} {head} {head}')}</pin>\n"
             f"<pin name='texture2'>{value_node(33, 8, f'{grazing} {grazing} {grazing}')}</pin>\n</node>")
+
+
+def side_mix(a, b):
+    """A Mix texture (38) of two floats by a Polygon Side texture (89,
+    default pins): `a` where the side texture is black (amount 0), `b`
+    where it is white (#212)."""
+    next_id[0] += 1
+    mix = next_id[0]
+    next_id[0] += 1
+    side = next_id[0]
+    return (f"<node id='{mix}' type='38'>\n<pin name='amount'>\n<node id='{side}' type='89'>\n</node>\n</pin>\n"
+            f"<pin name='texture1'>{value_node(31, 6, a)}</pin>\n"
+            f"<pin name='texture2'>{value_node(31, 6, b)}</pin>\n</node>")
 
 
 def set_pin(ocs, material, pin, node_xml):
@@ -249,6 +265,9 @@ def apply(ocs, hyp):
                 # A plain float pin (not a texture): a float value node (6),
                 # e.g. the STD `spread` (#189; a type-31 node there is ignored).
                 ocs = set_pin(ocs, mat, pin, value_node(6, 9, f'{v} 0 0 0'))
+            elif kind == 's':
+                a, b = v.split(',')
+                ocs = set_pin(ocs, mat, pin, side_mix(a, b))
             elif kind == 'o':
                 head, graze, skew = v.split(',')
                 ocs = set_pin(ocs, mat, pin, falloff_mix(head, graze, skew))

@@ -262,13 +262,21 @@ fn sphere_paths_disk(model: Model, s: &Stack, disk: f64) -> Vec<Pw> {
 /// the entry radius (of the silhouette), the incoming cosine |n · k1| of
 /// each base event that passed through the surface, and the microfacet's
 /// Fresnel F of each refraction through an Octane reflect + transmit base
-/// (`Pw::at`).
+/// (`Pw::at`). For the diagnostics (#212): the incoming cosine of each base
+/// event that took `legacy_loss` (a refit reweights the paths by it), the
+/// microfacet's |v·h| of each refraction, and the number of events.
 struct Path {
     w: f64,
     m: i32,
     rr: f64,
     through: Vec<f64>,
     fr: Vec<f64>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    lost: Vec<f64>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    through_h: Vec<f64>,
+    #[cfg_attr(not(test), allow(dead_code))]
+    events: usize,
 }
 
 /// A path's weight without the tint and what a tint x makes of it
@@ -341,6 +349,9 @@ fn trace_c(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize, coat:
         let (mut thr, mut m, mut inside) = (1.0, 0, false);
         let mut through = Vec::new();
         let mut fr = Vec::new();
+        let mut lost = Vec::new();
+        let mut through_h = Vec::new();
+        let mut events = 0;
         for _ in 0..DEPTH {
             let n = if inside { scale(p, -1.0) } else { p };
             let v = scale(d, -1.0);
@@ -407,14 +418,19 @@ fn trace_c(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize, coat:
                 }
             };
             let Some((l, w, refr, tinted)) = ev else { break };
+            if legacy && tinted == 1 && matches!(model, Model::Libbsdf) {
+                lost.push(nk1);
+            }
             thr *= w;
+            events += 1;
             m += tinted;
             if refr {
                 through.push(nk1);
+                through_h.push(dot(v, h).abs());
                 inside = !inside;
             }
             if !inside {
-                out.push(Path { w: thr, m, rr, through, fr: std::mem::take(&mut fr) });
+                out.push(Path { w: thr, m, rr, through, fr: std::mem::take(&mut fr), lost: std::mem::take(&mut lost), through_h: std::mem::take(&mut through_h), events });
                 break;
             }
             // The next hit inside the unit sphere.
@@ -451,6 +467,12 @@ fn trace_c(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize, coat:
 /// two lobes differ by < 2 % in r and the rows stand (worst ring 1 – 1.7 %
 /// on either lobe). The new rows lose more: the cosᵉ lobe alone keeps more
 /// than `libbsdf`'s at r (disk 0.84 v 0.82 at r 0.5, 0.61 v 0.53 at r 1).
+/// Rows 0.7 / 0.75 refitted again under today's trace (#212, `diag212`:
+/// the same rings, each event's cosine reweighted, Nelder – Mead): #191's
+/// rows left K3 2.0 % and U5 4.6 % over Iray at the rim, the refit 0.7 /
+/// 0.5 % on every ring (summed squares 0.0017 → 0.00014, 0.0029 →
+/// 0.00004); rows 0.6 and 1 moved within their IOR spread (−5 %, −4 %, the
+/// worst ring either way) and stand.
 const LEGACY_LOBE: [(f64, f64, f64, f64); 12] = [
     (0.0, 1.0, 1.0, 1.0),
     (0.05, 1.009, 0.971, 0.296),
@@ -461,8 +483,8 @@ const LEGACY_LOBE: [(f64, f64, f64, f64); 12] = [
     (0.4, 0.955, 0.870, 2.352),
     (0.5, 0.927, 0.789, 2.047),
     (0.6, 0.907, 0.735, 1.522),
-    (0.7, 0.885, 0.628, 1.454),
-    (0.75, 0.862, 0.629, 1.374),
+    (0.7, 0.875, 0.597, 1.659),
+    (0.75, 0.860, 0.545, 1.719),
     (1.0, 0.790, 0.551, 1.209),
 ];
 
@@ -1681,6 +1703,373 @@ mod diag211 {
             println!("R7 Octane coat      {}", fmt(&rings_of(&op, &|p| if p.m == 0 && p.through.is_empty() { ow(p) } else { 0.0 })));
             println!("R7 Octane base refl {}", fmt(&rings_of(&op, &|p| if p.m > 0 && p.through.is_empty() { ow(p) } else { 0.0 })));
             println!("R7 Octane through   {}", fmt(&rings_of(&op, &|p| if !p.through.is_empty() { ow(p) } else { 0.0 })));
+        }
+    }
+}
+
+#[cfg(test)]
+mod diag212 {
+    use super::*;
+
+    /// Iray Server 5000 rings (centre -> 0.8 - 0.9, `furnace-rings.py
+    /// measure` on the references in git) of the closed `mdl 1.0` spheres
+    /// at r >= 0.6: (label, r, IOR, scatter, rings).
+    fn spheres() -> Vec<(&'static str, f64, f64, Scatter, [f64; 9])> {
+        use Scatter::{ReflectTransmit as Rt, Transmit as T};
+        vec![
+            ("L1", 0.6, 1.05, T, [0.834, 0.820, 0.804, 0.797, 0.780, 0.760, 0.730, 0.688, 0.625]),
+            ("L3", 0.6, 1.2, T, [0.817, 0.801, 0.785, 0.765, 0.740, 0.704, 0.659, 0.599, 0.520]),
+            ("L4", 0.6, 2.0, T, [0.524, 0.517, 0.508, 0.493, 0.476, 0.452, 0.422, 0.385, 0.340]),
+            ("K3", 0.7, 1.5, T, [0.609, 0.603, 0.588, 0.568, 0.540, 0.506, 0.463, 0.412, 0.348]),
+            ("U5", 0.75, 1.49, Rt, [0.538, 0.535, 0.521, 0.503, 0.476, 0.445, 0.407, 0.363, 0.312]),
+            ("K4", 1.0, 1.5, T, [0.404, 0.398, 0.389, 0.374, 0.354, 0.329, 0.298, 0.261, 0.216]),
+            ("L2", 1.0, 1.05, T, [0.638, 0.623, 0.605, 0.585, 0.555, 0.521, 0.478, 0.427, 0.366]),
+            ("L7", 1.0, 2.0, T, [0.244, 0.244, 0.237, 0.231, 0.222, 0.209, 0.193, 0.173, 0.148]),
+            ("U6", 1.0, 1.49, Rt, [0.376, 0.375, 0.367, 0.353, 0.334, 0.311, 0.284, 0.252, 0.215]),
+        ]
+    }
+
+    fn rings(t: &Traced, r: f64, g: &dyn Fn(f64) -> f64) -> [f64; 9] {
+        let mut out = [0.0; 9];
+        for p in &t.paths {
+            let j = (p.rr * 10.0) as usize;
+            if j < 9 {
+                out[j] += p.w * p.lost.iter().map(|&c| g(c) / legacy_loss(r, c)).product::<f64>();
+            }
+        }
+        std::array::from_fn(|j| out[j] / t.entered[j].max(1) as f64)
+    }
+
+    #[test]
+    #[ignore]
+    fn print_legacy_refit() {
+        let sp = spheres();
+        let traced: Vec<Traced> = sp
+            .iter()
+            .map(|&(_, r, ior, base, _)| trace_n(Model::Libbsdf, &Stack { weight: 0.0, curve: Curve::Fresnel(ior), coat_rough: r, base, base_rough: r, ior, thin: false }, 1.0, true, 1 << 19))
+            .collect();
+        let fmt = |a: &[f64]| a.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(" ");
+        for row in [0.6, 0.7, 0.75, 1.0] {
+            let idx: Vec<usize> = (0..sp.len()).filter(|&i| sp[i].1 == row).collect();
+            let g = |x: &[f64; 3], c: f64| {
+                let t = c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2;
+                (x[0] + (x[1] - x[0]) * t.powf(x[2])).min(1.0)
+            };
+            let err = |x: &[f64; 3]| {
+                if !(0.3..=1.05).contains(&x[0]) || !(0.0..=1.2).contains(&x[1]) || !(0.2..=8.0).contains(&x[2]) {
+                    return f64::INFINITY;
+                }
+                idx.iter().map(|&i| { let m = rings(&traced[i], row, &|c| g(x, c)); (0..9).map(|j| (m[j] / sp[i].4[j] - 1.0).powi(2)).sum::<f64>() }).sum::<f64>()
+            };
+            let cur = LEGACY_LOBE.iter().find(|w| w.0 == row).unwrap();
+            let x0 = [cur.1, cur.2, cur.3];
+            let x = nelder_mead(&err, x0);
+            let x = nelder_mead(&err, x);
+            println!("row {row}: now {x0:?} err {:.5} -> refit [{:.3}, {:.3}, {:.3}] err {:.5}", err(&x0), x[0], x[1], x[2], err(&x));
+            for &i in &idx {
+                let now = rings(&traced[i], row, &|c| legacy_loss(row, c));
+                let new = rings(&traced[i], row, &|c| g(&x, c));
+                let q = |m: &[f64; 9]| m.iter().zip(&sp[i].4).map(|(a, b)| a / b).collect::<Vec<_>>();
+                println!("  {} now / Iray   {}", sp[i].0, fmt(&q(&now)));
+                println!("  {} refit / Iray {}", sp[i].0, fmt(&q(&new)));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod diag212_exit {
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn print_falloff_readings() {
+        // Probe `fr` (#211): Calib-Furnace-Resin2 re-pinned, Universal rt,
+        // specular 1, IOR 1.49, roughness 0.840896, 1024 raw. Octane's
+        // rings: U4 flat, U5 q 0 s 1, U7 q 0 s 3.1, U8 q 0.5 s 1.
+        let oct: [(&str, f64, f64, [f64; 9]); 4] = [
+            ("U4", 1.0, 1.0, [0.803, 0.795, 0.783, 0.766, 0.746, 0.725, 0.704, 0.679, 0.644]),
+            ("U5", 0.0, 1.0, [0.666, 0.614, 0.550, 0.480, 0.411, 0.345, 0.285, 0.234, 0.190]),
+            ("U7", 0.0, 3.1, [0.792, 0.785, 0.770, 0.745, 0.711, 0.668, 0.614, 0.546, 0.450]),
+            ("U8", 0.5, 1.0, [0.743, 0.714, 0.674, 0.630, 0.582, 0.534, 0.490, 0.452, 0.419]),
+        ];
+        let fmt = |a: &[f64]| a.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(" ");
+        // α 0.707 is the sphere's (the pin 0.840896 is √α); 0.841 is #211's reading.
+        for alpha in [0.841, 0.707] {
+            let s = Stack { weight: 0.0, curve: Curve::Fresnel(1.49), coat_rough: alpha, base: Scatter::ReflectTransmit, base_rough: alpha, ior: 1.49, thin: false };
+            let t = trace_n(Model::Smith, &s, 1.0, false, 1 << 20);
+            let f = |q: f64, sk: f64, c: f64| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, sk);
+            type Rd = fn(&Path, usize) -> f64;
+            let readings: [(&str, Rd); 5] = [
+                ("macro in", |p, i| p.through[i]),
+                ("micro v.h", |p, i| p.through_h[i]),
+                ("entry macro, exit micro", |p, i| if i == 0 { p.through[i] } else { p.through_h[i] }),
+                ("entry micro, exit macro", |p, i| if i == 0 { p.through_h[i] } else { p.through[i] }),
+                ("max(macro, micro)", |p, i| p.through[i].max(p.through_h[i])),
+            ];
+            let rings = |w: &dyn Fn(&Path) -> f64| {
+                let mut r = [0.0; 9];
+                for p in &t.paths {
+                    let j = (p.rr * 10.0) as usize;
+                    if j < 9 {
+                        r[j] += w(p);
+                    }
+                }
+                std::array::from_fn::<f64, 9, _>(|j| r[j] / t.entered[j].max(1) as f64)
+            };
+            let flat = rings(&|p| p.w);
+            println!("alpha {alpha}: flat model {}  Octane / model {}", fmt(&flat), fmt(&std::array::from_fn::<f64, 9, _>(|j| oct[0].3[j] / flat[j])));
+            for (name, rd) in readings {
+                println!("  reading: {name}");
+                for &(lab, q, sk, o) in &oct[1..] {
+                    let m = rings(&|p| p.w * (0..p.through.len()).map(|i| f(q, sk, rd(p, i))).product::<f64>());
+                    let ratio: Vec<f64> = (0..9).map(|j| (o[j] / oct[0].3[j]) / (m[j] / flat[j])).collect();
+                    println!("    {lab} Octane keeps / model keeps {}", fmt(&ratio));
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_excess_by_path_kind() {
+        // Per ring, Octane = a · (paths that never pass the surface) + b ·
+        // (paths that pass it) under each falloff (macro incoming cosine),
+        // least squares over U4 / U5 / U7 / U8 (probe `fr`).
+        let oct: [(f64, f64, [f64; 9]); 4] = [
+            (1.0, 1.0, [0.803, 0.795, 0.783, 0.766, 0.746, 0.725, 0.704, 0.679, 0.644]),
+            (0.0, 1.0, [0.666, 0.614, 0.550, 0.480, 0.411, 0.345, 0.285, 0.234, 0.190]),
+            (0.0, 3.1, [0.792, 0.785, 0.770, 0.745, 0.711, 0.668, 0.614, 0.546, 0.450]),
+            (0.5, 1.0, [0.743, 0.714, 0.674, 0.630, 0.582, 0.534, 0.490, 0.452, 0.419]),
+        ];
+        // α 0.707 is the sphere's (the pin 0.840896 is √α); 0.841 is #211's reading.
+        for alpha in [0.841, 0.707] {
+            let s = Stack { weight: 0.0, curve: Curve::Fresnel(1.49), coat_rough: alpha, base: Scatter::ReflectTransmit, base_rough: alpha, ior: 1.49, thin: false };
+            let t = trace_n(Model::Smith, &s, 1.0, false, 1 << 20);
+            let f = |q: f64, sk: f64, c: f64| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, sk);
+            println!("alpha {alpha}: ring  R  T  a  b  worst fit");
+            for j in 0..9 {
+                let n = t.entered[j].max(1) as f64;
+                let cols: Vec<(f64, f64)> = oct
+                    .iter()
+                    .map(|&(q, sk, _)| {
+                        let (mut r, mut tr) = (0.0, 0.0);
+                        for p in t.paths.iter().filter(|p| (p.rr * 10.0) as usize == j) {
+                            if p.through.is_empty() {
+                                r += p.w;
+                            } else {
+                                tr += p.w * p.through.iter().map(|&c| f(q, sk, c)).product::<f64>();
+                            }
+                        }
+                        (r / n, tr / n)
+                    })
+                    .collect();
+                // 2x2 normal equations.
+                let (mut srr, mut srt, mut stt, mut sry, mut sty) = (0.0, 0.0, 0.0, 0.0, 0.0);
+                for (k, &(r, tr)) in cols.iter().enumerate() {
+                    let y = oct[k].2[j];
+                    srr += r * r; srt += r * tr; stt += tr * tr; sry += r * y; sty += tr * y;
+                }
+                let det = srr * stt - srt * srt;
+                let a = (sry * stt - sty * srt) / det;
+                let b = (srr * sty - srt * sry) / det;
+                let worst = cols.iter().enumerate().map(|(k, &(r, tr))| ((a * r + b * tr) / oct[k].2[j] - 1.0).abs()).fold(0.0, f64::max);
+                println!("  {j}  {:.3} {:.3}  {a:.3} {b:.3}  {worst:.4}", cols[0].0, cols[0].1);
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_excess_three_kinds() {
+        // As `print_excess_by_path_kind`, with the paths that pass split into
+        // the direct ones (in, out: two events) and those that reflect inside.
+        let oct: [(f64, f64, [f64; 9]); 4] = [
+            (1.0, 1.0, [0.803, 0.795, 0.783, 0.766, 0.746, 0.725, 0.704, 0.679, 0.644]),
+            (0.0, 1.0, [0.666, 0.614, 0.550, 0.480, 0.411, 0.345, 0.285, 0.234, 0.190]),
+            (0.0, 3.1, [0.792, 0.785, 0.770, 0.745, 0.711, 0.668, 0.614, 0.546, 0.450]),
+            (0.5, 1.0, [0.743, 0.714, 0.674, 0.630, 0.582, 0.534, 0.490, 0.452, 0.419]),
+        ];
+        // α 0.707 is the sphere's (the pin 0.840896 is √α); 0.841 is #211's reading.
+        for alpha in [0.841, 0.707] {
+            let s = Stack { weight: 0.0, curve: Curve::Fresnel(1.49), coat_rough: alpha, base: Scatter::ReflectTransmit, base_rough: alpha, ior: 1.49, thin: false };
+            let t = trace_n(Model::Smith, &s, 1.0, false, 1 << 20);
+            let f = |q: f64, sk: f64, c: f64| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, sk);
+            println!("alpha {alpha}: ring  R D B (flat)  a b c  worst");
+            for j in 0..9 {
+                let n = t.entered[j].max(1) as f64;
+                let x: Vec<[f64; 3]> = oct
+                    .iter()
+                    .map(|&(q, sk, _)| {
+                        let mut v = [0.0; 3];
+                        for p in t.paths.iter().filter(|p| (p.rr * 10.0) as usize == j) {
+                            let k = if p.through.is_empty() { 0 } else if p.events == 2 { 1 } else { 2 };
+                            v[k] += p.w * p.through.iter().map(|&c| f(q, sk, c)).product::<f64>() / n;
+                        }
+                        v
+                    })
+                    .collect();
+                // 3 unknowns, 4 equations: normal equations, Cramer.
+                let mut m = [[0.0; 3]; 3];
+                let mut rhs = [0.0; 3];
+                for (k, xk) in x.iter().enumerate() {
+                    for a in 0..3 {
+                        for b in 0..3 {
+                            m[a][b] += xk[a] * xk[b];
+                        }
+                        rhs[a] += xk[a] * oct[k].2[j];
+                    }
+                }
+                let det3 = |m: &[[f64; 3]; 3]| m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+                let d = det3(&m);
+                let sol: [f64; 3] = std::array::from_fn(|c| {
+                    let mut mc = m;
+                    for r in 0..3 {
+                        mc[r][c] = rhs[r];
+                    }
+                    det3(&mc) / d
+                });
+                let worst = x.iter().enumerate().map(|(k, xk)| ((0..3).map(|a| sol[a] * xk[a]).sum::<f64>() / oct[k].2[j] - 1.0).abs()).fold(0.0, f64::max);
+                println!("  {j}  {:.3} {:.3} {:.3}  {:.3} {:.3} {:.3}  {worst:.4}", x[0][0], x[0][1], x[0][2], sol[0], sol[1], sol[2]);
+            }
+        }
+    }
+
+    /// Octane's Smith model of a closed rt sphere (IOR 1.49, specular 1)
+    /// whose outside hits have α `a_out` and inside hits `a_in`, the
+    /// transmission × the falloff (q, s) at each refraction's incoming macro
+    /// cosine: rings centre -> 0.8 - 0.9.
+    pub(super) fn side_rings(a_out: f64, a_in: f64, q: f64, sk: f64, paths: usize) -> [f64; 9] {
+        side_rings_g(a_out, a_in, q, sk, 0, 0, paths)
+    }
+
+    /// `side_rings` with the masking `gm` (0 Smith G1(v) G1(l), 1 G1(l) only,
+    /// 2 none) and the falloff read at `rd` (0 the incoming macro cosine, 1
+    /// the outgoing |n·l|, 2 the microfacet's |v·h|; 10 + k: k on outside
+    /// hits only, the inside's at 0).
+    pub(super) fn side_rings_g(a_out: f64, a_in: f64, q: f64, sk: f64, gm: u8, rd: u8, paths: usize) -> [f64; 9] {
+        let ior = 1.49;
+        let mut rng = Rng(0x5eed_0212);
+        let (mut sum, mut entered) = ([0.0; 9], [0usize; 9]);
+        for _ in 0..paths {
+            let rr = rng.next().sqrt();
+            let j = ((rr * 10.0) as usize).min(9);
+            if j < 9 {
+                entered[j] += 1;
+            }
+            let phi = 2.0 * std::f64::consts::PI * rng.next();
+            let mut p: V = [rr * phi.cos(), rr * phi.sin(), (1.0 - rr * rr).max(0.0).sqrt()];
+            let mut d: V = [0.0, 0.0, -1.0];
+            let (mut thr, mut inside) = (1.0, false);
+            for _ in 0..DEPTH {
+                let n = if inside { scale(p, -1.0) } else { p };
+                let v = scale(d, -1.0);
+                let eta = if inside { 1.0 / ior } else { ior };
+                let a = if inside { a_in } else { a_out };
+                let nk1 = dot(n, v).clamp(0.0, 1.0);
+                let h = sample_h(Model::Smith, a, n, &mut rng);
+                let Some((l, w, refr)) = lobe(Model::Smith, a, n, v, h, eta, Scatter::ReflectTransmit, false, &mut rng) else { break };
+                let (gv, gl) = (smith_g1(nk1, a), smith_g1(dot(n, l), a));
+                thr *= match gm {
+                    1 => w / gv,
+                    2 => w / (gv * gl),
+                    _ => w,
+                };
+                if refr {
+                    let k = if rd >= 10 && inside { 0 } else { rd % 10 };
+                    let c = match k {
+                        1 => dot(n, norm(l)).abs(),
+                        2 => dot(v, h).abs(),
+                        _ => nk1,
+                    };
+                    thr *= 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, sk);
+                    inside = !inside;
+                }
+                if !inside {
+                    if j < 9 {
+                        sum[j] += thr;
+                    }
+                    break;
+                }
+                let l = norm(l);
+                p = norm(add(p, scale(l, -2.0 * dot(p, l))));
+                d = l;
+            }
+        }
+        std::array::from_fn(|j| sum[j] / entered[j].max(1) as f64)
+    }
+
+    #[test]
+    #[ignore]
+    fn print_side_probe() {
+        // Probe `side` (#212): Calib-Furnace-Resin2 re-pinned, roughness a
+        // Polygon Side Mix (black a, white b), specular 1, 1024 raw.
+        // The pin 0.840896 is √α (`legacy_phong_pin(1)`): α = 0.7071.
+        let a = 0.7071;
+        let oct: [(&str, f64, f64, f64, f64, [f64; 9]); 8] = [
+            ("U1 a,a flat", a, a, 1.0, 1.0, [0.800, 0.795, 0.784, 0.769, 0.747, 0.725, 0.705, 0.683, 0.648]),
+            ("U2 0,a flat", 0.0, a, 1.0, 1.0, [0.999, 0.999, 0.999, 0.999, 0.999, 0.998, 0.947, 0.737, 0.446]),
+            ("U3 a,0 flat", a, 0.0, 1.0, 1.0, [0.852, 0.847, 0.836, 0.817, 0.792, 0.764, 0.734, 0.705, 0.688]),
+            ("U4 0,a q0", 0.0, a, 0.0, 1.0, [0.841, 0.781, 0.708, 0.630, 0.550, 0.471, 0.380, 0.263, 0.165]),
+            ("U5 a,0 q0", a, 0.0, 0.0, 1.0, [0.785, 0.708, 0.623, 0.538, 0.455, 0.378, 0.307, 0.243, 0.204]),
+            ("U6 0,a q.5", 0.0, a, 0.5, 1.0, [0.917, 0.885, 0.846, 0.802, 0.757, 0.709, 0.630, 0.467, 0.284]),
+            ("U7 a,0 q.5", a, 0.0, 0.5, 1.0, [0.817, 0.774, 0.724, 0.669, 0.611, 0.553, 0.496, 0.444, 0.409]),
+            ("U8 a flat", a, a, 1.0, 1.0, [0.808, 0.802, 0.792, 0.775, 0.756, 0.734, 0.713, 0.694, 0.668]),
+        ];
+        let fmt = |a: &[f64]| a.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(" ");
+        for (lab, b, w, q, sk, o) in oct {
+            for (which, out, inn) in [("black out", b, w), ("white out", w, b)] {
+                let m = side_rings(out, inn, q, sk, 1 << 20);
+                println!("{lab} {which}: model {}  Octane / model {}", fmt(&m), fmt(&std::array::from_fn::<f64, 9, _>(|j| o[j] / m[j])));
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_side_readings() {
+        // Probe `side`, white = the outside: U2 / U4 / U6 rough outside,
+        // smooth inside (flat, q 0, q 0.5); U3 / U5 / U7 the other way.
+        // The pin 0.840896 is √α (`legacy_phong_pin`): α = 0.7071.
+        let a = 0.7071;
+        let fmt = |a: &[f64]| a.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(" ");
+        let o2 = [0.999, 0.999, 0.999, 0.999, 0.999, 0.998, 0.947, 0.737, 0.446];
+        let o4 = [0.841, 0.781, 0.708, 0.630, 0.550, 0.471, 0.380, 0.263, 0.165];
+        let o6 = [0.917, 0.885, 0.846, 0.802, 0.757, 0.709, 0.630, 0.467, 0.284];
+        let o3 = [0.852, 0.847, 0.836, 0.817, 0.792, 0.764, 0.734, 0.705, 0.688];
+        let o5 = [0.785, 0.708, 0.623, 0.538, 0.455, 0.378, 0.307, 0.243, 0.204];
+        let o7 = [0.817, 0.774, 0.724, 0.669, 0.611, 0.553, 0.496, 0.444, 0.409];
+        let r = |x: &[f64; 9], y: &[f64; 9]| std::array::from_fn::<f64, 9, _>(|j| x[j] / y[j]);
+        for gm in [0u8, 1, 2] {
+            for (out, inn, of, oq0, oq5, lab) in [(a, 0.0, o2, o4, o6, "rough out"), (0.0, a, o3, o5, o7, "rough in")] {
+                let flat = side_rings_g(out, inn, 1.0, 1.0, gm, 0, 1 << 20);
+                println!("g {gm} {lab}: flat model {}  Octane / model {}", fmt(&flat), fmt(&r(&of, &flat)));
+                for rd in [0u8, 1, 2] {
+                    let m0 = side_rings_g(out, inn, 0.0, 1.0, gm, rd, 1 << 20);
+                    let m5 = side_rings_g(out, inn, 0.5, 1.0, gm, rd, 1 << 20);
+                    println!("   read {rd}: keeps, Octane / model: q0 {}  q.5 {}", fmt(&r(&r(&oq0, &of), &r(&m0, &flat))), fmt(&r(&r(&oq5, &of), &r(&m5, &flat))));
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_side_entry_alpha() {
+        // The rough outside of probe `side` (U2 / U4 / U6) against the model
+        // at other entry α (inside smooth), masking `gm`.
+        let fmt = |a: &[f64]| a.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(" ");
+        let o2 = [0.999, 0.999, 0.999, 0.999, 0.999, 0.998, 0.947, 0.737, 0.446];
+        let o4 = [0.841, 0.781, 0.708, 0.630, 0.550, 0.471, 0.380, 0.263, 0.165];
+        let o6 = [0.917, 0.885, 0.846, 0.802, 0.757, 0.709, 0.630, 0.467, 0.284];
+        let r = |x: &[f64; 9], y: &[f64; 9]| std::array::from_fn::<f64, 9, _>(|j| x[j] / y[j]);
+        for gm in [0u8, 2] {
+            for a in [0.4, 0.5, 0.6, 0.7071] {
+                let flat = side_rings_g(a, 0.0, 1.0, 1.0, gm, 0, 1 << 20);
+                let m0 = side_rings_g(a, 0.0, 0.0, 1.0, gm, 0, 1 << 20);
+                let m5 = side_rings_g(a, 0.0, 0.5, 1.0, gm, 0, 1 << 20);
+                println!("g {gm} a {a}: flat {}  q0 {}  q.5 {}", fmt(&r(&o2, &flat)), fmt(&r(&o4, &m0)), fmt(&r(&o6, &m5)));
+            }
         }
     }
 }
