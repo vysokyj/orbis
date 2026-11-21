@@ -277,6 +277,20 @@ struct Path {
     through_h: Vec<f64>,
     #[cfg_attr(not(test), allow(dead_code))]
     events: usize,
+    /// The event that left the sphere (`Leave`) and its incoming cosine
+    /// |n · k1| (#213: Octane's excess over its model sits there).
+    leave: (Leave, f64),
+}
+
+/// How a path left the sphere.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Leave {
+    /// Reflected off the outside by the base lobe (Universal's specular).
+    BaseReflection,
+    /// Reflected off the outside by the coat (Universal's coating).
+    CoatReflection,
+    /// Refracted out from inside.
+    Exit,
 }
 
 /// A path's weight without the tint and what a tint x makes of it
@@ -353,6 +367,7 @@ fn trace_c(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize, coat:
         let mut through_h = Vec::new();
         let mut events = 0;
         for _ in 0..DEPTH {
+            let mut coat_ev = false;
             let n = if inside { scale(p, -1.0) } else { p };
             let v = scale(d, -1.0);
             // A thin wall is met from outside on either face.
@@ -365,6 +380,7 @@ fn trace_c(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize, coat:
                 Model::Libbsdf => {
                     let p_layer = s.weight * s.curve.eval(!outside, nk1);
                     if rng.next() < p_layer {
+                        coat_ev = true;
                         // The coat is the module's `mdl 1.0` `simple_glossy_bsdf` too:
                         // a reflect-only legacy lobe loses `legacy_loss` as
                         // the base does (#205: Calib-Furnace-MdlLobe's 1.0
@@ -394,6 +410,7 @@ fn trace_c(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize, coat:
                 }
                 Model::Smith => {
                     if rng.next() < s.weight * coat(nk1) * s.curve.eval(!outside, dot(v, hc)) {
+                        coat_ev = true;
                         // Octane's Thin Wall met from inside lays the
                         // coating under the base on half the hits: that
                         // reflection passes the transmission twice (#168:
@@ -418,6 +435,7 @@ fn trace_c(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize, coat:
                 }
             };
             let Some((l, w, refr, tinted)) = ev else { break };
+            let was_inside = inside;
             if legacy && tinted == 1 && matches!(model, Model::Libbsdf) {
                 lost.push(nk1);
             }
@@ -430,7 +448,8 @@ fn trace_c(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize, coat:
                 inside = !inside;
             }
             if !inside {
-                out.push(Path { w: thr, m, rr, through, fr: std::mem::take(&mut fr), lost: std::mem::take(&mut lost), through_h: std::mem::take(&mut through_h), events });
+                let leave = if was_inside { Leave::Exit } else if coat_ev { Leave::CoatReflection } else { Leave::BaseReflection };
+                out.push(Path { w: thr, m, rr, through, fr: std::mem::take(&mut fr), lost: std::mem::take(&mut lost), through_h: std::mem::take(&mut through_h), events, leave: (leave, nk1) });
                 break;
             }
             // The next hit inside the unit sphere.
@@ -663,20 +682,201 @@ fn octane_excess(octane: &Stack, fake_shadows: bool) -> Option<[f64; 10]> {
 /// Octane's sphere paths: the Smith model, with `excess` each path's
 /// weight × what Octane renders over the model at its entry ring
 /// (`octane_excess`, #185; `Tuning::rough_transmission_excess`), measured
-/// with or without `fake_shadows` (#201).
+/// with or without `fake_shadows` (#201) — or, for resin's reflect +
+/// transmit base, on the event that leaves (`leaving_excess`, #213).
 fn octane_trace(octane: &Stack, excess: bool, fake_shadows: bool) -> Traced {
     octane_trace_c(octane, excess, fake_shadows, &|_| 1.0)
 }
 
-/// `octane_trace` with the coating × `coat(n · k1)` (`trace_c`).
+/// `octane_trace` with the coating × `coat(n · k1)` (`trace_c`). A closed
+/// reflect + transmit base without fake shadows (resin) takes Octane's
+/// excess on the event that leaves the sphere (`leaving_excess`, #213);
+/// every other stack the per-ring table (`octane_excess`).
 fn octane_trace_c(octane: &Stack, excess: bool, fake_shadows: bool, coat: &dyn Fn(f64) -> f64) -> Traced {
     let mut t = trace_c(Model::Smith, octane, 1.0, false, PATHS, coat);
-    if let Some(e) = excess.then(|| octane_excess(octane, fake_shadows)).flatten() {
+    if excess && !fake_shadows && !octane.thin && octane.base == Scatter::ReflectTransmit {
+        for p in &mut t.paths {
+            p.w *= leaving_excess(octane, p.leave);
+        }
+    } else if let Some(e) = excess.then(|| octane_excess(octane, fake_shadows)).flatten() {
         for p in &mut t.paths {
             p.w *= e[((p.rr * 10.0) as usize).min(9)];
         }
     }
     t
+}
+
+/// What Octane renders of one rough reflection off a closed dielectric
+/// sphere's outside, alone (#213): Calib-Furnace-Resin2's Faithful export
+/// re-pinned (`orbx-variants.py set=`): Universal Beckmann at α (the pin
+/// √α), IOR 1.49, specular 1, transmission 0, coating 0, albedo 0;
+/// 1024 samples raw, `furnace-rings.py measure`, rings centre → 0.8 – 0.9.
+/// Rows (α, rings): probes `refl` (α 0.2 – 0.6), `brdf` (0.707), `kinds`
+/// (1). The coating's reflection alone (specular 0, coating 1 at the same
+/// α and IOR) renders the same rings within 0.002 at α 0.5 and 0.707
+/// (0.005 at 0.3): one table for both. **Measured**: the centre is the
+/// model's, the rim up to 1.7 × (α 0.707) and 2.4 × (α 1) its single-
+/// scatter Fresnel · D · G — as #185's `refl` (with fake shadows) found.
+const OCTANE_REFLECTION: [(f64, [f64; 9]); 7] = [
+    (0.2, [0.038, 0.038, 0.038, 0.040, 0.040, 0.041, 0.044, 0.056, 0.083]),
+    (0.3, [0.038, 0.038, 0.039, 0.041, 0.040, 0.042, 0.045, 0.053, 0.071]),
+    (0.4, [0.038, 0.038, 0.039, 0.040, 0.041, 0.042, 0.044, 0.051, 0.069]),
+    (0.5, [0.038, 0.038, 0.038, 0.038, 0.039, 0.041, 0.044, 0.053, 0.071]),
+    (0.6, [0.035, 0.035, 0.035, 0.035, 0.037, 0.040, 0.046, 0.057, 0.076]),
+    (0.7071, [0.032, 0.032, 0.032, 0.033, 0.036, 0.041, 0.049, 0.063, 0.083]),
+    (1.0, [0.021, 0.021, 0.024, 0.027, 0.033, 0.043, 0.056, 0.072, 0.090]),
+];
+
+/// What Octane renders of a closed rough rt sphere entered through a smooth
+/// outside (#213): the same export, the roughness a Polygon Side Mix (α on
+/// the inside, 0 on the outside: `s<pin>,0`), IOR 1.49, specular 1,
+/// transmission 1, coating 0. Every path enters at its ring's refraction
+/// and leaves through the rough inside, mostly at the first hit (internal
+/// cosine √(1 − r² / 1.49²)). Rows (α, rings): probe `exit` (α 0.2 – 0.6),
+/// `side` U3 (0.707, #212, repeated within 0.002).
+const OCTANE_EXIT: [(f64, [f64; 9]); 6] = [
+    (0.2, [1.004, 1.003, 1.004, 1.004, 1.007, 1.005, 0.999, 0.981, 0.952]),
+    (0.3, [1.006, 1.008, 1.011, 1.010, 1.003, 0.989, 0.965, 0.933, 0.895]),
+    (0.4, [1.020, 1.018, 1.010, 0.995, 0.974, 0.947, 0.912, 0.874, 0.836]),
+    (0.5, [1.016, 1.004, 0.982, 0.955, 0.923, 0.888, 0.851, 0.811, 0.779]),
+    (0.6, [0.955, 0.944, 0.923, 0.894, 0.862, 0.826, 0.792, 0.757, 0.730]),
+    (0.7071, [0.852, 0.847, 0.836, 0.817, 0.792, 0.764, 0.734, 0.705, 0.688]),
+];
+
+/// The probes' IOR (`OCTANE_REFLECTION`, `OCTANE_EXIT`): resin's.
+const LEAVE_IOR: f64 = 1.49;
+
+/// The model of the probes: a closed sphere of IOR 1.49, Beckmann + Smith
+/// at α `a_out` on outside hits and `a_in` inside, reflect + transmit by
+/// Fresnel; `transmit` false: a refraction dies (transmission 0), and the
+/// reflection is weighted by Fresnel instead of picked by it (the same
+/// mean without its Bernoulli noise on a 4 % event). Each refraction out
+/// from inside × `exit(n · k1)`. Rings centre → 0.8 – 0.9.
+fn leave_probe_rings(a_out: f64, a_in: f64, transmit: bool, exit: &dyn Fn(f64) -> f64, paths: usize) -> [f64; 9] {
+    let mut rng = Rng(0x5eed_0213);
+    let (mut sum, mut entered) = ([0.0; 9], [0usize; 9]);
+    for _ in 0..paths {
+        let rr = rng.next().sqrt();
+        let j = (rr * 10.0) as usize;
+        if j >= 9 {
+            continue;
+        }
+        entered[j] += 1;
+        let phi = 2.0 * std::f64::consts::PI * rng.next();
+        let mut p: V = [rr * phi.cos(), rr * phi.sin(), (1.0 - rr * rr).max(0.0).sqrt()];
+        let mut d: V = [0.0, 0.0, -1.0];
+        let (mut thr, mut inside) = (1.0, false);
+        for _ in 0..DEPTH {
+            let n = if inside { scale(p, -1.0) } else { p };
+            let v = scale(d, -1.0);
+            let (eta, a) = if inside { (1.0 / LEAVE_IOR, a_in) } else { (LEAVE_IOR, a_out) };
+            let nk1 = dot(n, v).clamp(0.0, 1.0);
+            let h = sample_h(Model::Smith, a, n, &mut rng);
+            let mode = if transmit { Scatter::ReflectTransmit } else { Scatter::Reflect };
+            let Some((l, w, refr)) = lobe(Model::Smith, a, n, v, h, eta, mode, false, &mut rng) else { break };
+            thr *= if transmit { w } else { w * fresnel(eta, dot(v, h)) };
+            if refr {
+                if inside {
+                    thr *= exit(nk1);
+                }
+                inside = !inside;
+            }
+            if !inside {
+                sum[j] += thr;
+                break;
+            }
+            let l = norm(l);
+            p = norm(add(p, scale(l, -2.0 * dot(p, l))));
+            d = l;
+        }
+    }
+    std::array::from_fn(|j| sum[j] / entered[j].max(1) as f64)
+}
+
+/// A ratio by ring read at cosine c: ring j's at `cs[j]` (falling), linear
+/// between, held past either end.
+fn ring_at(k: &[f64; 9], cs: &[f64; 9], c: f64) -> f64 {
+    if c >= cs[0] {
+        return k[0];
+    }
+    match (0..8).find(|&j| c >= cs[j + 1]) {
+        Some(j) => k[j + 1] + (c - cs[j + 1]) / (cs[j] - cs[j + 1]) * (k[j] - k[j + 1]),
+        None => k[8],
+    }
+}
+
+/// The rings' centres r = 0.05 … 0.85 as the entry's cosine (outside) and
+/// as the cosine a smooth entry's refraction meets inside.
+fn ring_cosines() -> ([f64; 9], [f64; 9]) {
+    let r = |j: usize| (j as f64 + 0.5) / 10.0;
+    (std::array::from_fn(|j| (1.0 - r(j).powi(2)).sqrt()), std::array::from_fn(|j| (1.0 - (r(j) / LEAVE_IOR).powi(2)).sqrt()))
+}
+
+/// Octane over its Smith model by α (rows) and ring, for the reflection
+/// off the outside (`OCTANE_REFLECTION` over one Fresnel · D · G event)
+/// and for the refraction out from inside
+/// (`OCTANE_EXIT`'s ratio over the model with it on the exits: solved in
+/// one pass, the probe's paths with the ring's ratio on their exits meet
+/// the probe).
+#[allow(clippy::type_complexity)]
+fn leave_rows() -> &'static (Vec<(f64, [f64; 9])>, Vec<(f64, [f64; 9])>) {
+    static ROWS: std::sync::OnceLock<(Vec<(f64, [f64; 9])>, Vec<(f64, [f64; 9])>)> = std::sync::OnceLock::new();
+    ROWS.get_or_init(|| {
+        let ratio = |o: &[f64; 9], m: &[f64; 9]| -> [f64; 9] { std::array::from_fn(|j| o[j] / m[j].max(1e-9)) };
+        let refl = OCTANE_REFLECTION
+            .iter()
+            .map(|&(a, o)| (a, ratio(&o, &leave_probe_rings(a, a, false, &|_| 1.0, 1 << 18))))
+            .collect();
+        let (_, cin) = ring_cosines();
+        let exit = OCTANE_EXIT
+            .iter()
+            .map(|&(a, o)| {
+                let k0 = ratio(&o, &leave_probe_rings(0.0, a, true, &|_| 1.0, 1 << 18));
+                let m1 = leave_probe_rings(0.0, a, true, &|c| ring_at(&k0, &cin, c), 1 << 18);
+                (a, std::array::from_fn(|j| k0[j] * o[j] / m1[j].max(1e-9)))
+            })
+            .collect();
+        (refl, exit)
+    })
+}
+
+/// A row table's ratio at α (1 at α 0, linear between rows, the last row
+/// held past it) and cosine c.
+fn leave_at(rows: &[(f64, [f64; 9])], cs: &[f64; 9], alpha: f64, c: f64) -> f64 {
+    let at = |i: usize| ring_at(&rows[i].1, cs, c);
+    if alpha >= rows[rows.len() - 1].0 {
+        return at(rows.len() - 1);
+    }
+    match rows.iter().position(|r| alpha <= r.0) {
+        Some(0) | None => 1.0 + alpha / rows[0].0 * (at(0) - 1.0),
+        Some(i) => at(i - 1) + (alpha - rows[i - 1].0) / (rows[i].0 - rows[i - 1].0) * (at(i) - at(i - 1)),
+    }
+}
+
+/// Octane's excess over its Smith model on the event that leaves a closed
+/// rough rt sphere (#213): a reflection off the outside × the reflection's
+/// ratio at its α (the coat's or the base's) and cosine, a refraction out
+/// × the exit's ratio at the base's α and the internal cosine; the events
+/// that stay inside keep the model. **Measured, not fitted**: single
+/// events at known cosines (`OCTANE_REFLECTION`, `OCTANE_EXIT`), none of
+/// them a whole sphere's; with them the model holds probe `fr2`'s eight
+/// closed spheres at α 0.707 (flat and seven falloffs, q 0 – 0.75, s 0.5 –
+/// 3.1) within 1 – 4 % on every ring, against 1.07 – 1.55 at the rim
+/// without. The same ratios put on every event overshoot the rim by 10 –
+/// 20 %: Octane's inside reflections and the entry's refraction keep the
+/// model (the bubble's, `kinds`). Our reading, not Octane's documentation:
+/// Octane's light sampling reaches the environment only from the event that
+/// leaves (a closed glass without fake shadows blocks it from inside), and
+/// its rough dielectric evaluated there keeps more than its sampling; fake
+/// shadows let it through every wall (`OCTANE_SPHERE`'s brighter rims).
+/// The tables are at IOR 1.49 (resin's): other IORs take them as they are.
+fn leaving_excess(octane: &Stack, (leave, c): (Leave, f64)) -> f64 {
+    let (rows, (cout, cin)) = (leave_rows(), ring_cosines());
+    match leave {
+        Leave::BaseReflection => leave_at(&rows.0, &cout, octane.base_rough, c),
+        Leave::CoatReflection => leave_at(&rows.0, &cout, octane.coat_rough, c),
+        Leave::Exit => leave_at(&rows.1, &cin, octane.base_rough, c),
+    }
 }
 
 fn albedo(paths: &[Pw], tint: f64) -> f64 {
@@ -873,8 +1073,9 @@ pub fn coat_falloff(iray: &Stack, octane: &Stack) -> CoatFalloff {
 /// Thin Wall is flat), no falloff.
 ///
 /// `excess`: Octane's side is what Octane renders, the Smith model ×
-/// `octane_excess` (#185, `Tuning::rough_transmission_excess`), so the
-/// solve also takes back what Octane keeps over its own model.
+/// `octane_excess` (#185, `Tuning::rough_transmission_excess`; resin's
+/// on the leaving event, `leaving_excess`, #213), so the solve also takes
+/// back what Octane keeps over its own model.
 pub fn transmission_falloff(iray: &Stack, octane: &Stack, lobe_albedo: f64, lobe_ior: f64, tint: [f32; 3], excess: bool) -> Falloff {
     if iray.thin {
         return Falloff { k: tint_factor_measured(iray, octane, lobe_albedo, lobe_ior, tint), grazing: 1.0, skew: 1.0, coat: CoatFalloff::NONE };
@@ -1185,12 +1386,15 @@ mod tests {
         assert_eq!(octane_excess(&Stack { thin: true, ..s(1.0, 0.6, 1.5) }, true), None);
         // Folded in, rough resin's level drops, most towards the rim (the
         // falloff's grazing ratio); off, it is the model's. Resin exports
-        // no fake shadows: the plain table's few % (k 0.81 → 0.78, grazing
-        // 0.70 → 0.62 at r 0.75), not the Uber glass's 1.2 – 1.5 × rim.
+        // no fake shadows and takes the excess on the event that leaves
+        // (#213): the entry's reflection, which no falloff reaches, keeps
+        // up to 1.6 × at the rim, so the transmission's falloff pulls
+        // harder (k 0.81 → 0.77, grazing 0.59 → 0.40 at r 0.75; the
+        // per-ring table it replaces: 0.70 → 0.62).
         let alpha = |r: f64| crate::material::legacy_phong_alpha(r as f32) as f64;
         let r = |rough| Stack { weight: 0.0, curve: Curve::Fresnel(1.49), coat_rough: rough, base: Scatter::ReflectTransmit, base_rough: rough, ior: 1.49, thin: false };
         let (off, on) = (transmission_falloff(&r(0.75), &r(alpha(0.75)), 0.462, 1.49, [1.0; 3], false), transmission_falloff(&r(0.75), &r(alpha(0.75)), 0.462, 1.49, [1.0; 3], true));
-        assert!(on.k[0] < off.k[0] && (0.03..0.12).contains(&(off.grazing - on.grazing)), "{off:?} {on:?}");
+        assert!(on.k[0] < off.k[0] && (0.1..0.3).contains(&(off.grazing - on.grazing)), "{off:?} {on:?}");
     }
 
     #[test]
@@ -1264,6 +1468,39 @@ mod tests {
         let coated = Stack { weight: 0.6, ..s(0.0) };
         let k = tint_factor_measured(&coated, &coated, 0.505, 1.5, [1.0; 3]);
         assert!((0.6..0.8).contains(&k[0]), "{k:?}");
+    }
+
+    #[test]
+    fn octanes_rough_resin_keeps_its_excess_on_the_event_that_leaves() {
+        // #213, probe `fr2`: closed spheres, both faces Beckmann α 0.707,
+        // IOR 1.49, specular 1, flat and under a falloff q 0 (Octane's rings
+        // 0.1 - 0.2 ... 0.8 - 0.9). The model with Octane's single-event
+        // ratios on the event that leaves holds both within 5 % (ring 0 is
+        // the trace's noise); the plain model leaves q 0's rim 1.25 x.
+        let a = 0.7071;
+        let st = Stack { weight: 0.0, curve: Curve::Fresnel(1.49), coat_rough: a, base: Scatter::ReflectTransmit, base_rough: a, ior: 1.49, thin: false };
+        let rings = |excess: bool, q: f64| {
+            let t = octane_trace_c(&st, excess, false, &|_| 1.0);
+            let mut r = [0.0; 9];
+            for p in &t.paths {
+                let j = (p.rr * 10.0) as usize;
+                if j < 9 {
+                    r[j] += p.w * p.through.iter().map(|&c| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, 1.0)).product::<f64>() / t.entered[j].max(1) as f64;
+                }
+            }
+            r
+        };
+        let flat = [0.794, 0.784, 0.767, 0.746, 0.724, 0.702, 0.681, 0.647];
+        let q0 = [0.615, 0.549, 0.480, 0.410, 0.345, 0.286, 0.234, 0.190];
+        for (o, q) in [(flat, 1.0), (q0, 0.0)] {
+            let m = rings(true, q);
+            assert!((1..9).all(|j| (o[j - 1] / m[j] - 1.0).abs() < 0.05), "q {q}: {m:?}");
+        }
+        assert!(q0[7] / rings(false, 0.0)[8] > 1.15);
+        // The tables come to 1 at α 0 and near it at α 0.2.
+        assert_eq!(leaving_excess(&Stack { base_rough: 0.0, coat_rough: 0.0, ..st }, (Leave::Exit, 0.9)), 1.0);
+        let small = Stack { base_rough: 0.1, coat_rough: 0.1, ..st };
+        assert!([Leave::BaseReflection, Leave::CoatReflection, Leave::Exit].iter().all(|&l| (leaving_excess(&small, (l, 0.7)) - 1.0).abs() < 0.03));
     }
 }
 
@@ -2070,6 +2307,757 @@ mod diag212_exit {
                 let m5 = side_rings_g(a, 0.0, 0.5, 1.0, gm, 0, 1 << 20);
                 println!("g {gm} a {a}: flat {}  q0 {}  q.5 {}", fmt(&r(&o2, &flat)), fmt(&r(&o4, &m0)), fmt(&r(&o6, &m5)));
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod diag213 {
+    //! #213: Octane's rough dielectric entry near grazing (probe `side`,
+    //! `diag212_exit`). What happens to a microfacet sample whose direction
+    //! lands on the wrong side of the macro surface - a refraction that
+    //! points back out, a reflection that points in. The model drops them;
+    //! these variants keep them, one at a time.
+    use super::*;
+
+    /// How a sample on the wrong side is handled: `refr_out` 0 dropped, 1
+    /// kept as a transmission (it leaves on the side it came from), 2
+    /// reflected instead (the reflection about the same facet); `refl_in`
+    /// 0 dropped, 1 kept (it goes through).
+    #[derive(Clone, Copy)]
+    pub(super) struct Wrong {
+        pub refr_out: u8,
+        pub refl_in: u8,
+    }
+
+    pub(super) const DROP: Wrong = Wrong { refr_out: 0, refl_in: 0 };
+
+    /// `diag212_exit::side_rings` with the wrong-side samples handled as
+    /// `wr`; also what the paths that hit DEPTH carried (lost, per ring).
+    pub(super) fn side_rings_w(a_out: f64, a_in: f64, q: f64, sk: f64, wr: Wrong, paths: usize) -> ([f64; 9], [f64; 9]) {
+        side_rings_wd(a_out, a_in, q, sk, wr, DEPTH, paths)
+    }
+
+    /// `side_rings_w` with `depth` surface events per path.
+    pub(super) fn side_rings_wd(a_out: f64, a_in: f64, q: f64, sk: f64, wr: Wrong, depth: usize, paths: usize) -> ([f64; 9], [f64; 9]) {
+        let ior = 1.49;
+        let mut rng = Rng(0x5eed_0213);
+        let (mut sum, mut trapped, mut entered) = ([0.0; 9], [0.0; 9], [0usize; 9]);
+        let fo = |c: f64| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, sk);
+        for _ in 0..paths {
+            let rr = rng.next().sqrt();
+            let j = ((rr * 10.0) as usize).min(9);
+            if j < 9 {
+                entered[j] += 1;
+            }
+            let phi = 2.0 * std::f64::consts::PI * rng.next();
+            let mut p: V = [rr * phi.cos(), rr * phi.sin(), (1.0 - rr * rr).max(0.0).sqrt()];
+            let mut d: V = [0.0, 0.0, -1.0];
+            let (mut thr, mut inside, mut done) = (1.0, false, false);
+            for _ in 0..depth {
+                let n = if inside { scale(p, -1.0) } else { p };
+                let v = scale(d, -1.0);
+                let eta = if inside { 1.0 / ior } else { ior };
+                let a = if inside { a_in } else { a_out };
+                let nv = dot(n, v);
+                let h = sample_h(Model::Smith, a, n, &mut rng);
+                let (vh, nh) = (dot(v, h), dot(n, h));
+                if vh <= 0.0 || nh <= 0.0 || nv <= 0.0 {
+                    break;
+                }
+                let ct2 = 1.0 - (1.0 - vh * vh) / (eta * eta);
+                let mut refract = rng.next() >= fresnel(eta, vh);
+                let reflected = add(scale(h, 2.0 * vh), scale(v, -1.0));
+                let mut l = if refract { add(scale(v, -1.0 / eta), scale(h, vh / eta - ct2.max(0.0).sqrt())) } else { reflected };
+                let mut nl = dot(n, l);
+                if refract && nl >= 0.0 {
+                    match wr.refr_out {
+                        1 => {}
+                        2 => {
+                            refract = false;
+                            l = reflected;
+                            nl = dot(n, l);
+                            if nl <= 0.0 {
+                                break;
+                            }
+                        }
+                        _ => break,
+                    }
+                } else if !refract && nl <= 0.0 && wr.refl_in == 0 {
+                    break;
+                }
+                thr *= vh * smith_g1(nv, a) * smith_g1(nl, a) / (nv * nh);
+                if refract {
+                    thr *= fo(nv);
+                }
+                let l = norm(l);
+                // Where the ray goes is the geometry's: out of the sphere or
+                // on to its far side.
+                if dot(p, l) >= 0.0 {
+                    if j < 9 {
+                        sum[j] += thr;
+                    }
+                    done = true;
+                    break;
+                }
+                inside = true;
+                p = norm(add(p, scale(l, -2.0 * dot(p, l))));
+                d = l;
+            }
+            if !done && inside && j < 9 {
+                trapped[j] += thr;
+            }
+        }
+        let e = |s: [f64; 9]| std::array::from_fn(|j| s[j] / entered[j].max(1) as f64);
+        (e(sum), e(trapped))
+    }
+
+    fn fmt(a: &[f64]) -> String {
+        a.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(" ")
+    }
+
+    fn r(x: &[f64; 9], y: &[f64; 9]) -> [f64; 9] {
+        std::array::from_fn(|j| x[j] / y[j])
+    }
+
+    #[test]
+    #[ignore]
+    fn print_wrong_side() {
+        let a = 0.7071;
+        let o2 = [0.999, 0.999, 0.999, 0.999, 0.999, 0.998, 0.947, 0.737, 0.446];
+        let o4 = [0.841, 0.781, 0.708, 0.630, 0.550, 0.471, 0.380, 0.263, 0.165];
+        let o6 = [0.917, 0.885, 0.846, 0.802, 0.757, 0.709, 0.630, 0.467, 0.284];
+        let o3 = [0.852, 0.847, 0.836, 0.817, 0.792, 0.764, 0.734, 0.705, 0.688];
+        let o5 = [0.785, 0.708, 0.623, 0.538, 0.455, 0.378, 0.307, 0.243, 0.204];
+        let o7 = [0.817, 0.774, 0.724, 0.669, 0.611, 0.553, 0.496, 0.444, 0.409];
+        let o1 = [0.808, 0.802, 0.792, 0.775, 0.756, 0.734, 0.713, 0.694, 0.668];
+        for (ro, ri) in [(0u8, 0u8), (1, 0), (2, 0), (0, 1), (1, 1), (2, 1)] {
+            let wr = Wrong { refr_out: ro, refl_in: ri };
+            println!("refr_out {ro} refl_in {ri}");
+            for (out, inn, of, oq0, oq5, lab) in [(a, 0.0, o2, o4, o6, "rough out"), (0.0, a, o3, o5, o7, "rough in"), (a, a, o1, o1, o1, "both")] {
+                let (flat, tr) = side_rings_w(out, inn, 1.0, 1.0, wr, 1 << 19);
+                println!("  {lab}: flat {}  trapped {}  Octane / model {}", fmt(&flat), fmt(&tr), fmt(&r(&of, &flat)));
+                if lab != "both" {
+                    let (m0, _) = side_rings_w(out, inn, 0.0, 1.0, wr, 1 << 19);
+                    let (m5, _) = side_rings_w(out, inn, 0.5, 1.0, wr, 1 << 19);
+                    println!("     keeps, Octane / model: q0 {}  q.5 {}", fmt(&r(&r(&oq0, &of), &r(&m0, &flat))), fmt(&r(&r(&oq5, &of), &r(&m5, &flat))));
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_depth() {
+        let a = 0.7071;
+        let o2 = [0.999, 0.999, 0.999, 0.999, 0.999, 0.998, 0.947, 0.737, 0.446];
+        let o3 = [0.852, 0.847, 0.836, 0.817, 0.792, 0.764, 0.734, 0.705, 0.688];
+        let o1 = [0.808, 0.802, 0.792, 0.775, 0.756, 0.734, 0.713, 0.694, 0.668];
+        for depth in [16usize, 24, 32, 64, 128, 512] {
+            println!("depth {depth}");
+            for (out, inn, of, lab) in [(a, 0.0, o2, "rough out"), (0.0, a, o3, "rough in"), (a, a, o1, "both")] {
+                let (flat, tr) = side_rings_wd(out, inn, 1.0, 1.0, DROP, depth, 1 << 18);
+                println!("  {lab}: flat {}  trapped {}  Octane / model {}", fmt(&flat), fmt(&tr), fmt(&r(&of, &flat)));
+            }
+        }
+    }
+
+    /// One reflection event off the outside of a sphere (transmission 0,
+    /// albedo 0: probe `refl` / `ior50` of #185), per ring: the model
+    /// (`flip` false: a reflection below the macro surface dies) or with
+    /// such a reflection mirrored above it (`flip` true).
+    fn refl_rings(alpha: f64, ior: f64, flip: bool, gl: bool, paths: usize) -> [f64; 9] {
+        let mut rng = Rng(0x5eed_2131);
+        let (mut sum, mut entered) = ([0.0; 9], [0usize; 9]);
+        for _ in 0..paths {
+            let rr = rng.next().sqrt();
+            let j = ((rr * 10.0) as usize).min(9);
+            if j >= 9 {
+                continue;
+            }
+            entered[j] += 1;
+            let n: V = [rr, 0.0, (1.0 - rr * rr).max(0.0).sqrt()];
+            let v: V = [0.0, 0.0, 1.0];
+            let nv = dot(n, v);
+            let h = sample_h(Model::Smith, alpha, n, &mut rng);
+            let (vh, nh) = (dot(v, h), dot(n, h));
+            if vh <= 0.0 {
+                continue;
+            }
+            let l = add(scale(h, 2.0 * vh), scale(v, -1.0));
+            let nl = dot(n, l);
+            if nl <= 0.0 && !flip {
+                continue;
+            }
+            let g = smith_g1(nv, alpha) * if gl { smith_g1(nl.abs(), alpha) } else { 1.0 };
+            sum[j] += fresnel(ior, vh) * vh * g / (nv * nh);
+        }
+        std::array::from_fn(|j| sum[j] / entered[j].max(1) as f64)
+    }
+
+    #[test]
+    #[ignore]
+    fn print_reflection_flip() {
+        // #185's single-event probes, Octane centre -> rim: refl (IOR 1.5)
+        // α 0.7 0.032 -> 0.083, α 1 0.021 -> 0.091; ior50 α 0.7 0.696 ->
+        // 0.737, α 1 0.426 -> 0.657.
+        for (alpha, ior) in [(0.7, 1.5), (1.0, 1.5), (0.7, 50.0), (1.0, 50.0), (0.7, 1.0 / 1.5), (1.0, 1.0 / 1.5)] {
+            for (flip, gl) in [(false, true), (true, true), (true, false)] {
+                println!("a {alpha} ior {ior:.3} flip {flip} G1(l) {gl}: {}", fmt(&refl_rings(alpha, ior, flip, gl, 1 << 20)));
+            }
+        }
+    }
+
+    /// A microfacet distribution for the probe `brdf` (#213).
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    pub(super) enum Dist {
+        /// Beckmann, `libbsdf`'s rational Smith G1 (the model's).
+        Beckmann,
+        /// Beckmann with the exact Smith G1 (erf).
+        BeckmannExact,
+        /// GGX (Trowbridge - Reitz), its exact Smith G1.
+        Ggx,
+    }
+
+    fn erf(x: f64) -> f64 {
+        // Abramowitz - Stegun 7.1.26 (1.5e-7).
+        let t = 1.0 / (1.0 + 0.327_591_1 * x.abs());
+        let y = 1.0 - (((((1.061_405_429 * t - 1.453_152_027) * t) + 1.421_413_741) * t - 0.284_496_736) * t + 0.254_829_592) * t * (-x * x).exp();
+        if x >= 0.0 { y } else { -y }
+    }
+
+    fn g1(dist: Dist, c: f64, alpha: f64) -> f64 {
+        let c = c.abs().clamp(1e-9, 1.0);
+        let tan = (1.0 - c * c).sqrt() / c;
+        match dist {
+            Dist::Beckmann => smith_g1(c, alpha),
+            Dist::BeckmannExact => {
+                let a = 1.0 / (alpha * tan + 1e-12);
+                if a > 8.0 { 1.0 } else { 2.0 / (1.0 + erf(a) + (-a * a).exp() / (a * std::f64::consts::PI.sqrt())) }
+            }
+            Dist::Ggx => 2.0 / (1.0 + (1.0 + alpha * alpha * tan * tan).sqrt()),
+        }
+    }
+
+    fn sample_d(dist: Dist, alpha: f64, n: V, rng: &mut Rng) -> V {
+        if dist != Dist::Ggx || alpha <= 0.0 {
+            return sample_h(Model::Smith, alpha, n, rng);
+        }
+        let (u1, u2) = (rng.next(), rng.next());
+        let t2 = alpha * alpha * u1 / (1.0 - u1).max(1e-12);
+        let c = 1.0 / (1.0 + t2).sqrt();
+        let s = (1.0 - c * c).max(0.0).sqrt();
+        let phi = 2.0 * std::f64::consts::PI * u2;
+        let a = if n[0].abs() > 0.9 { [0.0, 1.0, 0.0] } else { [1.0, 0.0, 0.0] };
+        let t = norm([a[1] * n[2] - a[2] * n[1], a[2] * n[0] - a[0] * n[2], a[0] * n[1] - a[1] * n[0]]);
+        let b = [n[1] * t[2] - n[2] * t[1], n[2] * t[0] - n[0] * t[2], n[0] * t[1] - n[1] * t[0]];
+        add(add(scale(t, s * phi.cos()), scale(b, s * phi.sin())), scale(n, c))
+    }
+
+    /// Probe `brdf`'s spheres: outside α `a_out`, inside `a_in`, IOR 1.49,
+    /// `spec` Universal's specular (1: reflect / transmit by Fresnel; 0: the
+    /// transmission lobe alone, a total reflection reflects), `trans` 0: a
+    /// refraction dies (the outside's reflection alone). Rings, and what of
+    /// each ring got inside and was still inside after `depth` events.
+    pub(super) fn brdf_rings(dist: Dist, a_out: f64, a_in: f64, spec: bool, trans: bool, depth: usize, paths: usize) -> ([f64; 9], [f64; 9]) {
+        brdf_rings_i(dist, a_out, a_in, 1.49, spec, trans, depth, paths)
+    }
+
+    /// `brdf_rings` at the IOR `ior` (below 1: a bubble, its outside an
+    /// inside-kind event).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn brdf_rings_i(dist: Dist, a_out: f64, a_in: f64, ior: f64, spec: bool, trans: bool, depth: usize, paths: usize) -> ([f64; 9], [f64; 9]) {
+        let mut rng = Rng(0x5eed_2132);
+        let (mut sum, mut trapped, mut entered) = ([0.0; 9], [0.0; 9], [0usize; 9]);
+        for _ in 0..paths {
+            let rr = rng.next().sqrt();
+            let j = ((rr * 10.0) as usize).min(9);
+            if j >= 9 {
+                continue;
+            }
+            entered[j] += 1;
+            let phi = 2.0 * std::f64::consts::PI * rng.next();
+            let mut p: V = [rr * phi.cos(), rr * phi.sin(), (1.0 - rr * rr).max(0.0).sqrt()];
+            let mut d: V = [0.0, 0.0, -1.0];
+            let (mut thr, mut inside, mut out) = (1.0, false, false);
+            for _ in 0..depth {
+                let n = if inside { scale(p, -1.0) } else { p };
+                let v = scale(d, -1.0);
+                let eta = if inside { 1.0 / ior } else { ior };
+                let a = if inside { a_in } else { a_out };
+                let h = sample_d(dist, a, n, &mut rng);
+                let (vh, nh, nv) = (dot(v, h), dot(n, h), dot(n, v));
+                if vh <= 0.0 || nh <= 0.0 || nv <= 0.0 {
+                    thr = 0.0;
+                    break;
+                }
+                let ct2 = 1.0 - (1.0 - vh * vh) / (eta * eta);
+                let refract = if spec { rng.next() >= fresnel(eta, vh) } else { ct2 >= 0.0 };
+                let l = if refract { add(scale(v, -1.0 / eta), scale(h, vh / eta - ct2.max(0.0).sqrt())) } else { add(scale(h, 2.0 * vh), scale(v, -1.0)) };
+                let nl = dot(n, l);
+                if (refract && nl >= 0.0) || (!refract && nl <= 0.0) || (refract && !trans) {
+                    thr = 0.0;
+                    break;
+                }
+                thr *= if a > 0.0 { vh * g1(dist, nv, a) * g1(dist, nl, a) / (nv * nh) } else { 1.0 };
+                if refract {
+                    inside = !inside;
+                }
+                if !inside {
+                    out = true;
+                    break;
+                }
+                let l = norm(l);
+                p = norm(add(p, scale(l, -2.0 * dot(p, l))));
+                d = l;
+            }
+            if out {
+                sum[j] += thr;
+            } else {
+                trapped[j] += thr;
+            }
+        }
+        let e = |s: [f64; 9]| std::array::from_fn(|j| s[j] / entered[j].max(1) as f64);
+        (e(sum), e(trapped))
+    }
+
+    #[test]
+    #[ignore]
+    fn print_brdf_model() {
+        let a = 0.7071;
+        for (lab, spec, trans) in [("rt", true, true), ("refl", true, false), ("tr", false, true)] {
+            for dist in [Dist::Beckmann, Dist::BeckmannExact, Dist::Ggx] {
+                let (m, t) = brdf_rings(dist, a, 0.0, spec, trans, DEPTH, 1 << 20);
+                println!("{lab} {dist:?}: {}  trapped {}", fmt(&m), fmt(&t));
+            }
+        }
+    }
+
+    /// `diag212_exit::side_rings` split: (paths that never pass the surface,
+    /// paths that pass it), rings centre -> 0.8 - 0.9.
+    fn side_split(a_out: f64, a_in: f64, q: f64, sk: f64, paths: usize) -> ([f64; 9], [f64; 9]) {
+        let ior = 1.49;
+        let mut rng = Rng(0x5eed_2133);
+        let (mut rs, mut ts, mut entered) = ([0.0; 9], [0.0; 9], [0usize; 9]);
+        let fo = |c: f64| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, sk);
+        for _ in 0..paths {
+            let rr = rng.next().sqrt();
+            let j = ((rr * 10.0) as usize).min(9);
+            if j >= 9 {
+                continue;
+            }
+            entered[j] += 1;
+            let phi = 2.0 * std::f64::consts::PI * rng.next();
+            let mut p: V = [rr * phi.cos(), rr * phi.sin(), (1.0 - rr * rr).max(0.0).sqrt()];
+            let mut d: V = [0.0, 0.0, -1.0];
+            let (mut thr, mut inside, mut passed) = (1.0, false, false);
+            for _ in 0..DEPTH {
+                let n = if inside { scale(p, -1.0) } else { p };
+                let v = scale(d, -1.0);
+                let eta = if inside { 1.0 / ior } else { ior };
+                let a = if inside { a_in } else { a_out };
+                let nk1 = dot(n, v).clamp(0.0, 1.0);
+                let h = sample_h(Model::Smith, a, n, &mut rng);
+                let Some((l, w, refr)) = lobe(Model::Smith, a, n, v, h, eta, Scatter::ReflectTransmit, false, &mut rng) else { break };
+                thr *= w;
+                if refr {
+                    thr *= fo(nk1);
+                    inside = !inside;
+                    passed = true;
+                }
+                if !inside {
+                    if passed { ts[j] += thr } else { rs[j] += thr }
+                    break;
+                }
+                let l = norm(l);
+                p = norm(add(p, scale(l, -2.0 * dot(p, l))));
+                d = l;
+            }
+        }
+        let e = |s: [f64; 9]| std::array::from_fn(|j| s[j] / entered[j].max(1) as f64);
+        (e(rs), e(ts))
+    }
+
+    #[test]
+    #[ignore]
+    fn print_entry_split() {
+        // Probe `brdf` (#213): rough outside α 0.707 (Beckmann), smooth
+        // inside. B1 rt flat, B5 the outside's reflection alone
+        // (transmission 0), B7 specular 0. Probe `side` (#212): U4 q 0, U6 q 0.5.
+        let a = 0.7071;
+        let b1 = [0.999, 0.999, 0.999, 0.998, 0.998, 0.997, 0.945, 0.737, 0.448];
+        let b5 = [0.032, 0.032, 0.032, 0.033, 0.036, 0.041, 0.049, 0.063, 0.083];
+        let o4 = [0.841, 0.781, 0.708, 0.630, 0.550, 0.471, 0.380, 0.263, 0.165];
+        let o6 = [0.917, 0.885, 0.846, 0.802, 0.757, 0.709, 0.630, 0.467, 0.284];
+        let (rf, t1) = side_split(a, 0.0, 1.0, 1.0, 1 << 20);
+        let kr: [f64; 9] = std::array::from_fn(|j| b5[j] / rf[j]);
+        let kt: [f64; 9] = std::array::from_fn(|j| (b1[j] - b5[j]) / t1[j]);
+        println!("flat: model R {}  T {}", fmt(&rf), fmt(&t1));
+        println!("   Octane / model: R {}  T {}", fmt(&kr), fmt(&kt));
+        for (q, o) in [(0.0, o4), (0.5, o6)] {
+            let (rq, t) = side_split(a, 0.0, q, 1.0, 1 << 20);
+            let pred: [f64; 9] = std::array::from_fn(|j| kr[j] * rq[j] + kt[j] * t[j]);
+            let plain: [f64; 9] = std::array::from_fn(|j| rq[j] + t[j]);
+            println!("q {q}: Octane / model {}   Octane / (R, T measured) {}", fmt(&r(&o, &plain)), fmt(&r(&o, &pred)));
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_kinds() {
+        // Probe `kinds` (#213): Calib-Furnace-Resin2 re-pinned, Beckmann,
+        // rough outside (α), smooth inside; IOR 0.6711 = 1 / 1.49 a bubble.
+        let p = |pin: f64| pin * pin;
+        let rows: [(&str, f64, f64, bool, bool, [f64; 9]); 7] = [
+            ("K1 bubble rt", p(0.840896), 0.6711, true, true, [0.834, 0.837, 0.839, 0.841, 0.844, 0.848, 0.854, 0.849, 0.810]),
+            ("K2 bubble refl", p(0.840896), 0.6711, true, false, [0.094, 0.109, 0.137, 0.175, 0.222, 0.280, 0.350, 0.440, 0.558]),
+            ("K3 bubble tr", p(0.840896), 0.6711, false, true, [0.818, 0.817, 0.810, 0.795, 0.779, 0.761, 0.741, 0.708, 0.640]),
+            ("K4 refl a.5", 0.5, 1.49, true, false, [0.038, 0.038, 0.038, 0.038, 0.039, 0.041, 0.045, 0.054, 0.073]),
+            ("K5 refl a1", 1.0, 1.49, true, false, [0.021, 0.021, 0.024, 0.027, 0.033, 0.043, 0.056, 0.072, 0.090]),
+            ("K6 bubble refl a.5", 0.5, 0.6711, true, false, [0.058, 0.074, 0.107, 0.155, 0.219, 0.295, 0.386, 0.496, 0.629]),
+            ("K7 bubble refl a1", 1.0, 0.6711, true, false, [0.122, 0.129, 0.141, 0.160, 0.187, 0.225, 0.276, 0.345, 0.443]),
+        ];
+        for (lab, a, ior, spec, trans, o) in rows {
+            let (m, _) = brdf_rings_i(Dist::Beckmann, a, 0.0, ior, spec, trans, DEPTH, 1 << 20);
+            println!("{lab}: model {}  Octane / model {}", fmt(&m), fmt(&r(&o, &m)));
+        }
+    }
+
+    /// A per-ring ratio as a function of the event's macro cosine: the
+    /// rings' centres r = 0.05 ... 0.85 at c = √(1 − r²), linear between,
+    /// held past either end.
+    fn by_cos(k: &[f64; 9], c: f64) -> f64 {
+        let cs: [f64; 9] = std::array::from_fn(|j| (1.0 - ((j as f64 + 0.5) / 10.0).powi(2)).sqrt());
+        if c >= cs[0] {
+            return k[0];
+        }
+        for j in 0..8 {
+            if c >= cs[j + 1] {
+                let f = (c - cs[j + 1]) / (cs[j] - cs[j + 1]);
+                return k[j + 1] + f * (k[j] - k[j + 1]);
+            }
+        }
+        k[8]
+    }
+
+    /// Octane's single events over the model at α 0.707, IOR 1.49, by kind
+    /// (outside / inside, reflect / refract) and ring (probes `brdf`,
+    /// `kinds`, `side` -subd2).
+    pub(super) struct Events {
+        pub ro: [f64; 9],
+        pub to: [f64; 9],
+        pub ri: [f64; 9],
+        pub ti: [f64; 9],
+    }
+
+    /// Closed rt sphere (IOR 1.49, Beckmann α out / in), the transmission
+    /// × the falloff (q, s) at each refraction's macro cosine, every event
+    /// × Octane's measured single-event ratio of its kind at its cosine
+    /// (`ev`; None: the model).
+    pub(super) fn event_rings(a_out: f64, a_in: f64, q: f64, sk: f64, ev: Option<&Events>, paths: usize) -> [f64; 9] {
+        let ior = 1.49;
+        let mut rng = Rng(0x5eed_2134);
+        let (mut sum, mut entered) = ([0.0; 9], [0usize; 9]);
+        let fo = |c: f64| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, sk);
+        for _ in 0..paths {
+            let rr = rng.next().sqrt();
+            let j = ((rr * 10.0) as usize).min(9);
+            if j >= 9 {
+                continue;
+            }
+            entered[j] += 1;
+            let phi = 2.0 * std::f64::consts::PI * rng.next();
+            let mut p: V = [rr * phi.cos(), rr * phi.sin(), (1.0 - rr * rr).max(0.0).sqrt()];
+            let mut d: V = [0.0, 0.0, -1.0];
+            let (mut thr, mut inside) = (1.0, false);
+            for _ in 0..DEPTH {
+                let n = if inside { scale(p, -1.0) } else { p };
+                let v = scale(d, -1.0);
+                let eta = if inside { 1.0 / ior } else { ior };
+                let a = if inside { a_in } else { a_out };
+                let nk1 = dot(n, v).clamp(0.0, 1.0);
+                let h = sample_h(Model::Smith, a, n, &mut rng);
+                let Some((l, w, refr)) = lobe(Model::Smith, a, n, v, h, eta, Scatter::ReflectTransmit, false, &mut rng) else { break };
+                thr *= w;
+                if let Some(e) = ev.filter(|_| a > 0.0) {
+                    thr *= by_cos(
+                        match (inside, refr) {
+                            (false, false) => &e.ro,
+                            (false, true) => &e.to,
+                            (true, false) => &e.ri,
+                            (true, true) => &e.ti,
+                        },
+                        nk1,
+                    );
+                }
+                if refr {
+                    thr *= fo(nk1);
+                    inside = !inside;
+                }
+                if !inside {
+                    sum[j] += thr;
+                    break;
+                }
+                let l = norm(l);
+                p = norm(add(p, scale(l, -2.0 * dot(p, l))));
+                d = l;
+            }
+        }
+        std::array::from_fn(|j| sum[j] / entered[j].max(1) as f64)
+    }
+
+    /// The single-event ratios at α 0.707 from the probes (`subd`: the
+    /// outside's transmission from the subdivided `side` sphere, less
+    /// tessellation's escape of the light a smooth inside traps).
+    pub(super) fn events_0707(subd: bool) -> Events {
+        let a = 0.7071;
+        // Outside: B5 (reflection alone), B1 / side-subd2 U2 (rt, smooth inside).
+        let b5 = [0.032, 0.032, 0.032, 0.033, 0.036, 0.041, 0.049, 0.063, 0.083];
+        let b1 = if subd { [0.999, 0.999, 0.999, 0.998, 0.999, 0.997, 0.945, 0.728, 0.425] } else { [0.999, 0.999, 0.999, 0.998, 0.998, 0.997, 0.945, 0.737, 0.448] };
+        let (mr, mt) = side_split(a, 0.0, 1.0, 1.0, 1 << 20);
+        // Inside kind: the bubble K2 (reflection alone), K1 (rt).
+        let k1 = [0.834, 0.837, 0.839, 0.841, 0.844, 0.848, 0.854, 0.849, 0.810];
+        let k2 = [0.094, 0.109, 0.137, 0.175, 0.222, 0.280, 0.350, 0.440, 0.558];
+        let (m1, _) = brdf_rings_i(Dist::Beckmann, a, 0.0, 0.6711, true, true, DEPTH, 1 << 20);
+        let (m2, _) = brdf_rings_i(Dist::Beckmann, a, 0.0, 0.6711, true, false, DEPTH, 1 << 20);
+        let mut ro: [f64; 9] = std::array::from_fn(|j| b5[j] / mr[j]);
+        let mut ri: [f64; 9] = std::array::from_fn(|j| k2[j] / m2[j]);
+        // Ring 0's model is noisy (few paths, heavy weights): ring 1's.
+        ro[0] = ro[1];
+        ri[0] = ri[1];
+        Events {
+            ro,
+            to: std::array::from_fn(|j| (b1[j] - b5[j]) / mt[j]),
+            ri,
+            ti: std::array::from_fn(|j| (k1[j] - k2[j]) / (m1[j] - m2[j])),
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_event_model() {
+        let a = 0.7071;
+        for subd in [false, true] {
+            let e = events_0707(subd);
+            println!("subd {subd}: ro {}  to {}  ri {}  ti {}", fmt(&e.ro), fmt(&e.to), fmt(&e.ri), fmt(&e.ti));
+            // #212 probe `fr` (both rough, α 0.707): U4 flat, U5 q0 s1, U7 q0 s3.1, U8 q0.5 s1.
+            let fr: [(&str, f64, f64, [f64; 9]); 4] = [
+                ("fr flat", 1.0, 1.0, [0.803, 0.795, 0.783, 0.766, 0.746, 0.725, 0.704, 0.679, 0.644]),
+                ("fr q0", 0.0, 1.0, [0.666, 0.614, 0.550, 0.480, 0.411, 0.345, 0.285, 0.234, 0.190]),
+                ("fr q0 s3.1", 0.0, 3.1, [0.792, 0.785, 0.770, 0.745, 0.711, 0.668, 0.614, 0.546, 0.450]),
+                ("fr q.5", 0.5, 1.0, [0.743, 0.714, 0.674, 0.630, 0.582, 0.534, 0.490, 0.452, 0.419]),
+            ];
+            for (lab, q, sk, o) in fr {
+                let m = event_rings(a, a, q, sk, None, 1 << 19);
+                let x = event_rings(a, a, q, sk, Some(&e), 1 << 19);
+                println!("  {lab}: Octane / model {}  Octane / events {}", fmt(&r(&o, &m)), fmt(&r(&o, &x)));
+            }
+            // #212 probe `side`, smooth entry, rough inside: U3 flat, U5 q0, U7 q.5.
+            for (lab, q, o) in [("in flat", 1.0, [0.852, 0.847, 0.836, 0.817, 0.792, 0.764, 0.734, 0.705, 0.688]), ("in q0", 0.0, [0.785, 0.708, 0.623, 0.538, 0.455, 0.378, 0.307, 0.243, 0.204]), ("in q.5", 0.5, [0.817, 0.774, 0.724, 0.669, 0.611, 0.553, 0.496, 0.444, 0.409])] {
+                let m = event_rings(0.0, a, q, 1.0, None, 1 << 19);
+                let x = event_rings(0.0, a, q, 1.0, Some(&e), 1 << 19);
+                println!("  {lab}: Octane / model {}  Octane / events {}", fmt(&r(&o, &m)), fmt(&r(&o, &x)));
+            }
+        }
+    }
+
+    /// A ratio by ring of an exit from inside after a smooth entry: at the
+    /// internal cosine √(1 − r² / 1.49²) of each ring's centre, linear
+    /// between, held past either end.
+    fn by_cos_in(k: &[f64; 9], c: f64) -> f64 {
+        let cs: [f64; 9] = std::array::from_fn(|j| (1.0 - ((j as f64 + 0.5) / 10.0 / 1.49).powi(2)).sqrt());
+        if c >= cs[0] {
+            return k[0];
+        }
+        for j in 0..8 {
+            if c >= cs[j + 1] {
+                let f = (c - cs[j + 1]) / (cs[j] - cs[j + 1]);
+                return k[j + 1] + f * (k[j] - k[j + 1]);
+            }
+        }
+        k[8]
+    }
+
+    /// `event_rings` with only the event that leaves the sphere scaled: an
+    /// entry reflection by `ro` at its cosine (`by_cos`), an exit refraction
+    /// by `tx` at its internal cosine (`by_cos_in`).
+    pub(super) fn final_rings(a_out: f64, a_in: f64, q: f64, sk: f64, ro: &[f64; 9], tx: &[f64; 9], paths: usize) -> [f64; 9] {
+        let ior = 1.49;
+        let mut rng = Rng(0x5eed_2135);
+        let (mut sum, mut entered) = ([0.0; 9], [0usize; 9]);
+        let fo = |c: f64| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, sk);
+        for _ in 0..paths {
+            let rr = rng.next().sqrt();
+            let j = ((rr * 10.0) as usize).min(9);
+            if j >= 9 {
+                continue;
+            }
+            entered[j] += 1;
+            let phi = 2.0 * std::f64::consts::PI * rng.next();
+            let mut p: V = [rr * phi.cos(), rr * phi.sin(), (1.0 - rr * rr).max(0.0).sqrt()];
+            let mut d: V = [0.0, 0.0, -1.0];
+            let (mut thr, mut inside) = (1.0, false);
+            for _ in 0..DEPTH {
+                let n = if inside { scale(p, -1.0) } else { p };
+                let v = scale(d, -1.0);
+                let eta = if inside { 1.0 / ior } else { ior };
+                let a = if inside { a_in } else { a_out };
+                let nk1 = dot(n, v).clamp(0.0, 1.0);
+                let h = sample_h(Model::Smith, a, n, &mut rng);
+                let Some((l, w, refr)) = lobe(Model::Smith, a, n, v, h, eta, Scatter::ReflectTransmit, false, &mut rng) else { break };
+                thr *= w;
+                let was_inside = inside;
+                if refr {
+                    thr *= fo(nk1);
+                    inside = !inside;
+                }
+                if !inside {
+                    if a > 0.0 {
+                        thr *= if was_inside { by_cos_in(tx, nk1) } else { by_cos(ro, nk1) };
+                    }
+                    sum[j] += thr;
+                    break;
+                }
+                let l = norm(l);
+                p = norm(add(p, scale(l, -2.0 * dot(p, l))));
+                d = l;
+            }
+        }
+        std::array::from_fn(|j| sum[j] / entered[j].max(1) as f64)
+    }
+
+    #[test]
+    #[ignore]
+    fn print_final_event_model() {
+        let a = 0.7071;
+        let e = events_0707(true);
+        // The exit's ratio: probe `side` U3 (smooth entry, rough inside)
+        // over the model, by ring, read at the ring's internal cosine.
+        let u3 = [0.852, 0.847, 0.836, 0.817, 0.792, 0.764, 0.734, 0.705, 0.688];
+        let m3 = final_rings(0.0, a, 1.0, 1.0, &[1.0; 9], &[1.0; 9], 1 << 20);
+        let tx0 = r(&u3, &m3);
+        // One pass of deconvolution: what U3 keeps with tx0 on its exits.
+        let m3b = final_rings(0.0, a, 1.0, 1.0, &[1.0; 9], &tx0, 1 << 20);
+        let tx: [f64; 9] = std::array::from_fn(|j| tx0[j] * u3[j] / m3b[j]);
+        println!("ro {}  tx {}", fmt(&e.ro), fmt(&tx));
+        let fr: [(&str, f64, f64, [f64; 9]); 4] = [
+            ("fr flat", 1.0, 1.0, [0.803, 0.795, 0.783, 0.766, 0.746, 0.725, 0.704, 0.679, 0.644]),
+            ("fr q0", 0.0, 1.0, [0.666, 0.614, 0.550, 0.480, 0.411, 0.345, 0.285, 0.234, 0.190]),
+            ("fr q0 s3.1", 0.0, 3.1, [0.792, 0.785, 0.770, 0.745, 0.711, 0.668, 0.614, 0.546, 0.450]),
+            ("fr q.5", 0.5, 1.0, [0.743, 0.714, 0.674, 0.630, 0.582, 0.534, 0.490, 0.452, 0.419]),
+        ];
+        for (lab, q, sk, o) in fr {
+            let x = final_rings(a, a, q, sk, &e.ro, &tx, 1 << 19);
+            let xr = final_rings(a, a, q, sk, &e.ro, &[1.0; 9], 1 << 19);
+            println!("  {lab}: Octane / final-event model {}   (entry reflection only {})", fmt(&r(&o, &x)), fmt(&r(&o, &xr)));
+        }
+        for (lab, q, o) in [("in q0", 0.0, [0.785, 0.708, 0.623, 0.538, 0.455, 0.378, 0.307, 0.243, 0.204]), ("in q.5", 0.5, [0.817, 0.774, 0.724, 0.669, 0.611, 0.553, 0.496, 0.444, 0.409])] {
+            let x = final_rings(0.0, a, q, 1.0, &e.ro, &tx, 1 << 19);
+            println!("  {lab}: Octane / final-event model {}", fmt(&r(&o, &x)));
+        }
+        for (lab, q, o) in [("out q0", 0.0, [0.841, 0.781, 0.708, 0.630, 0.550, 0.471, 0.380, 0.263, 0.165]), ("out q.5", 0.5, [0.917, 0.885, 0.846, 0.802, 0.757, 0.709, 0.630, 0.467, 0.284])] {
+            let x = final_rings(a, 0.0, q, 1.0, &e.ro, &tx, 1 << 19);
+            println!("  {lab}: Octane / final-event model {}", fmt(&r(&o, &x)));
+        }
+    }
+
+    /// The exit's ratio for `final_rings`: probe `side` U3 (smooth entry,
+    /// rough inside α 0.707) over the model, read at each ring's internal
+    /// cosine, one pass of deconvolution (U3's own paths with it on their
+    /// exits meet U3).
+    pub(super) fn exit_0707() -> [f64; 9] {
+        let a = 0.7071;
+        let u3 = [0.852, 0.847, 0.836, 0.817, 0.792, 0.764, 0.734, 0.705, 0.688];
+        let m3 = final_rings(0.0, a, 1.0, 1.0, &[1.0; 9], &[1.0; 9], 1 << 20);
+        let tx0 = r(&u3, &m3);
+        let m3b = final_rings(0.0, a, 1.0, 1.0, &[1.0; 9], &tx0, 1 << 20);
+        std::array::from_fn(|j| tx0[j] * u3[j] / m3b[j])
+    }
+
+    #[test]
+    #[ignore]
+    fn print_fr2() {
+        // Probe `fr2` (#213): both faces α 0.707 (pin 0.840896), Beckmann,
+        // specular 1, coating 0, IOR 1.49; the transmission flat or a
+        // Falloff Mix (q, s).
+        let a = 0.7071;
+        let e = events_0707(true);
+        let tx = exit_0707();
+        let rows: [(f64, f64, [f64; 9]); 8] = [
+            (1.0, 1.0, [0.799, 0.794, 0.784, 0.767, 0.746, 0.724, 0.702, 0.681, 0.647]),
+            (0.0, 1.0, [0.665, 0.615, 0.549, 0.480, 0.410, 0.345, 0.286, 0.234, 0.190]),
+            (0.0, 3.1, [0.794, 0.787, 0.771, 0.746, 0.713, 0.668, 0.615, 0.546, 0.449]),
+            (0.5, 1.0, [0.732, 0.702, 0.661, 0.614, 0.565, 0.516, 0.468, 0.423, 0.376]),
+            (0.25, 1.0, [0.698, 0.657, 0.604, 0.545, 0.485, 0.425, 0.370, 0.320, 0.272]),
+            (0.0, 0.5, [0.562, 0.484, 0.395, 0.312, 0.239, 0.181, 0.138, 0.112, 0.104]),
+            (0.5, 3.0, [0.797, 0.789, 0.775, 0.754, 0.725, 0.692, 0.654, 0.606, 0.537]),
+            (0.75, 1.0, [0.769, 0.748, 0.722, 0.690, 0.654, 0.617, 0.581, 0.545, 0.503]),
+        ];
+        for (q, sk, o) in rows {
+            let m = final_rings(a, a, q, sk, &[1.0; 9], &[1.0; 9], 1 << 19);
+            let x = final_rings(a, a, q, sk, &e.ro, &tx, 1 << 19);
+            println!("q {q} s {sk}: Octane / model {}  Octane / final-event {}", fmt(&r(&o, &m)), fmt(&r(&o, &x)));
+        }
+    }
+
+    /// Octane's model as the export traces it (`octane_trace_c`, excess
+    /// on), rings under a falloff (q, s) on the transmission.
+    fn export_rings(alpha: f64, ior: f64, q: f64, sk: f64) -> [f64; 9] {
+        let st = Stack { weight: 0.0, curve: Curve::Fresnel(ior), coat_rough: alpha, base: Scatter::ReflectTransmit, base_rough: alpha, ior, thin: false };
+        let t = octane_trace_c(&st, true, false, &|_| 1.0);
+        let fo = |c: f64| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, sk);
+        let mut rings = [0.0; 9];
+        for p in &t.paths {
+            let j = (p.rr * 10.0) as usize;
+            if j < 9 {
+                rings[j] += p.w * p.through.iter().map(|&c| fo(c)).product::<f64>();
+            }
+        }
+        std::array::from_fn(|j| rings[j] / t.entered[j].max(1) as f64)
+    }
+
+    #[test]
+    #[ignore]
+    fn print_leaving_excess_check() {
+        let (refl, exit) = leave_rows();
+        for (a, k) in refl {
+            println!("refl a {a}: {}", fmt(k));
+        }
+        for (a, k) in exit {
+            println!("exit a {a}: {}", fmt(k));
+        }
+        // fr2 (α 0.707), exit U6 / U7 (α 0.5 flat, q0), U8 (α 0.3 q0).
+        let rows: [(f64, f64, f64, [f64; 9]); 11] = [
+            (0.7071, 1.0, 1.0, [0.799, 0.794, 0.784, 0.767, 0.746, 0.724, 0.702, 0.681, 0.647]),
+            (0.7071, 0.0, 1.0, [0.665, 0.615, 0.549, 0.480, 0.410, 0.345, 0.286, 0.234, 0.190]),
+            (0.7071, 0.0, 3.1, [0.794, 0.787, 0.771, 0.746, 0.713, 0.668, 0.615, 0.546, 0.449]),
+            (0.7071, 0.5, 1.0, [0.732, 0.702, 0.661, 0.614, 0.565, 0.516, 0.468, 0.423, 0.376]),
+            (0.7071, 0.25, 1.0, [0.698, 0.657, 0.604, 0.545, 0.485, 0.425, 0.370, 0.320, 0.272]),
+            (0.7071, 0.0, 0.5, [0.562, 0.484, 0.395, 0.312, 0.239, 0.181, 0.138, 0.112, 0.104]),
+            (0.7071, 0.5, 3.0, [0.797, 0.789, 0.775, 0.754, 0.725, 0.692, 0.654, 0.606, 0.537]),
+            (0.7071, 0.75, 1.0, [0.769, 0.748, 0.722, 0.690, 0.654, 0.617, 0.581, 0.545, 0.503]),
+            (0.5, 1.0, 1.0, [0.979, 0.969, 0.949, 0.922, 0.892, 0.856, 0.816, 0.771, 0.720]),
+            (0.5, 0.0, 1.0, [0.841, 0.773, 0.684, 0.590, 0.498, 0.411, 0.331, 0.260, 0.202]),
+            (0.3, 0.0, 1.0, [0.900, 0.831, 0.746, 0.658, 0.566, 0.475, 0.387, 0.306, 0.237]),
+        ];
+        for (a, q, sk, o) in rows {
+            let st = Stack { weight: 0.0, curve: Curve::Fresnel(1.49), coat_rough: a, base: Scatter::ReflectTransmit, base_rough: a, ior: 1.49, thin: false };
+            let t = trace_c(Model::Smith, &st, 1.0, false, PATHS, &|_| 1.0);
+            let fo = |c: f64| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, sk);
+            let mut m = [0.0; 9];
+            for p in &t.paths {
+                let j = (p.rr * 10.0) as usize;
+                if j < 9 {
+                    m[j] += p.w * p.through.iter().map(|&c| fo(c)).product::<f64>() / t.entered[j].max(1) as f64;
+                }
+            }
+            let x = export_rings(a, 1.49, q, sk);
+            println!("a {a} q {q} s {sk}: Octane / model {}  Octane / export {}", fmt(&r(&o, &m)), fmt(&r(&o, &x)));
+        }
+        // OCTANE_SPHERE_PLAIN's rt rows (IOR 1.5, Calib-Furnace-Resin, flat).
+        for &(ior, a, _, rt) in OCTANE_SPHERE_PLAIN.iter().filter(|r| r.0 == 1.5) {
+            let x = export_rings(a, ior, 1.0, 1.0);
+            println!("PLAIN rt a {a}: Octane / export {}", fmt(&r(&rt, &x)));
         }
     }
 }

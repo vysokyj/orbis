@@ -3215,6 +3215,37 @@ leaves out, #15):
     (`transmission_falloff`): at IOR 1.5 that is the Smith model within
     1 – 6 % centre to rim (to 1.14 at α 1's rim), at IOR 2 0.8 – 0.95 ×
     the model past α 0.45.
+    **Resin's excess sits on the event that leaves** (#213, note
+    2026-11-21-rough-entry-leaving-event): a per-ring factor on every path
+    can't follow a falloff, which reaches only the transmitted part — the
+    uncoated r 1 sphere (U6) kept its rim at 1.11 × Iray. Decomposed on
+    single events at known cosines (Calib-Furnace-Resin2 re-pinned, a
+    Polygon Side Mix for one rough face): Octane's reflection off a rough
+    outside alone is the model's head-on and 1.24 / 1.46 / 1.75 / 2.4 × at
+    the rim at α 0.5 / 0.6 / 0.707 / 1 (the coating's reflection the same);
+    a smooth entry with a rough inside 1.00 – 1.10 × (`OCTANE_REFLECTION`,
+    `OCTANE_EXIT`, IOR 1.49); the entry's refraction and the reflections
+    inside keep the model (a bubble, IOR 1 / 1.49, transmits as the model
+    does; the same ratios on every event overshoot the rim 10 – 20 %). So
+    for a closed reflect + transmit base without fake shadows (resin) the
+    Faithful solve's Octane side is the Smith model × the reflection's
+    ratio on a path that leaves by reflecting off the outside (at the coat's
+    or the base's α and the entry cosine), × the exit's ratio on one that
+    leaves by refracting out (the base's α, the internal cosine), nothing on
+    the events in between (`leaving_excess`): measured events, nothing
+    fitted. It holds eight closed α 0.707 spheres (flat, falloffs q 0 –
+    0.75, s 0.5 – 3.1) within 1 – 4 % per ring (1.07 – 1.55 at the rim
+    without) and `OCTANE_SPHERE_PLAIN`'s flat rt rows (α 0.25 – 0.7)
+    within 2 %. Probes that look like more — the rough entry over a smooth
+    inside "bending nearer the normal" (#212) — were the falloff-free
+    reflection's share, plus light a smooth inside traps escaping through
+    the mesh's facets (the sphere subdivided twice: rim 0.446 → 0.425).
+    Faithful, Octane / Iray, disk / rim 0.8 – 0.9 (before → after):
+    Calib-Furnace-Resin2 U4 1.01 / 1.04 → 1.00 / 1.03, U5 1.01 / 1.05 →
+    0.99 / 1.03, U6 1.06 / 1.11 → 1.02 / 1.06; Calib-Furnace-Resin R7
+    1.05 / 1.19 → 1.01 / 1.13; lit Calib-Resin R7 1.16 / 1.45 → 1.13 /
+    1.42; the rest within 1 %. Enhanced, architectural glass (a transmit
+    base) and the Uber glass (fake shadows) keep the per-ring tables.
     **Octane's grey dielectric** (#201): Universal's specular layer
     reflects F · s and passes 1 − F · s; the transmission lobe under it
     refracts T of that, **T (1 − F s)** per refraction, where a tinted
