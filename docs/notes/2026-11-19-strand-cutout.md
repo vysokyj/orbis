@@ -104,3 +104,41 @@ stopped answering (connection timed out) before it rendered; parked in
 - A synthetic map test needs maps that differ at the strands' UVs: the
   generated strands' UV set is all 0, so Cutout-Dome's maps all read
   opaque there and could not tell "ignored" from "read at the UV".
+
+## 2026-11-21 resume: Iray ignores the cutout on fibres
+
+Calib-Strand-Cutout2-Dome (Iray, 2000 samples, home server headless
+submit, 112 s; 0d43a45). Cell sums, linear luminance (transparent
+background), same boxes as above:
+
+| | plain 0.5 | u-half inv. | v-half inv. | black |
+|---|---|---|---|---|
+| Iray, / Cutout-Dome's same cell | 1.00 / 1.00 / 1.00 / 1.00 | 1.00 (all rows) | 1.00 | 1.00 |
+| Iray, / Cutout-Dome's unmapped column G / H / I / J | 1.00 / 1.00 / 1.00 / 1.00 | 0.99 / 1.01 / 1.02 / 0.93 | 0.99 / 1.01 / 1.01 / 0.89 | 0.99 / 1.02 / 1.03 / 0.84 |
+
+(J's columns again by their strands' placement, as before.) Outcome (a):
+a plain Cutout Opacity 0.5, maps transparent at the strands' UVs and an
+all-black map all render as the plain fibre - the two images differ by
+at most 11 / 255 in a handful of pixels. The docs had it: the Iray
+release notes of Iray RTX 2020.0.0 list "Disallow cutouts on fibers"
+under the fibre fixes. Not found before because the search ran through
+the programmer's manual and the MDL spec, not the release notes.
+
+Rule: **fibres get opacity 1** (map or value); ribbons and prisms keep
+the mean (Iray tessellates them into meshes, which take a cutout).
+Octane enhanced-final with the rule, denoised, Octane / Iray per cell:
+
+| row | plain 0.5 | u-half inv. | v-half inv. | black |
+|---|---|---|---|---|
+| G | 1.03 | 1.03 | 1.04 | 1.03 |
+| H | 0.97 | 0.96 | 0.96 | 0.97 |
+| I | 0.94 | 0.94 | 0.94 | 0.94 |
+| J | 1.03 | 1.03 | 1.03 | 1.03 |
+
+(Before, under the mean rule: the 0.5 columns 0.69 - 0.93, black gone.)
+Athena Hair's fibres now export as its -op1 render (no map), which was
+0.96 - 1.03 of the mean rule in its dense pile - no separate render.
+
+Process: look in `docs/nvidia/txt/iray-relnotes.txt` too when a
+behaviour looks like a deliberate restriction; one grep would have saved
+the second Iray scene.

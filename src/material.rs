@@ -3503,22 +3503,26 @@ impl Ocs<'_> {
     }
 
     /// The cutout (`Material::opacity_channel` at `value`): its map as it
-    /// is on surfaces. Strand hair carries no UVs (curves), and Octane read
-    /// a map there at one texel, the image's corner: Athena Hair's maps are
-    /// 0 there and the hair vanished, Morgan's lost a level (#202). On
-    /// strands the map's mean (as Iray decodes the channel) × the value
-    /// stands in: the coverage it gives the hair as a whole, never one
-    /// texel. Interim, pending what Iray's fibres read (#202's
-    /// Calib-Strand-Cutout2-Dome): on fibres whose UVs are all 0 Iray
-    /// rendered u-half, v-half and v-band maps fully opaque
-    /// (Calib-Strand-Cutout-Dome), so it reads neither along the fibre
-    /// (texture space 0's x, the programmer's manual 8.1.4) nor the mean
-    /// there - it ignores the map or reads it at the strand's own UV.
-    /// An unreadable map: the value alone.
+    /// is on surfaces. On fibres (DAZ's Iray `hair` primitive) none:
+    /// Iray disallows cutouts on fibres (release notes, Iray RTX 2020.0.0)
+    /// and drew a plain Cutout Opacity 0.5, maps transparent at the
+    /// strands' UVs and an all-black map as the plain fibre
+    /// (Calib-Strand-Cutout2-Dome: 1.00 x Calib-Strand-Cutout-Dome's
+    /// cells, 0.99 - 1.03 x its unmapped column), so opacity 1 there -
+    /// Athena Hair's maps cost its fibres nothing (#202). Ribbons and
+    /// prisms are tessellated meshes in Iray and keep a cutout; our curves
+    /// carry no UVs and Octane read a map there at one texel, the image's
+    /// corner (Athena's maps are 0 there and the hair vanished, Morgan's
+    /// lost a level), so the map's mean (as Iray decodes the channel) x
+    /// the value stands in: the coverage it gives the hair as a whole,
+    /// never one texel. An unreadable map: the value alone.
     fn opacity_pin(&mut self, indent: usize, mat: &Material, value: f32) {
         let ch = mat.opacity_channel();
         if !mat.strands {
             return self.float_or_map(indent, "opacity", mat, Some(ch), value);
+        }
+        if mat.fibres {
+            return self.float_pin(indent, "opacity", 1.0);
         }
         let Some(map) = mat.image(ch).map(str::to_string) else {
             return self.float_pin(indent, "opacity", value);
@@ -11500,9 +11504,10 @@ mod tests {
     }
 
     #[test]
-    fn strand_cutout_maps_give_their_mean() {
-        // #202: curves carry no UVs - a map on strands is its mean × the
-        // value, not the texel at the image's corner; meshes keep the map.
+    fn strand_cutout_maps_give_their_mean_and_fibres_none() {
+        // #202: curves carry no UVs - a map on ribbons / prisms is its mean
+        // × the value, not the texel at the image's corner; fibres ignore
+        // the cutout as Iray does; meshes keep the map.
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("t")).unwrap();
         let save = |name: &str, f: &dyn Fn(u32, u32) -> bool| image::GrayImage::from_fn(64, 64, |x, y| image::Luma([if f(x, y) { 255 } else { 0 }])).save(dir.path().join("t").join(name)).unwrap();
@@ -11513,11 +11518,15 @@ mod tests {
         let of = |m: Material| material_inputs(&[("Hair".into(), Rc::new(m), 0.0)], &dirs, HashMap::new(), 4000, Shading::default()).0;
         let opacity = |x: &str| x[x.find("<pin name='opacity'>").expect("an opacity pin")..].split("</pin>").next().unwrap().to_string();
         let strands = |m: Rc<Material>, fibres: bool| Material { strands: true, fibres, ribbons: !fibres, ..(*m).clone() };
-        assert!(opacity(&of(strands(with("/t/u.png", 1.0), true))).contains(">0.5<"));
-        assert!(opacity(&of(strands(with("/t/v.png", 1.0), true))).contains(">0.25<"));
+        assert!(opacity(&of(strands(with("/t/u.png", 1.0), false))).contains(">0.5<"));
+        assert!(opacity(&of(strands(with("/t/v.png", 1.0), false))).contains(">0.25<"));
         assert!(opacity(&of(strands(with("/t/u.png", 0.5), false))).contains(">0.25<"));
         // Missing: the value alone.
-        assert!(opacity(&of(strands(with("/t/none.png", 0.8), true))).contains(">0.8<"));
+        assert!(opacity(&of(strands(with("/t/none.png", 0.8), false))).contains(">0.8<"));
+        // Fibres: opaque, map or value (Calib-Strand-Cutout2-Dome).
+        assert!(opacity(&of(strands(with("/t/v.png", 1.0), true))).contains(">1<"));
+        let plain = mat(json!([{"channel": {"id": "Cutout Opacity", "current_value": 0.5}}]));
+        assert!(opacity(&of(strands(plain, true))).contains(">1<"));
         // A mesh keeps the image.
         assert!(opacity(&of((*with("/t/u.png", 1.0)).clone())).contains("type='36'"));
     }
