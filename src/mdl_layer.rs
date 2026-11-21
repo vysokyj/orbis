@@ -346,6 +346,20 @@ fn trace_n(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize) -> Tr
 /// in the furnace, as under 1 and 0; a coating of 0.5 over black reflects
 /// half of F).
 fn trace_c(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize, coat: &dyn Fn(f64) -> f64) -> Traced {
+    trace_cf(model, s, disk, legacy, paths, coat, false)
+}
+
+/// `trace_c`; `front_coat` (`Smith` only): the coat is Universal's
+/// *coating*, which Octane lays on a closed solid's outside only — a hit
+/// from inside meets the base alone (#214: a transmit-only base under a
+/// coating of IOR 2.62, α 0.5, renders 0.95 – 1.06 × this per ring, 1.3 –
+/// 1.7 × with the coating's Fresnel at 1 / 2.62 also inside, which traps
+/// most of the light by total reflection; coatings of IOR 1.5 at α 0.2 /
+/// 0.3: 1.00 / 0.99 – 1.04 against 1.01 – 1.15 / 1.02 – 1.29). Without it
+/// the coat is met from both sides: Iray's `fresnel_layer`, and
+/// Universal's `specular` standing for the Uber glass's reflection.
+fn trace_cf(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize, coat: &dyn Fn(f64) -> f64, front_coat: bool) -> Traced {
+    let front_coat = front_coat && !s.thin && matches!(model, Model::Smith);
     let legacy = legacy && !s.thin && matches!(model, Model::Libbsdf);
     // The legacy lobe's shape: `libbsdf`'s at `legacy_rough` (the coat is
     // the module's `mdl 1.0` lobe too); its loss stays indexed by r.
@@ -409,7 +423,8 @@ fn trace_c(model: Model, s: &Stack, disk: f64, legacy: bool, paths: usize, coat:
                     }
                 }
                 Model::Smith => {
-                    if rng.next() < s.weight * coat(nk1) * s.curve.eval(!outside, dot(v, hc)) {
+                    let layer = if front_coat && inside { 0.0 } else { s.weight * coat(nk1) * s.curve.eval(!outside, dot(v, hc)) };
+                    if rng.next() < layer {
                         coat_ev = true;
                         // Octane's Thin Wall met from inside lays the
                         // coating under the base on half the hits: that
@@ -575,6 +590,8 @@ const OCTANE_SPHERE: [(f64, f64, [f64; 9], [f64; 9]); 16] = [
 /// `fake_shadows` 0; 1024 samples raw, `furnace-rings.py measure`). The
 /// same spheres with `fake_shadows` 1 reproduce `OCTANE_SPHERE`'s `rt`
 /// rows within 1 % (α 0.5 / 0.7 / 1), so the switch is the difference.
+/// Since #213 / #214 resin and architectural glass take the leaving-event
+/// rule (`LeavingExcess`); this table is its check (`diag214`).
 const OCTANE_SPHERE_PLAIN: [(f64, f64, [f64; 9], [f64; 9]); 16] = [
     (1.5, 0.25, [1.012, 1.015, 1.016, 1.016, 1.011, 1.000, 0.980, 0.945, 0.892], [1.004, 1.006, 1.007, 1.007, 1.004, 0.993, 0.972, 0.941, 0.891]),
     (1.5, 0.36, [1.023, 1.021, 1.016, 1.002, 0.983, 0.956, 0.916, 0.870, 0.805], [1.015, 1.012, 1.004, 0.991, 0.972, 0.945, 0.909, 0.864, 0.806]),
@@ -683,20 +700,28 @@ fn octane_excess(octane: &Stack, fake_shadows: bool) -> Option<[f64; 10]> {
 /// weight × what Octane renders over the model at its entry ring
 /// (`octane_excess`, #185; `Tuning::rough_transmission_excess`), measured
 /// with or without `fake_shadows` (#201) — or, for resin's reflect +
-/// transmit base, on the event that leaves (`leaving_excess`, #213).
+/// transmit base, on the event that leaves (`LeavingExcess`, #213).
 fn octane_trace(octane: &Stack, excess: bool, fake_shadows: bool) -> Traced {
-    octane_trace_c(octane, excess, fake_shadows, &|_| 1.0)
+    octane_trace_c(octane, excess, fake_shadows, false, &|_| 1.0)
 }
 
-/// `octane_trace` with the coating × `coat(n · k1)` (`trace_c`). A closed
-/// reflect + transmit base without fake shadows (resin) takes Octane's
-/// excess on the event that leaves the sphere (`leaving_excess`, #213);
-/// every other stack the per-ring table (`octane_excess`).
-fn octane_trace_c(octane: &Stack, excess: bool, fake_shadows: bool, coat: &dyn Fn(f64) -> f64) -> Traced {
-    let mut t = trace_c(Model::Smith, octane, 1.0, false, PATHS, coat);
-    if excess && !fake_shadows && !octane.thin && octane.base == Scatter::ReflectTransmit {
+/// `octane_trace` with the coating × `coat(n · k1)` (`trace_c`); the coat
+/// a Universal coating (outside only, `trace_cf`) when `front_coat`. A closed
+/// rough base without fake shadows — resin's reflect + transmit (#213),
+/// architectural glass's transmit-only one (#214) — takes Octane's excess
+/// on the event that leaves the sphere (`LeavingExcess`); with fake
+/// shadows (the Uber glass) the per-ring table (`octane_excess`): there
+/// Octane's shadow rays pass the walls and the excess is not the leaving
+/// event's (#214: the leaving-event model with fake-shadow exit ratios
+/// left a both-rough sphere 0.90 – 0.95 at the centre), and the Uber glass
+/// has no falloff, so the table measured on its own flat spheres is what
+/// it renders.
+fn octane_trace_c(octane: &Stack, excess: bool, fake_shadows: bool, front_coat: bool, coat: &dyn Fn(f64) -> f64) -> Traced {
+    let mut t = trace_cf(Model::Smith, octane, 1.0, false, PATHS, coat, front_coat);
+    if excess && !fake_shadows && !octane.thin && octane.base != Scatter::Reflect {
+        let e = LeavingExcess::of(octane);
         for p in &mut t.paths {
-            p.w *= leaving_excess(octane, p.leave);
+            p.w *= e.at(p.leave);
         }
     } else if let Some(e) = excess.then(|| octane_excess(octane, fake_shadows)).flatten() {
         for p in &mut t.paths {
@@ -743,6 +768,36 @@ const OCTANE_EXIT: [(f64, [f64; 9]); 6] = [
     (0.7071, [0.852, 0.847, 0.836, 0.817, 0.792, 0.764, 0.734, 0.705, 0.688]),
 ];
 
+/// `OCTANE_EXIT` for a transmit-only base (#214, architectural glass:
+/// Universal's specular 0, the transmission lobe alone): the same export
+/// re-pinned (Beckmann, `s<pin>,0` roughness, specular 0, transmission 1,
+/// coating 0, albedo 0), at IOR 1.2 / 1.5 / 2 (probes `ax12`, `ax15`,
+/// `ax2`). Rows (IOR, α, rings). **Measured**: at IOR 1.5 the excess is
+/// rt's (`OCTANE_EXIT`) within 1 – 3 %; it falls with the IOR — at α 0.707
+/// head-on 1.11 / 1.09 / 0.94 × the model at IOR 1.2 / 1.5 / 2, and at
+/// IOR 2 Octane keeps less than its model on every ring past α 0.4 (which is
+/// why `OCTANE_SPHERE_PLAIN`'s IOR 2 `tr` rows sit 0.82 – 0.95 × it).
+const OCTANE_EXIT_TR: [(f64, f64, [f64; 9]); 18] = [
+    (1.2, 0.2, [1.004, 1.002, 1.003, 1.004, 1.005, 1.010, 1.015, 1.006, 0.982]),
+    (1.2, 0.3, [1.005, 1.008, 1.014, 1.017, 1.018, 1.017, 1.002, 0.978, 0.928]),
+    (1.2, 0.4, [1.018, 1.018, 1.018, 1.018, 1.017, 1.001, 0.974, 0.934, 0.875]),
+    (1.2, 0.5, [1.037, 1.037, 1.037, 1.027, 1.007, 0.977, 0.939, 0.893, 0.837]),
+    (1.2, 0.6, [1.077, 1.067, 1.049, 1.023, 0.989, 0.951, 0.909, 0.863, 0.812]),
+    (1.2, 0.7071, [1.097, 1.080, 1.048, 1.010, 0.967, 0.925, 0.883, 0.842, 0.795]),
+    (1.5, 0.2, [1.002, 1.004, 1.006, 1.009, 1.014, 1.013, 1.005, 0.987, 0.951]),
+    (1.5, 0.3, [1.018, 1.018, 1.018, 1.017, 1.012, 0.997, 0.974, 0.937, 0.890]),
+    (1.5, 0.4, [1.037, 1.034, 1.020, 1.007, 0.986, 0.956, 0.920, 0.877, 0.827]),
+    (1.5, 0.5, [1.036, 1.022, 1.000, 0.972, 0.937, 0.899, 0.858, 0.814, 0.769]),
+    (1.5, 0.6, [0.979, 0.966, 0.945, 0.914, 0.877, 0.838, 0.799, 0.759, 0.719]),
+    (1.5, 0.7071, [0.874, 0.870, 0.856, 0.836, 0.808, 0.777, 0.743, 0.710, 0.677]),
+    (2.0, 0.2, [1.011, 1.011, 1.013, 1.011, 1.005, 0.996, 0.976, 0.948, 0.909]),
+    (2.0, 0.3, [1.017, 1.014, 1.003, 0.986, 0.965, 0.939, 0.907, 0.870, 0.829]),
+    (2.0, 0.4, [0.972, 0.964, 0.945, 0.922, 0.893, 0.860, 0.824, 0.788, 0.748]),
+    (2.0, 0.5, [0.852, 0.847, 0.835, 0.816, 0.791, 0.763, 0.734, 0.702, 0.669]),
+    (2.0, 0.6, [0.705, 0.701, 0.696, 0.687, 0.672, 0.656, 0.637, 0.616, 0.591]),
+    (2.0, 0.7071, [0.552, 0.551, 0.553, 0.550, 0.547, 0.543, 0.535, 0.525, 0.513]),
+];
+
 /// The probes' IOR (`OCTANE_REFLECTION`, `OCTANE_EXIT`): resin's.
 const LEAVE_IOR: f64 = 1.49;
 
@@ -752,7 +807,7 @@ const LEAVE_IOR: f64 = 1.49;
 /// reflection is weighted by Fresnel instead of picked by it (the same
 /// mean without its Bernoulli noise on a 4 % event). Each refraction out
 /// from inside × `exit(n · k1)`. Rings centre → 0.8 – 0.9.
-fn leave_probe_rings(a_out: f64, a_in: f64, transmit: bool, exit: &dyn Fn(f64) -> f64, paths: usize) -> [f64; 9] {
+fn leave_probe_rings(a_out: f64, a_in: f64, ior: f64, mode: Scatter, exit: &dyn Fn(f64) -> f64, paths: usize) -> [f64; 9] {
     let mut rng = Rng(0x5eed_0213);
     let (mut sum, mut entered) = ([0.0; 9], [0usize; 9]);
     for _ in 0..paths {
@@ -769,12 +824,11 @@ fn leave_probe_rings(a_out: f64, a_in: f64, transmit: bool, exit: &dyn Fn(f64) -
         for _ in 0..DEPTH {
             let n = if inside { scale(p, -1.0) } else { p };
             let v = scale(d, -1.0);
-            let (eta, a) = if inside { (1.0 / LEAVE_IOR, a_in) } else { (LEAVE_IOR, a_out) };
+            let (eta, a) = if inside { (1.0 / ior, a_in) } else { (ior, a_out) };
             let nk1 = dot(n, v).clamp(0.0, 1.0);
             let h = sample_h(Model::Smith, a, n, &mut rng);
-            let mode = if transmit { Scatter::ReflectTransmit } else { Scatter::Reflect };
             let Some((l, w, refr)) = lobe(Model::Smith, a, n, v, h, eta, mode, false, &mut rng) else { break };
-            thr *= if transmit { w } else { w * fresnel(eta, dot(v, h)) };
+            thr *= if mode == Scatter::Reflect { w * fresnel(eta, dot(v, h)) } else { w };
             if refr {
                 if inside {
                     thr *= exit(nk1);
@@ -807,9 +861,9 @@ fn ring_at(k: &[f64; 9], cs: &[f64; 9], c: f64) -> f64 {
 
 /// The rings' centres r = 0.05 … 0.85 as the entry's cosine (outside) and
 /// as the cosine a smooth entry's refraction meets inside.
-fn ring_cosines() -> ([f64; 9], [f64; 9]) {
+fn ring_cosines(ior: f64) -> ([f64; 9], [f64; 9]) {
     let r = |j: usize| (j as f64 + 0.5) / 10.0;
-    (std::array::from_fn(|j| (1.0 - r(j).powi(2)).sqrt()), std::array::from_fn(|j| (1.0 - (r(j) / LEAVE_IOR).powi(2)).sqrt()))
+    (std::array::from_fn(|j| (1.0 - r(j).powi(2)).sqrt()), std::array::from_fn(|j| (1.0 - (r(j) / ior).powi(2)).sqrt()))
 }
 
 /// Octane over its Smith model by α (rows) and ring, for the reflection
@@ -818,25 +872,31 @@ fn ring_cosines() -> ([f64; 9], [f64; 9]) {
 /// (`OCTANE_EXIT`'s ratio over the model with it on the exits: solved in
 /// one pass, the probe's paths with the ring's ratio on their exits meet
 /// the probe).
+/// Rows (α, ratio by ring) of one exit table.
+type LeaveRows = Vec<(f64, [f64; 9])>;
+
+/// The ratios: (reflection, rt exit at `LEAVE_IOR`, transmit-only exits
+/// by IOR (`OCTANE_EXIT_TR`, each deconvolved at its own IOR)).
 #[allow(clippy::type_complexity)]
-fn leave_rows() -> &'static (Vec<(f64, [f64; 9])>, Vec<(f64, [f64; 9])>) {
-    static ROWS: std::sync::OnceLock<(Vec<(f64, [f64; 9])>, Vec<(f64, [f64; 9])>)> = std::sync::OnceLock::new();
+fn leave_rows() -> &'static (LeaveRows, LeaveRows, Vec<(f64, LeaveRows)>) {
+    static ROWS: std::sync::OnceLock<(LeaveRows, LeaveRows, Vec<(f64, LeaveRows)>)> = std::sync::OnceLock::new();
     ROWS.get_or_init(|| {
         let ratio = |o: &[f64; 9], m: &[f64; 9]| -> [f64; 9] { std::array::from_fn(|j| o[j] / m[j].max(1e-9)) };
         let refl = OCTANE_REFLECTION
             .iter()
-            .map(|&(a, o)| (a, ratio(&o, &leave_probe_rings(a, a, false, &|_| 1.0, 1 << 18))))
+            .map(|&(a, o)| (a, ratio(&o, &leave_probe_rings(a, a, LEAVE_IOR, Scatter::Reflect, &|_| 1.0, 1 << 18))))
             .collect();
-        let (_, cin) = ring_cosines();
-        let exit = OCTANE_EXIT
-            .iter()
-            .map(|&(a, o)| {
-                let k0 = ratio(&o, &leave_probe_rings(0.0, a, true, &|_| 1.0, 1 << 18));
-                let m1 = leave_probe_rings(0.0, a, true, &|c| ring_at(&k0, &cin, c), 1 << 18);
-                (a, std::array::from_fn(|j| k0[j] * o[j] / m1[j].max(1e-9)))
-            })
-            .collect();
-        (refl, exit)
+        let deconv = |o: &[f64; 9], a: f64, ior: f64, mode: Scatter| -> [f64; 9] {
+            let (_, cin) = ring_cosines(ior);
+            let k0 = ratio(o, &leave_probe_rings(0.0, a, ior, mode, &|_| 1.0, 1 << 18));
+            let m1 = leave_probe_rings(0.0, a, ior, mode, &|c| ring_at(&k0, &cin, c), 1 << 18);
+            std::array::from_fn(|j| k0[j] * o[j] / m1[j].max(1e-9))
+        };
+        let exit = OCTANE_EXIT.iter().map(|&(a, o)| (a, deconv(&o, a, LEAVE_IOR, Scatter::ReflectTransmit))).collect();
+        let mut iors: Vec<f64> = OCTANE_EXIT_TR.iter().map(|r| r.0).collect();
+        iors.dedup();
+        let tr = iors.iter().map(|&ior| (ior, OCTANE_EXIT_TR.iter().filter(|r| r.0 == ior).map(|&(_, a, o)| (a, deconv(&o, a, ior, Scatter::Transmit))).collect())).collect();
+        (refl, exit, tr)
     })
 }
 
@@ -854,28 +914,89 @@ fn leave_at(rows: &[(f64, [f64; 9])], cs: &[f64; 9], alpha: f64, c: f64) -> f64 
 }
 
 /// Octane's excess over its Smith model on the event that leaves a closed
-/// rough rt sphere (#213): a reflection off the outside × the reflection's
-/// ratio at its α (the coat's or the base's) and cosine, a refraction out
-/// × the exit's ratio at the base's α and the internal cosine; the events
-/// that stay inside keep the model. **Measured, not fitted**: single
-/// events at known cosines (`OCTANE_REFLECTION`, `OCTANE_EXIT`), none of
-/// them a whole sphere's; with them the model holds probe `fr2`'s eight
-/// closed spheres at α 0.707 (flat and seven falloffs, q 0 – 0.75, s 0.5 –
-/// 3.1) within 1 – 4 % on every ring, against 1.07 – 1.55 at the rim
-/// without. The same ratios put on every event overshoot the rim by 10 –
-/// 20 %: Octane's inside reflections and the entry's refraction keep the
-/// model (the bubble's, `kinds`). Our reading, not Octane's documentation:
-/// Octane's light sampling reaches the environment only from the event that
-/// leaves (a closed glass without fake shadows blocks it from inside), and
-/// its rough dielectric evaluated there keeps more than its sampling; fake
-/// shadows let it through every wall (`OCTANE_SPHERE`'s brighter rims).
-/// The tables are at IOR 1.49 (resin's): other IORs take them as they are.
-fn leaving_excess(octane: &Stack, (leave, c): (Leave, f64)) -> f64 {
-    let (rows, (cout, cin)) = (leave_rows(), ring_cosines());
-    match leave {
-        Leave::BaseReflection => leave_at(&rows.0, &cout, octane.base_rough, c),
-        Leave::CoatReflection => leave_at(&rows.0, &cout, octane.coat_rough, c),
-        Leave::Exit => leave_at(&rows.1, &cin, octane.base_rough, c),
+/// rough sphere (#213, #214): a reflection off the outside × the
+/// reflection's ratio at its α (the coat's or the base's) and cosine, a
+/// refraction out × the exit's ratio at the base's α and the internal
+/// cosine; the events that stay inside keep the model. **Measured, not
+/// fitted**: single events at known cosines (`OCTANE_REFLECTION`,
+/// `OCTANE_EXIT`, `OCTANE_EXIT_TR`), none of them a whole sphere's; with
+/// them the model holds probe `fr2`'s eight closed resin spheres at α
+/// 0.707 (flat and seven falloffs, q 0 – 0.75, s 0.5 – 3.1) within 1 – 4 %
+/// on every ring, against 1.07 – 1.55 at the rim without. The same ratios
+/// put on every event overshoot the rim by 10 – 20 %: Octane's inside
+/// reflections and the entry's refraction keep the model (the bubble's,
+/// `kinds`). Our reading, not Octane's documentation: Octane's light
+/// sampling reaches the environment only from the event that leaves (a
+/// closed glass without fake shadows blocks it from inside), and its rough
+/// dielectric evaluated there keeps more than its sampling; fake shadows
+/// let it through every wall (`OCTANE_SPHERE`'s brighter rims).
+///
+/// The exit: resin's reflect + transmit base `OCTANE_EXIT` (IOR 1.49,
+/// taken at any IOR), a transmit-only base (architectural glass)
+/// `OCTANE_EXIT_TR`, linear in the IOR between 1.2, 1.5 and 2, held
+/// outside. The reflection's excess is **additive**: Octane renders the
+/// model's reflection plus about the same amount at any IOR (#214: the
+/// coating alone at coatingIor 2 (α 0.3 / 0.5 / 0.707) and 2.62 (α 0.5 /
+/// 0.707) is the model at that IOR plus `OCTANE_REFLECTION`'s excess over
+/// the model at 1.49 within 0.94 – 1.03 per ring, where the 1.49 ratio
+/// itself leaves α 0.707's rim at 0.64 – 0.74 of it), so the 1.49 ratio k
+/// becomes 1 + (k − 1) · m(1.49) / m(IOR), m the model's single
+/// reflection at that ring.
+struct LeavingExcess {
+    base_reflection: [f64; 9],
+    coat_reflection: [f64; 9],
+    exit: [f64; 9],
+    cout: [f64; 9],
+    cin: [f64; 9],
+}
+
+impl LeavingExcess {
+    fn of(octane: &Stack) -> LeavingExcess {
+        let rows = leave_rows();
+        let (cout, _) = ring_cosines(octane.ior);
+        let reflection = |alpha: f64, ior: f64| -> [f64; 9] {
+            let k: [f64; 9] = std::array::from_fn(|j| leave_at(&rows.0, &cout, alpha, cout[j]));
+            if (ior - LEAVE_IOR).abs() < 1e-6 || alpha <= 0.0 {
+                return k;
+            }
+            let m = |n: f64| leave_probe_rings(alpha, alpha, n, Scatter::Reflect, &|_| 1.0, 1 << 16);
+            let (m0, m1) = (m(LEAVE_IOR), m(ior));
+            std::array::from_fn(|j| 1.0 + (k[j] - 1.0) * m0[j] / m1[j].max(1e-9))
+        };
+        let coat_ior = match octane.curve {
+            Curve::Fresnel(n) => n,
+            Curve::Schlick { .. } => octane.ior,
+        };
+        let (exit, cin) = if octane.base == Scatter::Transmit {
+            let tr = &rows.2;
+            let ior = octane.ior.clamp(tr[0].0, tr[tr.len() - 1].0);
+            let i = tr.windows(2).position(|w| ior <= w[1].0).unwrap_or(tr.len() - 2);
+            let (a, b) = (&tr[i], &tr[i + 1]);
+            let f = (ior - a.0) / (b.0 - a.0);
+            let (ca, cb) = (ring_cosines(a.0).1, ring_cosines(b.0).1);
+            let (_, cin) = ring_cosines(ior);
+            // Each IOR's ratio at this IOR's ring cosines (its own cosines
+            // differ: the internal angle of a ring bends with the IOR).
+            (std::array::from_fn(|j| (1.0 - f) * leave_at(&a.1, &ca, octane.base_rough, cin[j]) + f * leave_at(&b.1, &cb, octane.base_rough, cin[j])), cin)
+        } else {
+            let (_, cin) = ring_cosines(LEAVE_IOR);
+            (std::array::from_fn(|j| leave_at(&rows.1, &cin, octane.base_rough, cin[j])), cin)
+        };
+        LeavingExcess {
+            base_reflection: if octane.base == Scatter::ReflectTransmit { reflection(octane.base_rough, octane.ior) } else { [1.0; 9] },
+            coat_reflection: if octane.weight > 0.0 { reflection(octane.coat_rough, coat_ior) } else { [1.0; 9] },
+            exit,
+            cout,
+            cin,
+        }
+    }
+
+    fn at(&self, (leave, c): (Leave, f64)) -> f64 {
+        match leave {
+            Leave::BaseReflection => ring_at(&self.base_reflection, &self.cout, c),
+            Leave::CoatReflection => ring_at(&self.coat_reflection, &self.cout, c),
+            Leave::Exit => ring_at(&self.exit, &self.cin, c),
+        }
     }
 }
 
@@ -1073,9 +1194,10 @@ pub fn coat_falloff(iray: &Stack, octane: &Stack) -> CoatFalloff {
 /// Thin Wall is flat), no falloff.
 ///
 /// `excess`: Octane's side is what Octane renders, the Smith model ×
-/// `octane_excess` (#185, `Tuning::rough_transmission_excess`; resin's
-/// on the leaving event, `leaving_excess`, #213), so the solve also takes
-/// back what Octane keeps over its own model.
+/// Octane's excess on the event that leaves (`LeavingExcess`, #213 /
+/// #214; `Tuning::rough_transmission_excess`), so the solve also takes
+/// back what Octane keeps over its own model. Both Looks trace the coat as
+/// Universal's coating, outside only (`trace_cf`).
 pub fn transmission_falloff(iray: &Stack, octane: &Stack, lobe_albedo: f64, lobe_ior: f64, tint: [f32; 3], excess: bool) -> Falloff {
     if iray.thin {
         return Falloff { k: tint_factor_measured(iray, octane, lobe_albedo, lobe_ior, tint), grazing: 1.0, skew: 1.0, coat: CoatFalloff::NONE };
@@ -1094,7 +1216,8 @@ fn falloff_rings(iray: &Stack, octane: &Stack, lobe_albedo: f64, lobe_ior: f64, 
     // base's shape and k solve under the coat the export writes.
     let coat = coat_falloff(iray, octane);
     // Resin and architectural glass, the callers, export no fake shadows (#201).
-    let op = octane_trace_c(octane, excess, false, &|c| coat.at(c));
+    // The coat is Universal's coating there (front faces only, #214).
+    let op = octane_trace_c(octane, excess, false, true, &|c| coat.at(c));
     // The shape is solved at the material's own grey (the channels' mean):
     // Octane's grey dielectric keeps its rim relatively brighter than a
     // tinted lobe (T (1 - F s), untinted total reflections, #201), so a
@@ -1480,7 +1603,7 @@ mod tests {
         let a = 0.7071;
         let st = Stack { weight: 0.0, curve: Curve::Fresnel(1.49), coat_rough: a, base: Scatter::ReflectTransmit, base_rough: a, ior: 1.49, thin: false };
         let rings = |excess: bool, q: f64| {
-            let t = octane_trace_c(&st, excess, false, &|_| 1.0);
+            let t = octane_trace_c(&st, excess, false, true, &|_| 1.0);
             let mut r = [0.0; 9];
             for p in &t.paths {
                 let j = (p.rr * 10.0) as usize;
@@ -1498,9 +1621,50 @@ mod tests {
         }
         assert!(q0[7] / rings(false, 0.0)[8] > 1.15);
         // The tables come to 1 at α 0 and near it at α 0.2.
-        assert_eq!(leaving_excess(&Stack { base_rough: 0.0, coat_rough: 0.0, ..st }, (Leave::Exit, 0.9)), 1.0);
+        assert_eq!(LeavingExcess::of(&Stack { base_rough: 0.0, coat_rough: 0.0, ..st }).at((Leave::Exit, 0.9)), 1.0);
         let small = Stack { base_rough: 0.1, coat_rough: 0.1, ..st };
-        assert!([Leave::BaseReflection, Leave::CoatReflection, Leave::Exit].iter().all(|&l| (leaving_excess(&small, (l, 0.7)) - 1.0).abs() < 0.03));
+        let e = LeavingExcess::of(&small);
+        assert!([Leave::BaseReflection, Leave::CoatReflection, Leave::Exit].iter().all(|&l| (e.at((l, 0.7)) - 1.0).abs() < 0.03));
+    }
+
+    #[test]
+    fn octanes_architectural_glass_keeps_its_excess_on_the_event_that_leaves() {
+        // #214, probe `axc`: closed transmit-only bases (specular 0),
+        // Beckmann, under a coating or not, flat or under a falloff (q, s);
+        // Octane's rings 0.1 - 0.2 ... 0.8 - 0.9. The model with the leaving
+        // event's ratios and the coating on the outside only holds each
+        // within 5 %; with the coating met from inside too U1 is 1.3 x over.
+        let rings = |st: &Stack, front: bool, q: f64, sk: f64| {
+            let t = octane_trace_c(st, true, false, front, &|_| 1.0);
+            let mut r = [0.0; 9];
+            for p in &t.paths {
+                let j = (p.rr * 10.0) as usize;
+                if j < 9 {
+                    r[j] += p.w * p.through.iter().map(|&c| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, sk)).product::<f64>() / t.entered[j].max(1) as f64;
+                }
+            }
+            r
+        };
+        let st = |w: f64, cior: f64, a: f64, ior: f64| Stack { weight: w, curve: Curve::Fresnel(cior), coat_rough: a, base: Scatter::Transmit, base_rough: a, ior, thin: false };
+        let probes: [(Stack, f64, f64, [f64; 8]); 4] = [
+            (st(1.0, 2.62, 0.5, 1.5), 1.0, 1.0, [0.957, 0.941, 0.916, 0.887, 0.853, 0.816, 0.779, 0.737]),
+            (st(0.0, 1.2, 0.6, 1.2), 0.0, 1.0, [0.864, 0.746, 0.627, 0.513, 0.404, 0.304, 0.211, 0.124]),
+            (st(0.0, 2.0, 0.5, 2.0), 0.25, 1.0, [0.625, 0.576, 0.524, 0.467, 0.408, 0.348, 0.286, 0.221]),
+            (st(0.0, 1.5, 0.7071, 1.5), 0.0, 3.0, [0.814, 0.795, 0.766, 0.724, 0.670, 0.600, 0.507, 0.381]),
+        ];
+        for (s, q, sk, o) in probes {
+            let m = rings(&s, true, q, sk);
+            assert!((1..9).all(|j| (o[j - 1] / m[j] - 1.0).abs() < 0.05), "{:?}: {m:?}", (s.ior, s.base_rough, q));
+        }
+        let both = rings(&probes[0].0, false, 1.0, 1.0);
+        assert!((1..9).all(|j| probes[0].3[j - 1] / both[j] > 1.2));
+        // The reflection's excess is additive: smaller as a ratio at a
+        // higher IOR (coating alone at IOR 2.62, α 0.707: rim 0.199 v the
+        // model's 0.177, where the 1.49 ratio would make it 0.31).
+        let e = LeavingExcess::of(&st(1.0, 2.62, 0.7071, 1.5));
+        let e149 = LeavingExcess::of(&st(1.0, 1.49, 0.7071, 1.5));
+        let (x, y) = (e.at((Leave::CoatReflection, 0.53)), e149.at((Leave::CoatReflection, 0.53)));
+        assert!(x < 1.3 && y > 1.6, "{x} {y}");
     }
 }
 
@@ -1929,7 +2093,7 @@ mod diag211 {
             let lp = trace(Model::Libbsdf, &Stack { weight: 0.0, ..iray }, 0.75, true).paths.iter().map(Pw::of).collect::<Vec<_>>();
             let tau = solve_in(|x| albedo(&lp, x), interp(&lobe, r), 1.2);
             let ip = trace(Model::Libbsdf, &iray, 1.0, true);
-            let op = octane_trace_c(&octane, true, false, &|c| f.coat.at(c));
+            let op = octane_trace_c(&octane, true, false, true, &|c| f.coat.at(c));
             let (k, q, s) = (f.k[0] as f64, f.grazing as f64, f.skew as f64);
             let shape = |p: &Path| p.through.iter().map(|c| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, s)).product::<f64>();
             let iw = |p: &Path| p.w * (t * tau).powi(p.m);
@@ -3004,7 +3168,7 @@ mod diag213 {
     /// on), rings under a falloff (q, s) on the transmission.
     fn export_rings(alpha: f64, ior: f64, q: f64, sk: f64) -> [f64; 9] {
         let st = Stack { weight: 0.0, curve: Curve::Fresnel(ior), coat_rough: alpha, base: Scatter::ReflectTransmit, base_rough: alpha, ior, thin: false };
-        let t = octane_trace_c(&st, true, false, &|_| 1.0);
+        let t = octane_trace_c(&st, true, false, true, &|_| 1.0);
         let fo = |c: f64| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, sk);
         let mut rings = [0.0; 9];
         for p in &t.paths {
@@ -3019,7 +3183,7 @@ mod diag213 {
     #[test]
     #[ignore]
     fn print_leaving_excess_check() {
-        let (refl, exit) = leave_rows();
+        let (refl, exit, _) = leave_rows();
         for (a, k) in refl {
             println!("refl a {a}: {}", fmt(k));
         }
@@ -3058,6 +3222,304 @@ mod diag213 {
         for &(ior, a, _, rt) in OCTANE_SPHERE_PLAIN.iter().filter(|r| r.0 == 1.5) {
             let x = export_rings(a, ior, 1.0, 1.0);
             println!("PLAIN rt a {a}: Octane / export {}", fmt(&r(&rt, &x)));
+        }
+    }
+}
+
+#[cfg(test)]
+mod diag214 {
+    //! #214: architectural glass (a transmit-only base under a coating, no
+    //! fake shadows) and the Uber rough glass (fake shadows on) against
+    //! Octane's excess on the event that leaves (#213, `LeavingExcess`).
+    use super::*;
+
+    fn fmt(a: &[f64]) -> String {
+        a.iter().map(|v| format!("{v:.3}")).collect::<Vec<_>>().join(" ")
+    }
+
+    fn r(x: &[f64; 9], y: &[f64; 9]) -> [f64; 9] {
+        std::array::from_fn(|j| x[j] / y[j])
+    }
+
+    /// Rings of a closed stack's Smith paths, each × `f(path)`.
+    fn rings(t: &Traced, f: &dyn Fn(&Path) -> f64) -> [f64; 9] {
+        let mut s = [0.0; 9];
+        for p in &t.paths {
+            let j = (p.rr * 10.0) as usize;
+            if j < 9 {
+                s[j] += p.w * f(p);
+            }
+        }
+        std::array::from_fn(|j| s[j] / t.entered[j].max(1) as f64)
+    }
+
+    #[test]
+    #[ignore]
+    fn print_plain_tr_on_leaving_event() {
+        // OCTANE_SPHERE_PLAIN's `tr` rows (specular 0, both faces rough, no
+        // fake shadows): the only event that leaves is the exit.
+        for &(ior, a, tr, rt) in OCTANE_SPHERE_PLAIN.iter() {
+            let st = Stack { weight: 0.0, curve: Curve::Fresnel(ior), coat_rough: a, base: Scatter::Transmit, base_rough: a, ior, thin: false };
+            let t = trace_c(Model::Smith, &st, 1.0, false, 1 << 18, &|_| 1.0);
+            let m = rings(&t, &|_| 1.0);
+            let e = LeavingExcess::of(&st);
+            let x = rings(&t, &|p| e.at(p.leave));
+            let srt = Stack { base: Scatter::ReflectTransmit, ..st };
+            let trt = trace_c(Model::Smith, &srt, 1.0, false, 1 << 18, &|_| 1.0);
+            let ert = LeavingExcess::of(&srt);
+            let xrt = rings(&trt, &|p| ert.at(p.leave));
+            println!("ior {ior} a {a}: tr Octane/model {}  Octane/leaving {}   | rt Octane/leaving {}", fmt(&r(&tr, &m)), fmt(&r(&tr, &x)), fmt(&r(&rt, &xrt)));
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_tr_depth() {
+        use super::diag213::{brdf_rings_i, Dist};
+        for (ior, a) in [(2.0, 0.5), (2.0, 1.0), (1.5, 0.5)] {
+            for depth in [8usize, 16, 24, 32, 128] {
+                let (m, t) = brdf_rings_i(Dist::Beckmann, a, a, ior, false, true, depth, 1 << 18);
+                println!("ior {ior} a {a} depth {depth}: {}  trapped {}", fmt(&m), fmt(&t));
+            }
+        }
+    }
+
+    /// One pass of deconvolution of an exit probe (smooth outside, rough
+    /// inside α `a`): the ratio by ring at the internal cosine whose paths,
+    /// with it on their exits, meet the probe `o`.
+    fn exit_ratio(o: &[f64; 9], a: f64, ior: f64, mode: Scatter) -> [f64; 9] {
+        let (_, cin) = ring_cosines(ior);
+        let k0 = r(o, &leave_probe_rings(0.0, a, ior, mode, &|_| 1.0, 1 << 18));
+        let m1 = leave_probe_rings(0.0, a, ior, mode, &|c| ring_at(&k0, &cin, c), 1 << 18);
+        std::array::from_fn(|j| k0[j] * o[j] / m1[j])
+    }
+
+    const AX: [f64; 6] = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7071];
+    // Probe `ax15` / `ax2` (#214): smooth outside, rough inside (α AX),
+    // specular 0 (the transmission lobe alone), IOR 1.5 / 2.
+    const AX15: [[f64; 9]; 6] = [
+        [1.002, 1.004, 1.006, 1.009, 1.014, 1.013, 1.005, 0.987, 0.951],
+        [1.018, 1.018, 1.018, 1.017, 1.012, 0.997, 0.974, 0.937, 0.890],
+        [1.037, 1.034, 1.020, 1.007, 0.986, 0.956, 0.920, 0.877, 0.827],
+        [1.036, 1.022, 1.000, 0.972, 0.937, 0.899, 0.858, 0.814, 0.769],
+        [0.979, 0.966, 0.945, 0.914, 0.877, 0.838, 0.799, 0.759, 0.719],
+        [0.874, 0.870, 0.856, 0.836, 0.808, 0.777, 0.743, 0.710, 0.677],
+    ];
+    const AX2: [[f64; 9]; 6] = [
+        [1.011, 1.011, 1.013, 1.011, 1.005, 0.996, 0.976, 0.948, 0.909],
+        [1.017, 1.014, 1.003, 0.986, 0.965, 0.939, 0.907, 0.870, 0.829],
+        [0.972, 0.964, 0.945, 0.922, 0.893, 0.860, 0.824, 0.788, 0.748],
+        [0.852, 0.847, 0.835, 0.816, 0.791, 0.763, 0.734, 0.702, 0.669],
+        [0.705, 0.701, 0.696, 0.687, 0.672, 0.656, 0.637, 0.616, 0.591],
+        [0.552, 0.551, 0.553, 0.550, 0.547, 0.543, 0.535, 0.525, 0.513],
+    ];
+
+    #[test]
+    #[ignore]
+    fn print_transmit_exit() {
+        let ax12: [[f64; 9]; 6] = std::array::from_fn(|i| OCTANE_EXIT_TR[i].2);
+        for (ior, rows) in [(1.2, ax12), (1.5, AX15), (2.0, AX2)] {
+            for (i, o) in rows.iter().enumerate() {
+                let a = AX[i];
+                let m = leave_probe_rings(0.0, a, ior, Scatter::Transmit, &|_| 1.0, 1 << 18);
+                println!("tr exit ior {ior} a {a}: model {}  Octane/model {}  deconv {}", fmt(&m), fmt(&r(o, &m)), fmt(&exit_ratio(o, a, ior, Scatter::Transmit)));
+            }
+        }
+        for (a, k) in &leave_rows().1 {
+            println!("rt exit 1.49 a {a}: {}", fmt(k));
+        }
+        // The coating's reflection alone at coatingIor 2 (ax15 U7 / U8, ax2 U7).
+        for (a, o) in [(0.5, [0.107, 0.107, 0.106, 0.106, 0.106, 0.107, 0.109, 0.116, 0.132]), (0.7071, [0.082, 0.084, 0.085, 0.086, 0.089, 0.095, 0.104, 0.118, 0.140]), (0.3, [0.114, 0.114, 0.114, 0.114, 0.113, 0.113, 0.117, 0.123, 0.140])] {
+            let m = leave_probe_rings(a, a, 2.0, Scatter::Reflect, &|_| 1.0, 1 << 20);
+            let (cout, _) = ring_cosines(2.0);
+            let t: [f64; 9] = std::array::from_fn(|j| leave_at(&leave_rows().0, &cout, a, cout[j]));
+            println!("coat refl ior 2 a {a}: model {}  Octane/model {}  table (1.49) {}", fmt(&m), fmt(&r(&o, &m)), fmt(&t));
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_fake_shadows_leaving() {
+        // Probe `fs` (#214): fake_shadows 1, IOR 1.5, α 0.707 unless noted.
+        let u2 = [0.935, 0.932, 0.924, 0.913, 0.896, 0.876, 0.856, 0.839, 0.827]; // rt exit
+        let u4 = [0.924, 0.920, 0.908, 0.889, 0.863, 0.832, 0.801, 0.768, 0.739]; // tr exit
+        let u8 = [1.075, 1.062, 1.039, 1.009, 0.974, 0.937, 0.898, 0.856, 0.813]; // tr exit α 0.5
+        let u7 = [0.823, 0.821, 0.818, 0.813, 0.809, 0.804, 0.803, 0.805, 0.798]; // rt both rough
+        let a = 0.7071;
+        let ert = exit_ratio(&u2, a, 1.5, Scatter::ReflectTransmit);
+        let etr = exit_ratio(&u4, a, 1.5, Scatter::Transmit);
+        let etr5 = exit_ratio(&u8, 0.5, 1.5, Scatter::Transmit);
+        println!("fs exit rt a.707 {}\nfs exit tr a.707 {}\nfs exit tr a.5 {}", fmt(&ert), fmt(&etr), fmt(&etr5));
+        let (cout, cin) = ring_cosines(1.5);
+        let refl = &leave_rows().0;
+        let check = |lab: &str, mode: Scatter, a: f64, ex: &[f64; 9], o: &[f64; 9]| {
+            let st = Stack { weight: 0.0, curve: Curve::Fresnel(1.5), coat_rough: a, base: mode, base_rough: a, ior: 1.5, thin: false };
+            let t = trace_c(Model::Smith, &st, 1.0, false, 1 << 18, &|_| 1.0);
+            let m = rings(&t, &|_| 1.0);
+            let x = rings(&t, &|p| match p.leave {
+                (Leave::Exit, c) => ring_at(ex, &cin, c),
+                (_, c) => leave_at(refl, &cout, a, c),
+            });
+            println!("{lab}: Octane/model {}  Octane/fs-leaving {}", fmt(&r(o, &m)), fmt(&r(o, &x)));
+        };
+        check("U7 rt a.707", Scatter::ReflectTransmit, a, &ert, &u7);
+        for &(ior, al, tr, rt) in OCTANE_SPHERE.iter().filter(|r| r.0 == 1.5 && (r.1 == 0.5 || r.1 == 0.7)) {
+            let _ = ior;
+            check(&format!("SPHERE tr a{al}"), Scatter::Transmit, al, if al == 0.5 { &etr5 } else { &etr }, &tr);
+            if al == 0.7 {
+                check("SPHERE rt a0.7", Scatter::ReflectTransmit, al, &ert, &rt);
+            }
+        }
+    }
+
+    /// The export's Octane model (`octane_trace_c`, excess on or off) of a
+    /// closed transmit-only base under a coating, rings under a falloff
+    /// (q, s) on the transmission.
+    fn arch_rings(st: &Stack, excess: bool, q: f64, sk: f64) -> [f64; 9] {
+        let t = octane_trace_c(st, excess, false, true, &|_| 1.0);
+        let fo = |c: f64| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, sk);
+        rings(&t, &|p| p.through.iter().map(|&c| fo(c)).product::<f64>())
+    }
+
+    fn arch(weight: f64, cior: f64, ca: f64, a: f64, ior: f64) -> Stack {
+        Stack { weight, curve: Curve::Fresnel(cior), coat_rough: ca, base: Scatter::Transmit, base_rough: a, ior, thin: false }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_arch_checks() {
+        // The coating alone (specular 0, transmission 0): ax15 U7 / U8, ax2
+        // U7, ax12 U7 / U8, and the 1.49 table's own rows (refl).
+        let coats: [(f64, f64, [f64; 9]); 5] = [
+            (2.0, 0.5, [0.107, 0.107, 0.106, 0.106, 0.106, 0.107, 0.109, 0.116, 0.132]),
+            (2.0, 0.7071, [0.082, 0.084, 0.085, 0.086, 0.089, 0.095, 0.104, 0.118, 0.140]),
+            (2.0, 0.3, [0.114, 0.114, 0.114, 0.114, 0.113, 0.113, 0.117, 0.123, 0.140]),
+            (2.62, 0.5, [0.189, 0.189, 0.189, 0.188, 0.187, 0.184, 0.184, 0.186, 0.197]),
+            (2.62, 0.7071, [0.148, 0.149, 0.150, 0.151, 0.154, 0.158, 0.166, 0.180, 0.199]),
+        ];
+        let (cout, _) = ring_cosines(1.5);
+        for (cior, a, o) in coats {
+            let m = leave_probe_rings(a, a, cior, Scatter::Reflect, &|_| 1.0, 1 << 20);
+            let e = LeavingExcess::of(&arch(1.0, cior, a, a, 1.5));
+            let x: [f64; 9] = std::array::from_fn(|j| m[j] * ring_at(&e.coat_reflection, &cout, cout[j]));
+            let k: [f64; 9] = std::array::from_fn(|j| m[j] * leave_at(&leave_rows().0, &cout, a, cout[j]));
+            println!("coat {cior} a {a}: Octane - model {}  Octane/additive {}  Octane/ratio-at-1.49 {}", fmt(&std::array::from_fn::<f64, 9, _>(|j| o[j] - m[j])), fmt(&r(&o, &x)), fmt(&r(&o, &k)));
+        }
+        // Probe `axc` (#214): (weight, coatingIor, coat α, base α, IOR, q, s).
+        let rows: [(f64, f64, f64, f64, f64, f64, f64, [f64; 9]); 8] = [
+            (1.0, 2.62, 0.5, 0.5, 1.5, 1.0, 1.0, [0.968, 0.957, 0.941, 0.916, 0.887, 0.853, 0.816, 0.779, 0.737]),
+            (1.0, 2.62, 0.5, 0.5, 1.5, 0.0, 1.0, [0.847, 0.791, 0.716, 0.637, 0.558, 0.482, 0.412, 0.351, 0.302]),
+            (1.0, 1.5, 0.3, 0.5, 1.5, 0.5, 1.0, [0.932, 0.891, 0.832, 0.767, 0.697, 0.626, 0.555, 0.486, 0.420]),
+            (0.0, 1.2, 0.6, 0.6, 1.2, 1.0, 1.0, [1.076, 1.062, 1.043, 1.014, 0.979, 0.938, 0.894, 0.845, 0.775]),
+            (0.0, 1.2, 0.6, 0.6, 1.2, 0.0, 1.0, [0.961, 0.864, 0.746, 0.627, 0.513, 0.404, 0.304, 0.211, 0.124]),
+            (0.0, 2.0, 0.5, 0.5, 2.0, 0.25, 1.0, [0.663, 0.625, 0.576, 0.524, 0.467, 0.408, 0.348, 0.286, 0.221]),
+            (0.0, 1.5, 0.7071, 0.7071, 1.5, 0.0, 3.0, [0.823, 0.814, 0.795, 0.766, 0.724, 0.670, 0.600, 0.507, 0.381]),
+            (1.0, 1.5, 0.2, 0.2, 1.5, 0.5, 1.0, [0.965, 0.924, 0.879, 0.832, 0.783, 0.730, 0.673, 0.610, 0.541]),
+        ];
+        for (i, (w, cior, ca, a, ior, q, sk, o)) in rows.into_iter().enumerate() {
+            let st = arch(w, cior, ca, a, ior);
+            let m = arch_rings(&st, false, q, sk);
+            let x = arch_rings(&st, true, q, sk);
+            let old = {
+                let t = trace_c(Model::Smith, &st, 1.0, false, PATHS, &|_| 1.0);
+                let e = octane_excess(&st, false).unwrap();
+                let fo = |c: f64| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, sk);
+                rings(&t, &|p| e[((p.rr * 10.0) as usize).min(9)] * p.through.iter().map(|&c| fo(c)).product::<f64>())
+            };
+            println!("axc U{}: Octane/model {}  Octane/leaving {}  Octane/per-ring {}", i + 1, fmt(&r(&o, &m)), fmt(&r(&o, &x)), fmt(&r(&o, &old)));
+        }
+    }
+
+    /// A closed transmit-only base (α `a`, IOR `ior`) under a coating
+    /// (Fresnel at `cior`, α `ca`), Smith; the coating met from inside:
+    /// `inside` 0 the model's (Fresnel at 1 / cior, total reflection past
+    /// its critical angle), 1 none, 2 Fresnel at cior (as from outside).
+    /// Exits × `exit(c)`, outside coat reflections × `refl(c)`; the
+    /// transmission × the falloff (q, s).
+    #[allow(clippy::too_many_arguments)]
+    fn coated_rings(a: f64, ior: f64, ca: f64, cior: f64, inside_mode: u8, q: f64, sk: f64, ex: &LeavingExcess, paths: usize) -> [f64; 9] {
+        let mut rng = Rng(0x5eed_2141);
+        let (mut sum, mut entered) = ([0.0; 9], [0usize; 9]);
+        let fo = |c: f64| 1.0 + (q - 1.0) * falloff_curve(c.clamp(0.0, 1.0).acos() / std::f64::consts::FRAC_PI_2, sk);
+        for _ in 0..paths {
+            let rr = rng.next().sqrt();
+            let j = (rr * 10.0) as usize;
+            if j >= 9 {
+                continue;
+            }
+            entered[j] += 1;
+            let phi = 2.0 * std::f64::consts::PI * rng.next();
+            let mut p: V = [rr * phi.cos(), rr * phi.sin(), (1.0 - rr * rr).max(0.0).sqrt()];
+            let mut d: V = [0.0, 0.0, -1.0];
+            let (mut thr, mut inside) = (1.0, false);
+            for _ in 0..DEPTH {
+                let n = if inside { scale(p, -1.0) } else { p };
+                let v = scale(d, -1.0);
+                let eta = if inside { 1.0 / ior } else { ior };
+                let nk1 = dot(n, v).clamp(0.0, 1.0);
+                let h = sample_h(Model::Smith, a, n, &mut rng);
+                let hc = sample_h(Model::Smith, ca, n, &mut rng);
+                let pc = match (inside, inside_mode) {
+                    (false, _) | (true, 2) => fresnel(cior, dot(v, hc)),
+                    (true, 0) => fresnel(1.0 / cior, dot(v, hc)),
+                    _ => 0.0,
+                };
+                let (ev, coat) = if rng.next() < pc { (lobe(Model::Smith, ca, n, v, hc, eta, Scatter::Reflect, false, &mut rng), true) } else { (lobe(Model::Smith, a, n, v, h, eta, Scatter::Transmit, false, &mut rng), false) };
+                let Some((l, w, refr)) = ev else { break };
+                thr *= w;
+                let was = inside;
+                if refr {
+                    thr *= fo(nk1);
+                    inside = !inside;
+                }
+                if !inside {
+                    thr *= ex.at((if was { Leave::Exit } else if coat { Leave::CoatReflection } else { Leave::BaseReflection }, nk1));
+                    sum[j] += thr;
+                    break;
+                }
+                let l = norm(l);
+                p = norm(add(p, scale(l, -2.0 * dot(p, l))));
+                d = l;
+            }
+        }
+        std::array::from_fn(|j| sum[j] / entered[j].max(1) as f64)
+    }
+
+    #[test]
+    #[ignore]
+    fn print_coat_inside() {
+        let rows: [(f64, f64, f64, f64, f64, f64, [f64; 9]); 4] = [
+            (2.62, 0.5, 0.5, 1.5, 1.0, 1.0, [0.968, 0.957, 0.941, 0.916, 0.887, 0.853, 0.816, 0.779, 0.737]),
+            (2.62, 0.5, 0.5, 1.5, 0.0, 1.0, [0.847, 0.791, 0.716, 0.637, 0.558, 0.482, 0.412, 0.351, 0.302]),
+            (1.5, 0.3, 0.5, 1.5, 0.5, 1.0, [0.932, 0.891, 0.832, 0.767, 0.697, 0.626, 0.555, 0.486, 0.420]),
+            (1.5, 0.2, 0.2, 1.5, 0.5, 1.0, [0.965, 0.924, 0.879, 0.832, 0.783, 0.730, 0.673, 0.610, 0.541]),
+        ];
+        for (cior, ca, a, ior, q, sk, o) in rows {
+            let ex = LeavingExcess::of(&arch(1.0, cior, ca, a, ior));
+            for mode in [0u8, 1, 2] {
+                let x = coated_rings(a, ior, ca, cior, mode, q, sk, &ex, 1 << 18);
+                println!("coat {cior} ca {ca} a {a} q {q}: inside {mode}: Octane/leaving {}", fmt(&r(&o, &x)));
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn print_arch_split() {
+        // Calib-Furnace-ArchGlass2 H2 / H3 / H6 / H7 (refr_gloss 0.2 / 0 /
+        // 0.2 IOR 1.2 / 0.2 IOR 2), uncoated: the export's solve split into
+        // Iray's model (target) and Octane's model at the solved falloff.
+        let al = |r: f64| r / (1.0 + r * r).sqrt();
+        for (lab, rough, lobe, ior, iray_o, oct_o) in [
+            ("H2", 0.60, 0.609, 1.5, [0.717, 0.703, 0.689, 0.666, 0.638, 0.601, 0.557, 0.501, 0.432], [0.689, 0.687, 0.672, 0.649, 0.623, 0.589, 0.549, 0.500, 0.435]),
+            ("H3", 0.72, 0.508, 1.5, [0.609, 0.596, 0.584, 0.562, 0.535, 0.500, 0.458, 0.408, 0.344], [0.603, 0.597, 0.583, 0.563, 0.537, 0.503, 0.462, 0.410, 0.336]),
+            ("H6", 0.60, 0.609, 1.2, [0.817, 0.805, 0.790, 0.773, 0.745, 0.711, 0.665, 0.606, 0.526], [0.801, 0.793, 0.784, 0.767, 0.740, 0.703, 0.657, 0.598, 0.521]),
+            ("H7", 0.60, 0.609, 2.0, [0.524, 0.524, 0.514, 0.502, 0.482, 0.458, 0.428, 0.391, 0.344], [0.518, 0.515, 0.508, 0.495, 0.480, 0.459, 0.433, 0.398, 0.345]),
+        ] {
+            let iray = Stack { weight: 0.0, curve: Curve::Fresnel(ior), coat_rough: 0.0, base: Scatter::Transmit, base_rough: rough, ior, thin: false };
+            let octane = Stack { curve: Curve::Fresnel(2.618), coat_rough: 0.0, base_rough: al(rough), ..iray };
+            let (f, target, rings) = falloff_rings(&iray, &octane, lobe, 1.5, [1.0; 3], true);
+            println!("{lab}: k {:.3} q {:.3} s {:.3}\n   Iray/its model {}\n   Octane/its model {}\n   models Octane/Iray {}", f.k[0], f.grazing, f.skew, fmt(&r(&iray_o, &target)), fmt(&r(&oct_o, &rings)), fmt(&r(&rings, &target)));
         }
     }
 }

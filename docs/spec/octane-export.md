@@ -3214,7 +3214,9 @@ leaves out, #15):
     re-pinned, `fake_shadows` 0) for resin and architectural glass
     (`transmission_falloff`): at IOR 1.5 that is the Smith model within
     1 – 6 % centre to rim (to 1.14 at α 1's rim), at IOR 2 0.8 – 0.95 ×
-    the model past α 0.45.
+    the model past α 0.45. Since #213 / #214 resin and architectural glass
+    take the leaving-event rule below instead; `OCTANE_SPHERE_PLAIN` stays
+    as its check.
     **Resin's excess sits on the event that leaves** (#213, note
     2026-11-21-rough-entry-leaving-event): a per-ring factor on every path
     can't follow a falloff, which reaches only the transmitted part — the
@@ -3232,7 +3234,7 @@ leaves out, #15):
     ratio on a path that leaves by reflecting off the outside (at the coat's
     or the base's α and the entry cosine), × the exit's ratio on one that
     leaves by refracting out (the base's α, the internal cosine), nothing on
-    the events in between (`leaving_excess`): measured events, nothing
+    the events in between (`LeavingExcess`): measured events, nothing
     fitted. It holds eight closed α 0.707 spheres (flat, falloffs q 0 –
     0.75, s 0.5 – 3.1) within 1 – 4 % per ring (1.07 – 1.55 at the rim
     without) and `OCTANE_SPHERE_PLAIN`'s flat rt rows (α 0.25 – 0.7)
@@ -3244,8 +3246,52 @@ leaves out, #15):
     Calib-Furnace-Resin2 U4 1.01 / 1.04 → 1.00 / 1.03, U5 1.01 / 1.05 →
     0.99 / 1.03, U6 1.06 / 1.11 → 1.02 / 1.06; Calib-Furnace-Resin R7
     1.05 / 1.19 → 1.01 / 1.13; lit Calib-Resin R7 1.16 / 1.45 → 1.13 /
-    1.42; the rest within 1 %. Enhanced, architectural glass (a transmit
-    base) and the Uber glass (fake shadows) keep the per-ring tables.
+    1.42; the rest within 1 %. Enhanced takes no excess.
+    **Architectural glass too** (#214, note
+    2026-11-21-arch-glass-leaving-event): its closed transmit-only base
+    (specular 0) under a coating takes the same leaving-event rule. The
+    exit through a transmit-only lobe was probed on its own (smooth
+    outside, rough inside, IOR 1.2 / 1.5 / 2, α 0.2 – 0.707;
+    `OCTANE_EXIT_TR`): at IOR 1.5 it is rt's within 1 – 3 %, and it falls
+    with the IOR (α 0.707 head-on 1.11 / 1.09 / 0.94 × the model), which is
+    why `OCTANE_SPHERE_PLAIN`'s IOR 2 rows sat below the model; linear in
+    the IOR between the three, held outside. Octane's reflection excess is
+    **additive** — the coating alone at coatingIor 2 and 2.62 is the model
+    at that IOR plus the 1.49 table's excess over its model (0.94 – 1.03
+    per ring), where the 1.49 ratio itself would put α 0.707's rim 1.35 –
+    1.55 × over — so the reflection's ratio at another IOR is 1 + (k − 1) ·
+    m(1.49) / m(IOR) (resin's at IOR 1.5 moves < 0.1 %). And **Universal's
+    coating lies on a closed solid's outside only**: a hit from inside meets
+    the base alone (a transmit-only base under a coating of IOR 2.62
+    renders 0.95 – 1.06 × that model per ring and 1.3 – 1.7 × the model
+    with the coating's Fresnel at 1 / 2.62 also inside, which traps most of
+    the light by total reflection). It is a model of the render, so both
+    Looks take it (`trace_cf`, `front_coat`): architectural glass's and
+    resin's coats; the Uber glass's reflection is Universal's specular,
+    met from both sides. With all three the model holds probe `axc`'s eight
+    spheres (coated and not, IOR 1.2 – 2, flat and four falloffs) within
+    0.95 – 1.02 per ring and `OCTANE_SPHERE_PLAIN`'s `tr` rows within 3 %
+    (IOR 1.5, α 0.25 – 1), 4 % (IOR 2, α ≤ 0.6), 6 % (IOR 2, α 0.7). Faithful, Octane / Iray,
+    disk / rim (before → after): Calib-Furnace-ArchGlass G4 (refr_gloss
+    0.2) 1.00 / 1.04 → 0.98 / 1.01, G5 (0) 1.03 / 1.01 → 1.00 / 0.97,
+    ArchGlass2 H2 1.01 / 1.04 → 0.98 / 1.01, H3 1.03 / 1.02 → 1.00 / 0.98,
+    H6 (IOR 1.2) 1.02 / 1.04 → 0.99 / 0.99, H7 (IOR 2) 1.04 / 1.07 → 1.00
+    / 1.00, H8 (colour 0.5) rim 1.12 → 1.06; the coated G7 / G8 0.99 / 1.01
+    → 0.99 / 0.99, 0.99 / 0.98 → 0.98 / 0.97; resin's coated R7 0.99 / 1.13
+    → 0.97 / 1.12 (lit Calib-Resin 1.04 / 1.42 → 1.02 / 1.41). Enhanced, disk:
+    G7 / G8 1.00 / 0.99 → 1.01 / 1.01, R7 1.03 → 1.01. The split of H2 –
+    H7: Octane's render / its model 0.96 – 1.01 per ring, what is left is
+    the two models' own (the falloff's shape, the trace's 2^16 paths).
+    **The Uber glass keeps the per-ring table** (`OCTANE_SPHERE`): with
+    fake shadows Octane's shadow rays pass the walls ("ignoring
+    refraction", OTOY's manual), and the excess is not the leaving event's
+    — a smooth entry with a rough inside gains 1.10 – 1.20 × over the
+    same sphere without (an α 0.5 transmit-only one renders 1.07 at its
+    centre, above the dome), the rough entry and the outside reflection
+    don't change, and the leaving-event model with those exit ratios leaves
+    a both-rough sphere 0.90 – 0.95 at the centre. The Uber glass has no
+    falloff, so the table measured on its own flat spheres is what it
+    renders; its export is unchanged.
     **Octane's grey dielectric** (#201): Universal's specular layer
     reflects F · s and passes 1 − F · s; the transmission lobe under it
     refracts T of that, **T (1 − F s)** per refraction, where a tinted
