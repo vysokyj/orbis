@@ -1490,8 +1490,17 @@ leaves out, #15):
   Specular Layer (#138: the fallback to the gloss alone dropped the dual
   lobe, the face 0.76 × Iray's rise over the uncoated skin; layered it
   rises 1.39 × against Iray's 1.35, as the uncoated 1.37 / 1.34);
-  elsewhere (metal, refraction, Base Mixing 1) the gloss alone, as
-  before; weighted mixing, translucent or not, keeps it in the Mix's
+  elsewhere (metal, a full refraction, Base Mixing 1) the gloss alone, as
+  before. A partial refraction lies over both (`weighted_layer` at its
+  weight): the base part of its Mix (refraction 0, see the refraction
+  Mix) keeps the gloss over the lobe as a plain dielectric, with a Top
+  Coat in the Layered material too (#220: the refraction read off the
+  material gave the base part the gloss alone - 320 installed strand
+  hair materials over translucency lost their lobe, and a partial
+  refraction with gloss over a lobe without translucency, one node, lost
+  it too: it now takes the Mix as well); the refraction part has no lobe
+  (it lies under the refraction's share). No constant, the MDL's order
+  only; against Iray pending (Calib-Strand-GlossLobeArc-HDRI / -T2). Weighted mixing, translucent or not, keeps it in the Mix's
   diffuse part (#121, #128, below). Wherever the gloss is on `specular`, the roughness is the glossy
   layer's (`glossy_roughness_source`), not lobe 1's — the gloss took the
   dual lobe's roughness until #106 (a weighted mix's gloss too). Why:
@@ -2186,7 +2195,10 @@ leaves out, #15):
   So does a partial refraction without gloss over a dual lobe (Base
   Mixing 0 / 1, no translucency, no metal; #218): the lobe on the base
   part, the refraction's share reflecting nothing (see the refraction's
-  reflection below).
+  reflection below); and one with a glossy layer over the dual lobe
+  (Base Mixing 0, #220): the base part the gloss over the lobe (glossy
+  layer over a dual lobe, above), the refraction part the refraction
+  with its reflection.
 
   Why (#129): Calib-MetalRefr (enhanced-final, Y over each sphere's disc,
   red metal base, white refraction): metal 0.75 / 0.3 at refraction 0.3

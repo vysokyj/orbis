@@ -3720,7 +3720,7 @@ impl Ocs<'_> {
         // the dual lobe on `specular`, the gloss the coating over it, as
         // on Universal (#106); under a Top Coat the Layered material's
         // Specular Layer takes the coat (#138).
-        let glossy_coat = !coat && gloss_over_dual_lobe(mat);
+        let glossy_coat = !coat && gloss_over_dual_lobe(mat, self.refraction_override.unwrap_or_else(|| raw_refraction(mat)));
         // The dual lobe as Universal's (see `DualLobe`): lobe 2 the coating,
         // or under a Top Coat (or the glossy layer) both lobes' roughness
         // blended.
@@ -4327,7 +4327,7 @@ impl Ocs<'_> {
         // Nor in the eye: Genesis irises, pupils and sclera are translucent
         // too, and the skin's tint (half, reddened) turned blue irises dark
         // green (Calib-Hair, #20).
-        let layered_coat = !self.in_layered_coat && !self.in_backscatter_mix && !self.in_flake_mix && !self.in_coat_mix && layered_top_coat(mat);
+        let layered_coat = !self.in_layered_coat && !self.in_backscatter_mix && !self.in_flake_mix && !self.in_coat_mix && layered_top_coat(mat, self.refraction_override.unwrap_or_else(|| raw_refraction(mat)));
         if skin != SkinShader::None && translucency > 0.0 && !refractive && !emissive && !cutout && !thin && !metal && !mat.prop && !is_eye(name) && mat.image("diffuse").is_some() {
             // The skin's Top Coat over a glossy layer over a dual lobe: three
             // dielectric layers, OpenPBR has `specular` and one `coat` (#138):
@@ -4388,7 +4388,14 @@ impl Ocs<'_> {
         // flag) or over the refraction's share too, at the refraction's IOR
         // instead of the lobe's reflectivity. The Mix is the MDL's own
         // `weighted_layer`, no constant.
-        let partial_over_lobe = refraction_weight < 1.0 && base_mixing < 2 && DualLobe::of(mat).is_some() && iray(mat).and_then(|u| u.bool("refraction_reflection_enable")) == Some(false);
+        // With a glossy layer over the lobe too (#220): one node held the
+        // refraction and the gloss on its `specular`, the lobe lost; the
+        // Mix's base part keeps the gloss as the coating over the lobe
+        // (`gloss_over_dual_lobe` at refraction 0, Base Mixing 0 only, as
+        // on a plain dielectric), the refraction part the refraction's own
+        // reflection. A G8M beard's Hair1 - 3 (refraction 0.5, no
+        // translucency) were the installed cases.
+        let partial_over_lobe = refraction_weight < 1.0 && base_mixing < 2 && DualLobe::of(mat).is_some() && (iray(mat).and_then(|u| u.bool("refraction_reflection_enable")) == Some(false) || gloss_over_dual_lobe(mat, 0.0));
         if self.refraction_override.is_none() && self.metal_override.is_none() && !self.in_backscatter_mix && (metal && base_mixing == 0 || partial_over_translucency || partial_over_lobe) && refractive && !crate::iray::is_pbrskin(mat) {
             return self.refractive_metal_material(indent, name, mat, area_m2, skin);
         }
@@ -4557,7 +4564,7 @@ impl Ocs<'_> {
         let dual_lobe = DualLobe::of(mat).filter(|_| self.weighted_refraction.is_none());
         // Iray's glossy layer over the dual lobe: the gloss as the coating,
         // when no Top Coat holds it on this node (`gloss_over_dual_lobe`).
-        let glossy_coat = weighted.is_none() && gloss_over_dual_lobe(mat) && self.node_coat_roughness(mat).is_none();
+        let glossy_coat = weighted.is_none() && gloss_over_dual_lobe(mat, self.refraction_override.unwrap_or_else(|| raw_refraction(mat))) && self.node_coat_roughness(mat).is_none();
         // The diffuse part of a weighted mix keeps its dual lobe: DAZ's
         // MDL (`normalized_base`) mixes the diffuse with the dual lobe over
         // it (`dl_diffuse_bsdf`) at Diffuse Weight against the gloss at
@@ -6006,11 +6013,11 @@ fn is_eye(name: &str) -> bool {
 /// `Ocs::layered_coat_material`: a Top Coat with anisotropy, or over
 /// `gloss_over_dual_lobe`, outside Layering Mode 1 (the weighted coat takes
 /// it on its own metal node).
-fn layered_top_coat(mat: &Material) -> bool {
+fn layered_top_coat(mat: &Material, refraction: f32) -> bool {
     let coated = mat.float("Top Coat Weight").unwrap_or(0.0) > 0.0 || mat.image("Top Coat Weight").is_some();
     // Also a coat over a glossy layer over a dual lobe: three dielectric
     // layers, and Universal's coating holds the gloss (#106).
-    coated && mat.float("Top Coat Layering Mode").unwrap_or(0.0) as i32 != 1 && (Anisotropy::top_coat(mat).amount > 0.0 || gloss_over_dual_lobe(mat))
+    coated && mat.float("Top Coat Layering Mode").unwrap_or(0.0) as i32 != 1 && (Anisotropy::top_coat(mat).amount > 0.0 || gloss_over_dual_lobe(mat, refraction))
 }
 
 /// Whether Iray's Top Coat is in Layering Mode 1 (Weighted) and on: see
@@ -6584,12 +6591,23 @@ fn gloss_weight(mat: &Material) -> f32 {
 /// under it (`Ocs::glossy_coating`). Elsewhere the gloss alone, as before.
 /// Under weighted mixing (2), translucent or not, the Mix's diffuse part
 /// holds the lobe (`weighted_gloss`, #121, #128).
-fn gloss_over_dual_lobe(mat: &Material) -> bool {
+/// `refraction` is the refraction weight the node holds: the material's,
+/// or one part's of a partial refraction Mix (`refraction_override`). The
+/// MDL lays the refraction over the glossy layer over the dual lobe, so
+/// the Mix's base part (0) keeps both as a plain dielectric does; read
+/// off the material, it took the lobe away there (#220).
+fn gloss_over_dual_lobe(mat: &Material, refraction: f32) -> bool {
     mat.float("Base Mixing").unwrap_or(0.0) as i32 == 0
         && gloss_weight(mat) > 0.0
         && DualLobe::of(mat).is_some()
-        && mat.float("Refraction Weight").unwrap_or(0.0) <= 0.0
+        && refraction <= 0.0
         && !has_metal(mat)
+}
+
+/// The material's own Refraction Weight as `gloss_over_dual_lobe` reads it
+/// outside a refraction Mix.
+fn raw_refraction(mat: &Material) -> f32 {
+    mat.float("Refraction Weight").unwrap_or(0.0)
 }
 
 /// A PBRSkin argument DAZ hands Iray (`crate::iray::pbrskin`), as a float.
@@ -9588,7 +9606,7 @@ mod tests {
             {"channel": {"id": "Glossy Reflectivity", "current_value": 1}},
         ]);
         let both = mat(channels.clone());
-        assert!(gloss_over_dual_lobe(&both));
+        assert!(gloss_over_dual_lobe(&both, 0.0));
         assert_eq!(both.glossy_roughness_source().0, Some("Glossy Roughness"));
         let (x, _) = material_inputs(&[("Both".into(), both, 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
         let pin = |x: &str, name: &str| {
@@ -9619,7 +9637,7 @@ mod tests {
         let mut metal = channels.as_array().unwrap().clone();
         metal.push(json!({"channel": {"id": "Metallic Weight", "current_value": 0.5}}));
         let metal = mat(json!(metal));
-        assert!(!gloss_over_dual_lobe(&metal));
+        assert!(!gloss_over_dual_lobe(&metal, 0.0));
         let (x, _) = material_inputs(&[("Metal".into(), metal, 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
         assert!(pin(&x, "roughness").contains(&format!(">{}<", num(phong_pin(0.25)))), "{x}");
 
@@ -9727,7 +9745,7 @@ mod tests {
         let pin = |x: &str, p: &str| x[x.find(&format!("<pin name='{p}'>")).unwrap_or_else(|| panic!("{p}: {x}"))..].split("</pin>").next().unwrap().to_string();
         let both = w(&[]);
         assert_eq!(weighted_gloss(&both), Some(WeightedGloss::of(1.0, 0.5)));
-        assert!(!gloss_over_dual_lobe(&both));
+        assert!(!gloss_over_dual_lobe(&both, 0.0));
         let (x, _) = material_inputs(&[("Card".into(), both, 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None);
         assert!(x.contains("type='19' name='Card'"), "{x}");
         assert!(pin(&x, "amount").contains(&format!(">{}<", num(1.0 / 3.0))), "the gloss's share 0.5 / 1.5: {x}");
@@ -11680,6 +11698,40 @@ mod tests {
             {"channel": {"id": "Dual Lobe Specular Weight", "current_value": 0.5}},
         ])), 0.0)], &[], HashMap::new(), 4000, SkinShader::None);
         assert!(!x.contains("type='19' name='F'>"), "{x}");
+    }
+
+    #[test]
+    fn refraction_mix_base_keeps_gloss_over_its_dual_lobe() {
+        // #220: a partial refraction with a glossy layer over a dual lobe.
+        // The MDL lays the refraction over the gloss over the lobe, so the
+        // Mix's base part is the plain dielectric of #106: the gloss the
+        // coating, the lobe the specular. Over translucency (strand hair,
+        // already a Mix) and without (a beard: one node lost the lobe).
+        for tl in [0.33, 0.0] {
+            let (x, _) = material_inputs(&[("P".into(), mat(json!([
+                {"channel": {"id": "Base Mixing", "current_value": 0}},
+                {"channel": {"id": "Glossy Layered Weight", "current_value": 0.3}},
+                {"channel": {"id": "Translucency Weight", "current_value": tl}},
+                {"channel": {"id": "Refraction Weight", "current_value": 0.28}},
+                {"channel": {"id": "Dual Lobe Specular Weight", "current_value": 0.53}},
+                {"channel": {"id": "Dual Lobe Specular Reflectivity", "current_value": 0.42}},
+                {"channel": {"id": "Dual Lobe Specular Ratio", "current_value": 0.85}},
+            ])), 0.0)], &[], HashMap::new(), 4000, SkinShader::None);
+            let mix = x.find("type='19' name='P'>").unwrap_or_else(|| panic!("TL {tl}: no Mix: {x}"));
+            assert!(x[mix..].split("</pin>").next().unwrap().contains(">0.28<"), "amount = w: {x}");
+            let part = |name: &str| {
+                let at = x.find(&format!("name='{name}'>")).unwrap_or_else(|| panic!("{name}: {x}"));
+                x[at..].split("</node>\n").take(12).collect::<String>()
+            };
+            let pin = |s: &str, p: &str| s.find(&format!("<pin name='{p}'>")).map(|a| s[a..].split("</pin>").next().unwrap().to_string());
+            let base = part("P base");
+            // The lobe's full weight, both lobes' roughness blended (lobe 2 not
+            // on the coating, which holds the gloss: as in #106).
+            assert!(pin(&base, "specular").unwrap().contains(">0.53 0.53 0.53<"), "TL {tl}: the lobe: {base}");
+            assert!(pin(&base, "coating").unwrap().contains(">0.3 0.3 0.3<"), "TL {tl}: the gloss over it: {base}");
+            // The refraction part: no lobe under the refraction's share.
+            assert!(!pin(&part("P refraction"), "specular").unwrap_or_default().contains(">0.53 0.53 0.53<"), "TL {tl}: {x}");
+        }
     }
 
     #[test]

@@ -93,6 +93,10 @@ camera; dark 0.2 bare, dark + coat, coat over black, coat over grey.
 Pixie's Hair01 material (its values; Pixie's widths 0.05 / 0.02, 12000
 strands in I / J): whole, + coat, without translucency and refraction,
 that + coat (materials 31 - 34).
+-GlossLobeArc-HDRI / -GlossLobeArc-T2-HDRI (#220): the -LobeArc arcs with
+Pixie's material + a white glossy layer 0.3 (its partial refraction over
+gloss over dual lobe), with / without the lobe, with / without its
+translucency (materials 38 - 41).
 
 How DAZ hands a polyline to Iray depends on the hair's Line Tessellation
 modifier (its .mi export reads the Viewport sides, the render the Render
@@ -198,6 +202,9 @@ MORGAN_BASE = {'Diffuse Overlay Weight': 0.05, 'Diffuse Overlay Weight Squared':
 # Calib-Hair-Pixie-*-coat's top coat (make-hair-set-scenes.py COAT, #215).
 COAT = {'Top Coat Weight': 1.0, 'Top Coat Color': [1.0, 1.0, 1.0], 'Top Coat Layering Mode': 0,
         'Top Coat Reflectivity': 0.5, 'Top Coat Roughness': 0.2}
+# A white glossy layer for Pixie's material (#220); Base Mixing 0 as Pixie.
+PIXIE_GLOSS = {'Glossy Layered Weight': 0.3, 'Glossy Color': [1.0, 1.0, 1.0], 'Glossy Reflectivity': 0.5,
+               'Glossy Roughness': 0.3}
 WEIGHTED = {'Base Mixing': 2,'Diffuse Weight': 0.0, 'Glossy Weight': 1.0, 'Glossy Color': [1.0, 1.0, 1.0], 'Glossy Roughness': 0.298913}
 MATERIALS = {
     1: ('diffuse', [0.5, 0.5, 0.5], {}),
@@ -274,6 +281,16 @@ MATERIALS = {
           'Glossy Layered Weight': PIXIE['Dual Lobe Specular Weight'], 'Glossy Color': [1.0, 1.0, 1.0],
           'Glossy Reflectivity': PIXIE['Dual Lobe Specular Reflectivity'],
           'Glossy Roughness': 0.5 * (PIXIE['Specular Lobe 1 Roughness'] + PIXIE['Specular Lobe 2 Roughness'])}),
+    # A glossy layer over Pixie's dual lobe under its partial refraction
+    # (#220): the MDL lays the refraction (0.28) over the gloss over the
+    # lobe, so the refraction Mix's base part keeps both. With and without
+    # the lobe (its share under gloss + refraction), over Pixie's
+    # translucency (the strand hairs, a Mix already) and without (one node
+    # before #220, a G8M beard's case).
+    38: ('Pixie + gloss', PIXIE_BASE, PIXIE_GLOSS),
+    39: ('Pixie + gloss, no dual lobe', PIXIE_BASE, {**PIXIE_GLOSS, 'Dual Lobe Specular Weight': 0.0}),
+    40: ('Pixie + gloss, no translucency', PIXIE_BASE, {**PIXIE_GLOSS, 'Translucency Weight': 0.0}),
+    41: ('Pixie + gloss, no translucency, no dual lobe', PIXIE_BASE, {**PIXIE_GLOSS, 'Translucency Weight': 0.0, 'Dual Lobe Specular Weight': 0.0}),
     30: ('coat-like gloss over grey', [0.5, 0.5, 0.5], {'Glossy Layered Weight': 1.0, 'Glossy Color': [1.0, 1.0, 1.0],
                                                         'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.2}),
 }
@@ -415,7 +432,7 @@ def material(mid, k, widths):
     m['diffuse']['channel']['current_value'] = colour
     chs = channels_of(m, 'studio_material_channels')
     known = {c['channel']['id'] for c in chs}
-    pixie = {c: v for c, v in PIXIE.items() if c in known and c not in ('Line Start Width', 'Line End Width')} if k in (31, 32, 33, 34, 35, 36, 37) else {}
+    pixie = {c: v for c, v in PIXIE.items() if c in known and c not in ('Line Start Width', 'Line End Width')} if k in (31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41) else {}
     for cid, v in {**PLAIN, **pixie, **over, 'Line Start Width': widths[0], 'Line End Width': widths[1]}.items():
         if isinstance(cid, tuple):
             next(c['channel'] for c in chs if c['channel']['id'] == cid[0])['image_file'] = cutout_map(v)
@@ -722,3 +739,8 @@ for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
 # the server's GPU, #217).
 for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
     build('Calib-Strand-LobeArc' + _name + '-HDRI', rows='GHIJ', mats=(33, 35, 36, 37), arcs=True, hdri=True, **_kw)
+# A glossy layer over Pixie's dual lobe under its partial refraction
+# (#220): Pixie + gloss with / without its lobe, over its translucency and
+# without; THIN widths as -LobeArc (#217).
+for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
+    build('Calib-Strand-GlossLobeArc' + _name + '-HDRI', rows='GHIJ', mats=(38, 39, 40, 41), arcs=True, hdri=True, **_kw)
