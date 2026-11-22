@@ -90,9 +90,6 @@ pub struct Textures {
     pub generated: Vec<(String, Vec<u8>)>,
     /// Mean colours of hair maps by DAZ path (`None`: not found).
     means: HashMap<String, Option<[f32; 3]>>,
-    /// A grey map's column means (left to right, one per texel column, as
-    /// Iray decodes it) by DAZ path and channel pick (`None`: not found).
-    columns: HashMap<String, Option<Vec<f32>>>,
     /// Images' own gamma by DAZ path, as DAZ hands it Iray
     /// (`Channel::gamma`; "auto" ones aren't listed): one per file.
     pub own_gammas: HashMap<String, f32>,
@@ -336,43 +333,6 @@ impl Textures {
         });
         self.means.insert(key, mean);
         mean
-    }
-
-    /// The mean of each texel column of a grey map (left to right), the
-    /// texels decoded as Iray reads the channel's map: at its gamma
-    /// (`source_gamma`), the channel `mono` picks (`Average`: the
-    /// luminance, as `bake_mono` reads it; `Alpha`: linear coverage). Their
-    /// mean is a cutout map's on strands (`Ocs::opacity_pin`); by column,
-    /// a profile along the strand reads them as they are (#202). None: the
-    /// file is missing or unreadable (a layered image too).
-    fn column_means(&mut self, dirs: &[PathBuf], daz_path: &str, mono: Mono) -> Option<Vec<f32>> {
-        let key = format!("{mono:?}:{daz_path}");
-        if let Some(c) = self.columns.get(&key) {
-            return c.clone();
-        }
-        let rel = daz_path.trim_start_matches('/');
-        let img = dirs.iter().map(|d| d.join(rel)).find(|p| p.is_file()).and_then(|f| image::open(&f).map_err(|e| tracing::warn!(file = %f.display(), error = %e, "Octane export: map unreadable")).ok());
-        let cols = img.map(|img| {
-            let g = self.source_gamma(daz_path, img.color());
-            let img = img.to_rgba32f();
-            let (w, h) = img.dimensions();
-            let (d, lin) = (|c: f32| c.max(0.0).powf(g), |c: f32| c);
-            let texel = |p: [f32; 4]| match mono {
-                Mono::Average => 0.2126 * d(p[0]) + 0.7152 * d(p[1]) + 0.0722 * d(p[2]),
-                Mono::Red => d(p[0]),
-                Mono::Green => d(p[1]),
-                Mono::Blue => d(p[2]),
-                Mono::Maximum => d(p[0].max(p[1]).max(p[2])),
-                Mono::Alpha => lin(p[3]),
-            };
-            let mut sum = vec![0.0f64; w as usize];
-            for (x, _, p) in img.enumerate_pixels() {
-                sum[x as usize] += f64::from(texel(p.0));
-            }
-            sum.into_iter().map(|s| (s / f64::from(h.max(1))) as f32).collect::<Vec<f32>>()
-        });
-        self.columns.insert(key, cols.clone());
-        cols
     }
 
     /// Flatten a layered image into a PNG asset.
@@ -3551,13 +3511,13 @@ impl Ocs<'_> {
         if mat.fibres {
             return self.float_pin(indent, "opacity", 1.0);
         }
-        let Some(map) = mat.image(ch).map(str::to_string) else {
-            return self.float_pin(indent, "opacity", value);
-        };
-        let im = mat.image_mod(ch);
-        let mean = self.textures.column_means(self.dirs, &map, im.mono).filter(|c| !c.is_empty()).map(|c| c.iter().sum::<f32>() / c.len() as f32);
-        // DAZ's scale / offset / invert are affine: the mean's is the texels'.
-        self.float_pin(indent, "opacity", mean.map_or(value, |m| (im.apply(m) * value).clamp(0.0, 1.0)));
+        // Ribbons / prisms: the value alone, the map dropped (#161). Iray
+        // reads the map along its tessellated ribbons, which our uv-less
+        // curves can't; in dense hair that costs Iray nothing (Kevin /
+        // Hudson -op1 / base 0.91 - 1.03), while the map's mean as a
+        // constant cost Octane 14 - 28 %. Trade: strand ends and hairline
+        // wisps the map fades in Iray come out whole.
+        self.float_pin(indent, "opacity", value)
     }
 
     /// The gloss's roughness pin: `value` (Iray's roughness, through the GGX
@@ -11576,10 +11536,10 @@ mod tests {
     }
 
     #[test]
-    fn strand_cutout_maps_give_their_mean_and_fibres_none() {
-        // #202: curves carry no UVs - a map on ribbons / prisms is its mean
-        // × the value, not the texel at the image's corner; fibres ignore
-        // the cutout as Iray does; meshes keep the map.
+    fn strand_cutout_maps_drop_and_fibres_none() {
+        // #202 / #161: curves carry no UVs - a map on ribbons / prisms is
+        // dropped (the value alone), never the texel at the image's corner;
+        // fibres ignore the cutout as Iray does; meshes keep the map.
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("t")).unwrap();
         let save = |name: &str, f: &dyn Fn(u32, u32) -> bool| image::GrayImage::from_fn(64, 64, |x, y| image::Luma([if f(x, y) { 255 } else { 0 }])).save(dir.path().join("t").join(name)).unwrap();
@@ -11590,10 +11550,11 @@ mod tests {
         let of = |m: Material| material_inputs(&[("Hair".into(), Rc::new(m), 0.0)], &dirs, HashMap::new(), 4000, Shading::default()).0;
         let opacity = |x: &str| x[x.find("<pin name='opacity'>").expect("an opacity pin")..].split("</pin>").next().unwrap().to_string();
         let strands = |m: Rc<Material>, fibres: bool| Material { strands: true, fibres, ribbons: !fibres, ..(*m).clone() };
-        assert!(opacity(&of(strands(with("/t/u.png", 1.0), false))).contains(">0.5<"));
-        assert!(opacity(&of(strands(with("/t/v.png", 1.0), false))).contains(">0.25<"));
-        assert!(opacity(&of(strands(with("/t/u.png", 0.5), false))).contains(">0.25<"));
-        // Missing: the value alone.
+        // Ribbons / prisms: the value, the map's coverage ignored
+        // (Calib-Hair-Kevin / -Hudson -op1).
+        assert!(opacity(&of(strands(with("/t/u.png", 1.0), false))).contains(">1<"));
+        assert!(opacity(&of(strands(with("/t/v.png", 1.0), false))).contains(">1<"));
+        assert!(opacity(&of(strands(with("/t/u.png", 0.5), false))).contains(">0.5<"));
         assert!(opacity(&of(strands(with("/t/none.png", 0.8), false))).contains(">0.8<"));
         // Fibres: opaque, map or value (Calib-Strand-Cutout2-Dome).
         assert!(opacity(&of(strands(with("/t/v.png", 1.0), true))).contains(">1<"));

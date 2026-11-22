@@ -422,9 +422,19 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   0.76 - 0.88 on a single strand - the ribbons' shape (#79), not a level.
 - **Cutout Opacity on strands** (any material, every variant): on
   **fibres** (DAZ's Iray `hair` primitive) **none** - opacity 1, map or
-  value; on ribbons and prisms **the map's mean × the value** (the texels
-  decoded as Iray reads the channel, its scale / offset / invert
-  applied), a constant; an unreadable map, the value. Why: Iray disallows
+  value; on ribbons and prisms **the value alone, the map dropped**
+  (#161). Why ribbons: Iray reads the map along its tessellated ribbons,
+  and in dense hair that costs it nothing - Iray Calib-Hair-Kevin-op1 /
+  -Hudson-op1 (Cutout Opacity 1, no map) over their base scenes 0.91 -
+  1.03 in every patch, 0.98 over the hair's box - while the map's mean
+  as a constant (#202's interim rule; Kevin 0.28 - 0.54, Hudson 0.52 -
+  0.53) cost Octane 14 - 28 % (Faithful; Enhanced up to 15 %). Dropped,
+  Faithful / Iray: Kevin 0.86 - 1.02 (shaved side 1.32), Hudson 0.90 -
+  1.09, from 0.71 - 0.82 (1.03) and 0.78 - 0.92. The cost: strand ends
+  and hairline wisps that the map fades in Iray come out whole (they
+  need UVs along the curves). A plain value without a map is a uniform
+  cutout in Iray too and stays (not measured on ribbons). Why fibres:
+  Iray disallows
   cutouts on fibres (release notes, Iray RTX 2020.0.0) and drew a plain
   0.5, maps transparent at the strands' UVs and an all-black map as the
   plain fibre (Calib-Strand-Cutout2-Dome: 1.00 x Calib-Strand-Cutout-Dome's
