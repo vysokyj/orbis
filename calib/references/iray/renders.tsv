@@ -127,6 +127,7 @@ Calib-Hair-Pixie-T1-coat	2000	0	Iray Server (headless submit)	2026-11-22 01:15	2
 Calib-Hair-Pixie-T1-nocap-nogloss	2000	0	Iray Server (headless submit)	2026-11-22 16:11	1153	on@8
 Calib-Hair-Pixie-T1-nofig	2000	0	Iray Server (headless submit)	2026-11-22 16:37	821	on@8
 Calib-Hair-Pixie-T1-nofig-nogloss	2000	0	Iray Server (headless submit)	2026-11-22 17:04	793	on@8
+Calib-Hair-Pixie-T1-nofig-nogloss-pr0	2000	0	Iray Server (headless submit)	2026-11-22 19:07	325	on@8
 Calib-Hair-Pixie-T1-nogloss	2000	0	Iray Server (headless submit)	2026-11-22 00:37	2241	off
 Calib-Hair-Pixie-T2	2000	0	Iray Server (headless submit)	2026-11-21 22:02	2365	off
 Calib-Hair-Pixie-T2-coat	2000	0	Iray Server (headless submit)	2026-11-21 23:18	2315	off
@@ -506,9 +507,11 @@ Calib-Strand-Coat-Dome	2000	0	Iray Server (headless submit)	2026-11-22 03:32	141
 Calib-Strand-Coat-T2-Dome	2000	0	Iray Server (headless submit)	2026-11-22 03:30	125	on@8
 Calib-Strand-CoatArc-HDRI	2000	0	Iray Server (headless submit)	2026-11-22 03:37	110	on@8
 Calib-Strand-CoatArc-T2-HDRI	2000	0	Iray Server (headless submit)	2026-11-22 03:39	125	on@8
+Calib-Strand-CoatDensePile-HDRI	2000	0	Iray Server (headless submit)	2026-11-22 19:01	136	on@8
 Calib-Strand-CoatPile-HDRI	2000	0	Iray Server (headless submit)	2026-11-22 13:29	121	on@8
 Calib-Strand-Cutout-Dome	2000	0	Iray Server (headless submit)	2026-11-18 23:28	1139	off
 Calib-Strand-Cutout2-Dome	2000	0	Iray Server (headless submit)	2026-11-21 19:20	112	on@8
+Calib-Strand-DensePile-HDRI	2000	0	Iray Server (headless submit)	2026-11-22 18:59	117	on@8
 Calib-Strand-Dome	2000	0	Iray Server (Boost for Daz)	2026-11-11 17:31	53	on@8
 Calib-Strand-GlossLobeArc-HDRI	2000	0	Iray Server (headless submit)	2026-11-22 12:11	81	on@8
 Calib-Strand-GlossLobeArc-T2-HDRI	2000	0	Iray Server (headless submit)	2026-11-22 12:09	257	on@8
