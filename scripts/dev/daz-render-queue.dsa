@@ -18,6 +18,9 @@
 //   (then it ends, the scenes stay queued) and that the server answers
 //   (else it waits); a render that ran locally anyway is discarded, its
 //   scene requeued, and the queue ends. queue.log's "stopped: ..." says why.
+//   After each render it asks the server's log which device rendered it
+//   (iray-server.py bridge-device, #219: <scene>.png.run.txt); a render on
+//   the server's CPU fallback ends the queue (restart the Iray Server).
 (function () {
     var aArgs = App.scriptArgs;
     var bLocal = aArgs.length > 0;
@@ -191,6 +194,37 @@
         return p.normalExit && nCode == 0;
     }
     // --- end server reach ---
+    // --- server device (daz-queue-selftest.dsa evals this block) ---
+    // A command's exit code (-1: it didn't start; -2: still running after
+    // nWaitMs, killed). DS6: exitCode is the code (see reachable()).
+    function runCode(aArgv, nWaitMs) {
+        var p = new DzProcess(aArgv);
+        if (!p.start()) return -1;
+        var isRunning = function () { return typeof p.isRunning == "function" ? p.isRunning() : p.running; };
+        var t0 = new Date().getTime();
+        while (isRunning()) {
+            if (new Date().getTime() - t0 > nWaitMs) {
+                try { p.kill(); } catch (e) {}
+                return -2;
+            }
+            processEvents();
+            sleep(200);
+        }
+        return p.exitCode !== undefined ? p.exitCode : p.exitStatus;
+    }
+    // Which device the Iray Server rendered a scene on (#219): its worker
+    // falls back to the CPU after a GPU error (CUDA error 700 on strand hair,
+    // the 4 GB card) and stays there until the server restarts - no Post
+    // Denoiser, 10 - 20 x slower. iray-server.py reads the server's log
+    // right away (the session is in its last 1024 lines) and writes
+    // <png>.run.txt ("device: gpu|cpu|?", keep-refs.py records a CPU render's
+    // denoiser off). Times in ms since the epoch. 0 = GPU, 3 = CPU, else
+    // the log couldn't tell. The system python3: DAZ's PATH has no other.
+    function serverDevice(sPng, nT0, nT1) {
+        var sPy = canonical(getScriptFileName()).replace(/[^\/]*$/, "") + "iray-server.py";
+        return runCode(["/usr/bin/python3", sPy, "bridge-device", sPng, String(nT0 / 1000), String(nT1 / 1000)], 120000);
+    }
+    // --- end server device ---
     var sDazLog = sHome + "/Library/Application Support/DAZ 3D/Studio6/log.txt";
     // Before anything pumps events: a second click may already be queued.
     var nGuarded = guardMenu(true);
@@ -345,8 +379,21 @@
             }
             log("rendered " + sName + " in " + secs + " s" + (exists(sPng) ? "" : " - NO IMAGE"));
             append(sJobLog, "rendered in " + secs + " s");
+            // The device, from the server's log (#219); a CPU render is kept
+            // (its reference is recorded undenoised) but the queue ends: the
+            // worker stays on the CPU until the user restarts the server.
+            var nDev = bLocal || !exists(sPng) ? 0 : serverDevice(sPng, t, t + secs * 1000);
+            if (!bLocal && exists(sPng)) {
+                var sRun = readFrom(sPng + ".run.txt", 0);
+                var mDev = sRun ? /^device: .*$/m.exec(sRun) : null;
+                log("  " + (mDev ? mDev[0] : "device: ? (iray-server.py bridge-device exit " + nDev + ")"));
+            }
             append(sJobLog, "done");
             new DzFile(sActive).rename(sQueue + "/done/" + sName);
+            if (nDev == 3) {
+                sHalt = "the Iray Server rendered " + sName + " on its CPU (its GPU failed; undenoised, 10 - 20 x slower). Restart the Iray Server, then start Render > ORBIS Iray Queue again";
+                break;
+            }
         }
     } finally {
         guardMenu(false);

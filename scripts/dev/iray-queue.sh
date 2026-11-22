@@ -14,7 +14,9 @@
 # --held: a held-back scene (#94, needs a fresh queue-side DAZ session):
 # refused while that DAZ runs. Any batch is refused while a running queue's
 # DAZ has lost its Iray Server connection (#183: it would render on the CPU).
-case ${1:-} in -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
+# Each render's device (GPU, or the server's CPU fallback, #219) lands in
+# <out dir>/<scene>.png.run.txt; a CPU render ends the queue.
+case ${1:-} in -h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
 set -eu
 queue="$HOME/Library/Caches/orbis/calib/queue"
 out="$HOME/Library/Caches/orbis/calib/iray"
@@ -36,6 +38,10 @@ collect() {
         if [ -f "$queue/$name.png" ]; then
             mkdir -p "$dir"
             mv "$queue/$name.png" "$dir/$name.png"
+            # The device the server rendered it on (#219; keep-refs.py reads
+            # it); never an older render's (a headless one's) left beside it.
+            rm -f "$dir/$name.png.run.txt"
+            [ ! -f "$queue/$name.png.run.txt" ] || mv "$queue/$name.png.run.txt" "$dir/$name.png.run.txt"
             echo "$name: $dir/$name.png"
         else
             echo "$name: FAILED (see $queue/queue.log)"

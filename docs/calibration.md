@@ -227,6 +227,17 @@ where a script maps that folder as an MDL directory (`daz-export-mi.dsa`,
    that ran locally anyway. `iray-queue.sh` refuses a batch while a running
    queue's DAZ has lost the connection, and `--held` (held-back scenes,
    #94) refuses while the queue-side DAZ runs at all.
+   The server's CPU fallback (#217) hits the Bridge queue too (#219): its
+   renders are streamed sessions with no job name in the server log, told
+   by their time. After each render the queue runs `iray-server.py
+   bridge-device` (the session is still in the log's last 1024 lines),
+   which writes `device: gpu|cpu|?` into `<scene>.png.run.txt` (`--collect`
+   moves it with the PNG, `keep-refs.py` records a CPU render `off`); a CPU
+   render ends the queue (restart the Iray Server). `iray-server.py
+   bridge-devices <queue.log> [server log...]` checks past ones: the two
+   logs the user downloaded (from the server's restart on 2026-11-16 22:16)
+   hold 13 Bridge renders, all on the GPU; the earlier ones are not in any
+   log.
    Worth it for small scenes; a figure's textures take long to upload.
 3. **Dump and export** — `scripts/dev/daz-dump.sh <out dir> <scene.duf>…`
    writes the scene dump (the posed geometry) and the `.orbx`.

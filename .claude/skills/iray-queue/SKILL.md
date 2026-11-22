@@ -20,7 +20,7 @@ The Iray Server is now a home machine: **free, but its GPU has only 4 GB of VRAM
 
 **Issues first** (the user's rule, 2026-11-17): work an open issue needs goes ahead of everything else. A batch that serves no open issue (filling missing references) submits one scene at a time and calls `iray-server.py idle` before each, so an issue's job waits at most for the scene already rendering. Don't render what no comparison will read (e.g. the `.mi` fixture scenes `Calib-Mi-*`).
 
-The Bridge queue below (the GUI DAZ, `iray-queue.sh`) stays for what `submit` can't do; prefer `submit`.
+The Bridge queue below (the GUI DAZ, `iray-queue.sh`) stays for what `submit` can't do; prefer `submit`. It records the device too (#219): after each render the queue script runs `iray-server.py bridge-device` (`device:` in `<png>.run.txt`, moved by `--collect`) and ends the queue on a CPU render; `iray-server.py bridge-devices <queue.log> [server log...]` checks past Bridge renders.
 
 ## Queueing (Bridge queue)
 1. Prepared scenes: generated (`make-*.py`, `daz-build-*.dsa`; DAZ built-ins/primitives or free DAZ add-ons only for calib/scenes), checked that they open, camera set (below), NVIDIA presets listed (below).

@@ -11,6 +11,8 @@ _SECURE=1 for https; see
   python3 scripts/dev/iray-server.py cancel [prefix]   # remove queued / rendering jobs
   python3 scripts/dev/iray-server.py results [search]  # finished results
   python3 scripts/dev/iray-server.py devices [log...]  # device per job, from the server log (or a downloaded one)
+  python3 scripts/dev/iray-server.py bridge-devices <queue.log> [log...]  # device per Bridge queue render (#219)
+  python3 scripts/dev/iray-server.py bridge-device <png> <t0> <t1>       # daz-render-queue.dsa: device of one, into <png>.run.txt
   python3 scripts/dev/iray-server.py get <path>        # raw GET, JSON printed
 idle: a low-priority batch calls it before each scene, so jobs an issue
 submits go first (one scene per submit; the issue's job waits at most for
@@ -143,6 +145,20 @@ _STATS = re.compile(r'rend info :\s+(CPU|CUDA device \d+ \([^)]*\))\s*:\s+([\d.]
 RESTARTED = '(Iray Server restarted)'
 _NOT_JOBS = {'Neuray_loader', 'WebSocket', 'Renderer', 'Render_target'}
 _GPU_ERROR = re.compile(r'rend error: .*(CUDA|Lost master device)')
+# The Bridge queue (iray-queue.sh, daz-render-queue.dsa in the GUI DAZ)
+# streams each render in a session of its own: untagged worker lines between
+# "Session(<id>): ... CONNECTED" and "... DISCONNECTED", no job name (#219).
+_SESSION = re.compile(r'BRIDGE net\s+info : Session\((\w+)\): Connection state changed to CONNECTION_STATE_(CONNECTED|DISCONNECTED)\b')
+BRIDGE = 'bridge:'
+
+
+def log_time(ts):
+    # "Mon, 16 Nov 2026 22:35:16": the server's local time (in step with this
+    # Mac's within 1 - 2 s: the queue's "rendered" lines vs. the sessions' ends).
+    try:
+        return datetime.datetime.strptime(ts, '%a, %d %b %Y %H:%M:%S')
+    except ValueError:
+        return None
 
 
 class DeviceLog:
@@ -150,7 +166,8 @@ class DeviceLog:
     "Rendering with N devices" block (Iray restarts a job on the CPU after a
     GPU error), the spp per device of "Device statistics at rendering done",
     and its GPU errors. Lines are tagged "[<job>]" (older ones only by their
-    WORKER_n source: the worker's last tagged job)."""
+    WORKER_n source: the worker's last tagged job). A Bridge queue render is
+    the job "bridge:<session id>" (#219), found by its time (bridge_session)."""
 
     def __init__(self):
         self.jobs, self.order, self.worker, self.block, self.prev = {}, [], {}, {}, []
@@ -174,6 +191,10 @@ class DeviceLog:
         if not m or not m['src'].startswith('WORKER'):
             return
         job, msg = m['job'], m['msg']
+        sess = _SESSION.search(msg)
+        if sess and not job and sess[2] == 'CONNECTED':
+            # A Bridge queue render starts on this worker (#219).
+            self.worker[m['src']] = BRIDGE + sess[1]
         if job in _NOT_JOBS:
             # A worker (re)starting: its untagged lines belong to no job yet;
             # its loader lines mean the server (re)started, GPU fresh.
@@ -192,6 +213,11 @@ class DeviceLog:
         if job in self.order:
             self.order.remove(job)
         self.order.append(job)
+        if t := log_time(m['ts']):
+            st.setdefault('start', t)
+            st['end'] = t
+        if sess and sess[2] == 'DISCONNECTED' and self.worker.get(m['src']) == BRIDGE + sess[1]:
+            self.worker[m['src']] = None
         if 'Device statistics at rendering done' in msg:
             st['stats'] = {}
         elif (s := _STATS.search(msg)) and st['stats'] is not None:
@@ -227,6 +253,64 @@ class DeviceLog:
         return ', '.join(st.get('devices') or []) or 'no device lines seen'
 
 
+def bridge_session(log, t0, t1, slack=10):
+    """The Bridge session that overlaps a render from t0 to t1 (datetimes,
+    this Mac's clock) the most, None if none does (#219)."""
+    best, most = None, 0
+    a, b = t0 - datetime.timedelta(seconds=slack), t1 + datetime.timedelta(seconds=slack)
+    for job, st in log.jobs.items():
+        # Device-less sessions are headless submit's uploads (#195).
+        if not job.startswith(BRIDGE) or 'start' not in st or not (log.device(job) or st['errors']):
+            continue
+        over = (min(b, st['end']) - max(a, st['start'])).total_seconds()
+        if over > most:
+            best, most = job, over
+    return best
+
+
+# DAZ's Date.toString in queue.log: "Mon Nov 16 22:39:06 2026 GMT+0100  rendered X.duf in 54 s".
+_QUEUED = re.compile(r'^(\w{3} \w{3} +\d+ \d\d:\d\d:\d\d \d{4}) GMT[+-]\d{4}  rendered (\S+)\.duf in (\d+) s')
+
+
+def bridge_renders(queue_log):
+    """(scene, start, end) of each render queue.log names."""
+    out = []
+    for l in open(queue_log, encoding='utf-8', errors='replace'):
+        if m := _QUEUED.match(l):
+            t1 = datetime.datetime.strptime(' '.join(m[1].split()), '%a %b %d %H:%M:%S %Y')
+            out.append((m[2], t1 - datetime.timedelta(seconds=int(m[3])), t1))
+    return out
+
+
+def bridge_device(png, t0, t1):
+    """daz-render-queue.dsa calls this right after each Bridge render (#219):
+    the session that rendered it is still in the server log's last 1024
+    lines. Writes <png>.run.txt with its device (keep-refs.py records a CPU
+    render's denoiser off); exit 3 on the CPU (the queue then stops: restart
+    the Iray Server), 2 when the log can't tell."""
+    t0, t1 = datetime.datetime.fromtimestamp(float(t0)), datetime.datetime.fromtimestamp(float(t1))
+    log = DeviceLog()
+    try:
+        log.feed(server_log(Server()))
+    except (OSError, SystemExit) as e:
+        print(f'iray-server: no server log ({e})', flush=True)
+        log = None
+    job = log and bridge_session(log, t0, t1)
+    dev = log.device(job) if job else None
+    what = log.describe(job) if job else 'no Bridge session found in the server log'
+    open(png + '.run.txt', 'w').write(f'Iray Server (Bridge queue, #219): rendered in {round((t1 - t0).total_seconds())} s\n'
+                                      f"device: {dev or '?'} ({what})\n")
+    print(f"iray-server: {os.path.basename(png)}: device {dev or '?'} ({what})", flush=True)
+    sys.exit(3 if dev == 'cpu' else 0 if dev else 2)
+
+
+def print_bridge(log, queue_log):
+    for scene, t0, t1 in bridge_renders(queue_log):
+        job = bridge_session(log, t0, t1)
+        dev = log.device(job) if job else None
+        print(f"{scene}\t{t1:%Y-%m-%d %H:%M}\t{dev or '?'}\t{job or 'no session in the log'}" + (f'\t{log.describe(job)}' if job else ''))
+
+
 def server_log(s):
     r = s.call('GET', 'logs')
     return r.get('logs', []) if isinstance(r, dict) else []
@@ -238,6 +322,8 @@ def print_devices(log):
             print(job)
             continue
         st = log.jobs[job]
+        if job.startswith(BRIDGE) and not (log.device(job) or st['errors']):
+            continue   # an upload of headless submit, not a render
         err = f"  GPU error: {st['errors'][0][:120]}" if st['errors'] else ''
         print(f"{job}\t{log.device(job) or '?'}\t{log.describe(job)}{err}")
 
@@ -490,6 +576,18 @@ def main(argv):
         return
     if argv[0] == 'submit':
         return submit(argv[1:])
+    if argv[0] == 'bridge-device':
+        return bridge_device(*argv[1:4])
+    if argv[0] == 'bridge-devices':
+        # Past Bridge queue renders: queue.log against downloaded server logs
+        # (or the live one, its last 1024 lines).
+        log = DeviceLog()
+        if len(argv) > 2:
+            for path in argv[2:]:
+                log.feed(open(path, encoding='utf-8', errors='replace').read().splitlines())
+        else:
+            log.feed(server_log(Server()))
+        return print_bridge(log, argv[1])
     if argv[0] == 'devices' and len(argv) > 1:
         # A downloaded server log (the web UI's Logs > Download).
         log = DeviceLog()

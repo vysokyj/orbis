@@ -19,7 +19,8 @@ deep-learning denoiser runs on GPUs only), whatever the scene says, so a CPU
 render is recorded `off` (#171). So is a headless one whose <png>.run.txt
 says `device: cpu`: the server's GPU failed (CUDA error 700 on strand hair
 or a G9 figure, 4 GB card) and its worker rendered on the CPU (#217;
-iray-server.py reads the device from the server's log). Only scenes that are in calib/scenes (generated from scratch,
+iray-server.py reads the device from the server's log), and a Bridge queue
+render whose <png>.run.txt (daz-render-queue.dsa, #219) says so. Only scenes that are in calib/scenes (generated from scratch,
 DAZ built-ins and primitives only) or calib/scenes-store (calibration scenes
 with the user's store content, put in git by the user's decision, 2026-11-18)
 are taken; every other render is skipped, so a scene the user did not put in
@@ -179,10 +180,11 @@ for png in pngs:
     if demo:
         rows[name]['scene_sha256'] = demo_lib.sha256(demo_lib.copy_path(name))
     changed += 1
-    dev = device(png) if how == HEADLESS else None
+    dev = device(png) if how in (HEADLESS, SERVER) else None
     print(f"kept {name}: {samples} samples, {how}" + (f', device {dev}' if dev else ''))
-    if how == HEADLESS and dev in (None, '?'):
-        print(f'  {name}: no device recorded (#217): check its render time against GPU siblings; '
+    if how in (HEADLESS, SERVER) and dev in (None, '?'):
+        print(f'  {name}: no device recorded (#217, #219): check its render time against GPU siblings '
+              '(a Bridge queue render: iray-server.py bridge-devices <queue.log>); '
               'a CPU fallback needs its denoiser set to off by hand')
 with open(tsv, 'w', newline='') as f:
     w = csv.DictWriter(f, FIELDS, delimiter='\t', lineterminator='\n')

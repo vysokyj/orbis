@@ -4,7 +4,8 @@
 // session, a 13 s render that succeeded, a log that says neither - read
 // from an offset as the queue reads DAZ's log; and the lost-connection
 // check (#183: a cluster manager error, a local CPU render) and the
-// "server reach" block (address, nc through DzProcess). Headless:
+// "server reach" block (address, nc through DzProcess), and the "server
+// device" block (#219: iray-server.py bridge-device, read-only). Headless:
 //   DONE_FILE=<out>/done scripts/dev/daz-script.sh $PWD/scripts/dev/daz-queue-selftest.dsa <out> --
 // Results in <out>/selftest.txt ("PASS"/"FAIL" lines, last line the total).
 // ECMAScript 3, ASCII only.
@@ -138,6 +139,24 @@
         eval(sSrc.substring(j0, j1));
         check("menu guard headless", guardMenu(true), 0);
         check("menu guard release headless", guardMenu(false), 0);
+        // The device check (#219): exit codes through DzProcess, the system
+        // python3, and iray-server.py bridge-device end to end (a read-only
+        // GET logs; no Bridge session in the last minute's window -> "?").
+        var d0 = sSrc.indexOf("// --- server device");
+        var d1 = sSrc.indexOf("// --- end server device ---");
+        check("device block found", d0 >= 0 && d1 > d0, true);
+        eval(sSrc.substring(d0, d1));
+        check("run: exit code", runCode(["/bin/sh", "-c", "exit 3"], 10000), 3);
+        check("run: system python3", runCode(["/usr/bin/python3", "-c", "import sys; sys.exit(3)"], 30000), 3);
+        check("run: timeout", runCode(["/bin/sleep", "5"], 500), -2);
+        var sFake = sOut + "/selftest-device.png";
+        var nNow = new Date().getTime();
+        // A window long before the log: no session, so 2 and "device: ?".
+        var nDev = serverDevice(sFake, nNow - 86400000 * 400, nNow - 86400000 * 400 + 60000);
+        check("device: no session", nDev, 2);
+        var sRunTxt = readFrom(sFake + ".run.txt", 0);
+        check("device: run.txt written", sRunTxt !== null && /^device: \? /m.test(sRunTxt), true);
+        put("INFO run.txt: " + String(sRunTxt).replace(/\n/g, " | "));
     } catch (e) {
         nFail++;
         put("FAIL exception: " + e);
