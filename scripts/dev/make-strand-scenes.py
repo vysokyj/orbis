@@ -97,6 +97,15 @@ that + coat (materials 31 - 34).
 Pixie's material + a white glossy layer 0.3 (its partial refraction over
 gloss over dual lobe), with / without the lobe, with / without its
 translucency (materials 38 - 41).
+-Pile-HDRI (#221): Pixie's pile taken apart on the -LobeArc arcs, every
+row a small layer of arcs over the top (6 cm across, 1.5 cm deep, as
+Pixie's hair over the head): G THIN widths at -LobeArc's optical density
+(750 strands), H Pixie's widths 0.05 / 0.02 at Pixie's density (3000: the
+same coverage per cm, strands 4 x thinner and 4 x as many), I = H over a
+cap (a half cylinder just under the arcs, plain diffuse in Pixie's
+colour, as the hair cap and head under Pixie's strands), J = G over the
+cap. Columns: Pixie opaque with / without its dual lobe, Pixie whole
+(translucency, refraction) with / without it (materials 33, 35, 31, 42).
 
 How DAZ hands a polyline to Iray depends on the hair's Line Tessellation
 modifier (its .mi export reads the Viewport sides, the render the Render
@@ -291,6 +300,11 @@ MATERIALS = {
     39: ('Pixie + gloss, no dual lobe', PIXIE_BASE, {**PIXIE_GLOSS, 'Dual Lobe Specular Weight': 0.0}),
     40: ('Pixie + gloss, no translucency', PIXIE_BASE, {**PIXIE_GLOSS, 'Translucency Weight': 0.0}),
     41: ('Pixie + gloss, no translucency, no dual lobe', PIXIE_BASE, {**PIXIE_GLOSS, 'Translucency Weight': 0.0, 'Dual Lobe Specular Weight': 0.0}),
+    # Pixie's pile on the arcs (#221): the real hair's materials (31 and
+    # its -nogloss twin) beside the opaque pair (33 / 35), and the cap the
+    # strands lie on: plain diffuse in Pixie's colour (no Pixie channels).
+    42: ('Pixie, no dual lobe', PIXIE_BASE, {'Dual Lobe Specular Weight': 0.0}),
+    43: ('cap: diffuse in Pixie colour', PIXIE_BASE, {}),
     30: ('coat-like gloss over grey', [0.5, 0.5, 0.5], {'Glossy Layered Weight': 1.0, 'Glossy Color': [1.0, 1.0, 1.0],
                                                         'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.2}),
 }
@@ -315,6 +329,12 @@ def cutout_map(name):
     return CUTOUT_MAPS[name]
 THICK = 20.0                     # Line Start / End Width of rows A
 THIN = (0.2, 0.1)                # Morgan's
+# -Pile rows (#221): strands, widths, over the cap. Pixie (dump of
+# Calib-Hair-Pixie-T1): 174 040 strands of 4.4 cm, about 360 strands per
+# cm2 across the hair layer; at its widths (0.035 mm mean) 1.3 strand
+# widths per cm of path, as -LobeArc's 3000 THIN arcs (83 / cm2, 0.15 mm).
+PILE_ACROSS, PILE_DEPTH, PILE_R = 6.0, 1.5, 8.0
+PILE = {'G': (750, 'thin', False), 'H': (3000, 'pixie', False), 'I': (3000, 'pixie', True), 'J': (750, 'thin', True)}
 TUBE_R = 1.0                     # cm, rows B
 
 
@@ -337,7 +357,7 @@ def patch(seed, count, axis):
     return out
 
 
-def arc_patch(seed, count, plane, r=8.0):
+def arc_patch(seed, count, plane, r=8.0, across=12.0, depth=3.0):
     """`count` strands bent into half circles of radius r +- 1.5 cm, 18
     points each (as Pixie's render hairs), spread 12 cm across: plane 'yz'
     arcs from the camera side over the top to the back (hair over a
@@ -346,8 +366,8 @@ def arc_patch(seed, count, plane, r=8.0):
     rnd = random.Random(seed)
     out = []
     for _ in range(count):
-        a = rnd.uniform(-6, 6) if count > 1 else 0.0
-        rr = r + (rnd.uniform(-1.5, 1.5) if count > 1 else 0.0)
+        a = rnd.uniform(-across / 2, across / 2) if count > 1 else 0.0
+        rr = r + (rnd.uniform(-depth / 2, depth / 2) if count > 1 else 0.0)
         pts = []
         for k in range(18):
             t = math.pi * k / 17
@@ -372,6 +392,33 @@ def strands_geometry(gid, strands):
               'default_uv_set': '#uv-' + gid})
     uv = {'id': 'uv-' + gid, 'name': 'default', 'label': 'Default UVs', 'vertex_count': len(verts),
           'uvs': {'count': len(verts), 'values': [[0, 0]] * len(verts)}, 'polygon_vertex_indices': []}
+    return g, uv
+
+
+def half_tube_geometry(gid, length, r, cy, sides=24, rings=5):
+    """The upper half of an open tube along x (y >= cy), its axis at
+    (y cy, z 0): the cap under -Pile's arcs. Smooth, faces out."""
+    g = copy.deepcopy(template_geom)
+    verts, polys, uvs = [], [], []
+    for i in range(rings):
+        x = -length / 2 + length * i / (rings - 1)
+        for j in range(sides + 1):
+            t = -math.pi / 2 + math.pi * j / sides
+            verts.append([x, cy + r * math.cos(t), r * math.sin(t)])
+            uvs.append([j / sides, i / (rings - 1)])
+    vid = lambda i, j: i * (sides + 1) + j
+    for i in range(rings - 1):
+        for j in range(sides):
+            # around +x the ring runs y -> z (as tube_geometry): faces out
+            polys.append([0, 0, vid(i, j), vid(i, j + 1), vid(i + 1, j + 1), vid(i + 1, j)])
+    g.update({'id': gid, 'name': gid,
+              'vertices': {'count': len(verts), 'values': [[round(c, 5) for c in v] for v in verts]},
+              'polylist': {'count': len(polys), 'values': polys},
+              'default_uv_set': '#uv-' + gid})
+    g.pop('polyline_list', None)
+    uv = {'id': 'uv-' + gid, 'name': 'default', 'label': 'Default UVs', 'vertex_count': len(verts),
+          'uvs': {'count': len(uvs), 'values': [[round(a, 5), round(b, 5)] for a, b in uvs]},
+          'polygon_vertex_indices': []}
     return g, uv
 
 
@@ -432,7 +479,7 @@ def material(mid, k, widths):
     m['diffuse']['channel']['current_value'] = colour
     chs = channels_of(m, 'studio_material_channels')
     known = {c['channel']['id'] for c in chs}
-    pixie = {c: v for c, v in PIXIE.items() if c in known and c not in ('Line Start Width', 'Line End Width')} if k in (31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41) else {}
+    pixie = {c: v for c, v in PIXIE.items() if c in known and c not in ('Line Start Width', 'Line End Width')} if k in (31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42) else {}
     for cid, v in {**PLAIN, **pixie, **over, 'Line Start Width': widths[0], 'Line End Width': widths[1]}.items():
         if isinstance(cid, tuple):
             next(c['channel'] for c in chs if c['channel']['id'] == cid[0])['image_file'] = cutout_map(v)
@@ -573,7 +620,13 @@ def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None, h
         gid = 'geom-' + oid
         if mats:
             k = mats[k - 1]
-        if arcs and kind != 'tube':
+        backing = False
+        if arcs == 'pile':
+            count, wkind, backing = PILE[oid[0]]
+            g, uv = strands_geometry(gid, arc_patch(ord(oid[0]) * 10 + k, count, 'yz', r=PILE_R, across=PILE_ACROSS, depth=PILE_DEPTH))
+            widths = PIXIE_WIDTHS if wkind == 'pixie' else THIN
+            label = f'{oid} pile {count} x {wkind}' + (' over cap' if backing else '')
+        elif arcs and kind != 'tube':
             # rows G / H / I: one thick arc, 300 sparse, 3000 dense over the
             # top; J: 3000 dense facing the camera
             count = {'G': 1, 'H': 300, 'I': 3000, 'J': 3000}[oid[0]]
@@ -628,6 +681,26 @@ def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None, h
             'id': 'Mat-' + oid + '-i', 'url': '#Mat-' + oid, 'geometry': '#' + gid + '-i', 'groups': ['Default'],
             'diffuse': {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': colour}},
             'uv_set': '#uv-' + gid, 'extra': [{'type': 'studio/material/uber_iray', 'version': '1.1.0.0'}]})
+        if backing:  # the cap just under the arcs' inner radius
+            bid = oid + 'cap'
+            bg, buv = half_tube_geometry('geom-' + bid, PILE_ACROSS + 2.0, PILE_R - PILE_DEPTH / 2 - 0.05, -PILE_R / 2)
+            d['geometry_library'].append(bg)
+            d['uv_set_library'].append(buv)
+            nb = copy.deepcopy(template_node)
+            nb.update({'id': bid, 'name': bid, 'label': oid + ' cap'})
+            for c in nb['translation']:
+                c['current_value'] = {'x': x, 'y': y, 'z': 0.0}[c['id']]
+            d['node_library'].append(nb)
+            d['scene']['nodes'].append({
+                'id': bid + '-1', 'url': '#' + bid, 'name': bid, 'label': oid + ' cap',
+                'geometries': [{'id': 'geom-' + bid + '-i', 'url': '#geom-' + bid, 'name': 'shape', 'label': 'shape', 'type': 'polygon_mesh'}],
+                'extra': [{'type': 'studio_node_channels', 'version': 5}]})
+            m, colour = material('Mat-' + bid, 43, THIN)
+            d['material_library'].append(m)
+            d['scene']['materials'].append({
+                'id': 'Mat-' + bid + '-i', 'url': '#Mat-' + bid, 'geometry': '#geom-' + bid + '-i', 'groups': ['Default'],
+                'diffuse': {'channel': {'id': 'diffuse', 'type': 'float_color', 'current_value': colour}},
+                'uv_set': '#uv-geom-' + bid, 'extra': [{'type': 'studio/material/uber_iray', 'version': '1.1.0.0'}]})
     duf_camera.ensure(d)
     if save_dir:  # a scratch scene
         p = os.path.join(save_dir, name + '.duf')
@@ -744,3 +817,9 @@ for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
 # without; THIN widths as -LobeArc (#217).
 for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
     build('Calib-Strand-GlossLobeArc' + _name + '-HDRI', rows='GHIJ', mats=(38, 39, 40, 41), arcs=True, hdri=True, **_kw)
+# Pixie's pile taken apart (#221): on Calib-Hair-Pixie-T1 the side patch's
+# lobe share is 1.36 x Iray's over a base 0.69 - 0.75 x, while -LobeArc's
+# arcs match (1.02 - 1.04 x). Width alone (G / H: the same coverage per cm,
+# Pixie's strands 4 x thinner), the cap under the strands (H / I, G / J),
+# the real material beside the opaque one (columns 3 / 4 against 1 / 2).
+build('Calib-Strand-Pile-HDRI', rows='GHIJ', mats=(33, 35, 31, 42), arcs='pile', hdri=True)
