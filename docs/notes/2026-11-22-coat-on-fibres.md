@@ -134,3 +134,82 @@ crash of #217 again) - parked for Iray. Nothing shipped; no constant.
 - On the server, strand scenes ran 110 - 141 s on the GPU and ~22 min on
   the CPU fallback; a job stuck at "Internal rendering error" is the GPU
   gone - cancel it rather than wait for the 30 min stall guard.
+
+## Resume: Pixie's material on arcs and on a pile (after #216, #222)
+
+The Octane side re-rendered with the current export (#216: Hair01's dual
+lobe kept; #222: refraction transmission dropped on fibres in Faithful).
+Iray references on the server's GPU, 2000 samples, denoised. Cells by
+`strand-cells.py`'s boxes, masked by Iray alpha > 0.1 (row H of
+-PixieArc is thinner than alpha 0.5 everywhere: the strands, 0.05 ->
+0.02 mm, are sub-pixel). Columns: Pixie whole, + coat, opaque (no
+translucency / refraction), opaque + coat.
+
+Calib-Strand-PixieArc-HDRI (fibres), Faithful:
+
+| row | Octane / Iray col 1 / 2 / 3 / 4 | coat share 2/1 Iray / Octane | 4/3 Iray / Octane |
+|---|---|---|---|
+| G | 1.12 / 1.17 / 1.15 / 1.19 | 2.42 / 2.54 | 1.64 / 1.69 |
+| H | 1.10 / 1.13 / 1.11 / 1.16 | 1.73 / 1.78 | 1.52 / 1.58 |
+| I | 1.09 / 1.13 / 1.11 / 1.16 | 1.89 / 1.96 | 1.53 / 1.60 |
+| J | 1.08 / 1.10 / 1.07 / 1.12 | 1.38 / 1.41 | 1.26 / 1.32 |
+
+Pixie's own material on single fibres at Pixie's widths takes the coat
+alike in both (share 1.02 - 1.05 x); whole / opaque 0.69 - 0.79 in both.
+How it lands also matches: in the coat cells the top 10 % of pixels hold
+the same share of the light (Iray 0.16 - 0.34, Octane 0.16 - 0.34) and
+p99 is 1.04 - 1.17 x. Not the material.
+
+The ribbons (-PixieArc-T2) differ on the sparse rows: Iray's whole
+ribbons are brighter than its opaque ones on G / H (1.59 / 1.32, the sun
+through the translucency), Octane's darker (0.88 / 0.94), and Iray's coat
+adds only 1.08 - 1.10 there (Octane 1.99 / 1.58); I / J agree within
+10 %. Pixie-T2 itself is not off that way (share 1.63 / 1.54 / 2.06 vs
+2.11 / 1.59 / 1.88); noted, not followed (a ribbon's facing on sparse
+arcs).
+
+New Calib-Strand-CoatPile-HDRI: -Pile's rows (G THIN 750, H Pixie's
+widths 3000 at Pixie's density, I = H over the cap, J = G over the cap)
+with -PixieArc's columns. Iray 121 s on the GPU; cells at alpha > 0.5
+(0.1 moves them < 2 %).
+
+| row | Octane / Iray col 1 / 2 / 3 / 4 | coat share 2/1 Iray / Faithful / Enhanced |
+|---|---|---|
+| G thin | 1.10 / 1.15 / 1.12 / 1.17 | 2.32 / 2.42 / 2.31 |
+| H Pixie widths | 1.10 / 1.13 / 1.12 / 1.17 | 2.11 / 2.18 / 2.12 |
+| I + cap | 1.09 / 1.11 / 1.10 / 1.15 | 1.65 / 1.69 / 1.69 |
+| J thin + cap | 1.08 / 1.13 / 1.10 / 1.15 | 1.58 / 1.64 / 1.63 |
+
+Width does nothing in either; the cap lowers the share alike (Iray 2.11
+-> 1.65, Octane 2.18 -> 1.69). The pile does not reproduce the gap.
+
+## What DAZ hands Iray for Pixie
+
+- `.mi` of Calib-Hair-Pixie-T1-coat against Calib-Strand-CoatPile-HDRI
+  (local, store content stays out of git): Hair01's MDL arguments are
+  identical to the pile's (top coat roughness 0.04, the same diffuse,
+  translucency, refraction, dual lobe; only the bump node's name
+  differs); dome, sun, intensity, orientation and tone mapping identical.
+- Strand count: the `.mi` holds 29 404 Hair01 fibres of 10 points, our
+  dump 117 616 of 18 - exactly 4 x. Pixie's hair generator adds `PR
+  Hairs (Per Guide)` 3 at render time; the `.mi` export has only the
+  simulated guides (as it reads the Viewport tessellation sides). Which
+  one Iray renders: the Pixie-T1-coat reference's alpha against our
+  dump's strands rasterized through the camera (width x length per
+  pixel, coverage 1 - e^-c): binned by predicted coverage 0.1 - 0.95,
+  Iray's alpha follows all strands (0.19 / 0.33 / 0.54 / 0.74 / 0.91
+  against 0.15 / 0.30 / 0.50 / 0.70 / 0.89), not a quarter (0.51 - 1.0).
+  Iray renders the render hairs, as the dump has them; the export's
+  widths (0.05 mm, tapering) match the `.mi` radii.
+
+## Where it stands (2)
+
+Material (the `.mi` proves it identical), widths, density, depth, a cap,
+the dome, sun and tone mapping, the strand count and the glint
+concentration all agree between the synthetic scenes and Pixie, and on
+all of them Octane's coat share is 1.02 - 1.08 x Iray's. Pixie's gap
+(after #216: 1.84 / 1.73 / 2.38 vs 1.32 / 1.39 / 1.18) is only in
+Pixie's scene: its strands' shape (clumping, frizz, scraggle over a
+head), the figure and hair cap under them, the floor. Taking that apart
+needs Iray renders of Pixie variants (store content: the user's call).
+No constant; nothing shipped in the export.
