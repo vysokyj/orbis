@@ -84,6 +84,15 @@ transparent: which coordinate Iray's fibres read a cutout map at.
 (weight 1, reflectivity mode 0.5, roughness 0.2) alone over black, over
 grey 0.5 and dark 0.2 (the bases of -UberA-Dome), and the same curve as a
 glossy layer over the grey (materials 27 - 30), fibres and ribbons.
+-CoatArc-HDRI / -CoatArc-T2-HDRI (#215): the coat on bent strands (half
+circles, 18 points each) under DAZ's default dome (DTHDR-RuinsB, not
+drawn) at the hair-set scenes' exposure: rows G one thick arc, H 300, I
+3000 over the top (toward the camera, up, away), J 3000 facing the
+camera; dark 0.2 bare, dark + coat, coat over black, coat over grey.
+-PixieArc-HDRI / -PixieArc-T2-HDRI (#215): the same arcs with Calib-Hair-
+Pixie's Hair01 material (its values; Pixie's widths 0.05 / 0.02, 12000
+strands in I / J): whole, + coat, without translucency and refraction,
+that + coat (materials 31 - 34).
 
 How DAZ hands a polyline to Iray depends on the hair's Line Tessellation
 modifier (its .mi export reads the Viewport sides, the render the Render
@@ -148,6 +157,17 @@ def set_channel(chs, cid, value):
 
 base = load(os.path.join(CALIB, 'Calib-L-Distant-45.duf'))
 dome_src = load(os.path.join(CALIB, 'Calib-Aniso.duf'))
+# DAZ's default dome (DTHDR-RuinsB, its sun in it) and exposure, as the
+# hair-set scenes carry them (make-hair-set-scenes.py, Calib-Hair-Pixie-T1).
+hdri_src = load(os.path.join(CALIB, 'Calib-Hair-Pixie-T1.duf'))
+# Pixie's Hair01 material (the free G9 Base dForce Pixie Hair, as the scene
+# saves it): its values, not its maps (it has none), for -PixieArc.
+PIXIE = {c['channel']['id']: c['channel']['current_value']
+         for m in hdri_src['material_library'] if m['id'] == 'Hair01'
+         for e in m['extra'] if e.get('type') == 'studio_material_channels' for c in e['channels']
+         if 'current_value' in c['channel'] and not c['channel'].get('image_file')}
+PIXIE_BASE = [0.3098039, 0.2352941, 0.2]   # its Diffuse Color
+PIXIE_WIDTHS = (PIXIE['Line Start Width'], PIXIE['Line End Width'])
 
 KEEP = {'Camera', 'Tonemapper Options', 'Environment Options', 'DistantLight'}
 template_node = copy.deepcopy(next(l for l in base['node_library'] if l['id'] == 'pCube(1120000)1'))
@@ -237,6 +257,10 @@ MATERIALS = {
     27: ('top coat over black', BLACK, COAT),
     28: ('top coat over grey', [0.5, 0.5, 0.5], COAT),
     29: ('top coat over dark', [0.2, 0.2, 0.2], COAT),
+    31: ('Pixie', PIXIE_BASE, {}),
+    32: ('Pixie + top coat', PIXIE_BASE, COAT),
+    33: ('Pixie opaque', PIXIE_BASE, {'Translucency Weight': 0.0, 'Refraction Weight': 0.0}),
+    34: ('Pixie opaque + top coat', PIXIE_BASE, {'Translucency Weight': 0.0, 'Refraction Weight': 0.0, **COAT}),
     30: ('coat-like gloss over grey', [0.5, 0.5, 0.5], {'Glossy Layered Weight': 1.0, 'Glossy Color': [1.0, 1.0, 1.0],
                                                         'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.2}),
 }
@@ -280,6 +304,28 @@ def patch(seed, count, axis):
             out.append(line_strand(-25, 25, a, b, 8))
         else:
             out.append([[a, -20 + 40 * k / 7, b] for k in range(8)])
+    return out
+
+
+def arc_patch(seed, count, plane, r=8.0):
+    """`count` strands bent into half circles of radius r +- 1.5 cm, 18
+    points each (as Pixie's render hairs), spread 12 cm across: plane 'yz'
+    arcs from the camera side over the top to the back (hair over a
+    crown, seen from the front), 'xy' arcs facing the camera (the side of
+    a head). count 1: one arc of radius r."""
+    rnd = random.Random(seed)
+    out = []
+    for _ in range(count):
+        a = rnd.uniform(-6, 6) if count > 1 else 0.0
+        rr = r + (rnd.uniform(-1.5, 1.5) if count > 1 else 0.0)
+        pts = []
+        for k in range(18):
+            t = math.pi * k / 17
+            if plane == 'yz':
+                pts.append([a, rr * math.sin(t) - r / 2, rr * math.cos(t)])
+            else:
+                pts.append([rr * math.cos(t), rr * math.sin(t) - r / 2 + a / 4, a / 4])
+        out.append(pts)
     return out
 
 
@@ -355,7 +401,9 @@ def material(mid, k, widths):
     m['id'] = mid
     m['diffuse']['channel']['current_value'] = colour
     chs = channels_of(m, 'studio_material_channels')
-    for cid, v in {**PLAIN, **over, 'Line Start Width': widths[0], 'Line End Width': widths[1]}.items():
+    known = {c['channel']['id'] for c in chs}
+    pixie = {c: v for c, v in PIXIE.items() if c in known and c not in ('Line Start Width', 'Line End Width')} if k in (31, 32, 33, 34) else {}
+    for cid, v in {**PLAIN, **pixie, **over, 'Line Start Width': widths[0], 'Line End Width': widths[1]}.items():
         if isinstance(cid, tuple):
             next(c['channel'] for c in chs if c['channel']['id'] == cid[0])['image_file'] = cutout_map(v)
         else:
@@ -458,7 +506,7 @@ def turned(g, axis, deg):
     return g
 
 
-def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None, hair=None, mats=None, turn=None):
+def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None, hair=None, mats=None, turn=None, arcs=False, hdri=False):
     d = copy.deepcopy(base)
     d['asset_info']['id'] = f'/Scenes/{name}.duf'
     d['asset_info']['contributor'] = {'author': '', 'email': '', 'website': ''}
@@ -480,13 +528,30 @@ def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None, h
         env = next(l for l in d['node_library'] if l['id'] == 'Environment Options')
         set_channel(channels_of(env, 'studio_node_channels'), 'Draw Dome', False)
         d['image_library'] = copy.deepcopy(dome_src['image_library'])
+    if hdri:  # DAZ's default dome, not drawn (the strands' silhouettes stay masks)
+        d['node_library'] = [l for l in d['node_library'] if l['id'] not in ('DistantLight', 'Environment Options', 'Tonemapper Options')]
+        d['scene']['nodes'] = [n for n in d['scene']['nodes'] if not n['id'].startswith(('DistantLight', 'Environment', 'Tonemapper'))]
+        for lid in ('Environment Options', 'Tonemapper Options'):
+            d['node_library'].append(copy.deepcopy(next(l for l in hdri_src['node_library'] if l['id'] == lid)))
+            d['scene']['nodes'].append(copy.deepcopy(next(n for n in hdri_src['scene']['nodes'] if n['id'] == lid + '-1')))
+        env = next(l for l in d['node_library'] if l['id'] == 'Environment Options')
+        set_channel(channels_of(env, 'studio_node_channels'), 'Draw Dome', False)
+        d['image_library'] = [copy.deepcopy(i) for i in hdri_src['image_library'] if 'RuinsB' in i['id']]
     for oid, label, y, x, k, kind in OBJECTS:
         if oid[0] not in rows:
             continue
         gid = 'geom-' + oid
         if mats:
             k = mats[k - 1]
-        if kind == 'thick':
+        if arcs and kind != 'tube':
+            # rows G / H / I: one thick arc, 300 sparse, 3000 dense over the
+            # top; J: 3000 dense facing the camera
+            count = {'G': 1, 'H': 300, 'I': 3000, 'J': 3000}[oid[0]]
+            if arcs == 'pixie' and oid[0] in 'IJ':
+                count = 12000  # Pixie's strands are a quarter as wide as THIN
+            g, uv = strands_geometry(gid, arc_patch(ord(oid[0]) * 10 + k, count, 'xy' if oid[0] == 'J' else 'yz'))
+            widths = (THICK, THICK) if oid[0] == 'G' else PIXIE_WIDTHS if arcs == 'pixie' else THIN
+        elif kind == 'thick':
             g, uv = strands_geometry(gid, [line_strand(-30, 30, 0, 0)])
             widths = (THICK, THICK)
         elif kind == 'tube':
@@ -624,3 +689,15 @@ build('Calib-Strand-Cutout2-Dome', rows='GHIJ', mats=(23, 24, 25, 26), dome=True
 # alone, over the two -UberA-Dome bases, and as a glossy layer.
 for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
     build('Calib-Strand-Coat' + _name + '-Dome', rows='GHIJ', mats=(27, 28, 29, 30), dome=True, **_kw)
+# The same coat on bent strands under DAZ's default dome and its sun, as
+# Calib-Hair-Pixie is lit (#215): on Pixie Iray's coat gathers into sun
+# glints, Octane's spreads into a sky sheen; on straight strands under
+# Calib-Aniso's dome the two match. Columns: the dark base bare, with the
+# coat, the coat alone, the coat over grey.
+for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
+    build('Calib-Strand-CoatArc' + _name + '-HDRI', rows='GHIJ', mats=(17, 29, 27, 28), arcs=True, hdri=True, **_kw)
+# Pixie's own hair material on the bent strands at Pixie's widths (#215):
+# whole and without its translucency / refraction (on fibres Iray drops
+# every transmission), each bare and with the coat.
+for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
+    build('Calib-Strand-PixieArc' + _name + '-HDRI', rows='GHIJ', mats=(31, 32, 33, 34), arcs='pixie', hdri=True, **_kw)
