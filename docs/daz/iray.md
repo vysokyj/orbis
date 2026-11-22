@@ -77,7 +77,7 @@ the *Render* sides; product hair sets both alike):
 
 | Line Tessellation | Iray object | cross-section |
 |---|---|---|
-| none, or sides 0 / 1 | `hair`: cubic B-spline fibres, per-vertex radius = Line Width / 20 cm (the width is a diameter in mm), the ends extended by one control point | Iray's own round fibre |
+| none, or sides 0 / 1 (`.mi`; at render sides 1 is triangles, below) | `hair`: cubic B-spline fibres, per-vertex radius = Line Width / 20 cm (the width is a diameter in mm), the ends extended by one control point | Iray's own round fibre |
 | sides 2 | `trilist`, 2 vertices per strand point (plus an unused one) | a **flat ribbon** one Line Width wide, one normal across it; UV u across the ribbon (± a few thousandths), v along |
 | sides 3 | `trilist`, flat-shaded faces | a triangular **prism**, circumradius = width / 2; each face its own normal |
 
@@ -95,17 +95,29 @@ index + the position along. The `.mi` export writes fewer render hairs than
 the scene's dump holds (1504 vs 29803 strands: the viewport's preview
 density, as it reads the viewport sides). Morgan Hair
 (sides 2) is ribbons, dForce Corporate Hair (Calib-Hair, sides 3) prisms,
-the free dForce Mohawk ships sides 1 (fibres). Scenes:
+the free dForce Mohawk ships sides 1 (fibres in the `.mi`; for the render see below). Scenes:
 `scripts/dev/make-strand-scenes.py` (#79).
 
-A dForce generator's fibres (sides 1) reach Iray unlike a plain polyline's
-(#221, Pixie Hair's guides, `.mi`): the `hair` object carries per-fibre
-texture coordinates (`hair t 2`) and 8 control points per strand where the
-scene's dump holds 18 (the viewport's curve, ~0.2 mm off the dump's points);
-material arguments and instance attributes are the same. Iray renders those
-fibres about 1.4 x brighter than the same strands, widths and MDL arguments
-on a plain polyline node (same alpha); Octane renders both alike. Cause
-open (#221).
+**At render, sides 1 is not fibres** (#221). The `.mi` export writes a
+dForce generator's sides-1 hair as `hair` fibres (with per-fibre texture
+coordinates, `hair t 2`, and the viewport's 8 control points per strand
+where the dump holds 18), but the job DAZ sends the Iray Server holds a
+**triangle object**: the Iray Server's log (`Geometry import (...)`) reads
+"1 triangle object with 2 M triangles" for Pixie Hair's guides at sides 1
+(43 510 strands, 766 k segments: about 2 triangles per segment, a flat
+strip), and "1 fiber object with 43510 fibers (766 k segments)" for the
+same strands on a plain polyline node (no modifier). On those triangles
+Iray keeps the material's transmission, which it discards on fibres
+(Iray manual 8.1.4): with Pixie's translucency and refraction switched off
+the generated hair renders 1.03 - 1.13 x its plain-node copy, with them on
+1.41 x. The strip covers the strand's full width from every view (Iray's
+alpha = the dump's strands at full width, within 1 %; Pixie at sides 1
+covers 2 % more than at sides 2), so it presumably faces the camera; its
+frame is not visible in any export. The `.mi` export is no witness of the
+render's geometry for Line Tessellation sides 1; sides 0 (the modifier's
+viewport default) is unverified at render. Scenes: Calib-Hair-Pixie-T1-
+nofig-nogloss-pr0(-opaque), `make-pixie-poly-scene.py` (the plain-node
+copies, My Library only).
 
 ### Emission
 

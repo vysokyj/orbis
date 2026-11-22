@@ -406,3 +406,73 @@ Tooling: `daz-export-mi.dsa` refuses a scene whose *hidden* nodes carry
 a shader brick (PBRSkin on -nofig's hidden figure: "bricks exported as
 Uber", .mi removed) - workaround here: a scratch copy with every node
 shown.
+
+## The component: DAZ renders sides-1 hair as triangles (resume 4)
+
+The user's answer (2026-11-22): find what DAZ sends Iray for the
+generated hair before any rule. Docs first: the Uber reads no texture
+coordinate without a map (`irayubermaterial.mdl`: only `texture_tangent_*`
+through bumps; `hair: base.hair`, no hair BSDF), and Pixie's materials have
+none, so the `.mi`'s per-fibre coordinates (`hair t 2`, MDL's
+`texture_coordinate(1)` on fibres, Iray manual 8.1.4 / MDL spec 19.1) feed
+nothing. Left: the transmission Iray discards on fibres (manual 8.1.4) and
+the geometry.
+
+**Decomposition** - Pixie's translucency (0.33) and refraction (0.28) off:
+new `Calib-Hair-Pixie-T1-nofig-nogloss-pr0-opaque` (`make-hair-set-scenes.py`)
+and its plain-node twin (`make-pixie-poly-scene.py --scene <it> --material 2
+--draw-dome`, My Library only). Iray: server GPU, 2000 samples, 198 / 136 s.
+Patch means x 1000, crown / fringe / side:
+
+| scene | Iray | Faithful | F / I |
+|---|---|---|---|
+| -pr0 (generated, whole) | 11.20 / 11.53 / 8.78 | 8.33 / 9.66 / 6.62 | 0.74 / 0.84 / 0.75 |
+| -pr0-poly-split-drawn (plain node, whole) | 7.95 / 9.13 / 6.20 | 8.33 / 9.64 / 6.61 | 1.05 / 1.06 / 1.07 |
+| -pr0-opaque (generated) | 11.64 / 13.12 / 10.52 | 11.85 / 12.26 / 10.20 | 1.02 / 0.93 / 0.97 |
+| -pr0-opaque-poly-drawn (plain node) | 11.25 / 11.58 / 9.60 | 11.80 / 12.28 / 10.17 | 1.05 / 1.06 / 1.06 |
+
+- Opaque, generated / plain node in Iray: 1.03 / 1.13 / 1.10 (whole: 1.41 /
+  1.26 / 1.42). The 1.41 rides on the transmission.
+- Iray whole / opaque: generated 0.96 / 0.88 / 0.83, plain node 0.71 / 0.79
+  / 0.65 (= Octane's 0.70 / 0.79 / 0.65 with `opaque_fibres`). On the
+  generated hair Iray keeps nearly all a transmission returns in a pile.
+- **The geometry**: the Iray Server's log, `Geometry import`: the generated
+  hair "1 triangle object with 2 M triangles", the plain node "1 fiber
+  object with 43510 fibers (766 k segments)". DAZ tessellates a Line
+  Tessellation sides-1 hair into triangles at render (about 2 per segment:
+  a flat strip) although its `.mi` writes `hair` fibres; on triangles Iray
+  keeps the transmission. Coverage says the strip shows the strand's full
+  width from every view (camera-facing, presumably). Recorded in
+  `docs/daz/iray.md`.
+
+So `Material::fibres` (`src/usd/mesh.rs`: sides < 2 -> fibres) is wrong for
+sides 1: those strands are tessellated in Iray. What to treat them as is a
+choice. Trial exports (an environment switch, not committed), Faithful +
+Final, Octane / Iray:
+
+| scene | now (fibres) | as prisms (transmission kept) | as ribbons (#161's rule: translucency into the diffuse) |
+|---|---|---|---|
+| -pr0 | 0.74 / 0.84 / 0.75 | 0.77 / 0.85 / 0.78 | 0.85 / 0.91 / 0.93 |
+| Pixie-T1-nogloss | 0.73 / 0.69 / 0.75 | 0.77 / 0.71 / 0.79 | 1.00 / 0.90 / 1.07 |
+| Pixie-T1 | 0.85 / 0.74 / 1.03 | 0.90 / 0.77 / 1.07 | 1.08 / 0.92 / 1.29 |
+| Pixie-T1-coat | 1.20 / 0.93 / 2.08 | 1.24 / 0.95 / 2.12 | 1.37 / 1.06 / 2.31 |
+
+Lobe share (T1 / -nogloss) Iray 1.23 / 1.26 / 1.22: now 1.42 / 1.36 / 1.67,
+ribbons 1.32 / 1.28 / 1.47. Coat share (T1-coat / T1) Iray 1.32 / 1.39 /
+1.18: now 1.85 / 1.74 / 2.37, ribbons 1.68 / 1.60 / 2.10. Enhanced is
+unchanged by either (it keeps the transmission anyway).
+
+- Octane's round curves lose most of a transmission (prisms: +4 %); the
+  ribbon rule's "translucency stays in the diffuse" closes Pixie's base
+  (-nogloss 1.00 / 0.90 / 1.07). The lobe and coat excess shrink but stay:
+  Iray's flat strips catch the sun as coherent glints, Octane's round
+  curves as a sheen (#215) - the curves stay round (#79's decision, no
+  ribbon meshes).
+- Not shipped: sides-1 strips as #161's ribbons is a judgment call (the
+  ribbon rule was set on scalp-facing ribbons; these face the camera),
+  parked as a question on #221.
+
+Process: the Iray Server's log names the geometry of every job (`iray-server.py`
+`server_log`, "Geometry import"); it settled in one read what three `.mi`
+comparisons could not - the `.mi` export is no witness of the render's
+tessellation.
