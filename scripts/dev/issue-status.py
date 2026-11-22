@@ -12,7 +12,7 @@ too. The states and the comment's shape: .claude/skills/issue-loop/SKILL.md.
 """
 import datetime, json, re, subprocess, sys
 
-HELD = {3: "signing needs the user", 19: "no constant tuning", 50: "big private scene", 57: "deferred"}  # issue-loop, "Pick"
+HELD = {3: "signing needs the user", 50: "big private scene"}  # issue-loop, "Pick"
 ORDER = ["done", "resume", "needs-iray", "question", "open", "held"]
 
 

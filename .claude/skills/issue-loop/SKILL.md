@@ -22,7 +22,7 @@ The session that runs the loop only orchestrates; the work on an issue is done b
    1. **resumes first, always**: an issue whose `## Iray batch` comment is answered by a later `Iray references in` comment (label gone), oldest batch first. Its scenes, dumps and Octane side are ready, so it is only a compare - and a compare tends to settle more (and to tell what the next batch must hold) than starting a new issue without a render. Check for them at every iteration, also while the server queue still runs: an issue whose own references are in is resumed at once;
    2. `bug` issues, oldest first;
    3. the rest, oldest first.
-   Skip issues labelled `needs-iray` or `question`, and what the project rules hold back: #57 / #19 (PBRSkin: no constant tuning), #3 (signing needs the user), #50 (a 1.2 M-face private scene; its renders froze the Mac), anything that needs private or store content in git.
+   Skip issues labelled `needs-iray` or `question`, and what the project rules hold back: #3 (signing needs the user), #50 (a 1.2 M-face private scene; its renders froze the Mac), anything that needs private or store content in git.
 3. **Start the worker**: Agent tool, `subagent_type: issue-worker`, prompt = the issue number and title, "resume" if it is one, and what earlier workers reported that concerns it. Wait for its report; don't work on anything that touches the sources or renders meanwhile.
 4. **Check its end state** - the report is not proof. It must be exactly one of:
    - **Done**: the issue is closed, the commit is on `origin/master`, `cargo test` passes, `scripts/install.sh` ran if the export changed.
