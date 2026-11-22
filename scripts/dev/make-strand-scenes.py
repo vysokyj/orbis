@@ -108,6 +108,10 @@ cap. Columns: Pixie opaque with / without its dual lobe, Pixie whole
 (translucency, refraction) with / without it (materials 33, 35, 31, 42).
 -CoatPile-HDRI (#215): the same pile with -PixieArc's columns (Pixie
 whole, + its top coat, opaque, opaque + coat; materials 31 - 34).
+-DensePile-HDRI (#221): -Pile's row H and columns with the layer 1.5 /
+0.3 / 0.1 cm deep (rows G / H / I; J = H over the cap): Pixie's own
+packing, about 4 x -Pile's (DENSE_PILE). -CoatDensePile-HDRI (#215):
+the same rows with -CoatPile's columns.
 
 How DAZ hands a polyline to Iray depends on the hair's Line Tessellation
 modifier (its .mi export reads the Viewport sides, the render the Render
@@ -337,6 +341,14 @@ THIN = (0.2, 0.1)                # Morgan's
 # widths per cm of path, as -LobeArc's 3000 THIN arcs (83 / cm2, 0.15 mm).
 PILE_ACROSS, PILE_DEPTH, PILE_R = 6.0, 1.5, 8.0
 PILE = {'G': (750, 'thin', False), 'H': (3000, 'pixie', False), 'I': (3000, 'pixie', True), 'J': (750, 'thin', True)}
+# -DensePile rows (#221): -Pile's row H (3000 arcs at Pixie's widths) in a
+# thinner layer, the same strands per cm across. Pixie's render hairs,
+# measured locally (a 0.6 cm cube of the dump), cross ~1500 strands per
+# cm2 - about 4 x -Pile's 333 (6 cm x 1.5 cm): nearest neighbours ~4
+# strand widths apart, 3 - 4 % touching, where -Pile's arcs never come
+# within 2. Depth per row: G 1.5 (= -Pile H, the control), H 0.3 (Pixie's
+# packing), I 0.1 (tighter), J = H over the cap.
+DENSE_PILE = {'G': (3000, 'pixie', False, 1.5), 'H': (3000, 'pixie', False, 0.3), 'I': (3000, 'pixie', False, 0.1), 'J': (3000, 'pixie', True, 0.3)}
 TUBE_R = 1.0                     # cm, rows B
 
 
@@ -623,11 +635,15 @@ def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None, h
         if mats:
             k = mats[k - 1]
         backing = False
-        if arcs == 'pile':
-            count, wkind, backing = PILE[oid[0]]
-            g, uv = strands_geometry(gid, arc_patch(ord(oid[0]) * 10 + k, count, 'yz', r=PILE_R, across=PILE_ACROSS, depth=PILE_DEPTH))
+        depth = PILE_DEPTH
+        if arcs in ('pile', 'densepile'):
+            if arcs == 'pile':
+                count, wkind, backing = PILE[oid[0]]
+            else:
+                count, wkind, backing, depth = DENSE_PILE[oid[0]]
+            g, uv = strands_geometry(gid, arc_patch(ord(oid[0]) * 10 + k, count, 'yz', r=PILE_R, across=PILE_ACROSS, depth=depth))
             widths = PIXIE_WIDTHS if wkind == 'pixie' else THIN
-            label = f'{oid} pile {count} x {wkind}' + (' over cap' if backing else '')
+            label = f'{oid} pile {count} x {wkind}' + (f' depth {depth}' if arcs == 'densepile' else '') + (' over cap' if backing else '')
         elif arcs and kind != 'tube':
             # rows G / H / I: one thick arc, 300 sparse, 3000 dense over the
             # top; J: 3000 dense facing the camera
@@ -685,7 +701,7 @@ def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None, h
             'uv_set': '#uv-' + gid, 'extra': [{'type': 'studio/material/uber_iray', 'version': '1.1.0.0'}]})
         if backing:  # the cap just under the arcs' inner radius
             bid = oid + 'cap'
-            bg, buv = half_tube_geometry('geom-' + bid, PILE_ACROSS + 2.0, PILE_R - PILE_DEPTH / 2 - 0.05, -PILE_R / 2)
+            bg, buv = half_tube_geometry('geom-' + bid, PILE_ACROSS + 2.0, PILE_R - depth / 2 - 0.05, -PILE_R / 2)
             d['geometry_library'].append(bg)
             d['uv_set_library'].append(buv)
             nb = copy.deepcopy(template_node)
@@ -830,3 +846,11 @@ build('Calib-Strand-Pile-HDRI', rows='GHIJ', mats=(33, 35, 31, 42), arcs='pile',
 # Calib-Hair-Pixie-T1 1.4 - 2 x. Width, depth and the cap by row as
 # -Pile; columns -PixieArc's (whole, + coat, opaque, opaque + coat).
 build('Calib-Strand-CoatPile-HDRI', rows='GHIJ', mats=(31, 32, 33, 34), arcs='pile', hdri=True)
+# Pixie's packing (#221): figure and cap are out (Iray's Pixie-T1
+# -nofig-nogloss / -nogloss 1.00 / 1.04 / 0.94), Octane's base stays 0.73 x;
+# Pixie's render hairs lie ~4 x denser than -Pile's arcs. -Pile's rows
+# and columns, the layer thinner by row (DENSE_PILE).
+build('Calib-Strand-DensePile-HDRI', rows='GHIJ', mats=(33, 35, 31, 42), arcs='densepile', hdri=True)
+# The same packing with -CoatPile's columns (#215: Pixie's coat share 1.4 -
+# 2 x Iray's with and without the figure, 1.02 - 1.08 x on every pile).
+build('Calib-Strand-CoatDensePile-HDRI', rows='GHIJ', mats=(31, 32, 33, 34), arcs='densepile', hdri=True)

@@ -291,6 +291,32 @@ def nocap(d):
     return hide(d, lambda n: 'Hair Cap' in n.get('label', ''))
 
 
+# The strands' own shape (#221 / #215): with figure and cap out (Iray's
+# -nofig-nogloss / -nogloss 1.00 / 1.04 / 0.94, Octane's base still 0.73 x)
+# what is left of Pixie against the arcs is how its render hairs lie:
+# DAZ's pre-render generator puts `PR Hairs (Per Guide)` 3 around each
+# guide and pulls them into clumps (`PR Clumpiness 1` 0.85, 2 clump curves
+# per cm2) - neighbours ~4 strand widths apart, 3 - 4 % touching, where the
+# piles' random arcs never come within 2. -noclump: clumpiness 0;
+# -pr0: no generated hairs per guide. Set on each hair surface's
+# simulation modifier (DZ__SPS_<surface>), by label.
+def pr(values):
+    def run(d):
+        hits = 0
+        for m in d.get('modifier_library', []):
+            if not m.get('id', '').startswith('DZ__SPS_'):
+                continue
+            for e in m.get('extra', []):
+                for c in e.get('channels', []) or []:
+                    ch = c.get('channel', {})
+                    if ch.get('label') in values:
+                        ch['current_value'] = values[ch['label']]
+                        hits += 1
+        assert hits, f'no {list(values)} channel'
+        return hits
+    return run
+
+
 def chain(*fs):
     def run(d):
         return [f(d) for f in fs]
@@ -307,6 +333,15 @@ PIXIE_VARIANTS = [(f'-T{n}{s}', chain(lambda d, n=n: sides(d, n), *([f] if f els
 PIXIE_VARIANTS += [('-T1-nofig', chain(lambda d: sides(d, 1), nofig)),
                    ('-T1-nofig-nogloss', chain(lambda d: sides(d, 1), nofig, nogloss)),
                    ('-T1-nocap-nogloss', chain(lambda d: sides(d, 1), nocap, nogloss))]
+# #221: the render hairs' shape (pr() above), strands alone, no gloss.
+PIXIE_VARIANTS += [('-T1-nofig-nogloss-noclump', chain(lambda d: sides(d, 1), nofig, nogloss, pr({'PR Clumpiness 1': 0.0}))),
+                   ('-T1-nofig-nogloss-pr0', chain(lambda d: sides(d, 1), nofig, nogloss, pr({'PR Hairs (Per Guide)': 0}))),
+                   ('-T1-nofig-nogloss-tipsep', chain(lambda d: sides(d, 1), nofig, nogloss, pr({'PR Hair Tip Separation': 0.2})))]
+# -noclump's dump came out identical to -nofig-nogloss (clumpiness does not
+# move Pixie's render hairs); what bundles them is the generated hairs
+# meeting their guide at the tip (`PR Hair Tip Separation` 0.01 - 0.06 cm
+# against `PR Hair Distribution Radius` 0.2 at the root). -tipsep: the tips
+# as far apart as the roots, the same strands.
 
 
 def main():

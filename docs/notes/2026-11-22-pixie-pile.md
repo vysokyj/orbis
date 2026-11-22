@@ -152,3 +152,115 @@ Iray: the server's GPU failed on -T1-nofig-nogloss after ~200 of 2000
 iterations ("Kernel [1] (SSS & RT) failed", error -4; #217's kind), the
 submit stopped the server queue; the three scenes are parked as an `##
 Iray batch` in #221 until the Iray Server is restarted.
+
+## Figure and cap out (resume 2)
+
+Iray references of -T1-nofig, -T1-nofig-nogloss and -T1-nocap-nogloss
+(server GPU, 2000 samples, denoised; b9c5c1b). The Octane side was
+rendered before #161 / #223, which touch ribbons only (fibres return
+before the cutout pin and the fold), so it stands.
+
+Patch means (hair-set-compare.py's boxes), Octane / Iray:
+
+| variant | crown F / E | fringe F / E | side F / E |
+|---|---|---|---|
+| -T1-nogloss | 0.73 / 0.77 | 0.69 / 0.71 | 0.75 / 0.78 |
+| -T1-nofig-nogloss | 0.73 / 0.77 | 0.73 / 0.75 | 0.77 / 0.80 |
+| -T1-nocap-nogloss | 0.72 / 0.76 | 0.69 / 0.71 | 0.65 / 0.67 |
+| -T1 | 0.85 / 0.89 | 0.74 / 0.76 | 1.03 / 1.02 |
+| -T1-nofig | 0.86 / 0.89 | 0.78 / 0.80 | 1.08 / 1.07 |
+
+Within each renderer:
+
+| ratio | crown I / F | fringe I / F | side I / F |
+|---|---|---|---|
+| -nofig-nogloss / -nogloss | 1.00 / 1.00 | 1.04 / 1.11 | 0.94 / 0.96 |
+| -nocap-nogloss / -nogloss | 1.02 / 1.00 | 1.00 / 1.00 | 1.26 / 1.08 |
+| lobe share, with head (T1 / -nogloss) | 1.23 / 1.42 | 1.26 / 1.36 | 1.22 / 1.67 |
+| lobe share, strands alone (-nofig / -nofig-nogloss) | 1.22 / 1.43 | 1.19 / 1.27 | 1.20 / 1.69 |
+
+- **Figure, cap and floor are out** (outcome 1 of the batch): Iray's base
+  does not move without them either, and Octane's stays 0.73 - 0.77 x.
+  The lobe share without the head is Iray 1.20 - 1.22, Octane 1.27 -
+  1.69, as with it. Only the side patch over the bare head (-nocap) moves
+  more in Iray (1.26 vs 1.08): skin shows through there; it is not the
+  base gap.
+- **Not coverage**: Iray's alpha is 1.00 in every patch of -nofig (0.99
+  on the fringe), so Iray's patches see no more of what lies behind than
+  Octane's. Over the whole hair the ratio is 0.70 wherever Iray's alpha
+  is 1 and rises only toward the silhouette (0.76 at alpha 0.7 - 0.98).
+- Pixie's four materials sit on the strands as in the `.mi`: Hair01 65 %
+  of the polyline data, Hair02 26 %, Hairline 6 + 3 %; the export writes
+  Hair02 as the opaque base (albedo 0.051), Hair01 as the Mix over the
+  same base. Not a material assignment.
+
+### What is left: how the render hairs lie
+
+The arcs cross every orientation to the camera (|cos(tangent, view)|
+0.1 - 0.97) and every patch of Pixie lies inside that (median 0.21 -
+0.33), and Pixie's crown (strands along x) and side (along y) have the
+same 0.73, so the orientation in the image is out too. What differs is
+the packing. A 0.6 cm cube of the dump, strand surfaces sampled every
+0.02 mm (radius 0.025 -> 0.01 mm), the nearest other strand over the sum
+of radii:
+
+| geometry | strands in the cube | median | touching (< 1) | within 2 |
+|---|---|---|---|---|
+| Pixie-T1 (two spots) | 557 / 384 | 4.6 / 4.0 | 3.8 / 3.6 % | 13 / 17 % |
+| -Pile row H | 96 | > 9 | 0 | 3 % |
+| Pixie -pr0 | 142 / 99 | > 9 | 0.5 / 0.7 % | 2 / 3 % |
+| -DensePile H (0.3 cm deep) | 312 | 3.4 | 5 % | 21 % |
+| -DensePile I (0.1 cm deep) | 297 | 1.8 | 10 % | 54 % |
+
+The pile note's "same coverage" was an average over the hair layer;
+locally Pixie's render hairs lie about 4 x denser than -Pile's arcs.
+
+New Pixie variants (`make-hair-set-scenes.py`, strands alone, no gloss):
+- -T1-nofig-nogloss-noclump (`PR Clumpiness 1` 0): its dump is
+  identical to -nofig-nogloss, vertex for vertex - clumpiness does not
+  move Pixie's render hairs. Kept, not for Iray.
+- -T1-nofig-nogloss-tipsep (`PR Hair Tip Separation` 0.2): points move
+  by up to 0.5 mm, the packing stays (table: the same). Kept, not for
+  Iray.
+- -T1-nofig-nogloss-pr0 (`PR Hairs (Per Guide)` 0): the guides only,
+  29 404 / 11 458 / 1 684 / 964 strands (a quarter), the packing of
+  -Pile. Octane 2.31 / 3.23 / 1.75 x its -nofig-nogloss (the dome shows
+  through a quarter of the strands); the Iray side says whether
+  Octane / Iray goes back to the arcs' 1.05 without the packing.
+
+New `Calib-Strand-DensePile-HDRI` (`make-strand-scenes.py`): -Pile's
+row H (3000 arcs at Pixie's widths) and columns, the layer 1.5 / 0.3 /
+0.1 cm deep (rows G / H / I; J = H over the cap). Octane (cells x 1000
+over its own silhouette, share 1/2, 3/4, 4/2):
+
+| row | Faithful 1 / 2 / 3 / 4 | Faithful shares | Enhanced shares |
+|---|---|---|---|
+| G 1.5 cm | 10.31 / 7.62 / 6.82 / 3.87 | 1.35, 1.76, 0.51 | 1.32, 1.55, 0.57 |
+| H 0.3 cm | 9.19 / 7.20 / 6.34 / 3.80 | 1.28, 1.67, 0.53 | 1.26, 1.52, 0.58 |
+| I 0.1 cm | 9.75 / 7.79 / 6.61 / 4.09 | 1.25, 1.62, 0.53 | 1.23, 1.53, 0.55 |
+| J 0.3 cm + cap | 10.52 / 8.75 / 7.82 / 6.29 | 1.20, 1.24, 0.72 | 1.19, 1.23, 0.73 |
+
+In Octane the packing moves the base by at most 5 % and the lobe share
+by -0.1. If Iray's base rises ~1.35 x from G to H, the packing is Pixie's
+gap and the question becomes what Iray does with fibres that nearly
+touch (docs say only: regular BSDF on fibres single sided, opaque); if it
+stays, the packing is out as well and what is left is per strand (the
+18-point render hairs' kinks under Iray's cubic B-spline). No constant
+either way. `Calib-Strand-CoatDensePile-HDRI` carries #215's coat
+columns on the same rows.
+
+`Calib-Strand-CoatDensePile-HDRI` (#215; columns Pixie whole, + coat,
+opaque, opaque + coat), Octane coat share 2/1, 4/3: Faithful G 2.31,
+1.60 / H 2.15, 1.53 / I 2.07, 1.46 / J 1.51, 1.33; Enhanced 2.21, 1.63 /
+2.07, 1.54 / 2.04, 1.48 / 1.51, 1.33. Octane's share falls a little with
+the packing (2.31 -> 2.15 whole); on -CoatPile Iray's was 2.32 / 2.11 /
+1.65 / 1.58 and Faithful's 1.02 - 1.04 x that. Pixie-T1-coat: Faithful
+1.84 / 1.73 / 2.38 against Iray's 1.32 / 1.39 / 1.18 (crown / fringe /
+side). If Iray's share drops toward Pixie's with the packing while
+Octane's barely moves, the coat gap and the base gap are the same
+packing effect.
+
+Process: count the hair locally (a small cube of the dump), not as an
+average over its layer - the average hid a 4 x denser packing. And check
+a generator parameter's effect in the dump before rendering it:
+clumpiness did nothing to Pixie's render hairs.
