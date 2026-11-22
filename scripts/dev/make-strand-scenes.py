@@ -112,6 +112,10 @@ whole, + its top coat, opaque, opaque + coat; materials 31 - 34).
 0.3 / 0.1 cm deep (rows G / H / I; J = H over the cap): Pixie's own
 packing, about 4 x -Pile's (DENSE_PILE). -CoatDensePile-HDRI (#215):
 the same rows with -CoatPile's columns.
+-Shell-HDRI (#221): Pixie's strand shape on generic strands (SHELL):
+G 3 cm strands bent over a 4 cm shell in random directions, H the same
+shell in 12 cm half circles, I -DensePile's row H arcs cut into 3 cm
+pieces; columns Pixie without its lobe, whole / opaque (42, 35).
 
 How DAZ hands a polyline to Iray depends on the hair's Line Tessellation
 modifier (its .mi export reads the Viewport sides, the render the Render
@@ -349,6 +353,18 @@ PILE = {'G': (750, 'thin', False), 'H': (3000, 'pixie', False), 'I': (3000, 'pix
 # within 2. Depth per row: G 1.5 (= -Pile H, the control), H 0.3 (Pixie's
 # packing), I 0.1 (tighter), J = H over the cap.
 DENSE_PILE = {'G': (3000, 'pixie', False, 1.5), 'H': (3000, 'pixie', False, 0.3), 'I': (3000, 'pixie', False, 0.1), 'J': (3000, 'pixie', True, 0.3)}
+# -Shell rows (#221): packing (-DensePile), figure, cap, curve basis and
+# coverage are out, Octane's base on Pixie's fibres stays 0.73 x Iray's.
+# What is left of Pixie's render hairs: short strands (3 cm, 18 points)
+# bent over a head (median 3.3 degrees per point, ~50 degrees per strand:
+# a ~3 cm radius) in every direction along it. G: 3 cm strands on a
+# shell of radius 4 cm (Pixie's bend) in random directions, ~900 cm of
+# strand per cm2 (Pixie's guides alone, -pr0: optical depth ~4 to the
+# camera); H: the same shell and strand length per cm2 as 12 cm half
+# circles; I: -DensePile's row H arcs cut into 3 cm pieces (the same
+# strands, short). (kind, length cm, count).
+SHELL_R, SHELL_DEPTH = 4.0, 0.3
+SHELL = {'G': ('shell', 3.0, 30000), 'H': ('shell', 12.0, 7500), 'I': ('cut', 3.0, None)}
 TUBE_R = 1.0                     # cm, rows B
 
 
@@ -389,6 +405,66 @@ def arc_patch(seed, count, plane, r=8.0, across=12.0, depth=3.0):
                 pts.append([a, rr * math.sin(t) - r / 2, rr * math.cos(t)])
             else:
                 pts.append([rr * math.cos(t), rr * math.sin(t) - r / 2 + a / 4, a / 4])
+        out.append(pts)
+    return out
+
+
+def resample(pts, n=18):
+    """The polyline `pts` as `n` points evenly spaced along it."""
+    seg = [math.dist(a, b) for a, b in zip(pts, pts[1:])]
+    total, out, i, run = sum(seg), [], 0, 0.0
+    for j in range(n):
+        s = total * j / (n - 1)
+        while i < len(seg) - 1 and run + seg[i] < s:
+            run += seg[i]
+            i += 1
+        t = min(1.0, (s - run) / seg[i]) if seg[i] else 0.0
+        out.append([a + (b - a) * t for a, b in zip(pts[i], pts[i + 1])])
+    return out
+
+
+def cut_strands(strands, length):
+    """Each strand cut into pieces about `length` cm long, 18 points each
+    (Pixie's render hairs: 3 cm, 18 points)."""
+    out = []
+    for s in strands:
+        fine = resample(s, 400)
+        total = sum(math.dist(a, b) for a, b in zip(fine, fine[1:]))
+        pieces = max(1, round(total / length))
+        step = (len(fine) - 1) / pieces
+        for p in range(pieces):
+            out.append(resample(fine[round(p * step):round((p + 1) * step) + 1]))
+    return out
+
+
+def shell_patch(seed, count, length, r=8.0, depth=0.3):
+    """`count` strands `length` cm long lying on a shell over a sphere of
+    radius r +- depth / 2 around (0, -r / 2, 0) (where arc_patch's arcs
+    centre): each a great-circle arc, 18 points, its middle uniform over
+    the upper hemisphere, its direction random - hair over a head, every
+    strand along the surface (#221)."""
+    rnd = random.Random(seed)
+    out = []
+    for _ in range(count):
+        y = rnd.uniform(0.0, 1.0)            # uniform on the hemisphere
+        a = rnd.uniform(0.0, 2 * math.pi)
+        rho = math.sqrt(1 - y * y)
+        p = (rho * math.cos(a), y, rho * math.sin(a))
+        # a random unit tangent at p
+        h = (0.0, 1.0, 0.0) if abs(y) < 0.9 else (1.0, 0.0, 0.0)
+        t1 = (p[1] * h[2] - p[2] * h[1], p[2] * h[0] - p[0] * h[2], p[0] * h[1] - p[1] * h[0])
+        n1 = math.sqrt(sum(c * c for c in t1))
+        t1 = tuple(c / n1 for c in t1)
+        t2 = (p[1] * t1[2] - p[2] * t1[1], p[2] * t1[0] - p[0] * t1[2], p[0] * t1[1] - p[1] * t1[0])
+        b = rnd.uniform(0.0, 2 * math.pi)
+        t = tuple(math.cos(b) * u + math.sin(b) * v for u, v in zip(t1, t2))
+        rr = r + rnd.uniform(-depth / 2, depth / 2)
+        half = length / 2 / rr
+        pts = []
+        for k in range(18):
+            phi = -half + 2 * half * k / 17
+            q = [math.cos(phi) * pc + math.sin(phi) * tc for pc, tc in zip(p, t)]
+            pts.append([rr * q[0], rr * q[1] - r / 2, rr * q[2]])
         out.append(pts)
     return out
 
@@ -634,9 +710,21 @@ def build(name, sun_y=None, dome=False, tess=None, rows='ABCD', save_dir=None, h
         gid = 'geom-' + oid
         if mats:
             k = mats[k - 1]
+            if k is None:
+                continue
         backing = False
         depth = PILE_DEPTH
-        if arcs in ('pile', 'densepile'):
+        if arcs == 'shell':
+            what, length, count = SHELL[oid[0]]
+            if what == 'cut':  # -DensePile's row H (column 4's arcs) in pieces
+                arcs_h = arc_patch(ord('H') * 10 + 42, DENSE_PILE['H'][0], 'yz', r=PILE_R, across=PILE_ACROSS, depth=DENSE_PILE['H'][3])
+                strands = cut_strands(arcs_h, length)
+            else:
+                strands = shell_patch(ord(oid[0]) * 10 + k, count, length, r=SHELL_R, depth=SHELL_DEPTH)
+            g, uv = strands_geometry(gid, strands)
+            widths = PIXIE_WIDTHS
+            label = f'{oid} {what} {len(strands)} x {length} cm'
+        elif arcs in ('pile', 'densepile'):
             if arcs == 'pile':
                 count, wkind, backing = PILE[oid[0]]
             else:
@@ -854,3 +942,9 @@ build('Calib-Strand-DensePile-HDRI', rows='GHIJ', mats=(33, 35, 31, 42), arcs='d
 # The same packing with -CoatPile's columns (#215: Pixie's coat share 1.4 -
 # 2 x Iray's with and without the figure, 1.02 - 1.08 x on every pile).
 build('Calib-Strand-CoatDensePile-HDRI', rows='GHIJ', mats=(31, 32, 33, 34), arcs='densepile', hdri=True)
+# Pixie's strand shape (#221): -DensePile's Iray base moves with the
+# packing as Octane's (Faithful / Iray 1.05 - 1.08 on every row), the
+# guides alone (-pr0) stay 0.74 x, Iray's B-spline drawn in Octane changes
+# nothing. Short bent strands over a shell vs long ones vs the same arcs
+# cut short (SHELL); columns Pixie without its lobe, whole / opaque.
+build('Calib-Strand-Shell-HDRI', rows='GHI', mats=(42, 35, None, None), arcs='shell', hdri=True)

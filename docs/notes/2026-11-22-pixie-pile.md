@@ -264,3 +264,145 @@ Process: count the hair locally (a small cube of the dump), not as an
 average over its layer - the average hid a 4 x denser packing. And check
 a generator parameter's effect in the dump before rendering it:
 clumpiness did nothing to Pixie's render hairs.
+
+## The packing is out too (resume 3)
+
+Iray references of -DensePile, -CoatDensePile and -T1-nofig-nogloss-pr0
+(server GPU, 2000 samples, denoised; 378b30f). The Octane side stands (no
+export change since 11f8a80; #161 / #223 touch ribbons only).
+
+`strand-cells.py`, cells x 1000 over Iray's silhouette (share 1/2, 3/4,
+base 4/2):
+
+| row | Iray col 2 | Faithful col 2 | F / I col 2 | Iray shares | Faithful shares |
+|---|---|---|---|---|---|
+| G 1.5 cm | 7.87 | 8.30 | 1.05 | 1.31, 1.67, 0.50 | 1.35, 1.77, 0.50 |
+| H 0.3 cm (Pixie's packing) | 7.35 | 7.75 | 1.05 | 1.23, 1.59, 0.52 | 1.27, 1.67, 0.52 |
+| I 0.1 cm | 7.98 | 8.41 | 1.05 | 1.22, 1.55, 0.51 | 1.25, 1.64, 0.52 |
+| J 0.3 cm + cap | 8.93 | 9.41 | 1.05 | 1.18, 1.22, 0.71 | 1.19, 1.25, 0.71 |
+
+- Iray's base does **not** rise from G to H (col 2: 0.93 x in both
+  renderers); Faithful / Iray is 1.05 in every row and column, the lobe
+  share moves alike (-0.08 in both). Outcome (2) of the batch: Pixie's
+  packing on arcs reproduces nothing of the 0.73.
+- -CoatDensePile (#215), coat share 2/1, 4/3: Iray 2.24, 1.53 / 2.13,
+  1.43 / 2.05, 1.38 / 1.49, 1.27; Faithful 2.32, 1.60 / 2.19, 1.50 /
+  2.13, 1.45 / 1.53, 1.33 (1.03 - 1.05 x). The coat share falls with the
+  packing alike in both: the packing is out for the coat as well.
+- -T1-nofig-nogloss-pr0 (guides only, the arcs' packing), Pixie's boxes,
+  Octane / Iray: crown 0.74 / 0.77 (F / E), fringe 0.84 / 0.85, side
+  0.75 / 0.78; on the pixels where Iray's alpha is 1: 0.64 / 0.62 / 0.72.
+  pr0 / full is 2.3 x in both renderers (the dome through a quarter of the
+  strands), the gap stays: it does not go with the strand count either.
+
+### Geometry checked against Iray's own
+
+- **Coverage**: the dump's -pr0 strands rasterised through the scene's
+  camera at the export's widths (0.05 -> 0.02 mm, quadratic taper) predict
+  Iray's alpha within 1 %: patches 0.957 / 0.917 / 0.931 vs Iray 0.963 /
+  0.924 / 0.938, partial pixels binned 0.12 - 0.89 vs 0.14 - 0.90, alpha
+  sum 90 242 vs 91 529. Iray renders the dump's strands at the dump's
+  widths (DAZ's `.mi` of Pixie-T1-coat: radius 0.025 -> 0.010 mm per
+  control point, the same quadratic taper). The camera optical depth of
+  -pr0's patches is 3.5 - 4.8, of -DensePile's cells 2.5 - 3.5 (the same
+  raster): optical depth is not what separates them.
+- **Curve basis**: Iray draws a polyline as a uniform cubic B-spline with
+  phantom end points (Iray manual 7.6.2); Pixie's points turn 3.3 deg
+  (median), 13.5 (p90), 90 (p99), the B-spline lies up to 0.29 mm (p90)
+  off them. Octane probe: the dumps resampled to that B-spline (2 points
+  per span, repeated points dropped), exported and rendered: Pixie
+  -nofig-nogloss 1.00 / 1.00 / 1.00 x the linear export, -DensePile
+  1.00 - 1.01. Octane draws Iray's curve as it draws ours - the kinks
+  are out without an Iray render.
+- **Environment**: Pixie's scene draws the dome, the -HDRI scenes don't
+  (a black backplate in Octane). Pixie -nofig-nogloss with -DensePile's
+  black backplate: crown / side unchanged (0.73 / 0.77; the fringe drops
+  to 0.61 only where the dome showed through). Dome mode (infinite),
+  lighting resolution, tone mapper and render settings are identical in
+  the two `.duf`s; the export's kernel pins are identical.
+- **Material**: Pixie's Hair01 in DAZ's `.mi` has the same MDL arguments
+  as -CoatPile's Pixie column (`rounded_corner_normal` bump, instance
+  flags, shadow / visibility attributes included); the export writes the
+  same Octane nodes for Pixie's Hair01 and -DensePile's column 4.
+- The ratio is grey (R / G / B 0.74 / 0.73 / 0.75 on the crown), so no
+  multiple scattering in the hair's colour either.
+
+What is left between Pixie's render hairs and the arcs is their shape on
+the head: 3 cm strands (vs 25 cm), bent to a ~3 cm radius along a closed
+shell in every direction. New `Calib-Strand-Shell-HDRI`
+(`make-strand-scenes.py`, SHELL): G 3 cm strands over a 4 cm shell in
+random directions (900 cm of strand per cm2, -pr0's camera optical depth),
+H the same shell as 12 cm half circles, I -DensePile's row H arcs cut into
+3 cm pieces; columns Pixie without its lobe, whole / opaque.
+
+Its Iray reference: server GPU, 2000 samples, 71 s. Faithful / Iray (cells x 1000, col 1
+whole / col 2 opaque, share 2/1):
+
+| row | Iray | Faithful | Enhanced | F / I |
+|---|---|---|---|---|
+| G 3 cm on the shell | 5.12 / 7.56, 1.48 | 5.44 / 8.00, 1.47 | 5.69 / 8.01, 1.41 | 1.06 / 1.06 |
+| H 12 cm half circles | 4.78 / 7.05, 1.48 | 5.09 / 7.47, 1.47 | 5.39 / 7.47, 1.39 | 1.07 / 1.06 |
+| I -DensePile H cut to 3 cm | 4.68 / 7.53, 1.61 | 4.98 / 7.97, 1.60 | 5.28 / 7.96, 1.51 | 1.06 / 1.06 |
+
+Short strands, a bent shell in every direction, the arcs cut short: all
+match like every pile (1.06). The strand shape is out.
+
+### Pixie's own strands on a plain node
+
+`make-pixie-poly-scene.py`: -pr0's dumped strands (43 510, world space)
+as one polyline node - no figure, no dForce generator - on -DensePile's
+column-4 material (Pixie without its lobe), through Pixie's camera; the
+scene carries geometry of Pixie Hair (free DAZ content), so it stays in My
+Library and only the generator is in git. Iray: server GPU, 2000 samples.
+
+| scene | Octane / Iray (crown / fringe / side) |
+|---|---|
+| -pr0 (the generated hair) | 0.74 / 0.84 / 0.75 |
+| -pr0-poly (one material, dome not drawn) | 1.10 / 1.11 / 1.09 |
+| -pr0-poly-split (Hair02's strands on their own node, refraction off) | 1.10 / 1.10 / 1.09 |
+| -pr0-poly-split-drawn (the dome drawn, as in -pr0) | 1.05 / 1.06 / 1.07 |
+
+- Same strands, same alpha (Iray 91 433 vs 91 529), the same MDL
+  arguments per strand (the split's `.mi`: H4r = Hair02's arguments,
+  `full_refraction_reflection_enable` included; H4 = Hair01's): Octane /
+  Iray goes from 0.74 to 1.05 - 1.10 as soon as the strands are a plain
+  polyline node.
+- Octane renders -pr0 and -pr0-poly-split-drawn alike (1.00 / 1.00 /
+  1.00): the export of the generated hair is the polyline export.
+- Iray renders the generated hair 1.41 x brighter (poly-split-drawn /
+  -pr0: 0.71 / 0.79 / 0.71) than the identical strands on a plain node.
+- Hair02 is not it (split / single material 1.06 - 1.11 in both
+  renderers alike), nor the drawn dome (1.10 -> 1.06).
+
+### What DAZ hands Iray for the generated hair
+
+DAZ's `.mi` of -pr0 (the figure shown, else the export refuses the
+hidden PBRSkin, see below) against -pr0-poly-split's:
+- material arguments and instance attributes identical (shadow /
+  visibility flags, matte, transform);
+- the generated hair's `hair` objects carry **per-fibre texture
+  coordinates** (`hair t 2`), the plain node's none;
+- **8 control points per fibre** (+ 2 phantoms) where the dump and the
+  plain node have 18: DAZ hands Iray a coarser curve, ~0.2 mm (median,
+  per-strand max 0.5 mm) off the dump's points (the `.mi` reads the
+  viewport). Octane fed those 8-point B-splines (dump rebuilt from the
+  `.mi`, scratch export): 0.64 -> 0.66 on full-alpha pixels - not the
+  1.41.
+
+So the gap is in DAZ's render path of a dForce-generated hair into Iray:
+something the viewport `.mi` doesn't show, or the per-fibre texture
+coordinates through the Uber MDL, makes Iray light those fibres 1.4 x
+more than the same fibres from a polyline. Octane has no such path - its
+render of Pixie is the render of the strands. Nothing in the export
+changed; any Faithful factor for "generated fibres" would be a constant
+fitted to Pixie with no component behind it (the decompose rule).
+
+Process: build the same strands outside DAZ's generator early - one
+plain-node copy split the renderer path from the geometry in two
+renders, after four generic stand-ins (piles, shells, cut arcs, a
+B-spline probe) each matched.
+
+Tooling: `daz-export-mi.dsa` refuses a scene whose *hidden* nodes carry
+a shader brick (PBRSkin on -nofig's hidden figure: "bricks exported as
+Uber", .mi removed) - workaround here: a scratch copy with every node
+shown.

@@ -98,6 +98,15 @@ density, as it reads the viewport sides). Morgan Hair
 the free dForce Mohawk ships sides 1 (fibres). Scenes:
 `scripts/dev/make-strand-scenes.py` (#79).
 
+A dForce generator's fibres (sides 1) reach Iray unlike a plain polyline's
+(#221, Pixie Hair's guides, `.mi`): the `hair` object carries per-fibre
+texture coordinates (`hair t 2`) and 8 control points per strand where the
+scene's dump holds 18 (the viewport's curve, ~0.2 mm off the dump's points);
+material arguments and instance attributes are the same. Iray renders those
+fibres about 1.4 x brighter than the same strands, widths and MDL arguments
+on a plain polyline node (same alpha); Octane renders both alike. Cause
+open (#221).
+
 ### Emission
 
 `Emission Color` (non-black), `Luminance` in `Luminance Units` (cd/m²,
