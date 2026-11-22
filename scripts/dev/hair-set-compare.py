@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Patch table for #161's hair set (Calib-Hair-Pixie / -Kevin / -Hudson / -Athena).
+"""Patch table for #161's hair set (Calib-Hair-Pixie / -Kevin / -Hudson / -Athena,
+Pixie-T2 / -T1 with their -coat twins, #203).
 
     hair-set-compare.py [--octane DIR] [--iray DIR] [--boxes OUT.png] [hair...]
 
@@ -28,6 +29,11 @@ PATCHES = {
     "Hudson": {"crown": (560, 125, 740, 185), "front": (485, 190, 570, 260), "side": (725, 245, 795, 340)},
     "Athena": {"fringe": (520, 150, 560, 200), "temple": (680, 150, 730, 210), "lengths": (740, 300, 800, 380), "lower": (780, 430, 840, 490)},
 }
+# Pixie as ribbons (Line Tessellation 2) and fibres (1), #203: same camera
+# and hair as Calib-Hair-Pixie (prisms, 3), so the same boxes.
+PATCHES["Pixie-T2"] = PATCHES["Pixie-T1"] = PATCHES["Pixie"]
+# Hairs with a -coat twin (a white top coat, make-hair-set-scenes.py COAT).
+COATED = ("Pixie-T2", "Pixie-T1")
 
 # Athena's hair vanishes in Octane with its cutout map (#202): its Octane
 # side is the Enhanced render of the -op1 probe (Cutout Opacity 1), against
@@ -64,7 +70,7 @@ def main():
     sheet = []
     for h in a.hairs:
         imgs = {}
-        for v in ("", "-nogloss"):
+        for v in ("", "-nogloss") + (("-coat",) if h in COATED else ()):
             name = "Calib-Hair-%s%s.png" % (h, v)
             imgs[("iray", v)] = load(os.path.join(a.iray, name))
             for look in ("faithful", "enhanced"):
@@ -81,8 +87,10 @@ def main():
             print()
         else:
             print("## %s  (R / G / B (lum))" % h)
-            print("| patch | Iray lin | Faithful / Iray | Enhanced / Iray | F / Iray -nogloss | Iray gloss share | Octane F gloss share |")
-            print("|---|---|---|---|---|---|---|")
+            coated = h in COATED
+            print("| patch | Iray lin | Faithful / Iray | Enhanced / Iray | F / Iray -nogloss | Iray gloss share | Octane F gloss share |"
+                  + (" F / Iray -coat | Iray coat share | Octane F coat share |" if coated else ""))
+            print("|---|---|---|---|---|---|---|" + ("---|---|---|" if coated else ""))
             for p, box in PATCHES[h].items():
                 m = {k: mean(v, box) for k, v in imgs.items()}
                 r = lambda x, y: np.append(m[x] / m[y], lum(m[x]) / lum(m[y]))
@@ -92,7 +100,11 @@ def main():
                     fmt(r(("enhanced", ""), ("iray", ""))),
                     fmt(r(("faithful", "-nogloss"), ("iray", "-nogloss"))),
                     fmt(r(("iray", ""), ("iray", "-nogloss"))),
-                    fmt(r(("faithful", ""), ("faithful", "-nogloss")))))
+                    fmt(r(("faithful", ""), ("faithful", "-nogloss"))))
+                    + (" %s | %s | %s |" % (
+                        fmt(r(("faithful", "-coat"), ("iray", "-coat"))),
+                        fmt(r(("iray", "-coat"), ("iray", ""))),
+                        fmt(r(("faithful", "-coat"), ("faithful", "")))) if coated else ""))
             print()
         if a.boxes:
             im = Image.open(os.path.join(a.iray, "Calib-Hair-%s.png" % h)).convert("RGB")
