@@ -106,6 +106,8 @@ cap (a half cylinder just under the arcs, plain diffuse in Pixie's
 colour, as the hair cap and head under Pixie's strands), J = G over the
 cap. Columns: Pixie opaque with / without its dual lobe, Pixie whole
 (translucency, refraction) with / without it (materials 33, 35, 31, 42).
+-CoatPile-HDRI (#215): the same pile with -PixieArc's columns (Pixie
+whole, + its top coat, opaque, opaque + coat; materials 31 - 34).
 
 How DAZ hands a polyline to Iray depends on the hair's Line Tessellation
 modifier (its .mi export reads the Viewport sides, the render the Render
@@ -823,3 +825,8 @@ for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
 # Pixie's strands 4 x thinner), the cap under the strands (H / I, G / J),
 # the real material beside the opaque one (columns 3 / 4 against 1 / 2).
 build('Calib-Strand-Pile-HDRI', rows='GHIJ', mats=(33, 35, 31, 42), arcs='pile', hdri=True)
+# Pixie's top coat on the same pile (#215): on single arcs at Pixie's
+# widths (-PixieArc) Octane's coat share is 1.02 - 1.05 x Iray's, on
+# Calib-Hair-Pixie-T1 1.4 - 2 x. Width, depth and the cap by row as
+# -Pile; columns -PixieArc's (whole, + coat, opaque, opaque + coat).
+build('Calib-Strand-CoatPile-HDRI', rows='GHIJ', mats=(31, 32, 33, 34), arcs='pile', hdri=True)
