@@ -2469,7 +2469,13 @@ leaves out, #15):
   `metallic_layered_base`, which hands `refraction_base` DAZ's
   `refraction_reflection_enable`, and DAZ passes it off at Glossy Layered
   Weight 0 - closed, thin-walled or partial (Calib-Mi-RefrNoGloss N1 - N4,
-  #143). Glossy Specular black at layered weight 1 keeps the full Fresnel
+  #143). The flag is the refraction's alone: under a partial refraction
+  Mix (`refractive_metal_material`) the base part keeps its dual lobe, which
+  `metallic_layered_base` lays the refraction over (#216: read off the
+  material, it zeroed the base's specular too - G9 Base dForce Pixie Hair's
+  Hair01, refraction 0.28 over translucency 0.33, lost its dual lobe on
+  prisms, ribbons and fibres; Iray's lobe adds 1.22 - 1.55 x there,
+  Octane's had 1.04 - 1.14 x from Hair02 alone). Glossy Specular black at layered weight 1 keeps the full Fresnel
   reflection at the Refraction Index (N8: the flag on, `glossy_enable` off
   under the full refraction). **Weighted mixing (2) without gloss has no
   refraction at all**: `normalized_base` would reflect whatever the flag

@@ -4715,11 +4715,15 @@ impl Ocs<'_> {
             self.rgb_pin(i, "specular", [0.0; 3]);
         } else if refraction == 0.0 && glossy <= 0.0 && dual_lobe.is_none() && mat.image(gloss_ch).is_none() {
             self.rgb_pin(i, "specular", [0.0; 3]);
-        } else if weighted_lobe.is_none() && iray(mat).and_then(|u| u.bool("refraction_reflection_enable")) == Some(false) {
+        } else if refraction > 0.0 && weighted_lobe.is_none() && iray(mat).and_then(|u| u.bool("refraction_reflection_enable")) == Some(false) {
             // Iray's refraction reflects through the glossy layer only: without
             // one DAZ switches its reflection off (`refraction_reflection_enable`,
             // the .mi export) — Calib-Dispersion's glass spheres show no sky
-            // nor sun on their surface in Iray.
+            // nor sun on their surface in Iray. The flag is the refraction's:
+            // the base part of a refraction Mix (refraction 0 here) keeps its
+            // dual lobe, which `metallic_layered_base` lays the refraction
+            // over. Read off the material, it took Pixie Hair's (refraction
+            // 0.28 over translucency) lobe away on every tessellation (#216).
             self.rgb_pin(i, "specular", [0.0; 3]);
         } else if glossy > 0.0 && !glossy_coat && weighted.is_none() {
             gloss_on_specular = true;
@@ -11606,6 +11610,31 @@ mod tests {
         let faithful = Shading { strand_hair: StrandHair::MdlLayers, ..Shading::default() };
         assert!(!material_inputs(&[("M".into(), fibres.clone(), 0.0)], &[], HashMap::new(), 4000, faithful).0.contains("<pin name='transmission'>"));
         assert!(material_inputs(&[("M".into(), fibres, 0.0)], &[], HashMap::new(), 4000, Shading::default()).0.contains("<pin name='transmission'>"));
+    }
+
+    #[test]
+    fn refraction_mix_base_keeps_its_dual_lobe() {
+        // Pixie Hair's Hair01 (#216): a partial refraction without gloss
+        // over translucency and a dual lobe. DAZ turns the refraction's
+        // reflection off; the dual lobe lies under the refraction and stays.
+        let (x, _) = material_inputs(&[("P".into(), mat(json!([
+            {"channel": {"id": "Base Mixing", "current_value": 0}},
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 0.0}},
+            {"channel": {"id": "Translucency Weight", "current_value": 0.33}},
+            {"channel": {"id": "Refraction Weight", "current_value": 0.28}},
+            {"channel": {"id": "Dual Lobe Specular Weight", "current_value": 0.53}},
+            {"channel": {"id": "Dual Lobe Specular Reflectivity", "current_value": 0.42}},
+            {"channel": {"id": "Dual Lobe Specular Ratio", "current_value": 0.85}},
+        ])), 0.0)], &[], HashMap::new(), 4000, SkinShader::None);
+        let part = |name: &str| {
+            let at = x.find(&format!("name='{name}'>")).unwrap_or_else(|| panic!("{name}: {x}"));
+            x[at..].split("</node>\n").take(12).collect::<String>()
+        };
+        let pin = |s: &str, p: &str| s.find(&format!("<pin name='{p}'>")).map(|a| s[a..].split("</pin>").next().unwrap().to_string());
+        assert!(pin(&part("P refraction"), "specular").unwrap().contains(">0 0 0<"), "{x}");
+        let base = part("P base");
+        assert!(pin(&base, "specular").unwrap().contains(">0.4505 0.4505 0.4505<"), "W x ratio: {base}");
+        assert!(pin(&base, "coating").is_some(), "lobe 2: {base}");
     }
 
     #[test]

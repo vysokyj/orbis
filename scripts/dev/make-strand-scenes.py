@@ -261,6 +261,19 @@ MATERIALS = {
     32: ('Pixie + top coat', PIXIE_BASE, COAT),
     33: ('Pixie opaque', PIXIE_BASE, {'Translucency Weight': 0.0, 'Refraction Weight': 0.0}),
     34: ('Pixie opaque + top coat', PIXIE_BASE, {'Translucency Weight': 0.0, 'Refraction Weight': 0.0, **COAT}),
+    # Pixie's dual lobe on the arcs (#216): Pixie opaque (33) against the
+    # same without its lobe, the lobe alone over black, and the lobe's curve
+    # as a glossy layer over black. Uber's dual lobe is the *base* of a
+    # custom_curve_layer under the diffuse (weighted by the curve at the
+    # macro normal), the glossy layer its *layer* (at the half vector,
+    # `libbsdf`): 35 against 38 shows which of the two Iray's fibres draw.
+    35: ('Pixie opaque, no dual lobe', PIXIE_BASE, {'Translucency Weight': 0.0, 'Refraction Weight': 0.0, 'Dual Lobe Specular Weight': 0.0}),
+    36: ('Pixie dual lobe over black', BLACK, {'Translucency Weight': 0.0, 'Refraction Weight': 0.0}),
+    37: ('Pixie dual lobe curve as a glossy layer over black', BLACK,
+         {'Translucency Weight': 0.0, 'Refraction Weight': 0.0, 'Dual Lobe Specular Weight': 0.0,
+          'Glossy Layered Weight': PIXIE['Dual Lobe Specular Weight'], 'Glossy Color': [1.0, 1.0, 1.0],
+          'Glossy Reflectivity': PIXIE['Dual Lobe Specular Reflectivity'],
+          'Glossy Roughness': 0.5 * (PIXIE['Specular Lobe 1 Roughness'] + PIXIE['Specular Lobe 2 Roughness'])}),
     30: ('coat-like gloss over grey', [0.5, 0.5, 0.5], {'Glossy Layered Weight': 1.0, 'Glossy Color': [1.0, 1.0, 1.0],
                                                         'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.2}),
 }
@@ -402,7 +415,7 @@ def material(mid, k, widths):
     m['diffuse']['channel']['current_value'] = colour
     chs = channels_of(m, 'studio_material_channels')
     known = {c['channel']['id'] for c in chs}
-    pixie = {c: v for c, v in PIXIE.items() if c in known and c not in ('Line Start Width', 'Line End Width')} if k in (31, 32, 33, 34) else {}
+    pixie = {c: v for c, v in PIXIE.items() if c in known and c not in ('Line Start Width', 'Line End Width')} if k in (31, 32, 33, 34, 35, 36, 37) else {}
     for cid, v in {**PLAIN, **pixie, **over, 'Line Start Width': widths[0], 'Line End Width': widths[1]}.items():
         if isinstance(cid, tuple):
             next(c['channel'] for c in chs if c['channel']['id'] == cid[0])['image_file'] = cutout_map(v)
@@ -701,3 +714,11 @@ for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
 # every transmission), each bare and with the coat.
 for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
     build('Calib-Strand-PixieArc' + _name + '-HDRI', rows='GHIJ', mats=(31, 32, 33, 34), arcs='pixie', hdri=True, **_kw)
+# Pixie's dual lobe on the arcs under the same dome and sun (#216): Iray's
+# lobe adds 1.22 - 1.55 x on Pixie, Octane's 1.04 - 1.14 x, every
+# tessellation. Columns: Pixie opaque with / without its lobe, the lobe
+# alone, its curve as a glossy layer (MDL layer vs base, above). THIN
+# widths as -CoatArc (-PixieArc's 12000 strands at Pixie's widths crashed
+# the server's GPU, #217).
+for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
+    build('Calib-Strand-LobeArc' + _name + '-HDRI', rows='GHIJ', mats=(33, 35, 36, 37), arcs=True, hdri=True, **_kw)
