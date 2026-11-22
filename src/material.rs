@@ -937,6 +937,23 @@ pub(crate) fn displacement(mat: &Material) -> Option<Displacement> {
 /// was 2.
 const DISPLACEMENT_SUBD_MAX: u32 = 1;
 
+/// The shortest median strand length (cm) at which Faithful folds a ribbon
+/// strand's Uber translucency into its diffuse (`ribbon_reflects`, #161,
+/// #223). The fold stands for light Iray's flat ribbon passes on from
+/// behind - the dome around a free strand, the lit hair behind it in a
+/// pile. A short strand (a shaved side, the neck, the hairline) lies on the
+/// scalp: behind it is skin, and the light it passes on is lost there, as
+/// Octane's transmission loses it. Measured (Faithful / Iray, the -op1
+/// scenes): Calib-Hair-Kevin's shaved side (median 1.6 cm) 1.29 folded,
+/// 0.94 not; Calib-Hair-Hudson's side (its groups of 0.7 - 2.0 cm) 1.12 ->
+/// 0.98; the dense patches (Kevin's 7.9 cm top, Hudson's 3.6 cm and up)
+/// unchanged. A judgment call, not a fit: the store hairs put their short
+/// groups at medians up to 2.0 cm and their long ones from 3.6 cm, and
+/// 2.5 splits them; a hair whose groups mix both lengths gets one rule per
+/// group (docs/tuning.md). Revisit with a short ribbon hair standing off
+/// the skin (a buzz cut's tips, a beard).
+const RIBBON_FOLD_MIN_LENGTH: f32 = 2.5;
+
 /// Octane bump `power` per unit of Iray's `file_bump_texture` factor
 /// (Bump Strength, Top Coat Bump) for a map [`BUMP_REF_WIDTH`] wide, untiled,
 /// on a surface of [`BUMP_REF_UV_SCALE`]: fitted on Calib-CoatBump (#61),
@@ -4436,8 +4453,10 @@ impl Ocs<'_> {
         // Octane's transmission. Not on prisms (sides 3): light into a prism
         // leaves through a second face, and the free Pixie Hair (prisms,
         // Translucency Weight 0.33) went from 0.75 - 1.04 x Iray to 1.06 -
-        // 1.46 with the rule.
-        let ribbon_reflects = mat.strands && mat.ribbons && self.strand_hair == StrandHair::MdlLayers;
+        // 1.46 with the rule. Not on short strands either
+        // (`RIBBON_FOLD_MIN_LENGTH`, #223): they lie on the scalp, which
+        // stands behind them where the dome did.
+        let ribbon_reflects = mat.strands && mat.ribbons && self.strand_hair == StrandHair::MdlLayers && mat.strand_length.is_none_or(|l| l >= RIBBON_FOLD_MIN_LENGTH);
         let transmit = if metal || refraction >= 0.5 || eye_volume || prop_volume || ribbon_reflects { 0.0 } else { translucency.min(self.max_transmission) };
         // Base Color Effect 1 / 2 on that diffuse: the diffuse thinned to
         // its colour's mono, the translucency the rest
@@ -11530,7 +11549,12 @@ mod tests {
         let x = of(ribbons.clone(), faithful);
         assert!(!x.contains("<pin name='transmission'>") && albedo(&x).contains(">0.217638 0.217638 0.217638<"), "{x}");
         let prisms = Material { strands: true, ..(*mat(chs.clone())).clone() };
-        for other in [of(ribbons, Shading::default()), of((*mat(chs.clone())).clone(), faithful), of(prisms, faithful)] {
+        // #223: short ribbons lie on the scalp - they keep the transmission;
+        // long ones (a known length past the threshold) fold it.
+        let short = Material { strand_length: Some(1.6), ..ribbons.clone() };
+        let long = of(Material { strand_length: Some(7.9), ..ribbons.clone() }, faithful);
+        assert!(!long.contains("<pin name='transmission'>") && albedo(&long).contains(">0.217638 0.217638 0.217638<"), "{long}");
+        for other in [of(ribbons, Shading::default()), of((*mat(chs.clone())).clone(), faithful), of(prisms, faithful), of(short, faithful)] {
             assert!(other.contains("<pin name='transmission'>") && albedo(&other).contains(">0.108819 0.108819 0.108819<"), "{other}");
         }
     }

@@ -146,6 +146,10 @@ pub struct Material {
     /// Strands DAZ hands Iray as flat ribbons (Line Tessellation 2 sides),
     /// not fibres or prisms.
     pub ribbons: bool,
+    /// On strands: the group's median strand length, cm (posed, as the
+    /// dump has them); None elsewhere or unknown. Short strands lie on
+    /// the scalp (#223).
+    pub strand_length: Option<f32>,
     /// A DAZ brick shader's MDL materials, as `module::name` (e.g.
     /// `nvidia::metal_examples::cast_iron`): what its graph renders with.
     pub mdl: Vec<String>,

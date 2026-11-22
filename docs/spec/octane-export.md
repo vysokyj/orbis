@@ -420,6 +420,17 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   0.91 - 1.08 x Iray's fibres at every albedo (Calib-Strand-UberA-Dome),
   and Iray's own ribbons are 1.11 - 1.18 x its fibres in a dense patch,
   0.76 - 0.88 on a single strand - the ribbons' shape (#79), not a level.
+  **Not on short ribbons** (`RIBBON_FOLD_MIN_LENGTH`: a material group
+  whose median strand is under 2.5 cm, the dump's posed strands; #223):
+  they keep the transmission in Faithful too. The fold stands for light
+  passed on from behind (the dome, the lit hair behind in a pile); a short
+  strand lies on the scalp, whose skin takes that light. Faithful / Iray
+  (the -op1 scenes, cutout off): Calib-Hair-Kevin's shaved side (1.6 cm)
+  1.29 folded → 0.94; Calib-Hair-Hudson's side (groups of 0.7 - 2.0 cm)
+  1.12 → 0.98; the dense patches (strands of 3.6 cm and up) unchanged. Of
+  the Faithful / Enhanced difference on Kevin all is the fold: the skin
+  shaders and the rough-lobe model swapped between the Looks move no patch
+  (1.00).
 - **Cutout Opacity on strands** (any material, every variant): on
   **fibres** (DAZ's Iray `hair` primitive) **none** - opacity 1, map or
   value; on ribbons and prisms **the value alone, the map dropped**

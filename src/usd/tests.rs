@@ -327,6 +327,15 @@ fn strand_width_tapers_along_the_square_of_the_point_share() {
 }
 
 #[test]
+fn median_strand_length_is_the_middle_strand_in_cm() {
+    // #223: the ribbon fold reads a group's median strand length.
+    let v = [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 3.0, 0.0], [5.0, 0.0, 0.0], [5.0, 0.0, 4.0], [9.0, 0.0, 0.0], [9.0, 8.0, 0.0]];
+    let (a, b, c) = (vec![0, 1, 2], vec![3, 4], vec![5, 6]);
+    assert_eq!(mesh::median_strand_length(&v, &[&c, &a, &b]), Some(4.0));
+    assert_eq!(mesh::median_strand_length(&v, &[]), None);
+}
+
+#[test]
 fn strand_hair_is_written_as_basis_curves() {
     let mut m = Mesh { name: "Curls_Bangs".into(), label: "Curls Bangs".into(), ..Default::default() };
     m.points = vec![[0.0, 1.0, 0.0], [0.0, 0.9, 0.0], [0.0, 0.8, 0.0], [0.1, 1.0, 0.0], [0.1, 0.9, 0.0]];

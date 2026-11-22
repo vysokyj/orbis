@@ -349,6 +349,21 @@ pub(super) fn strand_width(root: f32, tip: f32, k: usize, points: usize) -> f32 
     root + (tip - root) * s * s
 }
 
+/// The median length (cm, the dump's units) of a material group's strands,
+/// None without any.
+pub(super) fn median_strand_length(vertices: &[[f32; 3]], strands: &[&Vec<u32>]) -> Option<f32> {
+    let point = |v: u32| vertices.get(v as usize).copied().unwrap_or_default();
+    let mut lengths: Vec<f32> = strands
+        .iter()
+        .map(|s| s.windows(2).map(|w| { let (a, b) = (point(w[0]), point(w[1])); ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt() }).sum())
+        .collect();
+    if lengths.is_empty() {
+        return None;
+    }
+    lengths.sort_by(f32::total_cmp);
+    Some(lengths[lengths.len() / 2])
+}
+
 /// One `Mesh` (curves) per material group of a strand-hair figure, its
 /// strands' widths tapering from root to tip as DAZ's hair shader sets them.
 pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DumpNode, names: &mut HashSet<String>) -> Vec<Mesh> {
@@ -387,8 +402,9 @@ pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DumpNode, names:
             }
             mesh.face_counts.push(s.len() as u32);
         }
+        let strand_length = median_strand_length(&fig.vertices, &strands);
         mesh.subsets = vec![(group, (0..strands.len() as u32).collect())];
-        mesh.materials = vec![mat.map(|m| Rc::new(crate::daz_material::Material { strands: true, fibres, ribbons, ..(*m).clone() }))];
+        mesh.materials = vec![mat.map(|m| Rc::new(crate::daz_material::Material { strands: true, fibres, ribbons, strand_length, ..(*m).clone() }))];
         mesh.curve_widths = Some(widths);
         out.push(mesh);
     }
