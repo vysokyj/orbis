@@ -8,7 +8,7 @@ description: Add or refresh DAZ .mi (Iray MDL) fixtures that verify src/iray.rs.
 `src/iray.rs` reproduces what DAZ hands Iray, tested against `calib/references/mi/*.json`. It outranks calibration (#62).
 
 1. Export: `DONE_FILE=<out dir>/export-mi.done scripts/dev/daz-script.sh $PWD/scripts/dev/daz-export-mi.dsa <out dir> <scene.duf>... --` (headless DAZ - ask first).
-   Many scenes per run are fine (#153): the script waits 2 s after each scene for DAZ to release its Iray data, checks that a scene's shader bricks reached the `.mi` (else reopens it, then removes the `.mi`), and `export-mi.done` starts with `FAILED <n>` when a scene still lost them - re-export those alone.
+   Many scenes per run are fine (#153): the script waits 2 s after each scene for DAZ to release its Iray data, checks that the shader bricks of a scene's visible nodes reached the `.mi` (a hidden node is not in DAZ's `.mi`, #224; else reopens it, then writes nothing: each export goes through `<out dir>/export-mi.tmp` and replaces an earlier `.mi` only when it passed), and `export-mi.done` starts with `FAILED <n>` when a scene still lost them - re-export those alone.
 2. Inspect the MDL arguments: `python3 scripts/dev/mi-args.py [--param <regex>] <scene.mi>...` (Calib-Map-* scenes sweep channels).
 3. Fixtures: `python3 scripts/dev/mi-oracle.py --out calib/references/mi <scene.mi>...` - it refuses (exit 1) a `.mi` whose surfaces lost their scene's shader brick to an Uber; `python3 scripts/dev/mi-audit.py` checks every fixture that way (#153).
 4. Shader defaults: `python3 scripts/dev/daz-defaults.py <definition.dsf> > calib/references/daz-defaults/<Name>.json`.

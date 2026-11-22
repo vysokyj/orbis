@@ -1,6 +1,6 @@
 // ORBIS: export scenes to Iray's .mi (DzMIExporter), headless through
 // scripts/dev/daz-script.sh. The .mi holds the
-// MDL argument values DAZ Studio computes from the Uber channels — the
+// MDL argument values DAZ Studio computes from the Uber channels - the
 // compiled channel -> parameter mapping (docs/daz/iray-uber-mdl.md).
 // Arguments: out dir, scene .duf files, "--", then the content directories
 // (daz-script.sh appends them); writes <out dir>/<scene>.mi each and
@@ -41,18 +41,28 @@
     // those DAZ hands Iray as Uber) need a module beyond the Uber's in the
     // .shader_decl.mi. A scene loaded too early stays wrong however long
     // one waits before exporting again, so clear, wait longer, reopen; in
-    // the end remove the .mi and say FAILED rather than leave a wrong
-    // fixture (mi-oracle.py checks each surface too: mi-audit.py).
+    // the end say FAILED rather than leave a wrong fixture (mi-oracle.py
+    // checks each surface too: mi-audit.py). Each export goes to a scratch
+    // folder (<out dir>/export-mi.tmp, same file names: the .mi includes its
+    // .shader_decl.mi by name) and replaces the out dir's files only when it
+    // passed, so a refused export leaves an earlier valid .mi in place (#224).
     var aAsUber = ["AoA_Subsurface"];
     var aUberModules = ["base.mdl", "state.mdl", "math.mdl", "daz_3d::irayubermaterial.mdl", "daz_3d::basic.mdl"];
     function has(a, x) {
         for (var h = 0; h < a.length; h++) if (a[h] == x) return true;
         return false;
     }
+    // #224: a hidden node (Visible or Visible in Render off, or under a
+    // hidden group: isVisible()) is not in DAZ's .mi at all, its materials
+    // neither (a hidden Genesis 9 with PBRSkin added no module), so its
+    // bricks are not expected there - the same test as the scene dump's.
     function bricks() {
         var aOut = [];
         for (var n = 0; n < Scene.getNumNodes(); n++) {
-            var oObj = Scene.getNode(n).getObject();
+            var oNode = Scene.getNode(n);
+            if (!oNode.isVisible()) continue;
+            if (oNode.isVisibleInRender && !oNode.isVisibleInRender()) continue;
+            var oObj = oNode.getObject();
             var oShape = oObj ? oObj.getCurrentShape() : null;
             for (var m = 0; oShape && m < oShape.getNumMaterials(); m++) {
                 var oMat = oShape.getMaterial(m);
@@ -78,10 +88,28 @@
         sleep(ms);
         processEvents();
     }
+    var sTmp = sOut + "/export-mi.tmp";
+    new DzDir(sOut).mkpath(sTmp);
+    function tmpFiles() {
+        return new DzDir(sTmp).entryList(["*"], DzDir.Files);
+    }
+    function clearTmp() {
+        var aF = tmpFiles();
+        for (var t = 0; t < aF.length; t++) new DzFile(sTmp + "/" + aF[t]).remove();
+    }
+    // Moves the scratch folder's files into the out dir, replacing theirs.
+    function keepTmp() {
+        var aF = tmpFiles();
+        for (var t = 0; t < aF.length; t++) {
+            var sDest = sOut + "/" + aF[t];
+            if (new DzFile(sDest).exists()) new DzFile(sDest).remove();
+            if (!new DzFile(sTmp + "/" + aF[t]).rename(sDest)) log("cannot move " + aF[t] + " to " + sOut);
+        }
+    }
     var nFailed = 0;
     for (var k = 0; oExporter && k < aScenes.length; k++) {
         var sName = aScenes[k].replace(/^.*\//, "").replace(/\.duf$/, "");
-        var sMi = sOut + "/" + sName + ".mi";
+        var sMi = sTmp + "/" + sName + ".mi";
         var aBricks = [], oResult, aModules = [], bOpened = false;
         for (var iTry = 0; iTry < 3; iTry++) {
             if (iTry > 0) {
@@ -90,6 +118,7 @@
             }
             bOpened = oContent.openFile(aScenes[k], false);
             if (!bOpened) break;
+            clearTmp();
             aBricks = bricks();
             oResult = oExporter.writeFile(sMi);
             aModules = brickModules(sMi);
@@ -100,16 +129,18 @@
             log(sName + ": FAILED - not opened");
             nFailed++;
         } else if (aBricks.length > 0 && aModules.length == 0) {
-            new DzFile(sMi).remove();
-            new DzFile(sMi.replace(/\.mi$/, ".shader_decl.mi")).remove();
-            log(sName + ": FAILED - shader bricks exported as Uber (#153), .mi removed");
+            log(sName + ": FAILED - shader bricks exported as Uber (#153), not written" + (new DzFile(sOut + "/" + sName + ".mi").exists() ? " (the earlier .mi kept)" : ""));
             nFailed++;
         } else {
-            log(sName + ": " + oResult + ", " + (new DzFile(sMi).exists() ? "written" : "missing") + (aModules.length ? " (" + aModules.join(", ") + ")" : ""));
+            var bWritten = new DzFile(sMi).exists();
+            if (bWritten) keepTmp();
+            log(sName + ": " + oResult + ", " + (bWritten ? "written" : "missing") + (aModules.length ? " (" + aModules.join(", ") + ")" : ""));
         }
+        clearTmp();
         Scene.clear();
         settle(2000);
     }
+    new DzDir(sOut).rmdir(sTmp);
     var f = new DzFile(sOut + "/export-mi.done");
     f.open(DzFile.WriteOnly | DzFile.Truncate);
     f.write((oExporter ? "" : "no DzMIExporter\n") + (nFailed ? "FAILED " + nFailed + "\n" : "") + sLog);
