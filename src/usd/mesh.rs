@@ -319,8 +319,10 @@ pub(super) const LINE_WIDTH_SCALE: f32 = 0.001;
 /// a scene-local definition's; library files are read without their
 /// modifiers, so a value the scene leaves out counts as tessellated, as
 /// product hair is), None without the modifier. Under 2 sides
-/// DAZ hands Iray the strands as `hair` fibres, else as ribbons (2) or
-/// prisms (`make-strand-scenes.py`, DAZ's .mi).
+/// DAZ's `.mi` export writes the strands as `hair` fibres, else as ribbons
+/// (2) or prisms (`make-strand-scenes.py`, DAZ's .mi). At render 1 side is
+/// not fibres: DAZ hands Iray a triangle object, flat strips (#221); 0
+/// sides at render is unverified and stays fibres.
 pub(super) fn line_tessellation_sides(lib: &mut Library, node_id: &str) -> Option<i64> {
     const CHANNEL: &str = "Render Line Tessellation Sides";
     let is_tessellation = |m: &Value| m.get("extra").and_then(Value::as_array).into_iter().flatten().any(|e| e.get("type").and_then(Value::as_str) == Some("studio/modifier/line_tessellation"));
@@ -369,8 +371,13 @@ pub(super) fn median_strand_length(vertices: &[[f32; 3]], strands: &[&Vec<u32>])
 pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DumpNode, names: &mut HashSet<String>) -> Vec<Mesh> {
     let materials = scene_materials(lib, &n.instance_id);
     let sides = line_tessellation_sides(lib, &n.id);
+    // Fibres as DAZ's .mi writes them: no modifier, or fewer than 2 sides.
+    // Sides 1 render in Iray as flat strips (a triangle object, #221) -
+    // `flat_strips` lets the variant pick (`Tuning::flat_strips_as_ribbons`);
+    // sides 0 stays fibres (not verified at render).
     let fibres = sides.is_none_or(|sides| sides < 2);
     let ribbons = sides == Some(2);
+    let flat_strips = sides == Some(1);
     let scale = LINE_WIDTH_SCALE;
     let mut by_group: Vec<Vec<&Vec<u32>>> = vec![Vec::new(); fig.material_groups.len().max(1)];
     for (k, strand) in fig.polylines.iter().enumerate() {
@@ -404,7 +411,7 @@ pub(super) fn hair_curves(lib: &mut Library, n: &GeoNode, fig: &DumpNode, names:
         }
         let strand_length = median_strand_length(&fig.vertices, &strands);
         mesh.subsets = vec![(group, (0..strands.len() as u32).collect())];
-        mesh.materials = vec![mat.map(|m| Rc::new(crate::daz_material::Material { strands: true, fibres, ribbons, strand_length, ..(*m).clone() }))];
+        mesh.materials = vec![mat.map(|m| Rc::new(crate::daz_material::Material { strands: true, fibres, ribbons, flat_strips, strand_length, ..(*m).clone() }))];
         mesh.curve_widths = Some(widths);
         out.push(mesh);
     }

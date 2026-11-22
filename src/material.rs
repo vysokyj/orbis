@@ -7438,6 +7438,7 @@ pub struct Shading {
     pub metal_spread: Option<f32>,
     pub transmission_excess: bool,
     pub opaque_fibres: bool,
+    pub flat_strips_as_ribbons: bool,
 }
 
 impl Default for Shading {
@@ -7448,13 +7449,13 @@ impl Default for Shading {
 
 impl From<SkinShader> for Shading {
     fn from(skin: SkinShader) -> Self {
-        Shading { skin, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), legacy_metal_rim: false, skin_detail_contrast: 0.0, metal_spread: None, transmission_excess: false, opaque_fibres: false }
+        Shading { skin, thin_glass_ior_one: false, max_transmission: 1.0, strand_hair: StrandHair::HairPile, rough_lobe: RoughLobe::default(), legacy_metal_rim: false, skin_detail_contrast: 0.0, metal_spread: None, transmission_excess: false, opaque_fibres: false, flat_strips_as_ribbons: false }
     }
 }
 
 impl From<&crate::tuning::Tuning> for Shading {
     fn from(t: &crate::tuning::Tuning) -> Self {
-        Shading { skin: t.skin, thin_glass_ior_one: t.thin_glass_ior_one, max_transmission: t.max_transmission, strand_hair: t.strand_hair, rough_lobe: t.rough_lobe, legacy_metal_rim: t.legacy_metal_rim, skin_detail_contrast: t.skin_detail_contrast, metal_spread: t.metal_std_spread, transmission_excess: t.rough_transmission_excess, opaque_fibres: t.opaque_fibres }
+        Shading { skin: t.skin, thin_glass_ior_one: t.thin_glass_ior_one, max_transmission: t.max_transmission, strand_hair: t.strand_hair, rough_lobe: t.rough_lobe, legacy_metal_rim: t.legacy_metal_rim, skin_detail_contrast: t.skin_detail_contrast, metal_spread: t.metal_std_spread, transmission_excess: t.rough_transmission_excess, opaque_fibres: t.opaque_fibres, flat_strips_as_ribbons: t.flat_strips_as_ribbons }
     }
 }
 
@@ -7993,7 +7994,7 @@ pub fn material_inputs_scaled(
     first_id: u32,
     shading: impl Into<Shading>,
 ) -> (String, Textures) {
-    let Shading { skin, thin_glass_ior_one, max_transmission, strand_hair, rough_lobe, legacy_metal_rim, skin_detail_contrast, metal_spread, transmission_excess, opaque_fibres } = shading.into();
+    let Shading { skin, thin_glass_ior_one, max_transmission, strand_hair, rough_lobe, legacy_metal_rim, skin_detail_contrast, metal_spread, transmission_excess, opaque_fibres, flat_strips_as_ribbons } = shading.into();
     // DAZ has one gamma per image file (`scene_image_gammas`): the
     // materials' channels give each its own, "auto" ones aren't listed.
     let own_gammas = materials.iter().flat_map(|(_, m, _)| m.channels.values()).filter_map(|c| Some((c.image.clone()?, c.gamma?))).collect();
@@ -8009,9 +8010,19 @@ pub fn material_inputs_scaled(
         );
         w.out.push_str("    <attr name='group' type='10'></attr>\n    <attr name='description' type='10'></attr>\n");
         w.pin_open(4, "input");
-        w.film = Film::of(mat);
         w.uv_scale = uv_scales.get(&std::rc::Rc::as_ptr(mat)).copied();
         w.uv_cover = uv_covers.get(&std::rc::Rc::as_ptr(mat)).cloned();
+        // Line Tessellation 1 side: Iray renders flat strips, which the
+        // variant takes as ribbons or keeps as fibres
+        // (`Tuning::flat_strips_as_ribbons`, #221).
+        let as_ribbons;
+        let mat = if flat_strips_as_ribbons && mat.strands && mat.flat_strips {
+            as_ribbons = std::rc::Rc::new(Material { fibres: false, ribbons: true, ..(**mat).clone() });
+            &as_ribbons
+        } else {
+            mat
+        };
+        w.film = Film::of(mat);
         w.universal(5, name, mat, *area, skin);
         w.film = None;
         w.uv_scale = None;
@@ -11557,6 +11568,35 @@ mod tests {
         for other in [of(ribbons, Shading::default()), of((*mat(chs.clone())).clone(), faithful), of(prisms, faithful), of(short, faithful)] {
             assert!(other.contains("<pin name='transmission'>") && albedo(&other).contains(">0.108819 0.108819 0.108819<"), "{other}");
         }
+    }
+
+    #[test]
+    fn flat_strips_are_ribbons_in_faithful_and_fibres_in_enhanced() {
+        // #221: Line Tessellation 1 side renders in Iray as flat triangle
+        // strips. Faithful + Final takes them as #161's ribbons (the
+        // translucency folded into the diffuse, short strands excepted,
+        // the cutout map's value); Enhanced keeps the fibres' treatment
+        // (transmission passed, opacity 1); sides 0 stays fibres.
+        let chs = json!([
+            {"channel": {"id": "diffuse", "current_value": [0.5, 0.5, 0.5]}},
+            {"channel": {"id": "Translucency Weight", "current_value": 0.5}},
+            {"channel": {"id": "Translucency Color", "current_value": [1, 1, 1]}},
+            {"channel": {"id": "Cutout Opacity", "current_value": 0.5}},
+        ]);
+        let faithful: Shading = (&crate::tuning::Variant::new(crate::tuning::Look::Faithful, crate::tuning::OctaneMode::Final).tuning()).into();
+        let enhanced: Shading = (&crate::tuning::Variant::new(crate::tuning::Look::Enhanced, crate::tuning::OctaneMode::Final).tuning()).into();
+        let of = |m: Material, shading: Shading| material_inputs(&[("Hair".into(), Rc::new(m), 0.0)], &[], HashMap::new(), 4000, shading).0;
+        let pin = |x: &str, p: &str| x[x.find(&format!("<pin name='{p}'>")).unwrap()..].split("</pin>").next().unwrap().to_string();
+        let strips = Material { strands: true, fibres: true, flat_strips: true, strand_length: Some(4.4), ..(*mat(chs.clone())).clone() };
+        let f = of(strips.clone(), faithful);
+        assert!(!f.contains("<pin name='transmission'>") && pin(&f, "albedo").contains(">0.217638 0.217638 0.217638<") && pin(&f, "opacity").contains(">0.5<"), "{f}");
+        let short = of(Material { strand_length: Some(1.6), ..strips.clone() }, faithful);
+        assert!(short.contains("<pin name='transmission'>"), "{short}");
+        let e = of(strips, enhanced);
+        assert!(e.contains("<pin name='transmission'>") && pin(&e, "opacity").contains(">1<"), "{e}");
+        // Sides 0 (fibres without flat_strips): Faithful's opaque fibres.
+        let fibres = of(Material { strands: true, fibres: true, strand_length: Some(4.4), ..(*mat(chs)).clone() }, faithful);
+        assert!(!fibres.contains("<pin name='transmission'>") && pin(&fibres, "opacity").contains(">1<"), "{fibres}");
     }
 
     #[test]

@@ -2025,7 +2025,8 @@ fn line_tessellation_sides_come_from_the_scene_modifier() {
         };
         Library::new(vec![], json!({"scene": {"modifiers": modifiers}}))
     };
-    // Prisms and ribbons are surfaces; one side or no modifier: Iray's fibres.
+    // Prisms and ribbons are surfaces; no modifier: Iray's fibres; one side:
+    // fibres in DAZ's .mi, flat strips at render (`Material::flat_strips`, #221).
     assert_eq!(mesh::line_tessellation_sides(&mut scene(Some(3)), "Hair A"), Some(3));
     assert_eq!(mesh::line_tessellation_sides(&mut scene(Some(1)), "Hair A"), Some(1));
     assert_eq!(mesh::line_tessellation_sides(&mut scene(None), "Hair A"), None);

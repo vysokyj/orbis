@@ -146,6 +146,12 @@ pub struct Material {
     /// Strands DAZ hands Iray as flat ribbons (Line Tessellation 2 sides),
     /// not fibres or prisms.
     pub ribbons: bool,
+    /// Strands at Line Tessellation 1 side: DAZ's `.mi` export writes them
+    /// as `hair` fibres (so `fibres` is set), but at render DAZ hands Iray
+    /// a triangle object, flat strips (the Iray Server's log, #221).
+    /// `Tuning::flat_strips_as_ribbons` says which of the two the export
+    /// follows.
+    pub flat_strips: bool,
     /// On strands: the group's median strand length, cm (posed, as the
     /// dump has them); None elsewhere or unknown. Short strands lie on
     /// the scalp (#223).

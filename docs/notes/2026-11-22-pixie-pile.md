@@ -476,3 +476,31 @@ Process: the Iray Server's log names the geometry of every job (`iray-server.py`
 `server_log`, "Geometry import"); it settled in one read what three `.mi`
 comparisons could not - the `.mi` export is no witness of the render's
 tessellation.
+
+## The rule (both, by Look)
+
+The user's call (2026-11-22, #221 / #215): both, by Look. New
+`Tuning::flat_strips_as_ribbons` with `Material::flat_strips` (Line
+Tessellation sides 1, set beside `fibres`): Faithful + Final writes such
+strands as #161's ribbons (fold with #223's short-strand exception, the
+ribbons' cutout rule); Enhanced and the Preview rows keep the fibre
+treatment. Sides 0 stays fibres (unverified at render).
+
+Checks, Faithful + Final 400 samples, Octane / Iray crown / fringe / side
+(hair-set-compare.py):
+
+| scene | Faithful | Enhanced |
+|---|---|---|
+| Pixie-T1-nogloss | 1.00 / 0.90 / 1.07 | unchanged (export byte-identical) |
+| Pixie-T1 | 1.08 / 0.92 / 1.29 | 0.89 / 0.76 / 1.02 (unchanged) |
+| Pixie-T1-coat | 1.37 / 1.06 / 2.31 | unchanged |
+
+The trial's numbers exactly. Lobe share Faithful 1.32 / 1.28 / 1.48 (Iray
+1.23 / 1.26 / 1.22), coat share 1.68 / 1.60 / 2.10 (Iray 1.32 / 1.39 /
+1.18). Ribbon scenes that must not move: Calib-Hair-Kevin, -Hudson and
+Calib-Strand-LobeArc-T2-HDRI export byte-identical in both Looks before
+and after (installed binary vs the new one), so no render was needed.
+
+What stays: the side patch with gloss (1.29) and the coat (2.31) - Iray's
+flat strips catch the sun as glints, Octane's round curves a sheen (#79:
+curves stay round). Left for its own issue.

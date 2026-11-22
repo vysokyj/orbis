@@ -90,6 +90,7 @@ field of `Tuning`, set per variant in one table (`Variant::tuning`,
 | `metal_std_spread` | default (0.5) | 0.8 (Iray's energy) | default | 0.8 |
 | `rough_transmission_excess` | no (Octane's rough glass) | yes (Octane's measured excess taken back) | no | yes |
 | `opaque_fibres` | no (strands pass light) | yes (no transmission on Iray's fibres) | no | no |
+| `flat_strips_as_ribbons` | no (sides 1 as fibres) | yes (sides 1 as ribbons: Iray's flat strips) | no | no |
 
 Calibrated on the same 17 scenes in each variant (lights, Sun-Sky at
 18:00, noon and steered, HDRI, tone, PBRSkin, Glossy, SSS, Glass, Mixing,
@@ -379,9 +380,25 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   strand up to 17 % thinner mid-length (#161). On Morgan's dense pile it
   moves the render by ≤ 0.01.
 - **Line Tessellation**: the scene's modifier on the strand node (`Render
-  Line Tessellation Sides`) says how DAZ hands the strands to Iray: fewer
-  than 2 sides or no modifier → Iray's `hair` fibres (`Material::fibres`),
-  else ribbons (2) or prisms. The export always writes round curves; the
+  Line Tessellation Sides`) says how DAZ hands the strands to Iray: no
+  modifier or 0 sides → Iray's `hair` fibres (`Material::fibres`; 0 sides
+  at render is unverified - it stays fibres as DAZ's `.mi` writes it),
+  ribbons (2) or prisms. **1 side** is fibres in DAZ's `.mi` export but
+  not at render: the Iray Server's log shows DAZ hands Iray a triangle
+  object (~2 triangles per segment, flat strips) where the same strands on
+  a plain polyline node are "1 fiber object" (#221), and on them Iray
+  keeps the transmission (Pixie's generated hair whole / opaque 0.96 /
+  0.88 / 0.83 against fibres' 0.71 / 0.79 / 0.65). Sides 1 sets
+  `Material::flat_strips` beside `fibres`; Faithful + Final takes them as
+  ribbons (`flat_strips_as_ribbons`: the ribbon fold with its short-strand
+  exception, the ribbons' cutout rule), the other variants keep the fibre
+  treatment below (Look: round curves passing their light on). Why
+  (Faithful + Final, Octane / Iray crown / fringe / side):
+  Calib-Hair-Pixie-T1-nogloss 0.73 / 0.69 / 0.75 as fibres, 1.00 / 0.90 /
+  1.07 as ribbons; -T1 (gloss) 0.85 / 0.74 / 1.03 -> 1.08 / 0.92 / 1.29;
+  -T1-coat 1.20 / 0.93 / 2.08 -> 1.37 / 1.06 / 2.31. What stays is the
+  strips' sun glints on the lobe and coat (Pixie's side patch, #215):
+  Octane's curves are round (#79). The export always writes round curves; the
   flag steers the hair shader's layers (dForce hair, Faithful) and an Uber
   translucency or refraction: on fibres Iray loses the transmission
   (black; programmer's manual: a regular BSDF on fibre geometry is single

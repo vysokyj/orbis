@@ -153,6 +153,25 @@ const FAITHFUL_ROUGH_TRANSMISSION_EXCESS: bool = true;
 const ENHANCED_OPAQUE_FIBRES: bool = false;
 const FAITHFUL_OPAQUE_FIBRES: bool = true;
 
+/// Strands at Line Tessellation 1 side as ribbons (`flat_strips_as_ribbons`,
+/// #221, #215, the user's call 2026-11-22: both, by Look). A contested
+/// choice: DAZ's `.mi` export writes sides 1 as `hair` fibres, but at render
+/// DAZ hands Iray a triangle object (the Iray Server's log: "1 triangle
+/// object", ~2 triangles per segment) - flat strips, on which Iray keeps
+/// the transmission it discards on fibres. Faithful + Final follows what
+/// Iray renders: #161's ribbon rule on them (an Uber translucency folded
+/// into the diffuse, `ribbon_reflects`, with #223's short-strand exception;
+/// the cutout as on ribbons) - Calib-Hair-Pixie-T1-nogloss 0.73 / 0.69 /
+/// 0.75 -> 1.00 / 0.90 / 1.07 x Iray. Enhanced keeps Octane's take: round
+/// curves, the strands treated as fibres that pass their light on (as
+/// before), paying Pixie's dimmer pile. Octane's curves stay round in both
+/// (#79), so the flat strips' sun glints (Pixie's lobe and coat, #215) are
+/// not followed. The Preview rows keep the fibre treatment with Octane's
+/// hair pile, as `opaque_fibres`. Revisit on more sides-1 hair
+/// (docs/tuning.md).
+const ENHANCED_FLAT_STRIPS_AS_RIBBONS: bool = false;
+const FAITHFUL_FLAT_STRIPS_AS_RIBBONS: bool = true;
+
 /// Geometry below Iray's ground per Look (`clip_below_ground`, #69, the
 /// user's call 2026-11-16). A contested choice: Iray's ground is a matte
 /// object, opaque - under a Manual ground above the floor (or an instance
@@ -252,6 +271,10 @@ pub struct Tuning {
     /// (Look, Hair; #79, #222): an Uber translucency or refraction on them
     /// writes no transmission, the refraction's share keeps its reflection.
     pub opaque_fibres: bool,
+    /// Line Tessellation 1 side (`Material::flat_strips`), which Iray
+    /// renders as flat triangle strips, taken as ribbons (Look, Hair;
+    /// #221): false keeps them fibres, as DAZ's `.mi` writes them.
+    pub flat_strips_as_ribbons: bool,
 }
 
 impl Variant {
@@ -286,6 +309,7 @@ impl Variant {
                 metal_std_spread: ENHANCED_METAL_STD_SPREAD,
                 rough_transmission_excess: ENHANCED_ROUGH_TRANSMISSION_EXCESS,
                 opaque_fibres: ENHANCED_OPAQUE_FIBRES,
+                flat_strips_as_ribbons: ENHANCED_FLAT_STRIPS_AS_RIBBONS,
             },
             (Faithful, Final) => Tuning {
                 kernel: Kernel::PathTracing,
@@ -306,6 +330,7 @@ impl Variant {
                 metal_std_spread: FAITHFUL_METAL_STD_SPREAD,
                 rough_transmission_excess: FAITHFUL_ROUGH_TRANSMISSION_EXCESS,
                 opaque_fibres: FAITHFUL_OPAQUE_FIBRES,
+                flat_strips_as_ribbons: FAITHFUL_FLAT_STRIPS_AS_RIBBONS,
             },
             (Enhanced, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -326,6 +351,7 @@ impl Variant {
                 metal_std_spread: ENHANCED_METAL_STD_SPREAD,
                 rough_transmission_excess: ENHANCED_ROUGH_TRANSMISSION_EXCESS,
                 opaque_fibres: false,
+                flat_strips_as_ribbons: false,
             },
             (Faithful, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -346,6 +372,7 @@ impl Variant {
                 metal_std_spread: FAITHFUL_METAL_STD_SPREAD,
                 rough_transmission_excess: FAITHFUL_ROUGH_TRANSMISSION_EXCESS,
                 opaque_fibres: false,
+                flat_strips_as_ribbons: false,
             },
         }
     }
