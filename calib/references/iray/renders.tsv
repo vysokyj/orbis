@@ -114,6 +114,7 @@ Calib-HDRI	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:52	117	on@8
 Calib-Hair	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:39	185	on@8
 Calib-Hair-Athena	2000	0	Iray Server (headless submit)	2026-11-18 03:42	1821	off
 Calib-Hair-Athena-nogloss	2000	0	Iray Server (headless submit)	2026-11-18 04:10	1660	off
+Calib-Hair-Athena-op1	2000	0	Iray Server (headless submit)	2026-11-22 18:57	1164	on@8
 Calib-Hair-Hudson	2000	0	Iray Server (headless submit)	2026-11-18 02:21	2972	off
 Calib-Hair-Hudson-nogloss	2000	0	Iray Server (headless submit)	2026-11-18 03:11	2940	off
 Calib-Hair-Hudson-op1	2000	0	Iray Server (headless submit)	2026-11-22 14:22	2856	on@8
@@ -341,12 +342,14 @@ Calib-SSSThick-B	5000	0	Iray Server (Boost for Daz)	2026-11-08 17:21		on@8
 Calib-SSSThick-B-ev10	5000	0	Iray Server (Boost for Daz)	2026-11-08 17:26		on@8
 Calib-SSSThick-Grey	5000	0	Iray Server (Boost for Daz)	2026-11-08 17:24		on@8
 Calib-Shell-G9	5000	0	Iray Server (Boost for Daz)	2026-11-11 00:25	177	on@8
+Calib-Skin-Angel	2000	0	Iray Server (headless submit)	2026-11-22 17:19	212	on@8
 Calib-Skin-Angel-back	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:37	127	on@8
 Calib-Skin-Angel-back-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:35	56	on@8
 Calib-Skin-Angel-front	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:42	134	on@8
 Calib-Skin-Angel-front-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:39	69	on@8
 Calib-Skin-Angel-hdri	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:46	138	on@8
 Calib-Skin-Angel-hdri-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:43	76	on@8
+Calib-Skin-Base	2000	0	Iray Server (headless submit)	2026-11-22 17:15	198	on@8
 Calib-Skin-Base-back	5000	0	Iray Server (Boost for Daz)	2026-10-31 00:30		on@8
 Calib-Skin-Base-back-bce0	5000	0	DAZ Studio Iray (CPU)	2026-10-30 17:26		off
 Calib-Skin-Base-back-w0	5000	0	Iray Server (Boost for Daz)	2026-10-31 00:31		on@8
@@ -360,6 +363,7 @@ Calib-Skin-Base-hdri-coat0	400	0	Iray Server (Boost for Daz)	2026-11-11 21:26		o
 Calib-Skin-Base-hdri-dlgloss	400	0	Iray Server (Boost for Daz)	2026-11-11 21:27		on@8
 Calib-Skin-Base-hdri-dlglosstc	400	0	Iray Server (Boost for Daz)	2026-11-11 21:27		on@8
 Calib-Skin-Base-hdri-w0	5000	0	Iray Server (Boost for Daz)	2026-10-31 00:46		on@8
+Calib-Skin-Gabriela	2000	0	Iray Server (headless submit)	2026-11-22 17:23	202	on@8
 Calib-Skin-Gabriela-back	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:52	131	on@8
 Calib-Skin-Gabriela-back-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:49	60	on@8
 Calib-Skin-Gabriela-front	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:58	130	on@8
@@ -367,13 +371,17 @@ Calib-Skin-Gabriela-front-coat0	400	0	Iray Server (Boost for Daz)	2026-11-07 19:
 Calib-Skin-Gabriela-front-dlflat	400	0	Iray Server (Boost for Daz)	2026-11-07 19:47		on@8
 Calib-Skin-Gabriela-front-dlflatnb	400	0	Iray Server (Boost for Daz)	2026-11-07 21:37		on@8
 Calib-Skin-Gabriela-front-dlflatnn	400	0	Iray Server (Boost for Daz)	2026-11-07 21:38		on@8
+Calib-Skin-Gabriela-front-dwhite	2000	0	Iray Server (headless submit)	2026-11-22 17:27	217	on@8
 Calib-Skin-Gabriela-front-gloss0	400	0	Iray Server (Boost for Daz)	2026-11-07 19:46		on@8
 Calib-Skin-Gabriela-front-gloss0nb	400	0	Iray Server (Boost for Daz)	2026-11-07 21:38		on@8
 Calib-Skin-Gabriela-front-gloss0nn	400	0	Iray Server (Boost for Daz)	2026-11-07 21:39		on@8
 Calib-Skin-Gabriela-front-tcdiff	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:54		on@8
+Calib-Skin-Gabriela-front-tcwhite	2000	0	Iray Server (headless submit)	2026-11-22 17:32	253	on@8
 Calib-Skin-Gabriela-front-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:55	73	on@8
+Calib-Skin-Gabriela-front-w05	2000	0	Iray Server (headless submit)	2026-11-22 17:35	198	on@8
 Calib-Skin-Gabriela-hdri	5000	0	Iray Server (Boost for Daz)	2026-10-30 20:02	137	on@8
 Calib-Skin-Gabriela-hdri-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 19:59	82	on@8
+Calib-Skin-Kayo	2000	0	Iray Server (headless submit)	2026-11-22 17:47	664	on@8
 Calib-Skin-Kayo-back	5000	0	Iray Server (Boost for Daz)	2026-10-30 20:08	146	on@8
 Calib-Skin-Kayo-back-tcwhite	5000	0	Iray Server (Boost for Daz)	2026-11-08 14:56		on@8
 Calib-Skin-Kayo-back-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 20:05	71	on@8
@@ -389,6 +397,7 @@ Calib-Skin-Kayo-front-gloss0nn	400	0	Iray Server (Boost for Daz)	2026-11-07 21:4
 Calib-Skin-Kayo-front-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 20:09	88	on@8
 Calib-Skin-Kayo-hdri	5000	0	Iray Server (Boost for Daz)	2026-10-30 20:17	157	on@8
 Calib-Skin-Kayo-hdri-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 20:14	92	on@8
+Calib-Skin-Monique	2000	0	Iray Server (headless submit)	2026-11-22 17:55	444	on@8
 Calib-Skin-Monique-back	5000	0	Iray Server (Boost for Daz)	2026-10-30 03:18	122	on@8
 Calib-Skin-Monique-back-mono	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:43		on@8
 Calib-Skin-Monique-back-ssscblue	5000	0	Iray Server (Boost for Daz)	2026-10-30 01:47		on@8
@@ -410,6 +419,7 @@ Calib-Skin-Monique-front-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 20:29	
 Calib-Skin-Monique-front-w05	5000	0	Iray Server (Boost for Daz)	2026-10-30 20:31		on@8
 Calib-Skin-Monique-hdri	5000	0	Iray Server (Boost for Daz)	2026-10-30 20:35	129	on@8
 Calib-Skin-Monique-hdri-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 20:33	77	on@8
+Calib-Skin-Nishi	2000	0	Iray Server (headless submit)	2026-11-22 18:05	434	on@8
 Calib-Skin-Nishi-back	5000	0	Iray Server (Boost for Daz)	2026-10-30 20:42	153	on@8
 Calib-Skin-Nishi-back-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 20:38	68	on@8
 Calib-Skin-Nishi-front	5000	0	Iray Server (Boost for Daz)	2026-10-30 20:46	172	on@8
@@ -423,13 +433,18 @@ Calib-Skin-Nishi-front-gloss0nn	400	0	Iray Server (Boost for Daz)	2026-11-07 21:
 Calib-Skin-Nishi-front-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 20:43	82	on@8
 Calib-Skin-Nishi-hdri	5000	0	Iray Server (Boost for Daz)	2026-10-30 21:03	162	on@8
 Calib-Skin-Nishi-hdri-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 20:48	86	on@8
+Calib-Skin-Twosret	2000	0	Iray Server (headless submit)	2026-11-22 18:10	282	on@8
 Calib-Skin-Twosret-back	5000	0	Iray Server (Boost for Daz)	2026-10-30 21:10	136	on@8
 Calib-Skin-Twosret-back-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 21:07	69	on@8
 Calib-Skin-Twosret-front	5000	0	Iray Server (Boost for Daz)	2026-10-30 21:16	142	on@8
+Calib-Skin-Twosret-front-dwhite	2000	0	Iray Server (headless submit)	2026-11-22 18:14	213	on@8
 Calib-Skin-Twosret-front-tcdiff	5000	0	Iray Server (Boost for Daz)	2026-10-30 21:12		on@8
+Calib-Skin-Twosret-front-tcwhite	2000	0	Iray Server (headless submit)	2026-11-22 18:19	289	on@8
 Calib-Skin-Twosret-front-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 21:13	86	on@8
+Calib-Skin-Twosret-front-w05	2000	0	Iray Server (headless submit)	2026-11-22 18:23	193	on@8
 Calib-Skin-Twosret-hdri	5000	0	Iray Server (Boost for Daz)	2026-10-30 21:20	145	on@8
 Calib-Skin-Twosret-hdri-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 21:17	86	on@8
+Calib-Skin-Victoria	2000	0	Iray Server (headless submit)	2026-11-22 18:28	313	on@8
 Calib-Skin-Victoria-back	5000	0	Iray Server (Boost for Daz)	2026-10-30 14:19	154	on@8
 Calib-Skin-Victoria-back-mono	5000	0	Iray Server (Boost for Daz)	2026-10-30 14:09	356	on@8
 Calib-Skin-Victoria-back-ssscblue	5000	0	Iray Server (Boost for Daz)	2026-10-30 14:13	221	on@8
@@ -462,6 +477,7 @@ Calib-Skin-Victoria-front-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 21:34
 Calib-Skin-Victoria-front-w05	5000	0	Iray Server (Boost for Daz)	2026-10-30 21:37	148	on@8
 Calib-Skin-Victoria-hdri	5000	0	Iray Server (Boost for Daz)	2026-10-30 21:42	164	on@8
 Calib-Skin-Victoria-hdri-w0	5000	0	Iray Server (Boost for Daz)	2026-10-30 21:38	81	on@8
+Calib-Skin-Zurie	2000	0	Iray Server (headless submit)	2026-11-22 18:32	197	on@8
 Calib-Skin-Zurie-back	5000	0	Iray Server (Boost for Daz)	2026-10-30 15:09	115	on@8
 Calib-Skin-Zurie-back-mono	5000	0	Iray Server (Boost for Daz)	2026-10-30 13:33		on@8
 Calib-Skin-Zurie-back-ssscblue	5000	0	Iray Server (Boost for Daz)	2026-10-30 13:36		on@8
@@ -572,6 +588,8 @@ Calib-VDB-iso	5000	0	Iray Server (Boost for Daz)	2026-10-30 23:38	423	on@8
 Calib-VDB-noabs	5000	0	Iray Server (Boost for Daz)	2026-10-30 23:46	379	on@8
 Calib-VDB-norel	5000	0	Iray Server (Boost for Daz)	2026-10-30 23:51	279	on@8
 Calib-VDB-tint	5000	0	Iray Server (Boost for Daz)	2026-10-30 23:57	319	on@8
+Calib-Visible-bisect	2000	0	Iray Server (headless submit)	2026-11-22 18:34	126	on@8
+Calib-Visible-bisect2	2000	0	Iray Server (headless submit)	2026-11-22 18:37	126	on@8
 Calib-WeightedBack	5000	0	Iray Server (Boost for Daz)	2026-11-14 00:10		on@8
 Calib-WeightedRefr	5000	0	Iray Server (Boost for Daz)	2026-11-14 00:06		on@8
 Calib-WeightedRefr-Shown	5000	0	Iray Server (headless submit)	2026-11-17 04:20	381	on@8
