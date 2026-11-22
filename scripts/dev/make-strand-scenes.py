@@ -80,6 +80,10 @@ Cutout Opacity map (ours, written into My Library's Runtime/Textures/ORBIS):
 -Cutout2 a plain 0.5, the u and v maps inverted, all black. The strands'
 UV set is all 0, so the first maps all read opaque there and the second
 transparent: which coordinate Iray's fibres read a cutout map at.
+-Coat-Dome / -Coat-T2-Dome (#215): Calib-Hair-Pixie's white top coat
+(weight 1, reflectivity mode 0.5, roughness 0.2) alone over black, over
+grey 0.5 and dark 0.2 (the bases of -UberA-Dome), and the same curve as a
+glossy layer over the grey (materials 27 - 30), fibres and ribbons.
 
 How DAZ hands a polyline to Iray depends on the hair's Line Tessellation
 modifier (its .mi export reads the Viewport sides, the render the Render
@@ -136,6 +140,9 @@ def set_channel(chs, cid, value):
         if c['channel']['id'] == cid:
             c['channel']['current_value'] = value
             return
+    if cid == 'Top Coat Reflectivity':  # the template's material doesn't save it
+        chs.append({'channel': {'id': cid, 'type': 'float', 'current_value': value}})
+        return
     raise KeyError(cid)
 
 
@@ -168,7 +175,10 @@ MORGAN_BASE = {'Diffuse Overlay Weight': 0.05, 'Diffuse Overlay Weight Squared':
                'SSS Reflectance Tint': [0.682353, 0.6666667, 0.6156863],
                'Refraction Index': 1.794118, 'Refraction Weight': 0.1061947, 'Abbe': 7.522124, 'Thin Walled': True}
 # Weighted mixing, the gloss alone: white, dForce Corporate Hair's base_roughness.
-WEIGHTED = {'Base Mixing': 2, 'Diffuse Weight': 0.0, 'Glossy Weight': 1.0, 'Glossy Color': [1.0, 1.0, 1.0], 'Glossy Roughness': 0.298913}
+# Calib-Hair-Pixie-*-coat's top coat (make-hair-set-scenes.py COAT, #215).
+COAT = {'Top Coat Weight': 1.0, 'Top Coat Color': [1.0, 1.0, 1.0], 'Top Coat Layering Mode': 0,
+        'Top Coat Reflectivity': 0.5, 'Top Coat Roughness': 0.2}
+WEIGHTED = {'Base Mixing': 2,'Diffuse Weight': 0.0, 'Glossy Weight': 1.0, 'Glossy Color': [1.0, 1.0, 1.0], 'Glossy Roughness': 0.298913}
 MATERIALS = {
     1: ('diffuse', [0.5, 0.5, 0.5], {}),
     2: ('gloss iso', BLACK, GLOSS),
@@ -218,6 +228,17 @@ MATERIALS = {
     24: ('diffuse cutout u half inverted', [0.5, 0.5, 0.5], {('Cutout Opacity', 'image'): 'u-half-inv'}),
     25: ('diffuse cutout v half inverted', [0.5, 0.5, 0.5], {('Cutout Opacity', 'image'): 'v-half-inv'}),
     26: ('diffuse cutout black', [0.5, 0.5, 0.5], {('Cutout Opacity', 'image'): 'black'}),
+    # Calib-Hair-Pixie's white top coat (make-hair-set-scenes.py COAT) on
+    # plain strands (-Coat, #215): alone over black, over the grey 0.5 and
+    # the dark 0.2 of -UberA-Dome (its columns 2 / 1 are these bases bare),
+    # and the same curve as a glossy layer over the grey (Uber's Glossy is
+    # `add_top_coat` in custom-curve mode reused: Iray should draw 30 as 28;
+    # the export writes 30 on Universal's specular, the coat on its coating).
+    27: ('top coat over black', BLACK, COAT),
+    28: ('top coat over grey', [0.5, 0.5, 0.5], COAT),
+    29: ('top coat over dark', [0.2, 0.2, 0.2], COAT),
+    30: ('coat-like gloss over grey', [0.5, 0.5, 0.5], {'Glossy Layered Weight': 1.0, 'Glossy Color': [1.0, 1.0, 1.0],
+                                                        'Glossy Reflectivity': 0.5, 'Glossy Roughness': 0.2}),
 }
 # The -Cutout maps (ours, 256 x 256, pure 0 / 1 so no gamma reads them
 # differently), in My Library's Runtime/Textures/ORBIS: u-half opaque for
@@ -598,3 +619,8 @@ for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
 # the u-half, v-half and v-band maps.
 build('Calib-Strand-Cutout-Dome', rows='GHIJ', mats=(1, 20, 21, 22), dome=True)
 build('Calib-Strand-Cutout2-Dome', rows='GHIJ', mats=(23, 24, 25, 26), dome=True)
+# Pixie's top coat on fibres and ribbons under the dome (#215): Iray's coat
+# adds 1.2 - 1.4 x on Pixie as fibres, 1.6 - 2.1 x as ribbons. The coat
+# alone, over the two -UberA-Dome bases, and as a glossy layer.
+for _name, _kw in (('', {}), ('-T2', {'tess': 2})):
+    build('Calib-Strand-Coat' + _name + '-Dome', rows='GHIJ', mats=(27, 28, 29, 30), dome=True, **_kw)
