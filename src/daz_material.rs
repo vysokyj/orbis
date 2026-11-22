@@ -303,7 +303,10 @@ impl Material {
     /// (lobe 2 inherits it, a multiple of lobe 1's).
     pub fn float(&self, id: &str) -> Option<f32> {
         let v = self.float_as_saved(id)?;
-        Some(if id == "Specular Lobe 1 Roughness" { v * self.detail_roughness_mult() } else { v })
+        // × Dual Lobe Specular Roughness Mult too: DAZ hands `pbr_material`
+        // their product (Genesis 9's mouth and teeth, 0.55 × their map;
+        // Calib-SkinG9-F02-front's .mi, #57).
+        Some(if id == "Specular Lobe 1 Roughness" { v * self.detail_roughness_mult() * self.float_as_saved("Dual Lobe Specular Roughness Mult").unwrap_or(1.0).max(0.0) } else { v })
     }
 
     /// PBRSkin's Detail roughness multiplier, `pbr_skin.mdl`'s

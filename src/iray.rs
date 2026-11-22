@@ -1148,14 +1148,21 @@ pub fn pbrskin(mat: &Material) -> BTreeMap<&'static str, Arg> {
     out.insert("pbr_material.basecolor", ch.color_or_map("diffuse", [0.5; 3], 1.0));
     out.insert("pbr_material.metallic", ch.float_or_map("Metallic Weight", 0.0));
     out.insert("pbr_material.diffuse_roughness", Arg::Float(ch.float("Diffuse Roughness", 0.0)));
-    out.insert("pbr_material.dual_lobe_specular_weight", Arg::Float(ch.float("Dual Lobe Specular Weight", 1.0)));
+    // A map passes as is, scaled by the value (Genesis 9's skins: the
+    // Skin_SLW weight map and each skin's roughness map at 1; #57,
+    // Calib-SkinG9-F02-front).
+    out.insert("pbr_material.dual_lobe_specular_weight", ch.float_or_map("Dual Lobe Specular Weight", 1.0));
     out.insert("pbr_material.specularlevel", Arg::Float(REFLECTIVITY_SCALE * ch.float("Dual Lobe Specular Reflectivity", 0.5)));
-    out.insert("pbr_material.roughness", Arg::Float(ch.float("Specular Lobe 1 Roughness", 0.6)));
+    // × Dual Lobe Specular Roughness Mult (the G9 mouth's 0.55 scales its map).
+    let lobe1 = ch.float("Specular Lobe 1 Roughness", 0.6) * ch.float("Dual Lobe Specular Roughness Mult", 1.0);
+    out.insert("pbr_material.roughness", ch.map("Specular Lobe 1 Roughness", MapKind::Grey, [lobe1; 3]).map_or(Arg::Float(lobe1), Arg::Map));
     // Lobe 2's roughness as a multiple of lobe 1's.
     out.insert("pbr_material.roughness2", Arg::Float(ch.float("Specular Lobe 2 Roughness Mult", 0.4)));
     out.insert("pbr_material.roughness2_weight", Arg::Float(ch.float("Dual Lobe Specular Ratio", 0.15)));
     // The diffuse's share: 1 − Translucency Weight (`translucency_weight_inverted`).
     out.insert("pbr_material.translucency_weight", Arg::Float(1.0 - ch.float("Translucency Weight", 0.8)));
+    // Translucency Enable as the value (Calib-SkinG9-F02-front-w0: off).
+    out.insert("pbr_material.translucency_enable", Arg::Bool(on("Translucency Enable")));
     out.insert("pbr_material.translucency_color", ch.color_or_map("Translucency Color", [1.0; 3], 1.0));
     // The Makeup layer (`diffuse_makeup_bsdf`, Calib-PBRSkin-Makeup /
     // -Makeup-TL): the weight as saved or its map (gamma "auto"), the
@@ -1206,6 +1213,8 @@ pub fn pbrskin(mat: &Material) -> BTreeMap<&'static str, Arg> {
     out.insert("pbr_add_clearcoat.top_coat_roughness", Arg::Float(ch.float("Top Coat Roughness", 0.05)));
     out.insert("pbr_add_clearcoat.top_coat_specular_level", Arg::Float(REFLECTIVITY_SCALE * ch.float("Top Coat Reflectivity", 0.5)));
     out.insert("pbr_add_clearcoat.top_coat_color", ch.color_or_map("Top Coat Color", [1.0; 3], 1.0));
+    // The coat normal: the base's at this weight (#166; Genesis 9's skins 0.5).
+    out.insert("pbr_add_clearcoat.top_coat_bump_weight", Arg::Float(ch.float("Top Coat Bump Weight", 1.0)));
     out.insert("pbr_add_metallicflakes.metallic_flakes_enable", Arg::Bool(on("Metallic Flakes Enable")));
     out.insert("pbr_add_metallicflakes.metallic_flakes_weight", Arg::Float(ch.float("Metallic Flakes Weight", 1.0)));
     out.insert("pbr_add_metallicflakes.metallic_flakes_roughness", Arg::Float(ch.float("Metallic Flakes Roughness", 0.0)));
@@ -1218,6 +1227,13 @@ pub fn pbrskin(mat: &Material) -> BTreeMap<&'static str, Arg> {
     out.insert("pbr_add_volume.sub_surface_scattering_color", Arg::Color(ch.color("SSS Color", [0.5; 3])));
     out.insert("pbr_add_volume.scattering_distance_of_measurement", Arg::Float(ch.float("Scattering Measurement Distance", 0.015)));
     out.insert("pbr_add_volume.transmitted_color", Arg::Color(ch.color("Transmitted Color", [0.0; 3])));
+    // The volume's other arguments (#57, Genesis 9's skins): the distance
+    // in DAZ cm (the MDL scales it), SSS Direction as saved, the absorption
+    // switched by Transmission Enable (Calib-PBRSkin's spheres: off, the
+    // colour black left unused; Calib-SkinG9-F02-front: on).
+    out.insert("pbr_add_volume.transmitted_distance_of_measurement", Arg::Float(ch.float("Transmitted Measurement Distance", 0.12)));
+    out.insert("pbr_add_volume.sub_surface_scattering_direction", Arg::Float(ch.float("SSS Direction", 0.0)));
+    out.insert("pbr_add_volume.absorption_enable", Arg::Bool(on("Transmission Enable")));
     out
 }
 
@@ -2514,6 +2530,11 @@ mod tests {
                 for g in m["groups"].as_array().into_iter().flatten().filter_map(Value::as_str) {
                     let key = format!("{node}/{g}");
                     let mi = &fixture["materials"][&key];
+                    // A node hidden in the scene isn't in DAZ's .mi (#224;
+                    // Calib-Mi-SkinG9 keeps the figure alone).
+                    if mi.is_null() {
+                        continue;
+                    }
                     let mut theirs = HashMap::new();
                     flatten_pbr(&mi["args"]["v"], &mut theirs);
                     for (param, ours) in pbrskin(&mat) {
@@ -2522,10 +2543,21 @@ mod tests {
                         // `pbr_skin.mdl`'s default (Calib-PBRSkin-Makeup-TL
                         // L6: subsurface on, nothing written).
                         let mdl_default = match param {
-                            "pbr_add_volume.sub_surface_enable" | "pbr_add_metallicflakes.metallic_flakes_enable" | "pbr_material.makeup_enable" => Some(Value::Bool(true)),
-                            "pbr_material.metallic_makeup_enable" => Some(Value::Bool(false)),
+                            "pbr_add_volume.sub_surface_enable" | "pbr_add_volume.absorption_enable" | "pbr_add_metallicflakes.metallic_flakes_enable" | "pbr_material.makeup_enable" => Some(Value::Bool(true)),
+                            "pbr_material.metallic_makeup_enable" | "pbr_material.translucency_enable" => Some(Value::Bool(false)),
+                            "pbr_add_volume.transmitted_distance_of_measurement" => Some(serde_json::json!(0.12)),
+                            "pbr_add_volume.sub_surface_scattering_direction" => Some(serde_json::json!(0.0)),
+                            "pbr_add_metallicflakes.metallic_flakes_density" | "pbr_add_clearcoat.top_coat_bump_weight" => Some(serde_json::json!(1.0)),
                             _ => None,
                         };
+                        // A Layered Image Editor stack (Genesis 9's eyes):
+                        // DAZ hands Iray the flattened image from its temp
+                        // dir (mi-oracle's "<daz-temp>"); `layered_image.rs`
+                        // flattens it, not this conversion.
+                        let layered = |p: &str| theirs.get(p).is_some_and(|v| v.to_string().contains("<daz-temp>"));
+                        if layered(param) || (param == "pbr_detail_normal.normal_enable" && layered("pbr_detail_normal.normal")) {
+                            continue;
+                        }
                         let t = theirs.get(param).or(mdl_default.as_ref()).and_then(|v| fixture_arg(v, &ours));
                         if !t.as_ref().is_some_and(|t| close(t, &ours)) {
                             wrong.push(format!("{param}: {scene} {key}: DAZ {t:?}, ours {ours:?}"));
@@ -2541,8 +2573,10 @@ mod tests {
     /// PBRSkin's Top Coat normal (#166): DAZ hands `pbr_add_clearcoat`'s
     /// `top_coat_base_bump` the same `pbr_detail_normal` call as
     /// `pbr_material`'s `normal` (bump, normal map and the Detail Normal
-    /// Map), and no `top_coat_bump_weight` (the MDL's 1: the coat normal is
-    /// the base's), so the export gives the coat the base's normal.
+    /// Map), and `top_coat_bump_weight` only where Top Coat Bump Weight
+    /// isn't 1 (the MDL's default; Genesis 9's skins have 0.5, checked in
+    /// `pbrskin_matches_daz_mi_export`): the coat normal is the base's, at
+    /// that weight (`blend_normals` onto the flat normal).
     #[test]
     fn pbrskin_top_coat_takes_the_base_normal() {
         fn calls<'a>(v: &'a Value, name: &str, out: &mut Vec<&'a Value>) {
@@ -2569,7 +2603,6 @@ mod tests {
                 let coat = &c["args"]["top_coat_base_bump"];
                 assert!(coat["mdl"].as_str().is_some_and(|m| m.contains("pbr_detail_normal")), "{coat}");
                 assert_eq!(coat, &b["args"]["normal"]);
-                assert!(c["args"].get("top_coat_bump_weight").is_none());
                 checked += 1;
             }
         }

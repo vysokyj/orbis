@@ -55,7 +55,19 @@ As Iray Uber's chromatic SSS, always logarithmic:
 - σs = −ln(`SSS Color`) / `Scattering Measurement Distance`;
 - distances in DAZ cm, ×0.01 to meters;
 - `SSS Direction` the phase function's bias;
-- each part off with `Transmission Enable` / `Sub Surface Enable`.
+- each part off with `Transmission Enable` / `Sub Surface Enable`: DAZ
+  hands them as `absorption_enable` / `sub_surface_enable` (MDL defaults
+  on, so written only when off). Off, the coefficient is 0 whatever the
+  colour (PBRSkin's default Transmitted Color is black);
+- DAZ passes Transmitted Measurement Distance and SSS Direction only when
+  they differ from the MDL's 0.12 / 0 (Genesis 9's skins: 0.1, −0.7;
+  Calib-Mi-SkinG9's `.mi`, #57).
+
+Lobe 1's roughness reaches Iray × `Dual Lobe Specular Roughness Mult`
+(default 1; Genesis 9's mouth and teeth 0.55), its map scaled by it. Top
+Coat Bump Weight is `pbr_add_clearcoat`'s `top_coat_bump_weight` (the
+coat normal is the base normal blended at that weight; Genesis 9's skins
+0.5).
 
 Defaults: `SSS Color` (0.976, 0.694, 0.761) over 0.015, `Transmitted
 Measurement Distance` 0.12 — Victoria 8's Uber volume. Genesis 9 skins
@@ -69,5 +81,6 @@ diffuse transmission, volume below) with fewer options: chromatic SSS
 only, no Base Color Effect, a makeup layer, and the dual lobe as the
 only specular. OpenPBR's subsurface is one random walk with colour and
 radius, so the mapping still needs Iray's look of the layered diffuse
-plus volume. That is what `skin_albedo` models for chromatic Uber skins
-(fitted on eight Genesis 8 skins).
+plus volume: `skin_albedo`, derived from these layers (#19, no fitted
+factor), fed with PBRSkin's own volume arguments (#57; the spec's
+"PBRSkin's volume, direct").

@@ -56,6 +56,12 @@ def content_path(path):
     app = re.search(r"DAZStudio\.app/Contents/(.*)$", path)
     if app:
         return "<daz>/" + app.group(1)
+    # A Layered Image Editor stack DAZ flattened into its user temp dir
+    # (".../DAZ 3D/Studio6 [instance]/temp/d3_Eye Translucency.png", the
+    # Genesis 9 eyes): "<daz-temp>/<file>", so no home path reaches git.
+    tmp = re.search(r"/DAZ 3D/Studio\d*[^/]*/temp/([^/]+)$", path)
+    if tmp:
+        return "<daz-temp>/" + tmp.group(1)
     return path[m.start():] if m else path
 
 

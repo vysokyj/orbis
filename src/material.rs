@@ -6380,9 +6380,50 @@ enum Scattering {
     Mono(f32),
 }
 
+/// PBRSkin's volume as DAZ hands it Iray (`crate::iray::pbrskin`'s
+/// `pbr_add_volume`, verified by Calib-SkinG9-F02-front / -nosss and
+/// Calib-PBRSkin's `.mi`; #57): σa and σs per DAZ cm, and the
+/// Henyey-Greenstein bias g. The direct mapping, not the Uber channel reads
+/// with Genesis 8's volume filling the gaps: absorption only under
+/// Transmission Enable (`absorption_enable`; PBRSkin's default black
+/// Transmitted Color is unused when off - read as is, it absorbed all),
+/// scattering only under Sub Surface Enable, g 0 without it (the MDL's
+/// `directional_bias`), the defaults PBRSkin's own (`PBRSkin.dsf`).
+/// None for any other shader.
+fn pbr_volume(mat: &Material) -> Option<([f32; 3], [f32; 3], f32)> {
+    use crate::iray::Arg;
+    if !crate::iray::is_pbrskin(mat) {
+        return None;
+    }
+    let args = crate::iray::pbrskin(mat);
+    let float = |k: &str, d: f32| match args.get(k) {
+        Some(Arg::Float(f)) => *f,
+        _ => d,
+    };
+    let colour = |k: &str| match args.get(k) {
+        Some(Arg::Color(c)) => *c,
+        _ => [1.0; 3],
+    };
+    let on = |k: &str| matches!(args.get(k), Some(Arg::Bool(true)));
+    let extinction = |c: f32| -c.clamp(1e-4, 0.9999).ln();
+    let per_cm = |c: [f32; 3], d: f32, enabled: bool| if enabled && d > 0.0 { c.map(|x| extinction(x) / d) } else { [0.0; 3] };
+    let scatters = on("pbr_add_volume.sub_surface_enable");
+    let sigma_a = per_cm(colour("pbr_add_volume.transmitted_color"), float("pbr_add_volume.transmitted_distance_of_measurement", 0.12), on("pbr_add_volume.absorption_enable"));
+    let sigma_s = per_cm(colour("pbr_add_volume.sub_surface_scattering_color"), float("pbr_add_volume.scattering_distance_of_measurement", 0.015), scatters);
+    let g = if scatters { float("pbr_add_volume.sub_surface_scattering_direction", 0.0).clamp(-0.95, 0.95) } else { 0.0 };
+    Some((sigma_a, sigma_s, g))
+}
+
 /// The skin volume's reduced single-scattering albedo per channel; channels
-/// the material leaves out are the Genesis 8 skins'.
+/// the material leaves out are the Genesis 8 skins'. PBRSkin's from its own
+/// volume (`pbr_volume`).
 fn volume_albedo(mat: &Material) -> [f32; 3] {
+    if let Some((sigma_a, sigma_s, g)) = pbr_volume(mat) {
+        return [0, 1, 2].map(|k| {
+            let s = sigma_s[k] * (1.0 - g);
+            s / (s + sigma_a[k]).max(1e-6)
+        });
+    }
     let linear = |c: [f32; 3]| c.map(colour_to_linear);
     let chromatic = Scattering::Chromatic(mat.color("SSS Color").unwrap_or(linear(SKIN_SSS_COLOR)));
     let scattering = mono_sss_amount(mat).map_or(chromatic, Scattering::Mono);
@@ -7252,6 +7293,12 @@ const OCTANE_WALK_RADIUS: f32 = 1.52;
 /// × [`OCTANE_WALK_RADIUS`]: Octane's walk at radius r is a denser medium
 /// than one of mean free path r.
 fn sss_radius(mat: &Material) -> ([f32; 3], f32) {
+    // PBRSkin: its own volume (`pbr_volume`), the same transport mean free path.
+    if let Some((sigma_a, sigma_s, g)) = pbr_volume(mat) {
+        let mfp = [0, 1, 2].map(|k| 0.01 / (sigma_a[k] + sigma_s[k] * (1.0 - g)).max(1e-3));
+        let max = mfp.iter().copied().fold(1e-6f32, f32::max);
+        return (mfp.map(|l| l / max), (max * OCTANE_WALK_RADIUS).clamp(0.0001, 0.05));
+    }
     let linear = |c: [f32; 3]| c.map(colour_to_linear);
     let extinction = |c: f32| -c.clamp(1e-4, 0.9999).ln();
     let t = mat.color("Transmitted Color").unwrap_or(linear(SKIN_TRANSMITTED));

@@ -1444,6 +1444,13 @@ leaves out, #15):
   ratio 1.63 vs 1.62 (× 0.25) and 0.73 vs 0.77 (× 2); the metal tint split
   per channel 0.77 / 1.90 vs 0.77 / 2.02. The PBRSkin metal's rim:
   below.
+- **PBRSkin lobe 1 roughness** = Specular Lobe 1 Roughness × its Detail
+  multiplier × **Dual Lobe Specular Roughness Mult** (#57): DAZ hands
+  `pbr_material.roughness` the product, a map scaled by it (Genesis 9's
+  mouth and teeth: 0.55 × their roughness map; Calib-Mi-SkinG9's `.mi`).
+  Lobe 2 inherits it (a multiple of lobe 1's). The Dual Lobe Specular
+  Weight and Lobe 1 Roughness maps reach Iray as maps (Genesis 9's
+  skins: `Skin_SLW` and each skin's roughness map at 1).
 - **PBRSkin lobes are GGX** (#186, from `pbr_skin.mdl`, no fitted
   constant): every PBRSkin lobe - both dual lobes, the Top Coat, the
   metal's - is `microfacet_ggx_smith_bsdf` at α = roughness²
@@ -3650,6 +3657,26 @@ rule is Enhanced's, with no fitted hue in either.
   / 1.41) — Iray's skin, not a renderer's subsurface (the plain diffuse
   shows it); backlit ears red 0.10 – 0.21 × Iray (no light passes
   through).
+
+**PBRSkin's volume, direct** (#57): a PBRSkin skin's α, A(α) and radius
+come from `pbr_add_volume`'s arguments as DAZ hands them (`pbr_volume`,
+`iray::pbrskin`; Calib-Mi-SkinG9, -nosss and Calib-PBRSkin's `.mi`), not
+from the Uber channel reads with Genesis 8's volume as the fallback:
+σa = −ln(Transmitted Color) / Transmitted Measurement Distance only under
+**Transmission Enable** (`absorption_enable`; off, σa = 0 - PBRSkin's
+default Transmitted Color is black, which read as is absorbed all), σs =
+−ln(SSS Color) / Scattering Measurement Distance only under **Sub Surface
+Enable** (off: σs = 0 and g 0, the MDL's `directional_bias`), distances in
+DAZ cm, SSS Direction as saved, PBRSkin's own defaults (`PBRSkin.dsf`).
+The rest of the rule is the one below: PBRSkin's surface is Uber's skin
+without Base Color Effect (`diffuse_translucency_bsdf`: the diffuse at
+1 − w over the diffuse transmission tinted Translucency Color, the volume
+below), so `skin_albedo` reads it with shares (1, w). Genesis 9's base
+skins hand Iray Translucency Weight 0.85, Transmitted Color (0.95, 0.20,
+0.10) over 0.1 cm, SSS Color (0.95, 0.45, 0.55) over 0.015 cm, SSS
+Direction −0.7, a Top Coat at 0.25 (roughness 0.67, Top Coat Bump Weight
+0.5: the coat normal is the base's at that weight in Iray; the export
+gives it the base's whole).
 
 **Enhanced, the Genesis 8 base skin** (mono SSS, Base Color Effect 1,
 SSS Direction −0.65; #83): baked like every other skin (`skin_albedo`,

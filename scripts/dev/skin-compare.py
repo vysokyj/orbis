@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Compare Octane renders of the Calib-Skin scenes (#19) with their Iray
+"""Compare Octane renders of the Calib-Skin scenes (#19) and the Genesis 9
+Calib-SkinG9 ones (#57) with their Iray
 references, region by region: luminance and hue.
 
   python3 scripts/dev/skin-compare.py <octane dir> [<scene>...] > report.md
@@ -39,6 +40,19 @@ REGIONS = {
     'skin sphere': (780, 335, 830, 385),
     'grey sphere': (130, 335, 180, 385),
 }
+# Calib-SkinG9-* (make-skin-g9-scenes.py: Genesis 9, the camera 3 cm higher,
+# the head lower in the frame; the shirt covers the chest and shoulders).
+REGIONS_G9 = {
+    'forehead': (450, 285, 510, 320),
+    'cheek L': (420, 410, 445, 440),
+    'cheek R': (515, 410, 540, 440),
+    'nose': (472, 395, 488, 420),
+    'chin': (465, 488, 495, 503),
+    'ear L': (375, 370, 385, 410),
+    'ear R': (577, 370, 587, 410),
+    'neck': (455, 565, 505, 600),
+    'grey sphere': (130, 335, 180, 385),
+}
 
 
 def lin(p):
@@ -53,7 +67,8 @@ def med(a, box):
 def compare(octane_png, iray_png):
     o, i = lin(octane_pass.pick(octane_png)[0]), lin(iray_png)
     out = {}
-    for k, box in REGIONS.items():
+    regions = REGIONS_G9 if os.path.basename(iray_png).startswith('Calib-SkinG9-') else REGIONS
+    for k, box in regions.items():
         mo, mi = med(o, box), med(i, box)
         if mi @ Y < 1e-4:
             continue
@@ -65,7 +80,7 @@ def compare(octane_png, iray_png):
 def main():
     odir = sys.argv[1]
     want = sys.argv[2:]
-    pngs = sorted(glob.glob(os.path.join(odir, 'Calib-Skin-*.png')))
+    pngs = sorted(glob.glob(os.path.join(odir, 'Calib-Skin-*.png')) + glob.glob(os.path.join(odir, 'Calib-SkinG9-*.png')))
     print(octane_pass.summary([octane_pass.pick(p)[1] for p in pngs]) + '.\n')
     print('| scene | pass | region | Y | r/g | b/g | Iray linear rgb |')
     print('|---|---|---|---|---|---|---|')
