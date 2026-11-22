@@ -87,6 +87,59 @@ lobe against its glossy layer on fibres and ribbons. Submitted on the
 server: it rendered at ~80 iterations / min (477 → 954 in 6 min, the CPU
 fallback of #217, GPU 2000 in ~110 s), cancelled at ~950 / 2000; parked.
 
+## The Iray side of the arcs (resume)
+
+Iray references b3177d0 (server GPU, 2000 samples, denoised on@8). Same
+cells as above (rows 75-155 / 260-350 / 500-595 / 855-945, columns
+180-380 / 650-820 / 1100-1270 / 1545-1740, linear luminance x 1000, the
+whole cell; the Octane renders of 04:14 / 04:22 measured again the same
+way, so the absolute values differ from the table above, which took them
+differently - only ratios are compared). Columns: 1 Pixie opaque, 2 no
+lobe, 3 the lobe alone over black, 4 its curve as a glossy layer over
+black; rows G / H / I / J.
+
+| fibres (-HDRI) | Iray | Faithful | Enhanced |
+|---|---|---|---|
+| col 1 | 2.09 / 3.08 / 3.57 / 1.50 | 2.30 / 3.37 / 3.89 / 1.62 | 2.23 / 3.28 / 3.80 / 1.61 |
+| col 2 | 1.38 / 2.31 / 2.75 / 1.49 | 1.45 / 2.45 / 2.91 / 1.58 | 1.45 / 2.45 / 2.91 / 1.58 |
+| col 3 | 0.84 / 1.56 / 1.60 / 0.70 | 1.07 / 1.93 / 1.94 / 0.81 | 0.94 / 1.75 / 1.78 / 0.79 |
+| col 4 | 1.00 / 1.63 / 1.64 / 0.66 | 1.12 / 1.84 / 1.86 / 0.75 | 0.99 / 1.67 / 1.70 / 0.74 |
+| lobe / glossy layer (3 / 4) | 0.84 / 0.95 / 0.98 / 1.06 | 0.95 / 1.05 / 1.04 / 1.07 | 0.94 / 1.05 / 1.05 / 1.08 |
+| lobe share (1 / 2) | 1.52 / 1.33 / 1.30 / 1.01 | 1.58 / 1.38 / 1.33 / 1.03 | 1.54 / 1.34 / 1.31 / 1.02 |
+
+Ribbons (-T2) in Iray: lobe / glossy layer 0.85 / 0.93 / 0.93 / 1.13,
+share 1.18 / 1.06 / 1.09 / 0.95 (the flat ribbons, #79's decided shape;
+Octane's round curves render -T2 as -HDRI, these materials have no
+transmission).
+
+- **The macro normal does not matter on strands.** Iray's lobe against
+  the same curve as a glossy layer is 0.84 - 1.06 on fibres and 0.85 -
+  1.13 on ribbons, the same per row; Octane draws 0.94 - 1.08. Only the
+  single thick arc (G) is 0.84 in Iray, 0.95 in Octane - and the ribbons
+  show the same 0.85, so it is not a fibre's undocumented normal either.
+  Nothing to derive for the dual lobe on fibres.
+- **Pixie's lobe share matches on the arcs**: Faithful 1.04 / 1.04 /
+  1.02 / 1.02 x Iray's, Enhanced 1.01 / 1.01 / 1.01 / 1.01.
+- **Not additive, in either renderer, alike**: what the lobe adds over
+  Pixie's base (col 1 - col 2) against the lobe alone is 0.86 / 0.49 /
+  0.52 / 0.02 in Iray, 0.79 / 0.48 / 0.50 / 0.06 in Faithful (the
+  diffuse loses what the lobe reflects; row J, facing the camera, adds
+  nearly nothing on both). The "additive" reading above came from the
+  other measurement and does not hold.
+- Level: Faithful's lobe alone 1.15 - 1.28 x Iray, its glossy layer 1.13 x;
+  Enhanced 1.12 - 1.13 and 1.0 - 1.11. That is #162's decided Look split
+  (Faithful's STD lobe = Iray's Phong shape at another level), not a
+  strand question; the base (col 2) is 1.05 - 1.06 x in both.
+
+So the dual lobe itself is right on strands. What stays on the real hair
+is Pixie's geometry: fibres' share crown / fringe / side 1.15 / 1.08 /
+1.36 x Iray's, the side patch alone far over (Iray's fibres there 1.22,
+its prisms / ribbons 1.55 / 1.45), over a base 0.70 - 0.76 x Iray's
+(#161's fibre gap); prisms 1.07 - 1.15 x over a base 1.04 - 1.21 x.
+Filed as #221 (decompose the pile: Pixie's strand count, widths
+and depth on the arcs - needs the server's GPU, #217). No constant; #216
+closed.
+
 ## Process
 
 - Read the exported `project.ocs` of the material in question before any

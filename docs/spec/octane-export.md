@@ -2491,7 +2491,13 @@ leaves out, #15):
   material, it zeroed the base's specular too - G9 Base dForce Pixie Hair's
   Hair01, refraction 0.28 over translucency 0.33, lost its dual lobe on
   prisms, ribbons and fibres; Iray's lobe adds 1.22 - 1.55 x there,
-  Octane's had 1.04 - 1.14 x from Hair02 alone). A partial refraction
+  Octane's had 1.04 - 1.14 x from Hair02 alone). The lobe on strands
+  needs no more: Iray weights the dual lobe by the curve at the macro
+  normal, its glossy layer at the half vector, yet on Calib-Strand-LobeArc-HDRI
+  / -T2 its lobe against the same curve as a glossy layer is 0.84 - 1.06 on
+  fibres and 0.85 - 1.13 on ribbons, row by row alike (Octane 0.94 - 1.08),
+  and Pixie's lobe share there is 1.02 - 1.04 x Iray's in Faithful, 1.01 x
+  in Enhanced. A partial refraction
   without gloss over a dual lobe takes that Mix even with no translucency
   or metal to split it (#218): one node's one `specular` is either the
   flag's 0 (the lobe lost) or a lobe over the refraction's share too, at
