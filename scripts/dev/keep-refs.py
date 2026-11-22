@@ -16,7 +16,10 @@ whose <png>.run.txt names the Iray Server through its own job queue
 (daz-render.sh); --renderer overrides it. The Iray
 Server applies the Post Denoiser; the local CPU Iray never does (NVIDIA's
 deep-learning denoiser runs on GPUs only), whatever the scene says, so a CPU
-render is recorded `off` (#171). Only scenes that are in calib/scenes (generated from scratch,
+render is recorded `off` (#171). So is a headless one whose <png>.run.txt
+says `device: cpu`: the server's GPU failed (CUDA error 700 on strand hair
+or a G9 figure, 4 GB card) and its worker rendered on the CPU (#217;
+iray-server.py reads the device from the server's log). Only scenes that are in calib/scenes (generated from scratch,
 DAZ built-ins and primitives only) or calib/scenes-store (calibration scenes
 with the user's store content, put in git by the user's decision, 2026-11-18)
 are taken; every other render is skipped, so a scene the user did not put in
@@ -89,11 +92,21 @@ def caps(p):
     return found
 
 
-def denoiser(c, how):
+def device(png):
+    # iray-server.py submit writes `device: gpu|cpu|?` from the server's log (#217).
+    run = png + '.run.txt'
+    if os.path.exists(run):
+        m = re.search(r'^device: (\w+|\?)', open(run).read(), re.M)
+        if m: return m[1]
+    return None
+
+
+def denoiser(c, how, dev=None):
     # Iray's Post Denoiser, as the render's copy had it (#139). The CPU Iray
     # can't run it (deep-learning denoiser, GPU only; #171 measured a CPU
-    # 400-sample render's white grain at 3 - 5 x the server's): `off`.
-    if how == CPU:
+    # 400-sample render's white grain at 3 - 5 x the server's): `off`. Also
+    # a server render its worker made on the CPU after a GPU error (#217).
+    if how == CPU or dev == 'cpu':
         return 'off'
     if 'Post Denoiser Enable' not in c:
         return '?'
@@ -162,11 +175,15 @@ for png in pngs:
     shutil.copyfile(png, dst)
     rows[name] = {'scene': name, 'samples': samples, 'max_time': c.get('Max Time', ''), 'renderer': how,
                   'rendered': datetime.datetime.fromtimestamp(os.path.getmtime(png)).strftime('%Y-%m-%d %H:%M'),
-                  'seconds': seconds(name, png), 'denoiser': denoiser(c, how)}
+                  'seconds': seconds(name, png), 'denoiser': denoiser(c, how, device(png))}
     if demo:
         rows[name]['scene_sha256'] = demo_lib.sha256(demo_lib.copy_path(name))
     changed += 1
-    print(f'kept {name}: {samples} samples, {how}')
+    dev = device(png) if how == HEADLESS else None
+    print(f"kept {name}: {samples} samples, {how}" + (f', device {dev}' if dev else ''))
+    if how == HEADLESS and dev in (None, '?'):
+        print(f'  {name}: no device recorded (#217): check its render time against GPU siblings; '
+              'a CPU fallback needs its denoiser set to off by hand')
 with open(tsv, 'w', newline='') as f:
     w = csv.DictWriter(f, FIELDS, delimiter='\t', lineterminator='\n')
     w.writeheader()

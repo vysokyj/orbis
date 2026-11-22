@@ -188,7 +188,16 @@ where a script maps that folder as an MDL directory (`daz-export-mi.dsa`,
    capped scene with `exportRenderToBridgeQueue` into the Iray Server's own
    job queue; the script drives the server's web API (the REST calls of its
    UI: `POST session`, `GET queue`, `results/<job>.zip`) and lands the PNGs
-   like the Bridge queue does.
+   like the Bridge queue does. It reads the server's log (`GET logs`, its
+   last 1024 lines, tagged with the job) for the device each job rendered
+   on (#217): `device: gpu|cpu` in `<png>.run.txt`, and `keep-refs.py`
+   records a CPU render's denoiser `off` (Iray disables the Post Denoiser on
+   the CPU). A GPU error (CUDA error 700, OptiX "illegal memory access", on
+   the 4 GB card) leaves the worker on the CPU until the server restarts:
+   `submit` refuses to start on such a server, stops a batch at the first
+   GPU error / CPU render (the job, the rest, the server queue) and exits 3
+   telling the user to restart the Iray Server. `iray-server.py devices
+   [log file]` lists the device per job (the live log, or a downloaded one).
    `scripts/dev/iray-queue.sh [-n] [-s samples] [-o out dir] <scene.duf>…`
    queues capped copies (Max Time 0, as Boost asks) and collects the
    renders into the Iray references (`-n` returns at once, `--collect`

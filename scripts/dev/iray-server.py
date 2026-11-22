@@ -10,6 +10,7 @@ _SECURE=1 for https; see
   python3 scripts/dev/iray-server.py idle              # block until no job waits or renders
   python3 scripts/dev/iray-server.py cancel [prefix]   # remove queued / rendering jobs
   python3 scripts/dev/iray-server.py results [search]  # finished results
+  python3 scripts/dev/iray-server.py devices [log...]  # device per job, from the server log (or a downloaded one)
   python3 scripts/dev/iray-server.py get <path>        # raw GET, JSON printed
 idle: a low-priority batch calls it before each scene, so jobs an issue
 submits go first (one scene per submit; the issue's job waits at most for
@@ -30,6 +31,16 @@ failed and a new DAZ uploads the rest; a job that never shows up in the
 server queue (300 s) or renders with no progress (iterations, frame
 progress, snapshot loading) for --render-stall s (default 1800) is failed,
 stopped and removed.
+CPU fallback (#217): a GPU error (CUDA error 700 on strand hair or a G9
+figure, the 4 GB GTX 1650 Ti) leaves the server's worker rendering on the
+CPU until the Iray Server restarts - no Post Denoiser, 10 - 20 x slower.
+The server's log (GET logs) names each job's devices: submit writes
+"device: gpu|cpu|?" into <scene>.png.run.txt (keep-refs.py records a CPU
+render's denoiser off), refuses to start while the log's latest job since
+a restart rendered on the CPU or hit a GPU error (--force: anyway), and at
+the first GPU error / CPU render in its batch stops that job, removes the
+rest, stops the server queue and exits 3: restart the Iray Server, then
+resubmit what it lists. A job finished before that is kept.
 """
 import datetime, gzip, re, http.cookiejar, io, json, os, shutil, subprocess, sys, time, urllib.parse, urllib.request, zipfile
 
@@ -121,6 +132,133 @@ def job_signature(j):
                       sort_keys=True, default=str)
 
 
+# The server's own log (GET logs: its last 1024 lines, what the web UI's
+# Resources page shows) says which device rendered a job (#217). A GPU error
+# (CUDA error 700 on strand hair, 4 GB card) leaves the worker rendering on
+# the CPU until the server restarts: no Post Denoiser there, 10 - 20 x slower.
+_LOG = re.compile(r'^\[(?P<ts>[^\]]*)\]\s+\d+\s+(?P<src>\S+)\s+\|\s+(?:\[(?P<job>[^\]]+)\]\s+)?(?P<msg>.*)$')
+_DEVICES = re.compile(r'rend info : Rendering with (\d+) devices?:')
+_DEVICE = re.compile(r'rend info :\s{2,}(CPU|CUDA device \d+ \([^)]*\))')
+_STATS = re.compile(r'rend info :\s+(CPU|CUDA device \d+ \([^)]*\))\s*:\s+([\d.]+) spp')
+RESTARTED = '(Iray Server restarted)'
+_NOT_JOBS = {'Neuray_loader', 'WebSocket', 'Renderer', 'Render_target'}
+_GPU_ERROR = re.compile(r'rend error: .*(CUDA|Lost master device)')
+
+
+class DeviceLog:
+    """Per job, from the server log's lines: the devices of its last
+    "Rendering with N devices" block (Iray restarts a job on the CPU after a
+    GPU error), the spp per device of "Device statistics at rendering done",
+    and its GPU errors. Lines are tagged "[<job>]" (older ones only by their
+    WORKER_n source: the worker's last tagged job)."""
+
+    def __init__(self):
+        self.jobs, self.order, self.worker, self.block, self.prev = {}, [], {}, {}, []
+
+    def feed(self, lines):
+        # GET logs repeats the buffer's tail: take only what follows the
+        # longest overlap with the previous read.
+        new = lines
+        if self.prev:
+            last = self.prev[-1]
+            for i in range(len(lines) - 1, -1, -1):
+                if lines[i] == last and lines[:i + 1] == self.prev[len(self.prev) - i - 1:]:
+                    new = lines[i + 1:]
+                    break
+        self.prev = lines
+        for l in new:
+            self.line(l)
+
+    def line(self, l):
+        m = _LOG.match(l)
+        if not m or not m['src'].startswith('WORKER'):
+            return
+        job, msg = m['job'], m['msg']
+        if job in _NOT_JOBS:
+            # A worker (re)starting: its untagged lines belong to no job yet;
+            # its loader lines mean the server (re)started, GPU fresh.
+            self.worker[m['src']] = job = None
+            if m['job'] == 'Neuray_loader' and (not self.order or self.order[-1] != RESTARTED):
+                self.order.append(RESTARTED)
+        elif job:
+            self.worker[m['src']] = job
+        else:
+            job = self.worker.get(m['src'])
+        if not job:
+            return
+        st = self.jobs.get(job)
+        if st is None:
+            st = self.jobs[job] = {'devices': None, 'stats': None, 'errors': [], 'cpu_denoiser': False}
+        if job in self.order:
+            self.order.remove(job)
+        self.order.append(job)
+        if 'Device statistics at rendering done' in msg:
+            st['stats'] = {}
+        elif (s := _STATS.search(msg)) and st['stats'] is not None:
+            st['stats'][s[1]] = float(s[2])
+        elif d := _DEVICES.search(msg):
+            st['devices'], self.block[job] = [], int(d[1])
+        elif (d := _DEVICE.search(msg)) and self.block.get(job):
+            st['devices'].append(d[1])
+            self.block[job] -= 1
+        elif _GPU_ERROR.search(msg):
+            if len(st['errors']) < 5 and msg not in st['errors']:
+                st['errors'].append(msg)
+        elif 'denoiser is not available on CPU' in msg:
+            st['cpu_denoiser'] = True
+
+    def device(self, job):
+        """'gpu' / 'cpu' / None (no device lines seen for it)."""
+        st = self.jobs.get(job)
+        if not st:
+            return None
+        if st['stats']:
+            used = [d for d, spp in st['stats'].items() if spp > 0]
+            if used:
+                return 'gpu' if any(d.startswith('CUDA') for d in used) else 'cpu'
+        if st['devices']:
+            return 'gpu' if any(d.startswith('CUDA') for d in st['devices']) else 'cpu'
+        return 'cpu' if st['cpu_denoiser'] else None
+
+    def describe(self, job):
+        st = self.jobs.get(job) or {}
+        if st.get('stats'):
+            return ', '.join(f'{d} {spp:g} spp' for d, spp in st['stats'].items())
+        return ', '.join(st.get('devices') or []) or 'no device lines seen'
+
+
+def server_log(s):
+    r = s.call('GET', 'logs')
+    return r.get('logs', []) if isinstance(r, dict) else []
+
+
+def print_devices(log):
+    for job in log.order:
+        if job == RESTARTED:
+            print(job)
+            continue
+        st = log.jobs[job]
+        err = f"  GPU error: {st['errors'][0][:120]}" if st['errors'] else ''
+        print(f"{job}\t{log.device(job) or '?'}\t{log.describe(job)}{err}")
+
+
+def poisoned(log):
+    """The server's latest job rendered on the CPU or hit a GPU error: its
+    worker stays on the CPU until the Iray Server restarts (#217)."""
+    for job in reversed(log.order):
+        if job == RESTARTED:
+            return None
+        dev = log.device(job)
+        if dev or log.jobs[job]['errors']:
+            if dev == 'cpu' or log.jobs[job]['errors']:
+                return f"{job} ({'GPU error: ' + log.jobs[job]['errors'][0][:120] if log.jobs[job]['errors'] else 'rendered on ' + log.describe(job)})"
+            return None
+    return None
+
+
+RESTART = 'restart the Iray Server (its worker stays on the CPU until then), then resubmit'
+
+
 def read_report(work):
     path = os.path.join(work, 'submit.txt')
     return [l for l in open(path).read().splitlines() if l.strip()] if os.path.exists(path) else []
@@ -187,19 +325,28 @@ def upload(work, triples, stall):
 
 def submit(argv):
     samples, out, scenes = 400, os.path.join(CACHE, 'calib', 'iray'), []
-    upload_stall, render_stall, appear = 600, 1800, 300
+    upload_stall, render_stall, appear, force = 600, 1800, 300, False
     while argv:
         a = argv.pop(0)
         if a == '-s': samples = int(argv.pop(0))
         elif a == '-o': out = os.path.abspath(argv.pop(0))
         elif a == '--upload-stall': upload_stall = int(argv.pop(0))
         elif a == '--render-stall': render_stall = int(argv.pop(0))
+        elif a == '--force': force = True
         else: scenes.append(os.path.abspath(a))
     if not scenes:
         sys.exit('iray-server: submit needs scenes')
     if subprocess.run([sys.executable, os.path.join(HERE, 'duf_camera.py')] + scenes).returncode:
         sys.exit('iray-server: fix the scenes first (duf_camera.py --fix, #97)')
     s = Server()
+    # The server's log (#217): a worker that fell back to the CPU stays there
+    # until the Iray Server restarts; don't feed it a batch.
+    log = DeviceLog()
+    log.feed(server_log(s))
+    bad = poisoned(log)
+    if bad and not force:
+        print(f'iray-server: the Iray Server is on its CPU fallback (last job {bad}); {RESTART} (--force: submit anyway)', flush=True)
+        sys.exit(3)
     stamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
     work = os.path.join(CACHE, 'calib', 'server', stamp)
     os.makedirs(work, exist_ok=True)
@@ -231,11 +378,15 @@ def submit(argv):
     # or renders without progress (`render_stall` s) is failed and removed,
     # so the batch goes on (#200).
     started, moved, seen, killed, left, t0 = {}, {}, {}, {}, set(sent), time.time()
+    abort = None
     while left:
         time.sleep(5)
         now = time.time()
         try:
             queue = s.call('GET', 'queue').get('jobs', [])
+            # After the queue, so a "done" job's closing device statistics
+            # are in what we read.
+            log.feed(server_log(s))
         except OSError as e:
             # The server not answering is not a job's stall: pause the clocks.
             print(f'iray-server: queue not answering ({e}); waiting', flush=True)
@@ -275,14 +426,45 @@ def submit(argv):
                     # The copy first: keep-refs.py takes the latest copy saved before the png.
                     shutil.copy(copy, os.path.join(out, name + '.duf'))
                     open(png, 'wb').write(z.read(pngs[0]))
-                    open(png + '.run.txt', 'w').write(f'Iray Server (headless submit, #195): rendered in {secs} s\n')
-                    print(f'iray-server: rendered {name} in ~{secs} s -> {png}', flush=True)
+                    dev = log.device(j['name'])
+                    # device: keep-refs.py records a CPU render's denoiser `off` (#217).
+                    open(png + '.run.txt', 'w').write(f'Iray Server (headless submit, #195): rendered in {secs} s\n'
+                                                      f"device: {dev or '?'} ({log.describe(j['name'])})\n")
+                    print(f"iray-server: rendered {name} in ~{secs} s on the {(dev or '?').upper()} -> {png}", flush=True)
+                    if not dev:
+                        print(f'iray-server: {name}: the server log showed no device lines for it; check the render time against its siblings', flush=True)
                 else:
                     failed.append(j['name'])
                     print(f"iray-server: {name} {j['status']}: {j.get('statusMessage', '')}", flush=True)
                 s.call('DELETE', 'results', {'id': j['id']})
                 s.call('DELETE', 'queue', {'ids': [j['id']]})
                 left.discard(j['name'])
+        # A GPU error or a CPU render poisons the worker until a restart
+        # (#217): stop this job at once if it still renders (a CPU render is
+        # 10 - 20 x slower and undenoised), drop the rest, stop the queue.
+        if not abort:
+            for name in sorted(n for n in jobs if n in log.jobs):
+                if log.device(name) == 'cpu' or log.jobs[name]['errors']:
+                    st = log.jobs[name]
+                    abort = f"{jobs[name][0]}: " + (f"GPU error: {st['errors'][0][:160]}" if st['errors'] else f'rendered on {log.describe(name)}')
+                    break
+            if abort:
+                print(f'iray-server: {abort}', flush=True)
+                print(f'iray-server: stopping the batch and the server queue; {RESTART}', flush=True)
+                s.call('POST', 'queue', {'command': 'stop'})
+                for j in queue:
+                    if j['name'] in left and j['name'] not in killed:
+                        if j['status'] == 'active':
+                            s.call('POST', 'job', {'id': j['id'], 'command': 'stop', 'now': True})
+                            killed[j['name']] = (j['id'], now)
+                        elif j['status'] not in ('done', 'failed', 'stopped'):
+                            s.call('DELETE', 'queue', {'ids': [j['id']]})
+                            left.discard(j['name'])
+                        failed.append(j['name'])
+                for name in list(left):
+                    if name not in killed and name not in seen:
+                        left.discard(name)
+                        failed.append(name)
         for name, (jid, since) in killed.items():
             if name in left and now - since > 120:
                 # Never reached "stopped": remove it as it is.
@@ -296,6 +478,9 @@ def submit(argv):
                 failed.append(name)
                 print(f'iray-server: {jobs[name][0]}: not in the server queue for {appear} s; given up', flush=True)
                 left.discard(name)
+    if abort:
+        print(f"iray-server: not rendered: {' '.join(sorted({jobs[n][0] for n in failed if n in jobs}))}", flush=True)
+        sys.exit(3)
     sys.exit(1 if failed else 0)
 
 
@@ -305,7 +490,17 @@ def main(argv):
         return
     if argv[0] == 'submit':
         return submit(argv[1:])
+    if argv[0] == 'devices' and len(argv) > 1:
+        # A downloaded server log (the web UI's Logs > Download).
+        log = DeviceLog()
+        for path in argv[1:]:
+            log.feed(open(path, encoding='utf-8', errors='replace').read().splitlines())
+        return print_devices(log)
     s = Server()
+    if argv[0] == 'devices':
+        log = DeviceLog()
+        log.feed(server_log(s))
+        return print_devices(log)
     cmd = argv[0]
     if cmd == 'info':
         print(json.dumps({'info': s.call('GET', 'info'), 'queue': s.call('GET', 'queue')}, indent=1)[:4000])
