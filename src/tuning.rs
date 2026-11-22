@@ -138,6 +138,21 @@ const FAITHFUL_METAL_STD_SPREAD: Option<f32> = Some(0.8);
 const ENHANCED_ROUGH_TRANSMISSION_EXCESS: bool = false;
 const FAITHFUL_ROUGH_TRANSMISSION_EXCESS: bool = true;
 
+/// Iray's untessellated fibres as opaque strands (`opaque_fibres`, #222,
+/// after #79's translucency). A contested choice: on fibre geometry Iray
+/// shades a regular BSDF single sided and opaque - its transmission is
+/// discarded (programmer's manual, Hair Materials and Fiber Geometry), an
+/// Uber translucency's and a refraction's alike; Octane's curves pass it
+/// on. Faithful + Final follows Iray: no transmission on fibres, a partial
+/// refraction keeps only its reflection (Calib-Strand-GlossLobeArc-HDRI
+/// rendered 1.35 - 1.96 x Iray with it). Enhanced keeps the light a strand
+/// passes on, as a real hair does (back-lit hair glows), paying a brighter
+/// pile than DAZ shows. The Preview rows keep it too, with Octane's hair
+/// pile (as #79 left the translucency). Revisit on real hair (Pixie,
+/// Morgan as fibres; docs/tuning.md).
+const ENHANCED_OPAQUE_FIBRES: bool = false;
+const FAITHFUL_OPAQUE_FIBRES: bool = true;
+
 /// Geometry below Iray's ground per Look (`clip_below_ground`, #69, the
 /// user's call 2026-11-16). A contested choice: Iray's ground is a matte
 /// object, opaque - under a Manual ground above the floor (or an instance
@@ -233,6 +248,10 @@ pub struct Tuning {
     /// what Octane renders over its Smith model (Look, Glass; #185): false
     /// keeps Octane's brighter rough glass, true takes Iray's level.
     pub rough_transmission_excess: bool,
+    /// Iray's untessellated fibres (`Material::fibres`) pass no light
+    /// (Look, Hair; #79, #222): an Uber translucency or refraction on them
+    /// writes no transmission, the refraction's share keeps its reflection.
+    pub opaque_fibres: bool,
 }
 
 impl Variant {
@@ -266,6 +285,7 @@ impl Variant {
                 clip_below_ground: ENHANCED_CLIP_BELOW_GROUND,
                 metal_std_spread: ENHANCED_METAL_STD_SPREAD,
                 rough_transmission_excess: ENHANCED_ROUGH_TRANSMISSION_EXCESS,
+                opaque_fibres: ENHANCED_OPAQUE_FIBRES,
             },
             (Faithful, Final) => Tuning {
                 kernel: Kernel::PathTracing,
@@ -285,6 +305,7 @@ impl Variant {
                 clip_below_ground: FAITHFUL_CLIP_BELOW_GROUND,
                 metal_std_spread: FAITHFUL_METAL_STD_SPREAD,
                 rough_transmission_excess: FAITHFUL_ROUGH_TRANSMISSION_EXCESS,
+                opaque_fibres: FAITHFUL_OPAQUE_FIBRES,
             },
             (Enhanced, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -304,6 +325,7 @@ impl Variant {
                 clip_below_ground: ENHANCED_CLIP_BELOW_GROUND,
                 metal_std_spread: ENHANCED_METAL_STD_SPREAD,
                 rough_transmission_excess: ENHANCED_ROUGH_TRANSMISSION_EXCESS,
+                opaque_fibres: false,
             },
             (Faithful, Preview) => Tuning {
                 kernel: Kernel::DirectLighting,
@@ -323,6 +345,7 @@ impl Variant {
                 clip_below_ground: FAITHFUL_CLIP_BELOW_GROUND,
                 metal_std_spread: FAITHFUL_METAL_STD_SPREAD,
                 rough_transmission_excess: FAITHFUL_ROUGH_TRANSMISSION_EXCESS,
+                opaque_fibres: false,
             },
         }
     }
@@ -382,6 +405,16 @@ mod tests {
                 assert_eq!(t.strand_hair == StrandHair::MdlLayers, layers, "{look:?} {mode:?}");
                 // Everywhere else Octane's Hair, its albedo the pile's colour.
                 assert_eq!(t.strand_hair == StrandHair::HairPile, !layers, "{look:?} {mode:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn faithful_final_keeps_iray_fibres_opaque() {
+        for look in [Look::Enhanced, Look::Faithful] {
+            for mode in [OctaneMode::Final, OctaneMode::Preview] {
+                let t = Variant::new(look, mode).tuning();
+                assert_eq!(t.opaque_fibres, (look, mode) == (Look::Faithful, OctaneMode::Final), "{look:?} {mode:?}");
             }
         }
     }

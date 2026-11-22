@@ -89,6 +89,7 @@ field of `Tuning`, set per variant in one table (`Variant::tuning`,
 | `clip_below_ground` | no (seen through the catcher) | yes (cut at Iray's ground) | no | yes |
 | `metal_std_spread` | default (0.5) | 0.8 (Iray's energy) | default | 0.8 |
 | `rough_transmission_excess` | no (Octane's rough glass) | yes (Octane's measured excess taken back) | no | yes |
+| `opaque_fibres` | no (strands pass light) | yes (no transmission on Iray's fibres) | no | no |
 
 Calibrated on the same 17 scenes in each variant (lights, Sun-Sky at
 18:00, noon and steered, HDRI, tone, PBRSkin, Glossy, SSS, Glass, Mixing,
@@ -382,9 +383,19 @@ as one JSON object (ASCII; anything else `\uXXXX`-escaped) and runs
   than 2 sides or no modifier → Iray's `hair` fibres (`Material::fibres`),
   else ribbons (2) or prisms. The export always writes round curves; the
   flag steers the hair shader's layers (dForce hair, Faithful) and an Uber
-  translucency: on fibres Iray loses the diffuse transmission (black), so
-  Faithful + Final writes none there; the other variants keep it (Look:
-  a strand that passes light). Why: Morgan's Strands material on fibres
+  translucency or refraction: on fibres Iray loses the transmission
+  (black; programmer's manual: a regular BSDF on fibre geometry is single
+  sided and opaque, its transmission discarded), so Faithful + Final writes
+  none there (`opaque_fibres`) - no diffuse transmission, and a refraction
+  keeps only its reflection (specular, IOR; no transmission, fake shadows,
+  medium or dispersion), in a partial refraction's Mix and as one node
+  alike; the other variants keep it (Look: a strand that passes light).
+  Why the refraction (#222): Calib-Strand-GlossLobeArc-HDRI (Pixie's
+  Hair01, refraction 0.284, + gloss; with / without lobe and
+  translucency) went from 1.35 - 1.96 x Iray in every column to 1.10 -
+  1.20 x, the level of the same arcs without refraction (-LobeArc's opaque
+  columns 1.07 - 1.14, unchanged); the dense Calib-Hair-Pixie-T1 moved by
+  0.01 - 0.02 (a lit pile passes little through). Why the translucency: Morgan's Strands material on fibres
   (Calib-Strand-UberM, -Dome: whole / no gloss / no translucency / no
   refraction, a thick strand, a sparse and a dense patch) 0.44 - 0.47 x
   Iray under the sun with the transmission (Universal's highlight goes
@@ -2200,8 +2211,9 @@ leaves out, #15):
   layer over a dual lobe, above), the refraction part the refraction
   with its reflection. Why (#220): Calib-Strand-GlossLobeArc-HDRI's lobe
   share under the gloss and the refraction 1.01 - 1.14 x Iray's on
-  fibres (Enhanced 1.00 - 1.08), ribbons 1.00 - 1.17. (The level of a
-  partial refraction on fibres, 1.35 - 1.96 x Iray, is #222.)
+  fibres (Enhanced 1.00 - 1.08), ribbons 1.00 - 1.17. On Iray's fibres
+  Faithful + Final drops the refraction part's transmission (Line
+  Tessellation, `opaque_fibres`, #222).
 
   Why (#129): Calib-MetalRefr (enhanced-final, Y over each sphere's disc,
   red metal base, white refraction): metal 0.75 / 0.3 at refraction 0.3
