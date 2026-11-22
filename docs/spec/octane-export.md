@@ -2198,7 +2198,10 @@ leaves out, #15):
   reflection below); and one with a glossy layer over the dual lobe
   (Base Mixing 0, #220): the base part the gloss over the lobe (glossy
   layer over a dual lobe, above), the refraction part the refraction
-  with its reflection.
+  with its reflection. Why (#220): Calib-Strand-GlossLobeArc-HDRI's lobe
+  share under the gloss and the refraction 1.01 - 1.14 x Iray's on
+  fibres (Enhanced 1.00 - 1.08), ribbons 1.00 - 1.17. (The level of a
+  partial refraction on fibres, 1.35 - 1.96 x Iray, is #222.)
 
   Why (#129): Calib-MetalRefr (enhanced-final, Y over each sphere's disc,
   red metal base, white refraction): metal 0.75 / 0.3 at refraction 0.3
