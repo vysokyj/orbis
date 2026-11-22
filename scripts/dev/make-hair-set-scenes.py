@@ -337,6 +337,32 @@ PIXIE_VARIANTS += [('-T1-nofig', chain(lambda d: sides(d, 1), nofig)),
 PIXIE_VARIANTS += [('-T1-nofig-nogloss-noclump', chain(lambda d: sides(d, 1), nofig, nogloss, pr({'PR Clumpiness 1': 0.0}))),
                    ('-T1-nofig-nogloss-pr0', chain(lambda d: sides(d, 1), nofig, nogloss, pr({'PR Hairs (Per Guide)': 0}))),
                    ('-T1-nofig-nogloss-tipsep', chain(lambda d: sides(d, 1), nofig, nogloss, pr({'PR Hair Tip Separation': 0.2})))]
+# #221 resume 4: Iray renders -pr0's generated fibres 1.41 x brighter than
+# the same strands on a plain polyline node. Iray discards a regular BSDF's
+# transmission on fibre geometry (Iray manual 8.1.4), and Pixie's material
+# transmits (translucency 0.33, refraction 0.28): -opaque switches both
+# off, so the generated / plain-node ratio says whether the 1.41 rides on
+# the transmission (-> 1.0: DAZ's render path keeps it on generated hair)
+# or on the fibres themselves (stays 1.41). Its plain-node twin:
+# make-pixie-poly-scene.py --scene <this> --material 2 --draw-dome.
+def opaque(d):
+    mats = hair_materials(d)
+    assert mats, 'no hair materials'
+    for m in mats:
+        ext = next((e for e in m.setdefault('extra', []) if e.get('type') == 'studio_material_channels'), None)
+        if ext is None:
+            ext = {'type': 'studio_material_channels', 'channels': []}
+            m['extra'].append(ext)
+        for cid in ('Translucency Weight', 'Refraction Weight'):
+            c = next((c['channel'] for c in ext['channels'] if c['channel']['id'] == cid), None)
+            if c is None:
+                c = {'id': cid, 'type': 'float'}
+                ext['channels'].append({'channel': c})
+            c['current_value'] = 0.0
+    return len(mats)
+
+
+PIXIE_VARIANTS += [('-T1-nofig-nogloss-pr0-opaque', chain(lambda d: sides(d, 1), nofig, nogloss, opaque, pr({'PR Hairs (Per Guide)': 0})))]
 # -noclump's dump came out identical to -nofig-nogloss (clumpiness does not
 # move Pixie's render hairs); what bundles them is the generated hairs
 # meeting their guide at the tip (`PR Hair Tip Separation` 0.01 - 0.06 cm
