@@ -22,7 +22,9 @@ default dome, DTHDR-RuinsB, as the Morgan scenes are), then here:
   only gloss): the base under the gloss.
 - Pixie only (#203, the deleted Calib-Hair-Teens-* on free content):
   -T2 / -T1 the hair's Line Tessellation sides 2 (ribbons) / 1 (fibres),
-  each also -nogloss and -coat (a white top coat, COAT).
+  each also -nogloss and -coat (a white top coat, COAT); -T1-nofig(-nogloss)
+  the strands alone (every other mesh hidden), -T1-nocap-nogloss without
+  the hair cap (#221).
 
 HAIRS: what each covers (DAZ's Render Line Tessellation Sides: 2 = flat
 ribbons in Iray, 3 = prisms, under 2 = round `hair` fibres; all Iray Uber):
@@ -253,6 +255,42 @@ def coat(d):
     return len(mats)
 
 
+# What lies under the strands (#221): Pixie's fibre base is 0.7 x Iray's
+# and its side patch's lobe share 1.36 x, yet arcs and piles of the same
+# material at Pixie's widths and density, over a cap, match (2026-11-22
+# pile note). -nofig hides every mesh but the strands (figure, its eyes,
+# brows, hair cap, the floor plane: the hair over the bare dome, as the
+# arcs), -nocap the hair cap alone. `Visible` off on the node: a hidden
+# figure or cap does not hide the hair under it (src/usd/mesh.rs).
+def hide(d, pick):
+    hair = {id(n) for n, _, _ in hair_nodes(d)}
+    hidden = []
+    for n in d['scene']['nodes']:
+        if not n.get('geometries') or id(n) in hair or not pick(n):
+            continue
+        ext = next((e for e in n.setdefault('extra', []) if e.get('type') == 'studio_node_channels'), None)
+        if ext is None:
+            ext = {'type': 'studio_node_channels', 'version': 5}
+            n['extra'].append(ext)
+        chans = ext.setdefault('channels', [])
+        c = next((c['channel'] for c in chans if c['channel']['id'] == 'Visible'), None)
+        if c is None:
+            c = {'id': 'Visible', 'type': 'bool'}
+            chans.append({'channel': c})
+        c['current_value'] = False
+        hidden.append(n.get('label'))
+    assert hidden, 'nothing hidden'
+    return hidden
+
+
+def nofig(d):
+    return hide(d, lambda n: True)
+
+
+def nocap(d):
+    return hide(d, lambda n: 'Hair Cap' in n.get('label', ''))
+
+
 def chain(*fs):
     def run(d):
         return [f(d) for f in fs]
@@ -265,6 +303,10 @@ def chain(*fs):
 # on free content).
 PIXIE_VARIANTS = [(f'-T{n}{s}', chain(lambda d, n=n: sides(d, n), *([f] if f else [])))
                   for n in (2, 1) for s, f in (('', None), ('-nogloss', nogloss), ('-coat', coat))]
+# #221: the fibres without what lies under them (hide() above).
+PIXIE_VARIANTS += [('-T1-nofig', chain(lambda d: sides(d, 1), nofig)),
+                   ('-T1-nofig-nogloss', chain(lambda d: sides(d, 1), nofig, nogloss)),
+                   ('-T1-nocap-nogloss', chain(lambda d: sides(d, 1), nocap, nogloss))]
 
 
 def main():
