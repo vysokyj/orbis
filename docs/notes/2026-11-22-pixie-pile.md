@@ -83,3 +83,72 @@ parked as an `## Iray batch` in #221.
 - A material twin of what the real hair carries (here Pixie whole, not
   opaque) belongs in every decomposition scene; the arcs had only the
   opaque one, so they could not see the material's loss on fibres.
+
+## The Iray side (resume)
+
+Iray reference: GPU, 2000 samples, denoised (0a2e8a2). Cells over Iray's
+own silhouette (alpha > 0.5; the Octane table above used Octane's, so its
+numbers differ a little):
+
+| row | Iray 1 / 2 / 3 / 4 | Iray 1/2, 3/4, 4/2 | Faithful 1/2, 3/4, 4/2 | Enhanced 1/2, 3/4, 4/2 |
+|---|---|---|---|---|
+| G thin | 10.57 / 8.09 / 6.61 / 4.00 | 1.31, 1.65, 0.50 | 1.35, 1.77, 0.50 | 1.31, 1.56, 0.56 |
+| H Pixie widths | 10.15 / 7.77 / 6.42 / 3.95 | 1.31, 1.62, 0.51 | 1.34, 1.73, 0.51 | 1.31, 1.56, 0.57 |
+| I Pixie widths, cap | 10.49 / 8.56 / 7.29 / 5.56 | 1.23, 1.31, 0.65 | 1.25, 1.36, 0.66 | 1.23, 1.32, 0.67 |
+| J thin, cap | 10.93 / 8.79 / 7.49 / 5.77 | 1.24, 1.30, 0.66 | 1.27, 1.35, 0.66 | 1.25, 1.31, 0.67 |
+
+Faithful / Iray per cell 1.05 - 1.09 (col 2: 1.06 everywhere).
+
+- **The material rule holds on fibres**: Iray's whole / opaque base (4/2)
+  is 0.50 / 0.51 / 0.65 / 0.66, Faithful's 0.50 / 0.51 / 0.66 / 0.66. Iray
+  loses Hair01's translucency share and its reflection-less refraction on
+  a fibre exactly as the export drops them (`Tuning::opaque_fibres`, #79).
+- **Width and the cap move both alike**: G -> H base 0.96 x in both, the
+  cap lowers the opaque share 1.31 -> 1.23 in Iray, 1.34 -> 1.25 in
+  Faithful, the whole one 1.62 -> 1.31 / 1.73 -> 1.36.
+- **The lobe share matches**: Faithful 1.02 - 1.03 x Iray's (opaque),
+  1.04 - 1.07 x (whole); Enhanced 0.94 - 1.01 x. The opaque rows repeat
+  -LobeArc (the control).
+
+So nothing of the arcs-to-Pixie list - width, density, a cap, Hair01's
+whole material - reproduces Pixie-T1's base 0.70 - 0.75 x or its side
+share 1.36 x. Like #215's coat, the gap is only in Pixie's own scene.
+
+## Pixie's scene taken apart
+
+Two facts from the scene itself (the `.mi` of Pixie-T1-coat, #215):
+Pixie Cut has four materials - Hair01 (67 % of the fibre data in the
+`.mi`), Hair02 (26 %), Hairline01 / 02 (6 %) - all with Hair01's
+values, except that Hair02 has no refraction (it is the opaque material
+of the pile's columns 1 - 2); and the hair cap under the strands is a
+cutout-mapped Uber with Hair01's diffuse colour and a thin-walled
+refraction 0.59 tinted by its glossy colour (= the diffuse, 0.076): about
+as dark as the export writes it (albedo 0.031, transmission 0.045).
+
+New variants in `make-hair-set-scenes.py` (all Pixie, fibres):
+Calib-Hair-Pixie-T1-nofig(-nogloss) - every mesh but the strands hidden
+(figure, eyes, brows, hair cap, floor: the hair over the bare dome, as the
+arcs), Calib-Hair-Pixie-T1-nocap-nogloss - the hair cap alone hidden.
+
+Octane (Final, 400 samples, denoised), patch means (hair-set-compare.py's
+boxes) against Pixie-T1 / -T1-nogloss:
+
+| patch | Faithful share T1 / -nofig | -nofig-nogloss / -nogloss | -nocap-nogloss / -nogloss |
+|---|---|---|---|
+| crown | 1.42 / 1.43 | 1.00 | 1.00 |
+| fringe | 1.36 / 1.27 | 1.11 | 1.00 |
+| side | 1.67 / 1.69 | 0.96 | 1.08 |
+
+(Enhanced the same within 0.02.) In Octane the patches are the hair alone:
+what lies under it moves the base by at most 11 % and the side share not
+at all. So if Iray's -nofig-nogloss lands near its -nogloss too, figure
+and cap are out and the strands' own shape over the head is what is left;
+if Iray's base drops to Octane's (0.7 x of now), Iray's patches see the
+head through the strands where Octane's don't - a coverage difference
+(width / opacity of a fibre in the pile), to be measured from Iray's
+alpha on -nofig against our dump's strands (#215's coverage check).
+
+Iray: the server's GPU failed on -T1-nofig-nogloss after ~200 of 2000
+iterations ("Kernel [1] (SSS & RT) failed", error -4; #217's kind), the
+submit stopped the server queue; the three scenes are parked as an `##
+Iray batch` in #221 until the Iray Server is restarted.
