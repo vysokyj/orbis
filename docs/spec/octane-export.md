@@ -2183,6 +2183,10 @@ leaves out, #15):
   refraction. A translucent non-metal under a partial refraction takes
   the same Mix, in Base Mixing 0 and 1 (the layer is the same; one node
   kept only one of the two transmissions, #135, #165: see translucency).
+  So does a partial refraction without gloss over a dual lobe (Base
+  Mixing 0 / 1, no translucency, no metal; #218): the lobe on the base
+  part, the refraction's share reflecting nothing (see the refraction's
+  reflection below).
 
   Why (#129): Calib-MetalRefr (enhanced-final, Y over each sphere's disc,
   red metal base, white refraction): metal 0.75 / 0.3 at refraction 0.3
@@ -2475,7 +2479,15 @@ leaves out, #15):
   material, it zeroed the base's specular too - G9 Base dForce Pixie Hair's
   Hair01, refraction 0.28 over translucency 0.33, lost its dual lobe on
   prisms, ribbons and fibres; Iray's lobe adds 1.22 - 1.55 x there,
-  Octane's had 1.04 - 1.14 x from Hair02 alone). Glossy Specular black at layered weight 1 keeps the full Fresnel
+  Octane's had 1.04 - 1.14 x from Hair02 alone). A partial refraction
+  without gloss over a dual lobe takes that Mix even with no translucency
+  or metal to split it (#218): one node's one `specular` is either the
+  flag's 0 (the lobe lost) or a lobe over the refraction's share too, at
+  the refraction's IOR instead of the lobe's reflectivity; the Mix is the
+  MDL's `weighted_layer` (Iray keeps (1 - w) x the lobe), no constant.
+  Unmeasured: no installed material has it (211 443 with a Refraction
+  Weight channel scanned, 2026-11-22; the dual lobe over a partial
+  refraction comes with translucency, already the Mix). Glossy Specular black at layered weight 1 keeps the full Fresnel
   reflection at the Refraction Index (N8: the flag on, `glossy_enable` off
   under the full refraction). **Weighted mixing (2) without gloss has no
   refraction at all**: `normalized_base` would reflect whatever the flag

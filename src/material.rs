@@ -4379,7 +4379,17 @@ impl Ocs<'_> {
         // (1.08 - 1.30); -Solid alike. Weighted (2) stays one node: its
         // `normalized_base` is unmeasured here.
         let partial_over_translucency = translucency > 0.0 && refraction_weight < 1.0 && base_mixing < 2;
-        if self.refraction_override.is_none() && self.metal_override.is_none() && !self.in_backscatter_mix && (metal && base_mixing == 0 || partial_over_translucency) && refractive && !crate::iray::is_pbrskin(mat) {
+        // A partial refraction without gloss over a dual lobe likewise
+        // (#218): `metallic_layered_base` lays the refraction at its weight
+        // over the dual lobe, and DAZ switches the refraction's own
+        // reflection off (`refraction_reflection_enable`), so Iray keeps
+        // (1 - w) x the lobe and the refraction's share reflects nothing.
+        // One node can't hold that: its one `specular` is either 0 (the
+        // flag) or over the refraction's share too, at the refraction's IOR
+        // instead of the lobe's reflectivity. The Mix is the MDL's own
+        // `weighted_layer`, no constant.
+        let partial_over_lobe = refraction_weight < 1.0 && base_mixing < 2 && DualLobe::of(mat).is_some() && iray(mat).and_then(|u| u.bool("refraction_reflection_enable")) == Some(false);
+        if self.refraction_override.is_none() && self.metal_override.is_none() && !self.in_backscatter_mix && (metal && base_mixing == 0 || partial_over_translucency || partial_over_lobe) && refractive && !crate::iray::is_pbrskin(mat) {
             return self.refractive_metal_material(indent, name, mat, area_m2, skin);
         }
         // A PBRSkin metal with a free lobe 2 too: its metal holds both lobes
@@ -11635,6 +11645,41 @@ mod tests {
         let base = part("P base");
         assert!(pin(&base, "specular").unwrap().contains(">0.4505 0.4505 0.4505<"), "W x ratio: {base}");
         assert!(pin(&base, "coating").is_some(), "lobe 2: {base}");
+    }
+
+    #[test]
+    fn partial_refraction_over_a_dual_lobe_is_a_mix() {
+        // #218: no translucency, no metal, no gloss - one node lost the
+        // lobe (DAZ turns the refraction's reflection off). The refraction
+        // lies at its weight over the lobe: a Mix by Refraction Weight, the
+        // lobe on the base part, Base Mixing 0 and 1 alike.
+        for bm in [0, 1] {
+            let (x, _) = material_inputs(&[("P".into(), mat(json!([
+                {"channel": {"id": "Base Mixing", "current_value": bm}},
+                {"channel": {"id": "Glossy Layered Weight", "current_value": 0.0}},
+                {"channel": {"id": "Refraction Weight", "current_value": 0.4}},
+                {"channel": {"id": "Dual Lobe Specular Weight", "current_value": 0.5}},
+                {"channel": {"id": "Dual Lobe Specular Reflectivity", "current_value": 0.5}},
+                {"channel": {"id": "Dual Lobe Specular Ratio", "current_value": 0.8}},
+            ])), 0.0)], &[], HashMap::new(), 4000, SkinShader::None);
+            let mix = x.find("type='19' name='P'>").unwrap_or_else(|| panic!("BM {bm}: no Mix: {x}"));
+            assert!(x[mix..].split("</pin>").next().unwrap().contains(">0.4<"), "amount = w: {x}");
+            let part = |name: &str| {
+                let at = x.find(&format!("name='{name}'>")).unwrap_or_else(|| panic!("{name}: {x}"));
+                x[at..].split("</node>\n").take(12).collect::<String>()
+            };
+            let pin = |s: &str, p: &str| s.find(&format!("<pin name='{p}'>")).map(|a| s[a..].split("</pin>").next().unwrap().to_string());
+            assert!(pin(&part("P refraction"), "specular").unwrap().contains(">0 0 0<"), "BM {bm}: {x}");
+            let base = part("P base");
+            assert!(pin(&base, "specular").unwrap().contains(">0.4 0.4 0.4<"), "BM {bm}: W x ratio: {base}");
+        }
+        // A full refraction has no base under it: one node.
+        let (x, _) = material_inputs(&[("F".into(), mat(json!([
+            {"channel": {"id": "Glossy Layered Weight", "current_value": 0.0}},
+            {"channel": {"id": "Refraction Weight", "current_value": 1.0}},
+            {"channel": {"id": "Dual Lobe Specular Weight", "current_value": 0.5}},
+        ])), 0.0)], &[], HashMap::new(), 4000, SkinShader::None);
+        assert!(!x.contains("type='19' name='F'>"), "{x}");
     }
 
     #[test]
