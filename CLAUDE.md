@@ -105,8 +105,9 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   rule, 2026-11-16, until they say otherwise): free, but **4 GB VRAM**.
   Generic scenes (`calib/scenes`, generated `Calib-*`) go there on Claude's
   judgment without asking, in batches of any size, headless with
-  `scripts/dev/iray-server.py submit` (#195; login in the git-ignored `.env`); `Demo-*` and
-  `calib/scenes-store` scenes only after asking (they may not fit). Claude may start, quit and
+  `scripts/dev/iray-server.py submit` (#195; login in the git-ignored `.env`); so do
+  `calib/scenes-store` scenes (the user's rule, 2026-11-23); `Demo-*` and the user's own
+  hand-made scenes only after asking (they may not fit). Claude may start, quit and
   restart the queue-side DAZ and its queue script (2026-11-16; the Iray
   Server itself and its password stay the user's). Never reorder; scenes
   that need a queue-side DAZ restart before them (#94) are held back and
@@ -176,8 +177,10 @@ the loop, references in `calib/references`): `docs/calibration.md`.
   Calib-Hair-Kevin, Calib-OmniHair-*, the user's own Calib-Base...) live in
   `calib/scenes-store/` (contributor blanked) with their references in
   `calib/references/iray` (the user's decision, 2026-11-18: "all of it in
-  git; what doesn't go in is deleted and not used"). A new scene with store
-  content: ask before it goes in. There are no private calibration scenes any
+  git; what doesn't go in is deleted and not used"). A new generated `Calib-*`
+  scene on store content goes in without asking (2026-11-23: "generic scenes,
+  store ones too, may go into git"); only the user's own hand-made scenes stay
+  out until they name them. There are no private calibration scenes any
   more: the teens scene and Calib-*-Teens were deleted; build generic scenes
   instead (#203). Never delete a scene outside git on your own: the user
   decides. Claude never
