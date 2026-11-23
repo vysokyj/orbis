@@ -24,6 +24,10 @@ big sphere hidden; the builder's second sphere removed here), then varied:
                 scatters: what the volume's scattering gives back)
 - back-w0:      the backlit twin of front-w0 (what reaches the ears
                 through the skin)
+- hdri-w0, hdri-gloss0: front-w0's and front-gloss0's twins under the
+                dome (#229)
+- front-g0, hdri-g0: SSS Direction 0 on every skin surface (the volume
+                scatters evenly, not back toward the light; #229)
 - Calib-Mi-SkinG9[-nosss|-w0]: F02's front (and two variants) with every
                 mesh but the figure hidden, the figure raised 1 cm, for the
                 .mi fixtures only
@@ -64,6 +68,14 @@ VARIANTS = {
     'front-gloss0': ('front', {'Dual Lobe Specular Enable': False}),
     'front-nosss': ('front', {'Sub Surface Enable': False}),
     'back-w0': ('back', {'Translucency Enable': False}),
+    # #229: the dome's split (F02 under it 1.16 - 1.20 x Iray, the lamp
+    # right): diffuse + lobes, diffuse + volume, and the volume's
+    # backward bias off under both lights (does Iray's g -0.7 throw the
+    # lamp's light back toward the camera beside it?).
+    'hdri-w0': ('hdri', {'Translucency Enable': False}),
+    'hdri-gloss0': ('hdri', {'Dual Lobe Specular Enable': False}),
+    'front-g0': ('front', {'SSS Direction': 0.0}),
+    'hdri-g0': ('hdri', {'SSS Direction': 0.0}),
 }
 # Calib-Mi-SkinG9<suffix>: the .mi fixture scenes (src/iray.rs, #57).
 MI = {'': {}, '-nosss': {'Sub Surface Enable': False}, '-w0': {'Translucency Enable': False}}
