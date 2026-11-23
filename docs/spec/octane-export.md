@@ -4688,7 +4688,10 @@ never above 0: floating geometry keeps the ground at 0, Draw Ground on or
 off - Calib-Env-Mi-GroundAuto-High / -High-Off, #150;
 instances' copies don't count - Calib-Env-Mi-GroundAuto-Instance: a copy
 down to -60 cm, DAZ's ground at -0.001, #125; a hidden target is left out
-with its copies, -InstanceHidden, #130), in the geometry
+with its copies, -InstanceHidden, #130; a SubD figure counts by its
+control cage, not the refined mesh the export writes - Calib-Mi-SkinG9-Floor:
+Genesis 9's cage soles at -0.0952 cm, the refined ones at -0.0648, DAZ's
+ground at -0.0962, `Mesh::base_low`, #228), in the geometry
 group. Why 1 mm under: exactly at a floor's height it z-fought (washed-out
 planks, hard shadows); 1 mm under the floor covers it and outdoors the
 shadow stays. Opacity = **0.89** × `Ground Shadow Intensity`

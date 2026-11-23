@@ -529,6 +529,14 @@ fn daz_spotlight_becomes_a_shaped_usdlux_light() {
     let floor = || Mesh { points: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 1.0]], ..Default::default() };
     let copied = Mesh { points: vec![[0.75, 0.15, 0.0]], instances: Some(vec![IDENTITY, [1.0, 0.0, 0.0, 0.45, 0.0, 1.0, 0.0, -0.75, 0.0, 0.0, 1.0, 0.0]]), ..Default::default() };
     assert_eq!(ground_height(&e, &[floor(), copied]), 0.0);
+    // A SubD figure by its control cage (#228, Calib-Mi-SkinG9-Floor): the
+    // refined soles at -0.0648 cm, the cage's at -0.0952, DAZ's ground under
+    // the cage; the cage's lowest point counts its shown faces only.
+    let refined = Mesh { points: vec![[0.0, -0.000648, 0.0], [0.0, 1.5, 0.0]], base_low: Some(-0.000952), ..Default::default() };
+    assert!((ground_height(&e, &[floor(), refined]) + 0.000952).abs() < 1e-9);
+    let cage = Mesh { points: vec![[0.0, -0.2, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0], [2.0, -0.1, 0.0]], face_counts: vec![3, 3], face_indices: vec![0, 1, 2, 1, 4, 2], ..Default::default() };
+    assert_eq!(lowest_shown(&cage, &[false, true]), Some(-0.1));
+    assert_eq!(lowest_shown(&cage, &[false, false]), None);
     e.ground_origin_y = Some(12.0);
     assert!((ground_height(&e, &[]) - 0.12).abs() < 1e-6);
     let (lifted, _) = crate::material::scene_lights(&[], Some((0.8, 0.12)), None, &[], 500, 1439);

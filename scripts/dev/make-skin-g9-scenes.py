@@ -25,7 +25,10 @@ big sphere hidden; the builder's second sphere removed here), then varied:
 - back-w0:      the backlit twin of front-w0 (what reaches the ears
                 through the skin)
 - Calib-Mi-SkinG9[-nosss|-w0]: F02's front (and two variants) with every
-                mesh but the figure hidden, for the .mi fixtures only
+                mesh but the figure hidden, the figure raised 1 cm, for the
+                .mi fixtures only
+- Calib-Mi-SkinG9-Floor: Calib-Mi-SkinG9 with the figure where it stands
+                (soles under 0): the auto ground under a SubD figure (#228)
 
 Skins, light to dark by their head maps' mean (0.79 / 0.53 / 0.29 red):
 F02 = G9 Feminine Skin 02, F04 = G9 Feminine Skin 04, M03 = G9 Masculine
@@ -218,10 +221,10 @@ def hide_all_but_figure(d):
 
 
 def lift_figure(d, cm):
-    """Genesis 9 raised off the floor: its soles sit 0.65 mm below 0, and
-    DAZ puts the auto ground under its subdivided feet (0.95 mm), mi-oracle
-    under the control cage - a gap of the ground's, not the materials'
-    (#228). Raised, both grounds stay at 0."""
+    """Genesis 9 raised off the floor: its control cage's soles sit 0.95 mm
+    below 0 (the refined feet in the .mi 0.65 mm), and DAZ puts the auto
+    ground under the cage - a gap of the ground's, not the materials'
+    (#228; Calib-Mi-SkinG9-Floor holds it). Raised, the ground stays at 0."""
     fig = next(n for n in d['scene']['nodes'] if n.get('label') == 'Genesis 9')
     fig['translation'] = [{'id': 'x', 'current_value': 0.0}, {'id': 'y', 'current_value': cm}, {'id': 'z', 'current_value': 0.0}]
 
@@ -257,6 +260,10 @@ def main():
                 hide_all_but_figure(d)
                 lift_figure(d, 1.0)
                 write(d, f'Calib-Mi-SkinG9{name}')
+            # The figure where it stands: the auto ground under its cage (#228).
+            d = variant(base, hdri, 'front', {})
+            hide_all_but_figure(d)
+            write(d, 'Calib-Mi-SkinG9-Floor')
 
 
 if __name__ == '__main__':

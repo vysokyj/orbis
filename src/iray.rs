@@ -1541,7 +1541,11 @@ pub const AUTO_GROUND_DROP_CM: f64 = 0.001;
 impl DomeSetup {
     /// `environment_dome_ground_position`'s y (cm), given the lowest world y
     /// (cm) of the visible geometry: the Manual origin, else (Auto) that
-    /// lowest point 0.001 cm lower (#119). Visible only: a hidden node is not
+    /// lowest point 0.001 cm lower (#119). The geometry at base resolution:
+    /// a SubD figure counts by its control cage, not the refined mesh DAZ
+    /// hands Iray (#228: Genesis 9 standing on the floor, its cage's soles at
+    /// -0.0952, the .mi's refined feet at -0.0648 to -0.0662, the ground at
+    /// -0.0962; Calib-Hair-Pixie-T1-coat, Calib-SkinG9-*-front). Visible only: a hidden node is not
     /// exported and doesn't count (Calib-Env-Mi-GroundAuto-Low / -LowHidden:
     /// a sphere's bottom at -60 cm under a floor at 0, -60.001 shown, -0.001
     /// hidden); strand hair counts by its vertices (Calib-Strand: fibres down
@@ -2337,9 +2341,12 @@ mod tests {
                 }
                 check(format!("{scene} ground"), f64::from(u8::from(o["environment_dome_ground"].as_bool().unwrap_or(false))), f64::from(u8::from(d.ground)));
                 // The ground's height: its position's y, from the lowest point of
-                // the exported geometry (mi-oracle's `geometry_min_y`; fixtures
-                // from before #119 lack it, and every one of them has its floor at 0).
-                let lowest = mi["geometry_min_y"].as_f64().unwrap_or(0.0);
+                // the visible geometry at base resolution as DAZ measured it
+                // (mi-oracle's `base_min_y`, #228), else of the .mi's own geometry
+                // (`geometry_min_y`: refined for a SubD figure, so only fixtures
+                // whose lowest node is unrefined lack the first; fixtures from
+                // before #119 lack both, and every one of them has its floor at 0).
+                let lowest = mi["base_min_y"].as_f64().or(mi["geometry_min_y"].as_f64()).unwrap_or(0.0);
                 check(format!("{scene} ground height"), num(&o["environment_dome_ground_position"][1]), d.ground_y(lowest));
                 check(format!("{scene} ground shadow"), num(&o["environment_dome_ground_shadow_intensity"]), d.ground_shadow);
                 check(format!("{scene} ground glossiness"), num(&o["environment_dome_ground_glossiness"]), d.ground_glossiness);

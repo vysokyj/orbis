@@ -305,6 +305,11 @@ pub(super) struct Mesh {
     /// Instanced: where its copies go (the mesh itself is the first, at
     /// `IDENTITY`) — written as a `PointInstancer` with it as the prototype.
     pub(super) instances: Option<Vec<Placement>>,
+    /// A refined mesh: the lowest y (meters) of its shown faces before
+    /// refining (the control cage), where DAZ's auto Iray ground measures
+    /// it (`environment::ground_height`, #228); None when `points` are
+    /// the node's own.
+    pub(super) base_low: Option<f32>,
 }
 
 /// Meters per unit of DAZ's hair line widths (`Line Start Width` /
@@ -660,6 +665,10 @@ pub(super) fn build_meshes(lib: &mut Library, dump: &SceneDump) -> Result<(Vec<M
         mesh.name = unique_name(&mut names, &n.label);
         let levels = if refined { subd_levels(shape_node.subd, parts[0].topo.subd) } else { 0 };
         if levels > 0 {
+            // DAZ's auto ground sits under the cage, not the refined feet
+            // (Calib-Mi-SkinG9-Floor: Genesis 9's cage soles at -0.0952 cm,
+            // refined -0.0648, the ground at -0.0962; #228).
+            mesh.base_low = lowest_shown(&mesh, &shown);
             // Each face refines into one quad per corner, in order.
             let mut shown: Vec<bool> = shown;
             for _ in 0..levels {
@@ -807,7 +816,25 @@ fn mesh_part(m: &Mesh, subsets: &[usize], name: String) -> Mesh {
         normal_indices: m.normal_indices.as_ref().map(|_| normal_idx),
         curve_widths: None,
         instances: m.instances.clone(),
+        // The whole mesh's: the parts together reach as low.
+        base_low: m.base_low,
     }
+}
+
+/// The lowest y of the points the `shown` faces use (None without any).
+pub(super) fn lowest_shown(m: &Mesh, shown: &[bool]) -> Option<f32> {
+    let mut at = 0usize;
+    let mut low: Option<f32> = None;
+    for (&c, &s) in m.face_counts.iter().zip(shown) {
+        if s {
+            for &v in &m.face_indices[at..at + c as usize] {
+                let y = m.points[v as usize][1];
+                low = Some(low.map_or(y, |l| l.min(y)));
+            }
+        }
+        at += c as usize;
+    }
+    low
 }
 
 /// Each face's smoothing (`smoothing_cos`) from its subset's material.

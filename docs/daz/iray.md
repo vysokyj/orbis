@@ -166,8 +166,10 @@ there is no backdrop for its shadow) catches shadows on a ground plane that
 is **part of the environment**: geometry at its height (a room's floor)
 hides it. Height: `Ground Origin Y` when `Ground Position Mode` is Manual,
 else (Auto, default) the scene's lowest point: the world bounding box's
-minimum y over the visible geometry (a hidden node doesn't count; strand
-hair counts by its vertices), and the .mi's `environment_dome_ground_position`
+minimum y over the visible geometry at base resolution (a hidden node
+doesn't count; strand hair counts by its vertices; a SubD figure by its
+control cage, although DAZ hands Iray the refined mesh, whose feet lie up to
+0.3 mm higher - Calib-Mi-SkinG9-Floor, #228), and the .mi's `environment_dome_ground_position`
 is 0.001 cm below it (-0.001 over a floor at 0), but never above 0: with
 the floor hidden and everything floating, the ground stays at 0, Draw Ground
 on or off (Calib-Env-Mi-GroundAuto-High). `Ground Shadow Intensity`

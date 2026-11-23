@@ -3,7 +3,8 @@
 // MDL argument values DAZ Studio computes from the Uber channels - the
 // compiled channel -> parameter mapping (docs/daz/iray-uber-mdl.md).
 // Arguments: out dir, scene .duf files, "--", then the content directories
-// (daz-script.sh appends them); writes <out dir>/<scene>.mi each and
+// (daz-script.sh appends them); writes <out dir>/<scene>.mi each, its
+// <scene>.lowest.json (where DAZ's auto ground measures, #228) and
 // <out dir>/export-mi.done (DONE_FILE) with a log.
 // ECMAScript 3, ASCII only.
 (function () {
@@ -106,6 +107,65 @@
             if (!new DzFile(sTmp + "/" + aF[t]).rename(sDest)) log("cannot move " + aF[t] + " to " + sOut);
         }
     }
+    // #228: where DAZ's auto Iray ground comes from. For every visible node
+    // with geometry: the lowest world y (cm, full precision) of its cached
+    // geometry as the scene is (a SubD figure at its resolution level: the
+    // viewport's refinement), of its world bounding box, and of its cached
+    // geometry at the base resolution (the control cage, as the scene dump
+    // takes it). Written to <scene>.lowest.json beside the .mi; mi-oracle.py
+    // takes it into the fixture. Call after the export: it switches the
+    // resolution levels down.
+    function lowY(oGeom) {
+        var y = null;
+        for (var v = 0; oGeom && v < oGeom.getNumVertices(); v++) {
+            var p = oGeom.getVertex(v);
+            if (y === null || p.y < y) y = p.y;
+        }
+        return y;
+    }
+    function meshNodes() {
+        var aOut = [];
+        for (var n = 0; n < Scene.getNumNodes(); n++) {
+            var oNode = Scene.getNode(n);
+            if (oNode.inherits("DzBone") || oNode.inherits("DzInstanceNode")) continue;
+            if (!oNode.isVisible()) continue;
+            if (oNode.isVisibleInRender && !oNode.isVisibleInRender()) continue;
+            var oObj = oNode.getObject();
+            if (!oObj || !oObj.getCurrentShape()) continue;
+            aOut.push(oNode);
+        }
+        return aOut;
+    }
+    function lowest() {
+        var aNodes = meshNodes(), aRows = [];
+        for (var n = 0; n < aNodes.length; n++) {
+            var oNode = aNodes[n], oShape = oNode.getObject().getCurrentShape();
+            var oBox = oNode.getWSBoundingBox ? oNode.getWSBoundingBox() : null;
+            var oLod = oShape.getLODControl ? oShape.getLODControl() : null;
+            aRows.push({ label: oNode.getLabel(), lod: oLod ? oLod.getValue() : 0, cached: lowY(oNode.getObject().getCachedGeom()), box: oBox ? oBox.min.y : null });
+            if (oLod && oLod.getValue() != 0) oLod.setValue(0);
+        }
+        for (var pass = 0; pass < 2; pass++) {
+            processEvents();
+            for (var b = 0; b < aNodes.length; b++) {
+                aNodes[b].finalize();
+                aNodes[b].getObject().forceCacheUpdate(aNodes[b], true);
+            }
+        }
+        var aJson = [];
+        for (var r = 0; r < aRows.length; r++) {
+            aRows[r].base = lowY(aNodes[r].getObject().getCachedGeom());
+            var o = aRows[r];
+            aJson.push("{\"label\":\"" + String(o.label).replace(/["\\]/g, "\\$&") + "\",\"lod\":" + o.lod + ",\"cached\":" + o.cached + ",\"box\":" + o.box + ",\"base\":" + o.base + "}");
+        }
+        return "[" + aJson.join(",\n") + "]\n";
+    }
+    function writeText(sPath, s) {
+        var f = new DzFile(sPath);
+        f.open(DzFile.WriteOnly | DzFile.Truncate);
+        f.write(s);
+        f.close();
+    }
     var nFailed = 0;
     for (var k = 0; oExporter && k < aScenes.length; k++) {
         var sName = aScenes[k].replace(/^.*\//, "").replace(/\.duf$/, "");
@@ -133,7 +193,10 @@
             nFailed++;
         } else {
             var bWritten = new DzFile(sMi).exists();
-            if (bWritten) keepTmp();
+            if (bWritten) {
+                writeText(sTmp + "/" + sName + ".lowest.json", lowest());
+                keepTmp();
+            }
             log(sName + ": " + oResult + ", " + (bWritten ? "written" : "missing") + (aModules.length ? " (" + aModules.join(", ") + ")" : ""));
         }
         clearTmp();

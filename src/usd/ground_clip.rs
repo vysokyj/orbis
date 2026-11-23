@@ -104,6 +104,8 @@ fn placed(m: &Mesh, p: &Placement) -> Mesh {
             w.iter().map(|x| x * s).collect()
         }),
         instances: None,
+        // After the ground is placed: no longer read.
+        base_low: None,
     };
     if det < 0.0 && out.curve_widths.is_none() {
         let mut at = 0;
@@ -257,6 +259,7 @@ fn clip_faces(m: &Mesh, ground: f32) -> Option<Mesh> {
         normal_indices: m.normal_indices.as_ref().map(|_| normal_idx),
         curve_widths: None,
         instances: None,
+        base_low: None,
     })
 }
 

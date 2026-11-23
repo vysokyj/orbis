@@ -218,8 +218,9 @@ impl SceneEnvironment {
 }
 
 /// Where Iray puts its ground, meters: `Ground Origin Y` in Manual mode,
-/// else (Auto) the lowest point of the scene's visible geometry, strands
-/// included (`crate::iray::DomeSetup::ground_y`; hidden nodes are not in
+/// else (Auto) the lowest point of the scene's visible geometry at base
+/// resolution (a SubD figure's control cage, not its refined mesh: #228),
+/// strands included (`crate::iray::DomeSetup::ground_y`; hidden nodes are not in
 /// `meshes`) — 0 for an empty one. DAZ's further 0.001 cm drop is left to
 /// the shadow catcher's own `GROUND_DROP`. Instances' copies don't count
 /// (Calib-Env-Mi-GroundAuto-Instance: a copy down to -60 cm, DAZ's ground
@@ -231,7 +232,8 @@ pub(super) fn ground_height(env: &SceneEnvironment, meshes: &[Mesh]) -> f64 {
     if let Some(y) = env.ground_origin_y {
         return y * f64::from(CM);
     }
-    let lowest = meshes.iter().flat_map(|m| m.points.iter().map(|p| p[1])).fold(f32::INFINITY, f32::min);
+    // A refined (SubD) mesh by its control cage (`Mesh::base_low`, #228).
+    let lowest = meshes.iter().map(|m| m.base_low.unwrap_or_else(|| m.points.iter().map(|p| p[1]).fold(f32::INFINITY, f32::min))).fold(f32::INFINITY, f32::min);
     if lowest.is_finite() { f64::from(lowest).min(0.0) } else { 0.0 }
 }
 

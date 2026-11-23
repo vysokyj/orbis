@@ -5,8 +5,12 @@ flags (visible, shadow, label, matte...) and every material's MDL
 call with its arguments, textures and light profiles inlined (path, gamma;
 IES path, flags, hermite degree, resolution). Of the geometry only
 `geometry_min_y`: the lowest world y (cm) of every exported mesh and hair
-(control points), instance nodes' copies left out - DAZ's auto Iray ground
-sits there (#119, #125). These
+(control points), instance nodes' copies left out; and `base_min_y`: the
+lowest world y (cm) of every visible node's geometry at its base resolution
+(a SubD figure's control cage), which daz-export-mi.dsa measures in DAZ and
+writes to <scene>.lowest.json beside the .mi - DAZ's auto Iray ground sits
+there, 0.001 cm lower (#119, #125; #228: the .mi's own mesh of a SubD
+figure is refined, its feet up to 0.3 mm higher). These
 are the oracle the DAZ -> Iray conversions in src/iray.rs are tested against
 (#62): `calib/references/mi/<scene>.json`.
 
@@ -356,6 +360,10 @@ def parse(path):
             t["attrs"] = {k: v for k, v in shaders.get(mat, {}).get("attrs", {}).items() if k != "material_id"}
             scene["materials"][f"{handle}/{surface}"] = t
     scene["geometry_min_y"] = geometry_min_y(path)
+    low = os.path.splitext(path)[0] + ".lowest.json"
+    if os.path.exists(low):
+        rows = [r["base"] for r in json.load(open(low)) if r.get("base") is not None]
+        scene["base_min_y"] = round(min(rows), 5) if rows else None
     return scene
 
 
