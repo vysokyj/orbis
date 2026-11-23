@@ -26,6 +26,7 @@ big sphere hidden; the builder's second sphere removed here), then varied:
                 through the skin)
 - hdri-w0, hdri-gloss0: front-w0's and front-gloss0's twins under the
                 dome (#229)
+- hdri-d0:      diffuse layer alone under the dome (w0, gloss0 and nosss together; #229)
 - front-g0, hdri-g0: SSS Direction 0 on every skin surface (the volume
                 scatters evenly, not back toward the light; #229)
 - Calib-Mi-SkinG9[-nosss|-w0]: F02's front (and two variants) with every
@@ -76,6 +77,10 @@ VARIANTS = {
     'hdri-gloss0': ('hdri', {'Dual Lobe Specular Enable': False}),
     'front-g0': ('front', {'SSS Direction': 0.0}),
     'hdri-g0': ('hdri', {'SSS Direction': 0.0}),
+    # The dome's diffuse layer alone (lobes, translucency and the volume's
+    # scattering all off): the w0 / gloss0 / g0 splits all leave F02 at
+    # 1.10 - 1.14 x Iray, so the excess sits in what they share (#229).
+    'hdri-d0': ('hdri', {'Translucency Enable': False, 'Dual Lobe Specular Enable': False, 'Sub Surface Enable': False}),
 }
 # Calib-Mi-SkinG9<suffix>: the .mi fixture scenes (src/iray.rs, #57).
 MI = {'': {}, '-nosss': {'Sub Surface Enable': False}, '-w0': {'Translucency Enable': False}}

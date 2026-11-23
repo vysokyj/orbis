@@ -86,6 +86,37 @@ Decomposition, face mean of the region medians, R / G / B:
 
 No constant fitted, nothing split by Look.
 
+## The dome's excess on pale skin (#229)
+
+Octane / Iray, median of the region medians (forehead, cheeks, nose, chin,
+neck), Enhanced / Faithful, 400 Octane samples, 2000 Iray samples (1000
+front). The grey sphere under the dome reads 1.03.
+
+| F02 | front lamp | dome |
+|---|---|---|
+| diffuse alone (-d0: lobes, translucency, volume scattering off) | - | 1.06 / 1.06 |
+| diffuse + lobes (-w0) | 1.00 / 1.00 | 1.11 / 1.11 |
+| diffuse + volume (-gloss0) | 1.02 / 0.99 | 1.10 / 1.06 |
+| all | 1.04 / 1.02 | 1.16 / 1.13 |
+| volume, SSS Direction 0 (-g0) | 1.06 / 1.03 | 1.14 / 1.12 |
+
+F04 under the dome: 1.06 / 1.02 (w0 1.06, gloss0 1.06 / 0.99, g0 1.06 / 1.02);
+M03: 0.95 / 0.98 (w0 1.02, gloss0 1.04 / 1.00, g0 0.95).
+
+- The volume's backward bias is not it: SSS Direction 0 moves nothing
+  (front +0.02, dome -0.02).
+- No one component carries it: the dome itself reads 1.03 on the grey
+  sphere, the diffuse layer adds 0.03, the lobes 0.05, the volume 0.04,
+  all of them as small steps that the front lamp does not show (each
+  within 0.02 there). F04 and M03 are within 6 % in both Looks; only the
+  palest skin's sum reaches 1.13 - 1.16.
+- Colour is right (r/g, b/g within 0.05 of 1 on the faces).
+- Open: whether the lobes' +0.05 is the grazing-angle albedo of
+  `custom_curve_layer` (pbr_skin.mdl: the diffuse below it is scaled by the
+  curve's directional albedo, Octane's coating-over-base the same only to
+  the extent the OpenPBR layering matches at grazing). A furnace test of
+  one lobe pair under the dome would split it; not a constant to fit.
+
 ## Process
 
 - mi-oracle crashes on dForce hair with per-fibre texture coords (#227):
