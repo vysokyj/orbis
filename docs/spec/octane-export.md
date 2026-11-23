@@ -3676,7 +3676,18 @@ skins hand Iray Translucency Weight 0.85, Transmitted Color (0.95, 0.20,
 0.10) over 0.1 cm, SSS Color (0.95, 0.45, 0.55) over 0.015 cm, SSS
 Direction −0.7, a Top Coat at 0.25 (roughness 0.67, Top Coat Bump Weight
 0.5: the coat normal is the base's at that weight in Iray; the export
-gives it the base's whole).
+gives it the base's whole, #231).
+Verified on Genesis 9 (#57; Calib-SkinG9-F02 / -F04 / -M03, pale, mid,
+dark; 400 samples, denoised; Octane / Iray luminance over forehead,
+cheeks, nose, chin, neck): front lamp Enhanced 0.83 – 1.06, Faithful 0.85
+– 1.03; HDRI Enhanced 0.86 – 1.20, Faithful 0.89 – 1.19; backlit ears
+Enhanced 0.90 – 1.12 (Faithful 0.60 – 0.68, no walk). Decomposed (face
+mean R / G / B): the diffuse layer and lobes alone (`-w0`) 0.96 – 1.01 in
+both Looks on every skin; diffuse and volume without the lobes (`-gloss0`)
+Faithful 0.88 – 0.93 / 0.96 – 1.02 / 1.01 – 1.03. No constant fitted.
+Outside ±15 %: the pale skin under the dome (1.16 – 1.20, the skins'
+environment-light excess, #229) and the dark skin's nose (0.83 / 0.85, the
+volume through a thin feature, #230).
 
 **Enhanced, the Genesis 8 base skin** (mono SSS, Base Color Effect 1,
 SSS Direction −0.65; #83): baked like every other skin (`skin_albedo`,
