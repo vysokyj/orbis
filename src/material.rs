@@ -2841,7 +2841,13 @@ impl Ocs<'_> {
     /// takes the base's normal with the Detail Normal Map blended in.
     fn coat_bump_pins(&mut self, i: usize, mat: &Material, bump_pin: &str, normal_pin: &str) {
         if crate::iray::is_pbrskin(mat) || mat.pbr_detail_normal().is_some() {
-            return self.surface_detail_pins(i, mat, normal_pin, bump_pin, true);
+            // `pbr_add_clearcoat`'s `blend_normals(state::normal(), 1, base
+            // normal, Top Coat Bump Weight)` is a linear blend of the flat
+            // normal and the base's (core_definitions.mdl): the coat's tilt is
+            // the base's at that weight (#231; PBRSkin only, Uber has no such
+            // weight). Genesis 9's skins have 0.5.
+            let w = if crate::iray::is_pbrskin(mat) { mat.float("Top Coat Bump Weight").unwrap_or(1.0).clamp(0.0, 1.0) } else { 1.0 };
+            return self.surface_detail_pins(i, mat, normal_pin, bump_pin, true, w);
         }
         // Bump and normal maps take only their placement (#77).
         let coat = self.channel_map(mat, "Top Coat Bump").map(|(a, m)| (a, m.placement()));
@@ -2859,7 +2865,7 @@ impl Ocs<'_> {
             None => self.base_bump(mat).map(|(a, f, m)| (a, BumpKind::Height(f), m)),
         };
         let baked = match (&layer, &base) {
-            (None, Some(_)) => return self.surface_detail_pins(i, mat, normal_pin, bump_pin, false),
+            (None, Some(_)) => return self.surface_detail_pins(i, mat, normal_pin, bump_pin, false, 1.0),
             (None, None) => return,
             (Some((l, lk, lm)), Some((b, bk, bm))) if lm == bm => {
                 let bg = mat.image_gamma(if matches!(bk, BumpKind::Height(_)) { "Bump Strength" } else { "Normal Map" });
@@ -2946,17 +2952,23 @@ impl Ocs<'_> {
     /// can't be read, go in as Octane's own: the normal map on
     /// `normal_pin`, the height map on `bump_pin` at `bump_power`.
     fn base_detail_pins(&mut self, i: usize, mat: &Material, normal_pin: &str, bump_pin: &str) {
-        self.surface_detail_pins(i, mat, normal_pin, bump_pin, true);
+        self.surface_detail_pins(i, mat, normal_pin, bump_pin, true, 1.0);
     }
 
     /// `base_detail_pins`, with PBRSkin's Detail Normal Map blended onto
     /// the normal when `detail` (`normal_pin`; PBRSkin's Top Coat takes it
     /// too, `coat_bump_pins`). Off for an Uber coat's base maps.
-    fn surface_detail_pins(&mut self, i: usize, mat: &Material, normal_pin: &str, bump_pin: &str, detail: bool) {
-        let detail = if detail { self.pbr_detail(mat) } else { None };
+    ///
+    /// `scale` is the tilt of every map relative to the base's (the PBRSkin
+    /// Top Coat Bump Weight, `coat_bump_pins`); 0 = flat normal, no pins.
+    fn surface_detail_pins(&mut self, i: usize, mat: &Material, normal_pin: &str, bump_pin: &str, detail: bool, scale: f32) {
+        if scale <= 0.0 {
+            return;
+        }
+        let detail = if detail { self.pbr_detail(mat, scale) } else { None };
         // The Normal Map at its strength; at 0 none (`normal_factor`).
-        let nm = self.channel_map(mat, "Normal Map").zip(normal_factor(mat, "Normal Map")).map(|((a, m), f)| (a, m.placement(), f));
-        let bump = self.base_bump(mat);
+        let nm = self.channel_map(mat, "Normal Map").zip(normal_factor(mat, "Normal Map")).map(|((a, m), f)| (a, m.placement(), f * scale));
+        let bump = self.base_bump(mat).map(|(a, f, m)| (a, f * scale, m));
         if let Some((b, f, bm)) = &bump {
             if nm.as_ref().map_or(true, |(_, m, _)| m == bm) {
                 let height = Bump { asset: b, kind: BumpKind::Height(*f), gamma: mat.image_gamma("Bump Strength") };
@@ -2986,10 +2998,10 @@ impl Ocs<'_> {
     /// linear normal map at its strength (the channel's value, DAZ's
     /// `tangent_space_normal_texture` factor; Calib-Mi-PBRSkin-NormalStrength
     /// K7, K8, -2 J7, #177): its weight, the asset and its placement.
-    fn pbr_detail(&mut self, mat: &Material) -> Option<(f32, String, ImageMod)> {
+    fn pbr_detail(&mut self, mat: &Material, scale: f32) -> Option<(f32, String, ImageMod)> {
         let (w, placement) = mat.pbr_detail_normal()?;
         let (a, _) = self.channel_map(mat, "Detail Normal Map")?;
-        let a = self.linear_normal_map(&a, mat.image_gamma("Detail Normal Map"), mat.float("Detail Normal Map").unwrap_or(1.0));
+        let a = self.linear_normal_map(&a, mat.image_gamma("Detail Normal Map"), mat.float("Detail Normal Map").unwrap_or(1.0) * scale);
         Some((w, a, placement))
     }
 
@@ -8446,6 +8458,44 @@ mod tests {
         let x = coated(0.0, true);
         let c = &x[x.find("<pin name='coatingNormal'>").expect(&x)..];
         assert!(!x.contains("OrbisDetailNormal") && c[..400.min(c.len())].contains("n.png"), "{x}");
+    }
+
+    /// PBRSkin's Top Coat Bump Weight (#231): `pbr_add_clearcoat` blends the
+    /// flat normal and the base's at that weight, so the coat's normal map
+    /// is the base's at its tilt x weight (a baked map at half strength for
+    /// 0.5), none at 0; the base's own normal stays as it is.
+    #[test]
+    fn pbrskin_top_coat_bump_weight_scales_the_coat_normal() {
+        let dir = tempfile::tempdir().unwrap();
+        image::RgbImage::from_pixel(8, 8, image::Rgb([160, 128, 250])).save(dir.path().join("n.png")).unwrap();
+        let dirs = vec![dir.path().to_path_buf()];
+        let skin = |bw: Option<f32>| {
+            let mut ch = vec![
+                json!({"channel": {"id": "Dual Lobe Specular Enable", "current_value": true}}),
+                json!({"channel": {"id": "Specular Lobe 2 Roughness Mult", "current_value": 0.4}}),
+                json!({"channel": {"id": "Top Coat Enable", "current_value": true}}),
+                json!({"channel": {"id": "Top Coat Weight", "current_value": 0.5}}),
+                json!({"channel": {"id": "Bump Enable", "current_value": true}}),
+                json!({"channel": {"id": "Normal Map", "current_value": 1, "image_file": "/n.png"}}),
+            ];
+            if let Some(w) = bw {
+                ch.push(json!({"channel": {"id": "Top Coat Bump Weight", "current_value": w}}));
+            }
+            let mut m = Material::from_dson(&json!({"extra": [{"channels": ch}]}), &HashMap::new());
+            m.channels.get_mut("Normal Map").unwrap().gamma = Some(1.0);
+            material_inputs(&[("Skin".into(), Rc::new(m), 1.0)], &dirs, HashMap::new(), 9000, SkinShader::None).0
+        };
+        let file = |x: &str, pin: &str| -> Option<String> {
+            let p = &x[x.find(&format!("<pin name='{pin}'>"))?..];
+            Some(p[p.find("type='11'>")? + 10..].split('<').next().unwrap().to_string())
+        };
+        let x = skin(None);
+        assert_eq!(file(&x, "coatingNormal"), file(&x, "normal"), "weight 1: the base's normal: {x}");
+        let x = skin(Some(0.5));
+        let (base, coat) = (file(&x, "normal").expect(&x), file(&x, "coatingNormal").expect(&x));
+        assert!(base.ends_with("n.png") && coat != base, "half tilt: a baked map of its own: {x}");
+        let x = skin(Some(0.0));
+        assert!(!x.contains("<pin name='coatingNormal'>") && x.contains("<pin name='normal'>"), "{x}");
     }
 
     /// A PBRSkin dual lobe's lobe 2 on Universal's coating takes the base's

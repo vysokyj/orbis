@@ -1374,9 +1374,13 @@ leaves out, #15):
   it Octane compiles the shader on load and leaves them at their default
   colours: no detail). The Top Coat takes the same normal (#166): DAZ
   wires `pbr_add_clearcoat`'s `top_coat_base_bump` to the same
-  `pbr_detail_normal` call as the base's `normal` and passes no `Top Coat
-  Bump Weight` (the MDL's 1, so `blend_normals` gives the coat the base's
-  normal as it is; every PBRSkin `.mi`), so the coating's `coatingNormal`
+  `pbr_detail_normal` call as the base's `normal`, at `Top Coat Bump
+  Weight` (#231): `blend_normals` is a linear blend of the flat normal and
+  the base's, so the coat's tilt is the base's x that weight (0.5 on the
+  Genesis 9 skins, 1 = the MDL's default elsewhere, 0 = flat, no normal
+  pin). Every map on the coat's normal (normal map, height map, Detail
+  Normal Map's strength) goes in at its strength x the weight, the base's
+  own normal stays at its strength. So the coating's `coatingNormal`
   (or the Layered coat's `normal`) gets the same OSL texture, or the base
   normal map alone without a detail; PBRSkin has no Top Coat Bump of its
   own. Rendered (Calib-PBRSkin-DetailLayers E7 / E8): Iray's coat carries
