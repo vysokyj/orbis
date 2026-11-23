@@ -100,7 +100,8 @@ the free dForce Mohawk ships sides 1 (fibres in the `.mi`; for the render see be
 
 **At render, sides 1 is not fibres** (#221). The `.mi` export writes a
 dForce generator's sides-1 hair as `hair` fibres (with per-fibre texture
-coordinates, `hair t 2`, and the viewport's 8 control points per strand
+coordinates, `hair t 2`: two scalars at the start of each strand, before
+its control points, which `mi-oracle.py` skips, #227; and the viewport's 8 control points per strand
 where the dump holds 18), but the job DAZ sends the Iray Server holds a
 **triangle object**: the Iray Server's log (`Geometry import (...)`) reads
 "1 triangle object with 2 M triangles" for Pixie Hair's guides at sides 1

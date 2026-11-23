@@ -103,6 +103,37 @@ def blocks(text):
     return out
 
 
+def hair_layout(decl):
+    """A `hair` object's scalars per strand: (per-fibre, per control
+    point), from its declaration lines (mental ray's hair syntax:
+    `hair [m nm] [n] [t nt] [u nu] [radius]` for the data each fibre
+    carries once, `vertex ...` the same per control point, after its
+    x y z; m = nm motion vectors, n = a normal, t / u = nt / nu texture /
+    user scalars). Unknown data refuses rather than misreading strands."""
+    def size(words, what):
+        n, k = 0, 0
+        while k < len(words):
+            w = words[k]
+            if w in ("m", "t", "u") and k + 1 < len(words) and words[k + 1].isdigit():
+                n += int(words[k + 1]) * (3 if w == "m" else 1)
+                k += 2
+            elif w == "n":
+                n, k = n + 3, k + 1
+            elif w == "radius":
+                n, k = n + 1, k + 1
+            else:
+                raise ValueError(f"hair object: unknown {what} data {w!r} in {' '.join(words)!r}")
+        return n
+    per_fibre, per_vertex = 0, 3
+    for line in decl.split("\n"):
+        words = line.split("#", 1)[0].split()
+        if words[:1] == ["hair"]:
+            per_fibre = size(words[1:], "per-fibre")
+        elif words[:1] == ["vertex"]:
+            per_vertex = 3 + size(words[1:], "per-vertex")
+    return per_fibre, per_vertex
+
+
 def geometry_min_y(path):
     """The lowest world y (cm) over the exported objects: `trilist` vertices
     (big-endian float32 after "scalar `", or a text list) and `hair` strands
@@ -117,13 +148,17 @@ def geometry_min_y(path):
             break
         name = b[i + 9:b.find(b'"', i + 9)].decode("latin-1")
         e = b.find(b"\nend object", i)
-        hair = re.search(rb"\n\s*hair\n.*?vertex( radius)?.*?\n\s*scalar \[ (\d+) \]\n\s*", b[i:i + 400], re.S)
+        hair = re.search(rb"\n\s*hair\n(.*?)\n\s*scalar \[ (\d+) \]\n\s*", b[i:min(i + 600, e)], re.S)
         if hair:
             # Cubic B-spline fibres: DAZ's strand vertices are the curve's
             # points at the knots, (P[k-1] + 4 P[k] + P[k+1]) / 6 (its end
             # control points lie beyond the strand). Strands start at the
             # float offsets of the `hair [ n ]` list, the last one its end.
-            per, n = 4 if hair.group(1) else 3, int(hair.group(2))
+            # Each strand's scalars: its per-fibre data first (`hair t 2`:
+            # a dForce generator's fibre texture coordinates, #227), then
+            # per control point x y z and the per-vertex data.
+            per_fibre, per = hair_layout(hair.group(1).decode("latin-1"))
+            n = int(hair.group(2))
             s = i + hair.end()
             def nums(s, n, f):
                 if b[s:s + 8] == b"binary `":
@@ -134,7 +169,9 @@ def geometry_min_y(path):
             offs = [int(x) for x in nums(h.end(), int(h.group(1)), "i")] if h else [0, n]
             pts = []
             for a, z in zip(offs, offs[1:]):
-                cp = [flat[k:k + 3] for k in range(a, z, per)]
+                if (z - a - per_fibre) % per:
+                    raise ValueError(f"{path}: hair object {name}: a strand of {z - a} scalars is not {per_fibre} + n x {per}")
+                cp = [flat[k:k + 3] for k in range(a + per_fibre, z, per)]
                 pts += [[(cp[k - 1][j] + 4 * cp[k][j] + cp[k + 1][j]) / 6 for j in range(3)] for k in range(1, len(cp) - 1)] or cp
             objects[name] = pts
         else:

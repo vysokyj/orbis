@@ -363,6 +363,24 @@ def opaque(d):
 
 
 PIXIE_VARIANTS += [('-T1-nofig-nogloss-pr0-opaque', chain(lambda d: sides(d, 1), nofig, nogloss, opaque, pr({'PR Hairs (Per Guide)': 0})))]
+# #227: a .mi fixture of generated fibres (`hair t 2`: per-fibre texture
+# coordinates in DAZ's .mi) whose strands are the scene's lowest geometry
+# under 0, so DAZ's auto ground sits under them and src/iray.rs's ground
+# test checks mi-oracle's reading of those strands: -pr0 (strands alone,
+# few), the figure and the camera 200 cm down. For the .mi, not for Iray.
+SINK_CM = 200.0
+
+
+def sink(d):
+    fig = next(n for n in d['scene']['nodes'] if n.get('label') == 'Genesis 9')
+    fig['translation'] = [{'id': 'x', 'current_value': 0.0}, {'id': 'y', 'current_value': -SINK_CM}, {'id': 'z', 'current_value': 0.0}]
+    cam = lib_node(d, kind='camera')
+    ty = next(c for c in cam['translation'] if c['id'] == 'y')
+    ty['current_value'] = ty.get('current_value', ty.get('value', 0.0)) - SINK_CM
+    return -SINK_CM
+
+
+PIXIE_VARIANTS += [('-T1-nofig-nogloss-pr0-sunk', chain(lambda d: sides(d, 1), nofig, nogloss, pr({'PR Hairs (Per Guide)': 0}), sink))]
 # -noclump's dump came out identical to -nofig-nogloss (clumpiness does not
 # move Pixie's render hairs); what bundles them is the generated hairs
 # meeting their guide at the tip (`PR Hair Tip Separation` 0.01 - 0.06 cm
