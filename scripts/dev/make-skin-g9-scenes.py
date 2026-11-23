@@ -29,6 +29,11 @@ big sphere hidden; the builder's second sphere removed here), then varied:
 - hdri-d0:      diffuse layer alone under the dome (w0, gloss0 and nosss together; #229)
 - front-g0, hdri-g0: SSS Direction 0 on every skin surface (the volume
                 scatters evenly, not back toward the light; #229)
+- front-flat-dhi / -thi (M03 only): front-flat with the diffuse (dhi) or
+                the Translucency Color (thi) constant at the nose tip's step
+- front-flat (M03 only): front-gloss0 with the diffuse and Translucency
+                Color maps replaced by their face means (#230: does the
+                nose's extra red come from the maps or from the geometry?)
 - Calib-Mi-SkinG9[-nosss|-w0]: F02's front (and two variants) with every
                 mesh but the figure hidden, the figure raised 1 cm, for the
                 .mi fixtures only
@@ -82,6 +87,12 @@ VARIANTS = {
     # 1.10 - 1.14 x Iray, so the excess sits in what they share (#229).
     'hdri-d0': ('hdri', {'Translucency Enable': False, 'Dual Lobe Specular Enable': False, 'Sub Surface Enable': False}),
 }
+# #230: M03's face means of the Head maps (sRGB-coded, as DAZ stores colours)
+FLAT = {'M03': {'diffuse': [0.301, 0.209, 0.163], 'Translucency Color': [0.516, 0.413, 0.364]}}
+# ... and one map's constant raised to the nose tip's texel over the forehead's
+# (M03 Head maps at the vertices' UVs: diffuse x 1.14 / 1.17 / 1.11, Translucency
+# Color x 1.07): what each map's step on the nose does to Iray and to the bake.
+FLAT_STEPS = {'dhi': {'diffuse': [0.343, 0.245, 0.181]}, 'thi': {'Translucency Color': [0.552, 0.442, 0.389]}}
 # Calib-Mi-SkinG9<suffix>: the .mi fixture scenes (src/iray.rs, #57).
 MI = {'': {}, '-nosss': {'Sub Surface Enable': False}, '-w0': {'Translucency Enable': False}}
 SKIN = ('Head', 'Body', 'Arms', 'Legs')
@@ -246,9 +257,24 @@ def lift_figure(d, cm):
     fig['translation'] = [{'id': 'x', 'current_value': 0.0}, {'id': 'y', 'current_value': cm}, {'id': 'z', 'current_value': 0.0}]
 
 
-def variant(base, hdri, light, change):
+def flatten(x, means):
+    """The diffuse and Translucency Color maps of one skin surface as the
+    constants `means`."""
+    ch = x['diffuse']['channel']
+    ch.pop('image_file', None)
+    ch['current_value'] = means['diffuse']
+    for c in channels(x):
+        if c['channel']['id'] == 'Translucency Color':
+            c['channel'].pop('image_file', None)
+            c['channel']['current_value'] = means['Translucency Color']
+
+
+def variant(base, hdri, light, change, flat=None):
     d = lit(base, light, hdri)
     for m, lm in skin_materials(d):
+        for x in (m, lm):
+            if flat and x is not None:
+                flatten(x, flat)
         for k, v in change.items():
             for x in (m, lm):
                 if x is not None:
@@ -269,6 +295,10 @@ def main():
             write(lit(base, light, hdri), f'Calib-SkinG9-{skin}-{light}')
         for name, (light, change) in VARIANTS.items():
             write(variant(base, hdri, light, change), f'Calib-SkinG9-{skin}-{name}')
+        if skin in FLAT:
+            write(variant(base, hdri, 'front', {'Dual Lobe Specular Enable': False}, FLAT[skin]), f'Calib-SkinG9-{skin}-front-flat')
+            for k, step in FLAT_STEPS.items():
+                write(variant(base, hdri, 'front', {'Dual Lobe Specular Enable': False}, dict(FLAT[skin], **step)), f'Calib-SkinG9-{skin}-front-flat-{k}')
         # .mi fixtures (not rendered): F02's front, -nosss and -w0 with the
         # figure alone.
         if skin == 'F02':

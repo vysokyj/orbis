@@ -50,6 +50,8 @@ Hypotheses (by the Iray channels the variants stand for):
   (dx, dy) px from the centre (right, up) of a W x H frame centres at
   shift (z dx / W, z dy / H) (#179: a face close-up of a Calib-Skin front).
 - `absorb-x<k>`: every absorption medium's scale × k.
+- `walk-x<k>`: every random walk's `radius` × k (#230: a thin feature's
+  light against the walk's distance).
 - `thin-ior1`: thin-walled glass (transmissionType 2) at IOR 1.
 - `dl-ior`: the same for PBRSkin's Dual Lobe Specular Reflectivity.
 - `sunset=<g>`: the Daylight environment's sunset colour grey g (the
@@ -313,6 +315,10 @@ def apply(ocs, hyp):
             return ocs
         head = re.compile(r"<node id='\d+' type='147' name='[^']*'>\s*<attr name='compatibilityVersion'[^\n]*\n")
         return head.sub(lambda m: m.group(0) + f"       <pin name='offset'>\n        {value_node(31, 6, v)}\n       </pin>\n", ocs)
+    if hyp.startswith('walk-x'):
+        k = float(hyp[len('walk-x'):])
+        pat = r"(<pin name='radius'>\s*<node[^>]*type='6'>\s*<attr name='value' type='9'>)([0-9.eE+-]+)"
+        return re.sub(pat, lambda m: m.group(1) + f'{float(m.group(2)) * k:.6g}', ocs)
     if hyp.startswith('absorb-x'):
         k = float(hyp[len('absorb-x'):])
         pat = r"(<node id='\d+' type='58'>\s*<pin name='scale'>\s*<node[^>]*>\s*<attr name='value' type='9'>)([0-9.eE+-]+)"
