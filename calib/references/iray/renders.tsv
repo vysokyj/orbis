@@ -112,7 +112,7 @@ Calib-Glass	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:48	131	on@8
 Calib-Glossy	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:49	108	on@8
 Calib-HDRI	5000	0	Iray Server (Boost for Daz)	2026-10-30 02:52	117	on@8
 Calib-Hair	5000	0	Iray Server (Boost for Daz)	2026-10-30 16:39	185	on@8
-Calib-Hair-Athena	2000	0	Iray Server (headless submit)	2026-11-18 03:42	1821	off
+Calib-Hair-Athena	2000	0	Iray Server (headless submit)	2026-11-24 00:06	1406	on@8
 Calib-Hair-Athena-nogloss	2000	0	Iray Server (headless submit)	2026-11-18 04:10	1660	off
 Calib-Hair-Athena-op1	2000	0	Iray Server (headless submit)	2026-11-22 18:57	1164	on@8
 Calib-Hair-Hudson	2000	0	Iray Server (headless submit)	2026-11-18 02:21	2972	off
@@ -528,6 +528,8 @@ Calib-SkinG9-M03-back	2000	0	Iray Server (headless submit)	2026-11-22 23:42	273	
 Calib-SkinG9-M03-back-w0	1000	0	Iray Server (headless submit)	2026-11-23 01:13	117	on@8
 Calib-SkinG9-M03-front	2000	0	Iray Server (headless submit)	2026-11-22 22:59	313	on@8
 Calib-SkinG9-M03-front-flat	1000	0	Iray Server (headless submit)	2026-11-23 23:04	152	on@8
+Calib-SkinG9-M03-front-flat-dhi	1000	0	Iray Server (headless submit)	2026-11-23 23:40	52	on@8
+Calib-SkinG9-M03-front-flat-thi	1000	0	Iray Server (headless submit)	2026-11-23 23:42	61	on@8
 Calib-SkinG9-M03-front-g0	1000	0	Iray Server (headless submit)	2026-11-23 21:11	56	on@8
 Calib-SkinG9-M03-front-gloss0	1000	0	Iray Server (headless submit)	2026-11-23 01:08	122	on@8
 Calib-SkinG9-M03-front-nosss	1000	0	Iray Server (headless submit)	2026-11-23 01:11	137	on@8
