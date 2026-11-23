@@ -1837,9 +1837,21 @@ mod tests {
     /// reads it (definition + the scene's own channels).
     fn scene_materials(duf: &Path) -> HashMap<String, Material> {
         let doc: Value = serde_json::from_str(&crate::dson::decompress_scene(&std::fs::read(duf).unwrap()).unwrap()).unwrap();
-        let images = image_library(&doc);
+        scene_materials_of(&doc)
+    }
+
+    /// The node label whose geometry a scene material points at. The material's
+    /// `geometry` url is percent-encoded (`#Morphing%20Pixie%20Hair%20Cap`),
+    /// the node's geometry id is not (#232).
+    fn material_node(label: &HashMap<String, String>, m: &Value) -> String {
+        let geo = crate::dson::percent_decode(m["geometry"].as_str().unwrap_or("").rsplit('#').next().unwrap_or(""));
+        label.get(&geo).cloned().unwrap_or(geo)
+    }
+
+    fn scene_materials_of(doc: &Value) -> HashMap<String, Material> {
+        let images = image_library(doc);
         let lib: HashMap<&str, &Value> = doc["material_library"].as_array().into_iter().flatten().filter_map(|m| Some((m["id"].as_str()?, m))).collect();
-        let gammas = crate::daz_material::scene_image_gammas(&doc, &images, |u| lib.get(u.trim_start_matches('#')).map(|v| (*v).clone()));
+        let gammas = crate::daz_material::scene_image_gammas(doc, &images, |u| lib.get(u.trim_start_matches('#')).map(|v| (*v).clone()));
         let mut label = HashMap::new();
         for n in doc.pointer("/scene/nodes").and_then(Value::as_array).into_iter().flatten() {
             for g in n["geometries"].as_array().into_iter().flatten() {
@@ -1854,8 +1866,7 @@ mod tests {
             let mut mat = lib.get(url.trim_start_matches('#')).map_or_else(Material::default, |d| Material::from_dson(d, &images));
             mat.merge(m, &images);
             mat.resolve_gammas(&gammas);
-            let geo = m["geometry"].as_str().unwrap_or("").rsplit('#').next().unwrap_or("");
-            let node = label.get(geo).cloned().unwrap_or_else(|| geo.to_string());
+            let node = material_node(&label, m);
             for g in m["groups"].as_array().into_iter().flatten().filter_map(Value::as_str) {
                 out.insert(format!("{node}/{g}"), mat.clone());
             }
@@ -1969,6 +1980,15 @@ mod tests {
             }
             _ => a == b,
         }
+    }
+
+    #[test]
+    fn percent_encoded_geometry_id_finds_its_node() {
+        // #232: `dForce Pixie Hair Cap/Head` was keyed by the encoded id.
+        let doc = serde_json::json!({"scene": {
+            "nodes": [{"label": "dForce Pixie Hair Cap", "geometries": [{"id": "Morphing Pixie Hair Cap"}]}],
+            "materials": [{"url": "#none", "geometry": "#Morphing%20Pixie%20Hair%20Cap", "groups": ["Head"]}]}});
+        assert!(scene_materials_of(&doc).contains_key("dForce Pixie Hair Cap/Head"));
     }
 
     #[test]
@@ -2533,7 +2553,7 @@ mod tests {
                 let mut mat = base.clone();
                 mat.merge(m, &HashMap::new());
                 mat.resolve_gammas(&image_gammas);
-                let node = &label[m["geometry"].as_str().unwrap().rsplit('#').next().unwrap()];
+                let node = &material_node(&label, m);
                 for g in m["groups"].as_array().into_iter().flatten().filter_map(Value::as_str) {
                     let key = format!("{node}/{g}");
                     let mi = &fixture["materials"][&key];
@@ -2679,7 +2699,7 @@ mod tests {
             let mut mat = if url.contains("Blended%20Dual%20Lobe") { blended.clone() } else if url.contains("OmniHair") { omni.clone() } else { continue };
             mat.merge(m, &HashMap::new());
             let ours = if is_blended_hair(&mat) { blended_hair(&mat) } else if is_omni_hair(&mat) { omni_hair(&mat) } else { panic!("{url}: not recognised") };
-            let node = &label[m["geometry"].as_str().unwrap().rsplit('#').next().unwrap()];
+            let node = &material_node(&label, m);
             let key = format!("{node}/Default");
             let mut theirs = HashMap::new();
             graph_leaves(&fixture["materials"][&key]["args"]["v"], "", &mut theirs);
